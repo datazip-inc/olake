@@ -7,6 +7,9 @@ are these
 - **Avoid operations that doesn't contribute into increasing record throughput**
 
 
+## Colake Structure
+![diagram](/.github/assets/Colake.jpg)
+
 ## Components
 ### Drivers
 
