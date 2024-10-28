@@ -52,4 +52,4 @@ SDKs are libraries/packages that can orchestrate the connector in two environmen
 
 ### Olake
 
-Olake will be built on top of SDK providing persistent storage and a user interface that enables deployment directly into your machine with default storage mode as Iceberg
+Olake will be built on top of SDK providing persistent storage and a user interface that enables orchestration directly from your machine with default writer mode as `S3 Iceberg Parquet`
