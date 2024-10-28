@@ -1,10 +1,9 @@
 # colake
 
-Connector ecosystem for Olake, the key points Olake Connectors focusing on are these
+Connector ecosystem for Olake, the key points Olake Connectors focuses on are these
 - **Integrated Writers to avoid block of reading, and pushing directly into destinations**
 - **Connector Autonomy**
-- **Avoid operations that doesn't contribute into increasing record throughput**
-
+- **Avoid operations that don't contribute to increasing record throughput**
 
 ## Colake Structure
 ![diagram](/.github/assets/Colake.jpg)
@@ -20,7 +19,7 @@ Drivers aka Connectors/Source that includes the logic for interacting with datab
 
 ### Writers
 
-Writers are directly intergrated into drivers to avoid blockage of writing/reading into/from os.StdOut or any other type of I/O. This enables direct insertion of records from each individual fired query to the destination.
+Writers are directly integrated into drivers to avoid blockage of writing/reading into/from os.StdOut or any other type of I/O. This enables direct insertion of records from each individual fired query to the destination.
 
 Writers are being planned in this order
 - [ ] Local Parquet
@@ -36,7 +35,7 @@ Core or framework is the component/logic that has been abstracted out from Conne
 
 Core includes http server that directly exposes live stats about running sync such as
 - Possible finish time
-- Conncurrently running processes
+- Concurrently running processes
 - Live record count
 
 Core handles the commands to interact with a driver via these
@@ -49,8 +48,8 @@ Core handles the commands to interact with a driver via these
 
 SDKs are libraries/packages that can orchestrate the connector in two environments i.e. Docker and Kubernetes. These SDKs can be directly consumed by users similar to PyAirbyte, DLT-hub.
 
-(Unconfirmed) SDKs can interact with with Connectors via potential GRPC server to override certain default behavior of the system by adding custom functions to enables feature like Transformation, Custom Table Name via writer, or adding hooks.
+(Unconfirmed) SDKs can interact with Connectors via potential GRPC server to override certain default behavior of the system by adding custom functions to enable features like Transformation, Custom Table Name via writer, or adding hooks.
 
 ### Olake
 
-Olake will be built on top of SDK providing persistent storage and a user interface with enabling deployment directly into your machine with default storage mode as Iceberg
+Olake will be built on top of SDK providing persistent storage and a user interface that enables deployment directly into your machine with default storage mode as Iceberg
