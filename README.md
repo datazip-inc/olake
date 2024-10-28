@@ -17,9 +17,9 @@ Drivers aka Connectors/Source that includes the logic for interacting with datab
 
 ### Writers
 
-Writers are directly intergrated into drivers to avoild blockage of writing/reading into/from os.StdOut or any other type of I/O. This helps directly inserting records from each individual fired query to destination.
+Writers are directly intergrated into drivers to avoid blockage of writing/reading into/from os.StdOut or any other type of I/O. This enables direct insertion of records from each individual fired query to the destination.
 
-Writers are planned in this order
+Writers are being planned in this order
 - [ ] Local
 - [ ] Iceberg
 - [ ] S3
@@ -49,3 +49,8 @@ SDKs are libraries/packages that can orchestrate the connector in two environmen
 (Unconfirmed) SDKs can interact with with Connectors via potential GRPC server to override certain default behavior of the system by adding custom functions to enables feature like Transformation, Custom Table Name via writer, or adding hooks.
 
 In Kubernetes mode Golang SDK can orchestrate plan command and horizontally scale and run drivers separately, or vertically scale if failed with OOM.
+
+
+### Olake
+
+Olake will be built on top of SDK providing persistent storage and a user interface with enabling deployment directly into your machine with default storage mode as Iceberg
