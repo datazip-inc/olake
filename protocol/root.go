@@ -30,7 +30,7 @@ var (
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "gear5",
+	Use:   "olake",
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
@@ -38,7 +38,7 @@ var RootCmd = &cobra.Command{
 		}
 
 		if ok := utils.IsValidSubcommand(getAvailableCommands(), args[0]); !ok {
-			return fmt.Errorf("'%s' is an invalid command. Use 'gear5 --help' to display usage guide", args[0])
+			return fmt.Errorf("'%s' is an invalid command. Use 'olake --help' to display usage guide", args[0])
 		}
 
 		return nil

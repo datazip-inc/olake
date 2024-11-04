@@ -7,5 +7,5 @@ import (
 
 func main() {
 	driver := &driver.GoogleSheets{}
-	gear5.RegisterDriver(driver)
+	olake.RegisterDriver(driver)
 }

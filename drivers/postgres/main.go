@@ -15,5 +15,5 @@ func main() {
 	_ = protocol.BulkDriver(driver)
 
 	defer driver.CloseConnection()
-	gear5.RegisterDriver(driver)
+	olake.RegisterDriver(driver)
 }

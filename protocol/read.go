@@ -15,7 +15,7 @@ import (
 // ReadCmd represents the read command
 var ReadCmd = &cobra.Command{
 	Use:   "read",
-	Short: "Gear5 read command",
+	Short: "Olake read command",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if config_ == "" {
 			return fmt.Errorf("--config not passed")

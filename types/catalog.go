@@ -7,7 +7,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// Message is a dto for gear5 output row representation
+// Message is a dto for olake output row representation
 type Message struct {
 	Type             MessageType            `json:"type"`
 	Log              *Log                   `json:"log,omitempty"`
