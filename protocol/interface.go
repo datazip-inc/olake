@@ -6,7 +6,7 @@ import (
 
 type Connector interface {
 	// Setting up config reference in driver i.e. must be pointer
-	Config() any
+	GetConfigRef() any
 	Spec() any
 	// Sets up connections and perform checks; doesn't load Streams
 	//
