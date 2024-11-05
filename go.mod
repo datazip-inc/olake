@@ -42,6 +42,7 @@ require (
 	github.com/mitchellh/hashstructure v1.1.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/pflag v1.0.5 // indirect
+	golang.org/x/sync v0.7.0
 	golang.org/x/tools v0.20.0
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

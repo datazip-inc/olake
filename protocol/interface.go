@@ -1,6 +1,9 @@
 package protocol
 
 import (
+	"context"
+	"internal/runtime/atomic"
+
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -49,8 +52,9 @@ type JDBCDriver interface {
 
 type Adapter interface {
 	Connector
-	Write(channel <-chan types.Record) error
-	Create(streamName string) error
+	Write(ctx context.Context, channel <-chan types.Record) error
+	Initiate(num int64, stream Stream, global *atomic.Int64) error
+	Close() error
 }
 
 type Stream interface {

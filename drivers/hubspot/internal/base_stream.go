@@ -253,13 +253,13 @@ func (s *Stream) trasformSingleRecord(record map[string]any) map[string]any {
 	return record
 }
 
-func (s *Stream) transform(records []types.RecordData, err error) ([]types.RecordData, error) {
+func (s *Stream) transform(records []types.Record, err error) ([]types.Record, error) {
 	if err != nil {
 		return nil, err
 	}
 
 	// Preprocess record before emitting
-	transformed := []types.RecordData{}
+	transformed := []types.Record{}
 	for _, record := range records {
 		record = s.castRecordFieldsIfNeeded(record)
 		if s.createdAtField != "" && s.updatedAtField != "" && record[s.updatedAtField] == nil {
@@ -272,8 +272,8 @@ func (s *Stream) transform(records []types.RecordData, err error) ([]types.Recor
 	return transformed, nil
 }
 
-func (s *Stream) filterOldRecords(records []types.RecordData) []map[string]any {
-	stream := []types.RecordData{}
+func (s *Stream) filterOldRecords(records []types.Record) []map[string]any {
+	stream := []types.Record{}
 
 	for _, record := range records {
 		if uat, found := record[s.updatedAtField]; found {
@@ -294,7 +294,7 @@ func (s *Stream) filterOldRecords(records []types.RecordData) []map[string]any {
 	return stream
 }
 
-func (s *Stream) flatAssociations(records []types.RecordData) []types.RecordData {
+func (s *Stream) flatAssociations(records []types.Record) []types.Record {
 	// When result has associations we prefer to have it flat, so we transform this
 
 	// "associations": {
@@ -307,7 +307,7 @@ func (s *Stream) flatAssociations(records []types.RecordData) []types.RecordData
 
 	// "contacts": [201, 251]
 
-	stream := []types.RecordData{}
+	stream := []types.Record{}
 	for _, record := range records {
 		if value, found := record["associations"]; found {
 			delete(record, "associations")
@@ -408,8 +408,8 @@ func (s *Stream) handleRequest(request *utils.Request) (int, any, error) {
 	return statusCode, response, nil
 }
 
-func (s *Stream) parseResponse(response interface{}) ([]types.RecordData, error) {
-	records := []types.RecordData{}
+func (s *Stream) parseResponse(response interface{}) ([]types.Record, error) {
+	records := []types.Record{}
 	if utils.IsInstance(response, reflect.Map) {
 		response := response.(map[string]any)
 		if response["status"] != nil && response["status"] == "error" {
@@ -451,7 +451,7 @@ func (s *Stream) parseResponse(response interface{}) ([]types.RecordData, error)
 	return records, nil
 }
 
-func (s *Stream) readStreamRecords(nextPageToken map[string]any, f func() (path, method string)) ([]types.RecordData, any, error) {
+func (s *Stream) readStreamRecords(nextPageToken map[string]any, f func() (path, method string)) ([]types.Record, any, error) {
 	// properties = self._property_wrapper
 	//     for chunk in properties.split():
 	//         response = self.handle_request(

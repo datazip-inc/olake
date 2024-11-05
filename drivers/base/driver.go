@@ -21,7 +21,7 @@ func (d *Driver) BulkRead() bool {
 	return d.GroupRead
 }
 
-func (d *Driver) UpdateState(stream protocol.Stream, data types.RecordData) error {
+func (d *Driver) UpdateState(stream protocol.Stream, data types.Record) error {
 	datatype, err := stream.Schema().GetType(stream.Cursor())
 	if err != nil {
 		return err

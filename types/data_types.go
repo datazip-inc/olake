@@ -14,4 +14,4 @@ const (
 	TIMESTAMP DataType = "timestamp"
 )
 
-type RecordData = map[string]any
+type Record = map[string]any

@@ -33,7 +33,7 @@ func freshSync(client *sqlx.DB, stream protocol.Stream, channel chan<- types.Rec
 	})
 	return setter.Capture(func(rows *sql.Rows) error {
 		// Create a map to hold column names and values
-		record := make(types.RecordData)
+		record := make(types.Record)
 
 		// Scan the row into the map
 		err := utils.MapScan(rows, record)
@@ -76,7 +76,7 @@ func (p *Postgres) incrementalSync(stream protocol.Stream, channel chan<- types.
 	}, args...)
 	return setter.Capture(func(rows *sql.Rows) error {
 		// Create a map to hold column names and values
-		record := make(types.RecordData)
+		record := make(types.Record)
 
 		// Scan the row into the map
 		err := utils.MapScan(rows, record)

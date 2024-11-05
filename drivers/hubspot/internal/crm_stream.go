@@ -96,7 +96,7 @@ func (c *CRMSearchStream) readRecords(send chan<- types.Record) error {
 	latest_cursor := &time.Time{}
 
 	for !paginationComplete {
-		var records []types.RecordData
+		var records []types.Record
 		var rawResponse any
 		var err error
 

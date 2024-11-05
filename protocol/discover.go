@@ -56,7 +56,7 @@ var DiscoverCmd = &cobra.Command{
 			group.Add(1)
 
 			go func() {
-				objects := []types.RecordData{}
+				objects := []types.Record{}
 				channel := make(chan types.Record, recordsPerStream)
 				count := 0
 				go func() {
