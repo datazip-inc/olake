@@ -12,7 +12,8 @@ func main() {
 	driver := &driver.Mongo{
 		Driver: base.NewBase(),
 	}
-	_ = protocol.BulkDriver(driver)
+	defer driver.Close()
 
+	_ = protocol.BulkDriver(driver)
 	olake.RegisterDriver(driver)
 }

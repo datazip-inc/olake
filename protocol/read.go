@@ -20,7 +20,7 @@ var ReadCmd = &cobra.Command{
 		if config_ == "" {
 			return fmt.Errorf("--config not passed")
 		} else {
-			if err := utils.UnmarshalFile(config_, _rawConnector.Config()); err != nil {
+			if err := utils.UnmarshalFile(config_, _rawConnector.GetConfigRef()); err != nil {
 				return err
 			}
 		}

@@ -26,7 +26,7 @@ type Postgres struct {
 	cdcState    *types.Global[*waljs.WALState]
 }
 
-func (p *Postgres) Config() any {
+func (p *Postgres) GetConfigRef() any {
 	p.config = &Config{}
 
 	return p.config

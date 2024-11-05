@@ -13,6 +13,7 @@ type Config struct {
 	ReplicaSet     string
 	ReadPreference string
 	Srv            bool
+	ServerRAM      uint
 }
 
 func (c *Config) URI() string {
