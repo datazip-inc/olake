@@ -16,8 +16,8 @@ import (
 )
 
 // Simple Full Refresh Sync; Loads table fully
-func freshSync(client *sqlx.DB, stream protocol.Stream, channel chan<- types.Record) error {
-	tx, err := client.BeginTx(context.TODO(), &sql.TxOptions{
+func (p *Postgres) freshSync(stream protocol.Stream, channel chan<- types.Record) error {
+	tx, err := p.client.BeginTx(context.TODO(), &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
 	})
 	if err != nil {

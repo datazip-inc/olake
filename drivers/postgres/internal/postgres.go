@@ -119,7 +119,7 @@ func (p *Postgres) Type() string {
 func (p *Postgres) Read(stream protocol.Stream, channel chan<- types.Record) error {
 	switch stream.GetSyncMode() {
 	case types.FULLREFRESH:
-		return freshSync(p.client, stream, channel)
+		return p.freshSync(stream, channel)
 	case types.INCREMENTAL:
 		// read incrementally
 		return p.incrementalSync(stream, channel)
