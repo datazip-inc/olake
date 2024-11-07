@@ -3,14 +3,17 @@ module github.com/datazip-inc/olake/drivers/mongodb
 go 1.23
 
 require (
-	github.com/datazip-inc/olake v0.0.0-00010101000000-000000000000
+	github.com/datazip-inc/olake v0.0.0-20241104091615-994075730612
 	github.com/jackc/pgx/v4 v4.18.3
 )
 
 require (
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
+	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect

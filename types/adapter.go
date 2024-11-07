@@ -3,9 +3,9 @@ package types
 type AdapterType string
 
 const (
-	Local     MessageType = "LOCAL"
-	S3        MessageType = "S3"
-	S3Iceberg MessageType = "S3_ICEBERG"
+	Local     AdapterType = "LOCAL"
+	S3        AdapterType = "S3"
+	S3Iceberg AdapterType = "S3_ICEBERG"
 )
 
 // TODO: Add validations

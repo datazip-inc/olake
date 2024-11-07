@@ -7,12 +7,11 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	protocol "github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/safego"
-	"github.com/spf13/cobra"
 )
 
 var (
 	globalDriver  protocol.Driver
-	globalAdapter protocol.Adapter
+	globalAdapter protocol.Writer
 )
 
 func RegisterDriver(driver protocol.Driver) {
@@ -31,14 +30,4 @@ func RegisterDriver(driver protocol.Driver) {
 	}
 
 	os.Exit(0)
-}
-
-func RegisterAdapter(adapter protocol.Adapter) (*cobra.Command, error) {
-	if globalDriver != nil {
-		return nil, fmt.Errorf("driver alraedy registered: %s", globalDriver.Type())
-	}
-
-	globalAdapter = adapter
-
-	return protocol.CreateRootCommand(false, adapter), nil
 }

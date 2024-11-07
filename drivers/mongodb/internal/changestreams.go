@@ -5,7 +5,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-func (m *Mongo) GroupRead(channel chan<- types.Record, streams ...protocol.Stream) error {
+func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
 	return nil
 }
 

@@ -19,77 +19,49 @@ var ReadCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if config_ == "" {
 			return fmt.Errorf("--config not passed")
-		} else {
-			if err := utils.UnmarshalFile(config_, _rawConnector.GetConfigRef()); err != nil {
-				return err
-			}
+		} else if destinationConfig_ == "" {
+			return fmt.Errorf("--destination not passed")
+		} else if catalog_ == "" {
+			return fmt.Errorf("--catalog not passed")
 		}
 
-		if catalog_ != "" {
-			catalog = &types.Catalog{}
-			if err := utils.UnmarshalFile(catalog_, catalog); err != nil {
-				return err
-			}
+		// unmarshal source config
+		if err := utils.UnmarshalFile(config_, connector.GetConfigRef()); err != nil {
+			return err
 		}
 
+		// unmarshal destination config
+		destinationConfig = &types.WriterConfig{}
+		if err := utils.UnmarshalFile(destinationConfig_, destinationConfig); err != nil {
+			return err
+		}
+
+		catalog = &types.Catalog{}
+		if err := utils.UnmarshalFile(catalog_, catalog); err != nil {
+			return err
+		}
+
+		// default state
+		state = &types.State{
+			Type: types.StreamType,
+		}
 		if state_ != "" {
-			state = &types.State{}
 			if err := utils.UnmarshalFile(state_, state); err != nil {
 				return err
 			}
 		}
+		state.Mutex = &sync.Mutex{}
 
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Driver Setup
-		err := _driver.Setup()
+		pool, err := NewWriter(cmd.Context(), destinationConfig)
 		if err != nil {
 			return err
 		}
 
-		// Setup state defaults
-		if state == nil {
-			state = &types.State{
-				Type: types.StreamType,
-			}
-		}
-		state.Mutex = &sync.Mutex{}
-
-		// Setting Record iteration
-		recordStream := make(chan types.Record, 2*batchSize_)
-		numRecords := int64(0)
-		batch := uint(0)
-		recordIterationWait := sync.WaitGroup{}
-
-		recordIterationWait.Add(1)
-		go func() {
-			defer recordIterationWait.Done()
-			defer close(recordStream)
-
-			for message := range recordStream {
-				// close the iteration
-				if message.Close {
-					break
-				}
-
-				logger.LogRecord(message)
-				numRecords++
-				batch++
-
-				// log state after a batch
-				if batch >= batchSize_ {
-					if !state.IsZero() {
-						logger.LogState(state)
-					}
-					// reset batch
-					batch = 0
-				}
-			}
-		}()
-
 		// Get Source Streams
-		streams, err := _driver.Discover()
+		streams, err := connector.Discover()
 		if err != nil {
 			return err
 		}
@@ -125,10 +97,10 @@ var ReadCmd = &cobra.Command{
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
 		// Driver running on GroupRead
-		if _driver.BulkRead() {
-			driver, yes := _driver.(BulkDriver)
+		if connector.ChangeStreamSupported() {
+			driver, yes := connector.(BulkDriver)
 			if !yes {
-				return fmt.Errorf("%s does not implement BulkDriver", _driver.Type())
+				return fmt.Errorf("%s does not implement BulkDriver", connector.Type())
 			}
 
 			// Setup Global State from Connector
@@ -136,36 +108,30 @@ var ReadCmd = &cobra.Command{
 				return err
 			}
 
-			err := driver.GroupRead(recordStream, validStreams...)
+			err := driver.RunChangeStream(pool, validStreams...)
 			if err != nil {
 				return fmt.Errorf("error occurred while reading records: %s", err)
 			}
-		} else {
-			// Driver running on Stream mode
-			for _, stream := range validStreams {
-				logger.Infof("Reading stream %s", stream.ID())
+		}
 
-				streamStartTime := time.Now()
-				err := _driver.Read(stream, recordStream)
-				if err != nil {
-					return fmt.Errorf("error occurred while reading records: %s", err)
-				}
+		// Driver running on Stream mode
+		for _, stream := range validStreams {
+			logger.Infof("Reading stream %s", stream.ID())
 
-				logger.Infof("Finished reading stream %s[%s] in %s", stream.Name(), stream.Namespace(), time.Since(streamStartTime).String())
+			streamStartTime := time.Now()
+			err := connector.Read(pool, stream)
+			if err != nil {
+				return fmt.Errorf("error occurred while reading records: %s", err)
 			}
+
+			logger.Infof("Finished reading stream %s[%s] in %s", stream.Name(), stream.Namespace(), time.Since(streamStartTime).String())
 		}
 
-		// stop record iteration
-		recordStream <- types.Record{
-			Close: true,
-		}
-		recordIterationWait.Wait()
-
-		logger.Infof("Total records read: %d", numRecords)
+		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
 			logger.LogState(state)
 		}
 
-		return nil
+		return pool.Wait()
 	},
 }

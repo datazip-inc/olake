@@ -86,14 +86,6 @@ func (p *Postgres) Check() error {
 	return nil
 }
 
-func (p *Postgres) Setup() error {
-	if err := p.Check(); err != nil {
-		return err
-	}
-
-	return p.loadStreams()
-}
-
 func (p *Postgres) CloseConnection() {
 	if p.client != nil {
 		err := p.client.Close()
@@ -104,6 +96,14 @@ func (p *Postgres) CloseConnection() {
 }
 
 func (p *Postgres) Discover() ([]*types.Stream, error) {
+	// if not cached already; discover
+	if p.SourceStreams == nil {
+		err := p.loadStreams()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	streams := []*types.Stream{}
 	for _, stream := range p.SourceStreams {
 		streams = append(streams, stream)
@@ -128,6 +128,7 @@ func (p *Postgres) Read(stream protocol.Stream, channel chan<- types.Record) err
 	return nil
 }
 
+// TODO: Check for concurrent execution
 func (p *Postgres) loadStreams() error {
 	var tableNamesOutput []Table
 	err := p.client.Select(&tableNamesOutput, getPrivilegedTablesTmpl)

@@ -30,7 +30,7 @@ var SpecCmd = &cobra.Command{
 		if generate {
 			logger.Info("Generating Spec")
 
-			config := _rawConnector.Spec()
+			config := connector.Spec()
 			schema, err := jsonschema.Reflect(config)
 			if err != nil {
 				return err

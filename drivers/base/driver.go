@@ -11,13 +11,7 @@ type Driver struct {
 	GroupRead     bool                     // Used in CDC mode
 }
 
-func NewBase() *Driver {
-	return &Driver{
-		SourceStreams: make(map[string]*types.Stream),
-	}
-}
-
-func (d *Driver) BulkRead() bool {
+func (d *Driver) ChangeStreamSupported() bool {
 	return d.GroupRead
 }
 

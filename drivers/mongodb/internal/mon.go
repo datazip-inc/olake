@@ -32,16 +32,17 @@ func (m *Mongo) Check() error {
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetMaxPoolSize(1000)
-	conn, err := mongo.Connect(context.TODO(), opts)
+
+	connectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	conn, err := mongo.Connect(connectCtx, opts)
 	if err != nil {
 		return err
 	}
 
 	m.client = conn
-	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	return conn.Ping(pingCtx, opts.ReadPreference)
+	return conn.Ping(connectCtx, opts.ReadPreference)
 }
 
 func (m *Mongo) Close() error {
@@ -53,7 +54,7 @@ func (m *Mongo) Setup() error {
 }
 
 func (m *Mongo) Type() string {
-	return "MongoDB"
+	return "Mongo"
 }
 
 func (m *Mongo) Discover() ([]*types.Stream, error) {
@@ -71,10 +72,11 @@ func (m *Mongo) Discover() ([]*types.Stream, error) {
 	return nil, nil
 }
 
-func (m *Mongo) Read(stream protocol.Stream, channel chan<- types.Record) error {
-	return nil
-}
+func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
+	switch stream.GetSyncMode() {
+	case types.FULLREFRESH:
+		return m.backfill(stream, pool)
+	}
 
-func (m *Mongo) BulkRead() bool {
-	return true
+	return nil
 }
