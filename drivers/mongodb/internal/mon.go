@@ -53,14 +53,6 @@ func (m *Mongo) Close() error {
 	return m.client.Disconnect(context.Background())
 }
 
-func (m *Mongo) Setup() error {
-	if err := m.Check(); err != nil {
-		return err
-	}
-
-	return m.loadStreams()
-}
-
 func (m *Mongo) Type() string {
 	return "Mongo"
 }
