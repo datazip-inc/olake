@@ -28,7 +28,7 @@ func (m *Mongo) StateType() types.StateType {
 }
 
 // does full load on empty state
-func (m *Mongo) changeStreamSync(stream protocol.Stream, channel chan<- types.Record) error {
+func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPool) error {
 	// get current resume token
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Snapshot())).Collection(stream.Name())
 
@@ -48,7 +48,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, channel chan<- types.Re
 		if resumeToken != nil {
 			prevResumeToken = *resumeToken
 		}
-		if err := m.backfill(stream, channel); err != nil {
+		if err := m.backfill(stream, pool); err != nil {
 			return err
 		}
 
@@ -64,16 +64,19 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, channel chan<- types.Re
 	}
 	defer cursor.Close(context.TODO())
 
+	thread, err := pool.NewThread(context.TODO(), stream)
+	if err != nil {
+		return err
+	}
+	defer safego.Close(thread)
 	// Iterates over the cursor to print the change stream events
 	for cursor.TryNext(context.TODO()) {
-		var bsonMap bson.M
-		if err := cursor.Decode(&bsonMap); err != nil {
+		var record bson.M
+		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		record := types.Record{
-			Data: bsonMap,
-		}
-		if !safego.Insert(channel, record) {
+
+		if !safego.Insert(thread, types.Record(record)) {
 			break
 		}
 		prevResumeToken = cursor.ResumeToken().String()

@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -86,7 +87,7 @@ func (m *Mongo) Discover() ([]*types.Stream, error) {
 		wg.Add(1)
 		go func(colName string) {
 			defer wg.Done()
-			stream, err := produceCollectionSchema(database, colName)
+			stream, err := m.produceCollectionSchema(context.TODO(), database, colName)
 			if err != nil {
 				logger.Errorf("failed to process collection[%s]: %s", colName, err)
 				return
@@ -107,15 +108,54 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 	case types.FULLREFRESH:
 		return m.backfill(stream, pool)
 	case types.CDC:
-		return m.changeStreamSync(stream, channel)
+		return m.changeStreamSync(stream, pool)
 	}
 
 	return nil
 }
 
 // fetch records from mongo and schema types
-func produceCollectionSchema(db *mongo.Database, collectionName string) (*types.Stream, error) {
+func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database, collectionName string) (*types.Stream, error) {
 	collection := db.Collection(collectionName)
+	stream := types.NewStream(collectionName, "")
 
-	return schema, nil
+	// default sync modes
+	stream.WithSyncMode(types.CDC, types.FULLREFRESH)
+	mongoIndexes, err := collection.Indexes().List(ctx, options.ListIndexes())
+	if err != nil {
+		return nil, err
+	}
+
+	for mongoIndexes.Next(ctx) {
+		var indexes bson.M
+		if err := mongoIndexes.Decode(&indexes); err != nil {
+			return nil, err
+		}
+		for key, _ := range indexes["key"].(bson.M) {
+			stream.WithPrimaryKey(key)
+			stream.WithSyncMode(types.INCREMENTAL)
+		}
+	}
+	// iterate over 1k records to get data types
+	// currently only populating schema on level 1
+	cursor, err := collection.Find(ctx, bson.D{}, options.Find().SetLimit(1000))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var row bson.M
+		if err := cursor.Decode(&row); err != nil {
+			return nil, err
+		}
+
+		if err := typeutils.Resolve(stream, row); err != nil {
+			return nil, err
+		}
+	}
+
+	m.SourceStreams[stream.ID()] = stream
+
+	return stream, nil
 }
