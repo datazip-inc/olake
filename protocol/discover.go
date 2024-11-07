@@ -21,7 +21,7 @@ var DiscoverCmd = &cobra.Command{
 		if config_ == "" {
 			return fmt.Errorf("--config not passed")
 		} else {
-			if err := utils.UnmarshalFile(config_, _rawConnector.GetConfigRef()); err != nil {
+			if err := utils.ValidateFile(config_, _rawConnector.GetConfigRef()); err != nil {
 				return err
 			}
 		}
@@ -56,6 +56,8 @@ var DiscoverCmd = &cobra.Command{
 			group.Add(1)
 
 			go func() {
+				defer group.Done()
+
 				objects := []types.RecordData{}
 				channel := make(chan types.Record, recordsPerStream)
 				count := 0
@@ -83,7 +85,6 @@ var DiscoverCmd = &cobra.Command{
 				}
 
 				logger.Infof("Type Schema generated for stream: %s", stream.ID())
-				group.Done()
 			}()
 		}
 

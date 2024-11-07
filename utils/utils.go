@@ -117,7 +117,7 @@ func CheckIfFilesExists(files ...string) error {
 // 	return content
 // }
 
-func UnmarshalFile(file string, dest any) error {
+func ValidateFile(file string, dest any) error {
 	if err := CheckIfFilesExists(file); err != nil {
 		return err
 	}

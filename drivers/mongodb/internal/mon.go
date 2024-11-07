@@ -2,11 +2,15 @@ package driver
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -49,7 +53,11 @@ func (m *Mongo) Close() error {
 }
 
 func (m *Mongo) Setup() error {
-	return nil
+	if err := m.Check(); err != nil {
+		return err
+	}
+
+	return m.loadStreams()
 }
 
 func (m *Mongo) Type() string {
@@ -57,24 +65,68 @@ func (m *Mongo) Type() string {
 }
 
 func (m *Mongo) Discover() ([]*types.Stream, error) {
-	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	// defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	// dbResult, err := m.client.ListDatabases(ctx, nil, &options.ListDatabasesOptions{
-	// 	AuthorizedDatabases: types.ToPtr(true),
-	// })
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to list databases: %s", err)
-	// }
+	database := m.client.Database(m.config.Database)
+	collections, err := database.ListCollections(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
 
-	// streams := []types.Stream{}
-	return nil, nil
+	// Channel to collect results
+	var streams []*types.Stream
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Iterate through collections and check if they are views
+	for collections.Next(ctx) {
+		var collectionInfo bson.M
+		if err := collections.Decode(&collectionInfo); err != nil {
+			return nil, fmt.Errorf("failed to decode collection ")
+		}
+
+		// Check if collection is a view
+		if collectionType, ok := collectionInfo["type"].(string); ok && collectionType == "view" {
+			continue
+		}
+		wg.Add(1)
+		go func(colName string) {
+			defer wg.Done()
+			stream, err := produceCollectionSchema(database, colName)
+			if err != nil {
+				logger.Errorf("failed to process collection[%s]: %s", colName, err)
+				return
+			}
+			mu.Lock()
+			streams = append(streams, stream)
+			mu.Unlock()
+		}(collectionInfo["name"].(string))
+	}
+
+	wg.Wait()
+
+	return streams, nil
 }
 
 func (m *Mongo) Read(stream protocol.Stream, channel chan<- types.Record) error {
+	switch stream.GetSyncMode() {
+	case types.FULLREFRESH:
+		return m.backfill(stream, channel)
+	case types.CDC:
+		return m.changeStreamSync(stream, channel)
+	}
+
 	return nil
 }
 
 func (m *Mongo) BulkRead() bool {
 	return true
+}
+
+// fetch records from mongo and schema types
+func produceCollectionSchema(db *mongo.Database, collectionName string) (*types.Stream, error) {
+	collection := db.Collection(collectionName)
+
+	return schema, nil
 }

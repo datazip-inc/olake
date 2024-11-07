@@ -20,21 +20,21 @@ var ReadCmd = &cobra.Command{
 		if config_ == "" {
 			return fmt.Errorf("--config not passed")
 		} else {
-			if err := utils.UnmarshalFile(config_, _rawConnector.GetConfigRef()); err != nil {
+			if err := utils.ValidateFile(config_, _rawConnector.GetConfigRef()); err != nil {
 				return err
 			}
 		}
 
 		if catalog_ != "" {
 			catalog = &types.Catalog{}
-			if err := utils.UnmarshalFile(catalog_, catalog); err != nil {
+			if err := utils.ValidateFile(catalog_, catalog); err != nil {
 				return err
 			}
 		}
 
 		if state_ != "" {
 			state = &types.State{}
-			if err := utils.UnmarshalFile(state_, state); err != nil {
+			if err := utils.ValidateFile(state_, state); err != nil {
 				return err
 			}
 		}
