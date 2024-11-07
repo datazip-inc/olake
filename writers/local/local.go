@@ -82,7 +82,6 @@ func (l *Local) Check() error {
 }
 
 func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
-	defer l.Close()
 iteration:
 	for {
 		select {
@@ -102,7 +101,7 @@ iteration:
 		}
 	}
 
-	return l.Close()
+	return nil
 }
 
 func (l *Local) ReInitiationRequiredOnSchemaEvolution() bool {

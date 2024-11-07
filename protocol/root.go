@@ -52,6 +52,7 @@ func CreateRootCommand(forDriver bool, driver any) *cobra.Command {
 func init() {
 	commands = append(commands, SpecCmd, CheckCmd, DiscoverCmd, ReadCmd)
 	RootCmd.PersistentFlags().StringVarP(&config_, "config", "", "", "(Required) Config for connector")
+	RootCmd.PersistentFlags().StringVarP(&destinationConfig_, "destination", "", "", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&catalog_, "catalog", "", "", "(Required) Catalog for connector")
 	RootCmd.PersistentFlags().StringVarP(&state_, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().UintVarP(&batchSize_, "batch", "", 10000, "(Optional) Batch size for connector")

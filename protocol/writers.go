@@ -19,7 +19,7 @@ var RegisteredWriters = map[types.AdapterType]NewFunc{}
 type WriterPool struct {
 	recordCount   atomic.Int64
 	threadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
-	config        any          // respective adapter config
+	config        any          // respective writer config
 	init          NewFunc      // To initialize exclusive destination threads
 	group         *errgroup.Group
 	groupCtx      context.Context
@@ -53,27 +53,40 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 }
 
 // Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(ctx context.Context, stream Stream) (chan types.Record, error) {
-	adapter := w.init()
-	if err := utils.Unmarshal(w.config, adapter.GetConfigRef()); err != nil {
+func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan types.Record, error) {
+	thread := w.init()
+	if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
 		return nil, err
 	}
 
-	if err := adapter.Setup(stream); err != nil {
+	if err := thread.Setup(stream); err != nil {
 		return nil, err
 	}
 
 	w.threadCounter.Add(1)
 	frontend := make(chan types.Record)
 	backend := make(chan types.Record)
+	child, childCancel := context.WithCancel(parent)
+
+	// spawnWriter spawns a writer process with child context
+	spawnWriter := func() {
+		w.group.Go(func() error {
+			defer thread.Close()
+			defer w.threadCounter.Add(-1)
+
+			return thread.Write(child, backend)
+		})
+	}
 
 	w.group.Go(func() error {
 		defer safego.Close(backend)
+		// not defering canceling the child context so that writing process
+		// can finish writing all the records pushed into the channel
 
 	main:
 		for {
 			select {
-			case <-ctx.Done():
+			case <-parent.Done():
 				break main
 			default:
 				record, ok := <-frontend
@@ -81,6 +94,14 @@ func (w *WriterPool) NewThread(ctx context.Context, stream Stream) (chan types.R
 					break main
 				}
 
+				// TODO: handle schema evolution here
+				if thread.ReInitiationRequiredOnSchemaEvolution() {
+					childCancel()                                   // Close the current writer and spawn new
+					child, childCancel = context.WithCancel(parent) // replace the original child context and cancel function
+					spawnWriter()                                   // spawn a writer with newer context
+				}
+
+				w.recordCount.Add(1) // increase the record count
 				backend <- record
 				w.logState()
 			}
@@ -88,13 +109,8 @@ func (w *WriterPool) NewThread(ctx context.Context, stream Stream) (chan types.R
 
 		return nil
 	})
-	w.group.Go(func() error {
-		defer adapter.Close()
-		defer w.threadCounter.Add(-1)
 
-		return adapter.Write(ctx, backend)
-	})
-
+	spawnWriter()
 	return frontend, nil
 }
 
