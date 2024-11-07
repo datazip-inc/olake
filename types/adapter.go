@@ -10,6 +10,6 @@ const (
 
 // TODO: Add validations
 type WriterConfig struct {
-	Type          AdapterType `json:"type"`
-	AdapterConfig any         `json:"adapter"`
+	Type         AdapterType `json:"type"`
+	WriterConfig any         `json:"writer"`
 }

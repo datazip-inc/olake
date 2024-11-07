@@ -32,7 +32,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 	}
 
 	adapter := newfunc()
-	if err := utils.Unmarshal(config.AdapterConfig, adapter.GetConfigRef()); err != nil {
+	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
 		return nil, err
 	}
 
@@ -45,7 +45,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 	return &WriterPool{
 		recordCount:   atomic.Int64{},
 		threadCounter: atomic.Int64{},
-		config:        config.AdapterConfig,
+		config:        config.WriterConfig,
 		init:          newfunc,
 		group:         group,
 		groupCtx:      ctx,
