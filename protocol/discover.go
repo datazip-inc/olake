@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// DiscoverCmd represents the read command
-var DiscoverCmd = &cobra.Command{
+// discoverCmd represents the read command
+var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
 	PreRunE: func(cmd *cobra.Command, args []string) error {

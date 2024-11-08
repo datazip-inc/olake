@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// SpecCmd represents the read command
-var CheckCmd = &cobra.Command{
+// checkCmd represents the check command
+var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "check command",
 	PreRunE: func(cmd *cobra.Command, args []string) error {

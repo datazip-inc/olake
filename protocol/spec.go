@@ -19,8 +19,8 @@ var (
 	airbyte  bool
 )
 
-// SpecCmd represents the read command
-var SpecCmd = &cobra.Command{
+// specCmd represents the read command
+var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
 	RunE: func(cmd *cobra.Command, args []string) error {
