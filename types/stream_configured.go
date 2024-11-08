@@ -137,8 +137,8 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("invalid sync mode[%s]; valid are %v", s.SyncMode, source.SupportedSyncModes)
 	}
 
-	if !source.DefaultCursorFields.Exists(s.CursorField) {
-		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.DefaultCursorFields)
+	if !source.AvailableCursorFields.Exists(s.CursorField) {
+		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.AvailableCursorFields)
 	}
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
