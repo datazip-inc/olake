@@ -78,10 +78,6 @@ func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
 		Type: []DataType{typ},
 	}
 
-	// if typ == TIMESTAMP {
-	// 	property.Format = "date-time"
-	// }
-
 	if nullable {
 		property.Type = append(property.Type, NULL)
 	}
