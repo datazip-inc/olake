@@ -3,6 +3,7 @@ package typeutils
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -21,20 +22,17 @@ func TypeFromValue(v interface{}) types.DataType {
 	case reflect.Float32, reflect.Float64:
 		return types.FLOAT64
 	case reflect.String:
-		// Check for specific formats
-		if value, ok := v.(string); ok {
-			// Check for email format
-			if _, err := ReformatDate(value); err == nil {
-				return types.TIMESTAMP
-			}
-		}
-
 		return types.STRING
 	case reflect.Slice, reflect.Array:
 		return types.ARRAY
 	case reflect.Map:
 		return types.OBJECT
 	default:
+		// Check if the type is time.Time for timestamp detection
+		if reflect.TypeOf(v) == reflect.TypeOf(time.Time{}) {
+			return detectTimestampPrecision(v.(time.Time))
+		}
+
 		return types.UNKNOWN
 	}
 }
@@ -74,5 +72,21 @@ func MaximumOnDataType[T any](typ types.DataType, a, b T) (T, error) {
 		return b, nil
 	default:
 		return a, fmt.Errorf("comparison not available for data types %v now", typ)
+	}
+}
+
+// Detect timestamp precision depending on time value
+func detectTimestampPrecision(t time.Time) types.DataType {
+	nanos := t.Nanosecond()
+	if nanos == 0 { // if their is no nanosecond
+		return types.TIMESTAMP
+	}
+	switch {
+	case nanos%int(time.Millisecond) == 0:
+		return types.TIMESTAMP_MILLI // store in milliseconds
+	case nanos%int(time.Microsecond) == 0:
+		return types.TIMESTAMP_MICRO // store in microseconds
+	default:
+		return types.TIMESTAMP_NANO // store in nanoseconds
 	}
 }

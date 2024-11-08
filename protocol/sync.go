@@ -12,10 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ReadCmd represents the read command
-var ReadCmd = &cobra.Command{
-	Use:   "read",
-	Short: "Olake read command",
+// syncCmd represents the read command
+var syncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Olake sync command",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if config_ == "" {
 			return fmt.Errorf("--config not passed")
