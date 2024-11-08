@@ -24,7 +24,7 @@ type Boundry struct {
 	end     time.Time
 }
 
-func (m *Mongo) backfill(stream protocol.Stream, channel chan<- types.Record) error {
+func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Snapshot())).Collection(stream.Name())
 	totalCount, err := m.totalCountInCollection(collection)
 	if err != nil {
@@ -35,6 +35,7 @@ func (m *Mongo) backfill(stream protocol.Stream, channel chan<- types.Record) er
 	if err != nil {
 		return err
 	}
+
 	logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
 	logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
 
@@ -61,46 +62,33 @@ func (m *Mongo) backfill(stream protocol.Stream, channel chan<- types.Record) er
 
 		return exit, boundry, nil
 	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
-		recordsInCurrentBatch := 0
-		start := time.Now()
-		printed := false
+		thread, err := pool.NewThread(ctx, stream)
+		if err != nil {
+			return err
+		}
+		defer safego.Close(thread)
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursor, err := collection.Aggregate(ctx, generatepipeline(one.StartID, one.EndID), opts)
 		if err != nil {
-			return fmt.Errorf("collection.Find: %w", err)
+			return fmt.Errorf("collection.Find: %s", err)
 		}
 		defer cursor.Close(ctx)
 
 		for cursor.Next(ctx) {
-			if !printed {
-				if time.Since(start) > time.Minute {
-					fmt.Println("Time taken for iteration of batch", number, "is ", time.Since(start).String())
-				}
-				printed = true
-			}
-
 			var doc bson.M
 			if _, err = cursor.Current.LookupErr("_id"); err != nil {
-				return fmt.Errorf("looking up idProperty: %w", err)
+				return fmt.Errorf("looking up idProperty: %s", err)
 			} else if err = cursor.Decode(&doc); err != nil {
-				return fmt.Errorf("backfill decoding document: %w", err)
+				return fmt.Errorf("backfill decoding document: %s", err)
 			}
 
-			if !safego.Insert(channel, doc) {
+			if !safego.Insert(thread, types.Record(doc)) {
 				return nil
 			}
-
-			recordsInCurrentBatch++
 		}
 
-		err = cursor.Err()
-		if err != nil {
-			return err
-		}
-
-		fmt.Println("Total records in batch ", number, ": ", recordsInCurrentBatch)
-		return nil
+		return cursor.Err()
 	})
 
 }

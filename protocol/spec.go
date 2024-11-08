@@ -19,8 +19,8 @@ var (
 	airbyte  bool
 )
 
-// SpecCmd represents the read command
-var SpecCmd = &cobra.Command{
+// specCmd represents the read command
+var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -30,7 +30,7 @@ var SpecCmd = &cobra.Command{
 		if generate {
 			logger.Info("Generating Spec")
 
-			config := _rawConnector.Spec()
+			config := connector.Spec()
 			schema, err := jsonschema.Reflect(config)
 			if err != nil {
 				return err

@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/datazip-inc/olake/utils"
 )
@@ -13,7 +12,6 @@ type Message struct {
 	Log              *Log                   `json:"log,omitempty"`
 	ConnectionStatus *StatusRow             `json:"connectionStatus,omitempty"`
 	State            *State                 `json:"state,omitempty"`
-	Record           *Record                `json:"record,omitempty"`
 	Catalog          *Catalog               `json:"catalog,omitempty"`
 	Action           *ActionRow             `json:"action,omitempty"`
 	Spec             map[string]interface{} `json:"spec,omitempty"`
@@ -37,16 +35,6 @@ type Log struct {
 type StatusRow struct {
 	Status  ConnectionStatus `json:"status,omitempty"`
 	Message string           `json:"message,omitempty"`
-}
-
-// Record is a dto for airbyte record serialization
-type Record struct {
-	// close is used to stop iterating records
-	Close     bool                   `json:"-"`
-	Namespace string                 `json:"namespace,omitempty"`
-	Stream    string                 `json:"stream,omitempty"`
-	Data      map[string]interface{} `json:"data,omitempty"`
-	EmittedAt time.Time              `json:"emitted_at,omitempty"`
 }
 
 // ConfiguredCatalog is a dto for formatted airbyte catalog serialization

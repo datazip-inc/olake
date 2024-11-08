@@ -55,7 +55,7 @@ func (p *Postgres) SetupGlobalState(state *types.State) error {
 }
 
 // Write Ahead Log Sync
-func (p *Postgres) GroupRead(channel chan<- types.Record, streams ...protocol.Stream) error {
+func (p *Postgres) RunChangeStream(channel chan<- types.Record, streams ...protocol.Stream) error {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
 		return err

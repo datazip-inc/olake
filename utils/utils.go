@@ -1,14 +1,21 @@
 package utils
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"reflect"
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/oklog/ulid"
+	"github.com/sirupsen/logrus"
 
 	"github.com/spf13/cobra"
+)
+
+var (
+	entropy = ulid.Monotonic(rand.Reader, 0)
 )
 
 func Absolute[T int | int8 | int16 | int32 | int64 | float32 | float64](value T) T {
@@ -177,4 +184,25 @@ func MaxDate(v1, v2 time.Time) time.Time {
 	}
 
 	return v2
+}
+
+func ULID() string {
+	t := time.Now()
+	newUlid, err := ulid.New(ulid.Timestamp(t), entropy)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	return newUlid.String()
+}
+
+// Returns a timestamped
+func TimestampedFileName() string {
+	now := time.Now()
+	ulid, err := ulid.New(ulid.Timestamp(now), entropy)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), ulid)
 }

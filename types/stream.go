@@ -9,14 +9,22 @@ import (
 
 // Output Stream Object for dsynk
 type Stream struct {
-	Name                       string            `json:"name,omitempty"`
-	Namespace                  string            `json:"namespace,omitempty"`
-	Schema                     *TypeSchema       `json:"json_schema,omitempty"`
-	SupportedSyncModes         *Set[SyncMode]    `json:"supported_sync_modes,omitempty"`
-	SourceDefinedPrimaryKey    *Set[string]      `json:"source_defined_primary_key,omitempty"`
-	SourceDefinedCursor        bool              `json:"source_defined_cursor"`
-	DefaultCursorFields        *Set[string]      `json:"default_cursor_fields,omitempty"`
-	AdditionalProperties       string            `json:"additional_properties,omitempty"`
+	// Name of the Stream
+	Name string `json:"name,omitempty"`
+	// Namespace of the Stream, or Database it belongs to
+	// helps in identifying collections with same name in different database
+	Namespace string `json:"namespace,omitempty"`
+	// Possible Schema of the Stream
+	Schema *TypeSchema `json:"json_schema,omitempty"`
+	// Supported sync modes from driver for the respective Stream
+	SupportedSyncModes *Set[SyncMode] `json:"supported_sync_modes,omitempty"`
+	// Primary key if available
+	SourceDefinedPrimaryKey *Set[string] `json:"source_defined_primary_key,omitempty"`
+	// Available cursor fields supported by driver
+	AvailableCursorFields *Set[string] `json:"available_cursor_fields,omitempty"`
+	// Input of JSON Schema from Client to be parsed by driver
+	AdditionalProperties string `json:"additional_properties,omitempty"`
+	// Renderable JSON Schema for additional properties supported by respective driver for individual stream
 	AdditionalPropertiesSchema schema.JSONSchema `json:"additional_properties_schema,omitempty"`
 }
 
@@ -26,7 +34,7 @@ func NewStream(name, namespace string) *Stream {
 		Namespace:               namespace,
 		SupportedSyncModes:      NewSet[SyncMode](),
 		SourceDefinedPrimaryKey: NewSet[string](),
-		DefaultCursorFields:     NewSet[string](),
+		AvailableCursorFields:   NewSet[string](),
 	}
 }
 
@@ -52,10 +60,9 @@ func (s *Stream) WithPrimaryKey(keys ...string) *Stream {
 
 func (s *Stream) WithCursorField(columns ...string) *Stream {
 	for _, column := range columns {
-		s.DefaultCursorFields.Insert(column)
+		s.AvailableCursorFields.Insert(column)
 	}
 
-	s.SourceDefinedCursor = true
 	return s
 }
 
@@ -70,10 +77,6 @@ func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
 	property := &Property{
 		Type: []DataType{typ},
 	}
-
-	// if typ == TIMESTAMP {
-	// 	property.Format = "date-time"
-	// }
 
 	if nullable {
 		property.Type = append(property.Type, NULL)
@@ -102,7 +105,7 @@ func (s *Stream) UnmarshalJSON(data []byte) error {
 	// Create a temporary alias value to unmarshal into
 	var temp Alias
 
-	temp.DefaultCursorFields = NewSet[string]()
+	temp.AvailableCursorFields = NewSet[string]()
 	temp.SourceDefinedPrimaryKey = NewSet[string]()
 	temp.SupportedSyncModes = NewSet[SyncMode]()
 

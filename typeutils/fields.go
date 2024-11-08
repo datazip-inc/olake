@@ -24,7 +24,18 @@ var typecastTree = &typeNode{
 			left: &typeNode{t: types.BOOL},
 		},
 	},
-	right: &typeNode{t: types.TIMESTAMP},
+	right: &typeNode{
+		t: types.TIMESTAMP_NANO,
+		left: &typeNode{
+			t: types.TIMESTAMP_MICRO,
+			left: &typeNode{
+				t: types.TIMESTAMP_MILLI,
+				left: &typeNode{
+					t: types.TIMESTAMP,
+				},
+			},
+		},
+	},
 }
 
 // Merge adds all fields from other to current instance or merge if exists

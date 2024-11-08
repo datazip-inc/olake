@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/types"
 )
 
 type basestream interface {
@@ -23,12 +22,4 @@ func RetryOnFailure(attempts int, sleep *time.Duration, f func() error) (err err
 	}
 
 	return err
-}
-
-func ReformatRecord(stream basestream, record map[string]any) types.Record {
-	return types.Record{
-		Stream:    stream.Name(),
-		Namespace: stream.Namespace(),
-		Data:      record,
-	}
 }
