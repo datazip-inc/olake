@@ -6,20 +6,20 @@ import (
 )
 
 type Config struct {
-	Hosts          []string
-	Username       string
-	Password       string
-	AuthDB         string
-	ReplicaSet     string
-	ReadPreference string
-	Srv            bool
-	ServerRAM      uint
-	Database       string
+	Hosts          []string `json:"hosts"`
+	Username       string   `json:"username"`
+	Password       string   `json:"password"`
+	AuthDB         string   `json:"authdb"`
+	ReplicaSet     string   `json:"replica-set"`
+	ReadPreference string   `json:"read-preference"`
+	Srv            bool     `json:"srv"`
+	ServerRAM      uint     `json:"server-ram"`
+	Database       string   `json:"databsae"`
 }
 
 func (c *Config) URI() string {
 	return fmt.Sprintf(
-		"mongodb://%s:%s@%s?authSource=%s&replicaSet=%s&readPreference=%s",
+		"mongodb://%s:%s@%s/?authSource=%s&replicaSet=%s&readPreference=%s",
 		c.Username, c.Password, strings.Join(c.Hosts, ","), c.AuthDB, c.ReplicaSet, c.ReadPreference,
 	)
 }

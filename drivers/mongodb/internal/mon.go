@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
+	"github.com/piyushsingariya/relec"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -59,48 +60,59 @@ func (m *Mongo) Type() string {
 }
 
 func (m *Mongo) Discover() ([]*types.Stream, error) {
+	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	// TODO: Check must run before discover command
+	if m.client == nil {
+		client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(m.config.URI()))
+		if err != nil {
+			return nil, err
+		}
+
+		m.client = client
+	}
+
 	database := m.client.Database(m.config.Database)
+	if m == nil || m.SourceStreams == nil {
+		fmt.Println("m is nil received")
+	}
 	collections, err := database.ListCollections(ctx, bson.M{})
 	if err != nil {
 		return nil, err
 	}
-
 	// Channel to collect results
 	var streams []*types.Stream
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
+	var streamLock sync.Mutex
+	var streamNames []string
 	// Iterate through collections and check if they are views
 	for collections.Next(ctx) {
 		var collectionInfo bson.M
 		if err := collections.Decode(&collectionInfo); err != nil {
-			return nil, fmt.Errorf("failed to decode collection ")
+			return nil, fmt.Errorf("failed to decode collection: %s", err)
 		}
 
 		// Check if collection is a view
 		if collectionType, ok := collectionInfo["type"].(string); ok && collectionType == "view" {
 			continue
 		}
-		wg.Add(1)
-		go func(colName string) {
-			defer wg.Done()
-			stream, err := m.produceCollectionSchema(context.TODO(), database, colName)
-			if err != nil {
-				logger.Errorf("failed to process collection[%s]: %s", colName, err)
-				return
-			}
-			mu.Lock()
-			streams = append(streams, stream)
-			mu.Unlock()
-		}(collectionInfo["name"].(string))
+		streamNames = append(streamNames, collectionInfo["name"].(string))
 	}
+	return streams, relec.Concurrent(context.TODO(), streamNames, len(streamNames), func(ctx context.Context, streamName string, execNumber int) error {
+		stream, err := m.produceCollectionSchema(context.TODO(), database, streamName)
+		if err != nil {
+			return fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
+		}
 
-	wg.Wait()
+		// cache stream
+		m.SourceStreams[stream.ID()] = stream
 
-	return streams, nil
+		streamLock.Lock()
+		streams = append(streams, stream)
+		streamLock.Unlock()
+		return nil
+	})
 }
 
 func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
@@ -114,48 +126,54 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 	return nil
 }
 
-// fetch records from mongo and schema types
-func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database, collectionName string) (*types.Stream, error) {
-	collection := db.Collection(collectionName)
-	stream := types.NewStream(collectionName, "")
+// fetch schema types from mongo for streamName
+func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
+	logger.Infof("Producing catalog schema for stream [%s]", streamName)
 
-	// default sync modes
+	// Initialize stream
+	collection := db.Collection(streamName)
+	stream := types.NewStream(streamName, "")
 	stream.WithSyncMode(types.CDC, types.FULLREFRESH)
-	mongoIndexes, err := collection.Indexes().List(ctx, options.ListIndexes())
+
+	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 	if err != nil {
 		return nil, err
 	}
+	defer indexesCursor.Close(ctx)
 
-	for mongoIndexes.Next(ctx) {
+	for indexesCursor.Next(ctx) {
 		var indexes bson.M
-		if err := mongoIndexes.Decode(&indexes); err != nil {
+		if err := indexesCursor.Decode(&indexes); err != nil {
 			return nil, err
 		}
-		for key, _ := range indexes["key"].(bson.M) {
+		for key := range indexes["key"].(bson.M) {
 			stream.WithPrimaryKey(key)
-			stream.WithSyncMode(types.INCREMENTAL)
-		}
-	}
-	// iterate over 1k records to get data types
-	// currently only populating schema on level 1
-	cursor, err := collection.Find(ctx, bson.D{}, options.Find().SetLimit(1000))
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	for cursor.Next(ctx) {
-		var row bson.M
-		if err := cursor.Decode(&row); err != nil {
-			return nil, err
-		}
-
-		if err := typeutils.Resolve(stream, row); err != nil {
-			return nil, err
 		}
 	}
 
-	m.SourceStreams[stream.ID()] = stream
+	// Define find options for fetching documents in ascending and descending order.
+	findOpts := []*options.FindOptions{
+		options.Find().SetLimit(100000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
+		options.Find().SetLimit(100000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
+	}
 
-	return stream, nil
+	return stream, relec.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
+		if err != nil {
+			return err
+		}
+		defer cursor.Close(ctx)
+
+		for cursor.Next(ctx) {
+			var row bson.M
+			if err := cursor.Decode(&row); err != nil {
+				return err
+			}
+
+			if err := typeutils.Resolve(stream, row); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

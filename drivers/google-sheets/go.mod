@@ -1,8 +1,6 @@
 module github.com/datazip-inc/olake/drivers/google-sheets
 
-go 1.22
-
-toolchain go1.22.3
+go 1.23
 
 require (
 	github.com/datazip-inc/olake v0.0.0-00010101000000-000000000000

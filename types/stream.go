@@ -1,6 +1,8 @@
 package types
 
 import (
+	"sync"
+
 	"github.com/goccy/go-json"
 
 	"github.com/datazip-inc/olake/jsonschema/schema"
@@ -9,6 +11,7 @@ import (
 
 // Output Stream Object for dsynk
 type Stream struct {
+	sync.Mutex
 	// Name of the Stream
 	Name string `json:"name,omitempty"`
 	// Namespace of the Stream, or Database it belongs to
@@ -35,6 +38,7 @@ func NewStream(name, namespace string) *Stream {
 		SupportedSyncModes:      NewSet[SyncMode](),
 		SourceDefinedPrimaryKey: NewSet[string](),
 		AvailableCursorFields:   NewSet[string](),
+		Mutex:                   sync.Mutex{},
 	}
 }
 
@@ -68,6 +72,7 @@ func (s *Stream) WithCursorField(columns ...string) *Stream {
 
 // Add or Update Column in Stream Type Schema
 func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
+	s.Lock()
 	if s.Schema == nil {
 		s.Schema = &TypeSchema{
 			Properties: map[string]*Property{},
@@ -83,6 +88,7 @@ func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
 	}
 
 	s.Schema.Properties[column] = property
+	s.Unlock()
 }
 
 func (s *Stream) WithSchema(schema TypeSchema) *Stream {

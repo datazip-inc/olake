@@ -38,3 +38,10 @@ func (d *Driver) UpdateState(stream protocol.Stream, data types.Record) error {
 
 	return nil
 }
+
+func NewBase() *Driver {
+	return &Driver{
+		SourceStreams: make(map[string]*types.Stream),
+		GroupRead:     false,
+	}
+}

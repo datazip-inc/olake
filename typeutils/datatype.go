@@ -11,6 +11,11 @@ import (
 
 // TypeFromValue return DataType from v type
 func TypeFromValue(v interface{}) types.DataType {
+	// null check
+	if v == nil || (reflect.ValueOf(v).Kind() == reflect.Ptr && reflect.ValueOf(v).IsNil()) {
+		return types.NULL
+	}
+
 	switch reflect.TypeOf(v).Kind() {
 	case reflect.Invalid:
 		return types.NULL

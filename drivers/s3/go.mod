@@ -1,8 +1,6 @@
 module github.com/piyushsingariya/drivers/s3
 
-go 1.22
-
-toolchain go1.22.3
+go 1.23
 
 require github.com/datazip-inc/olake v0.0.0-20230727050722-6795340c7033
 
