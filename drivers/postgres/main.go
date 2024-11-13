@@ -12,7 +12,7 @@ func main() {
 	driver := &driver.Postgres{
 		Driver: base.NewBase(),
 	}
-	_ = protocol.BulkDriver(driver)
+	_ = protocol.ChangeStreamDriver(driver)
 
 	defer driver.CloseConnection()
 	olake.RegisterDriver(driver)

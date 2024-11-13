@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/postgres
 
-go 1.22
+go 1.23
 
 require (
 	github.com/lib/pq v1.10.2

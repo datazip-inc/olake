@@ -14,6 +14,7 @@ type Config struct {
 	ReadPreference string
 	Srv            bool
 	ServerRAM      uint
+	Database       string
 }
 
 func (c *Config) URI() string {

@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"context"
+
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -12,29 +14,21 @@ type Connector interface {
 	//
 	// Note: Check shouldn't be called before Setup as they're composed at Connector level
 	Check() error
-	// Composition with Check
-	//
-	// Sets up connections, and perform checks; loads/setup stream as well
-	//
-	// Note: Check shouldn't be called before Setup as they're composed at Connector level
-	Setup() error
-
 	Type() string
 }
 
 type Driver interface {
 	Connector
-	// Discover returns cached streams
-	//
-	// TODO: Remove error return in future if not required
+	// Discover discovers the streams; Returns cached if already discovered
 	Discover() ([]*types.Stream, error)
-	Read(stream Stream, channel chan<- types.Record) error
-	BulkRead() bool
+	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
+	Read(pool *WriterPool, stream Stream) error
+	ChangeStreamSupported() bool
 }
 
 // Bulk Read Driver
-type BulkDriver interface {
-	GroupRead(channel chan<- types.Record, streams ...Stream) error
+type ChangeStreamDriver interface {
+	RunChangeStream(pool *WriterPool, streams ...Stream) error
 	SetupGlobalState(state *types.State) error
 	StateType() types.StateType
 }
@@ -42,15 +36,26 @@ type BulkDriver interface {
 // JDBC Driver
 type JDBCDriver interface {
 	FullLoad(stream Stream, channel chan<- types.Record) error
-	GroupRead(channel chan<- types.Record, streams ...Stream) error
+	RunChangeStream(channel chan<- types.Record, streams ...Stream) error
 	SetupGlobalState(state *types.State) error
 	StateType() types.StateType
 }
 
-type Adapter interface {
+type Write = func(ctx context.Context, channel <-chan types.Record) error
+
+type Writer interface {
 	Connector
-	Write(channel <-chan types.Record) error
-	Create(streamName string) error
+	// Setup sets up an Adapter for dedicated use for a stream
+	// avoiding the headover for different streams
+	Setup(stream Stream) error
+	// Write function being used by drivers
+	Write(ctx context.Context, channel <-chan types.Record) error
+
+	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
+	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
+	// schema update with an Alter Query
+	ReInitiationRequiredOnSchemaEvolution() bool
+	Close() error
 }
 
 type Stream interface {
