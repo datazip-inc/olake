@@ -91,11 +91,7 @@ var syncCmd = &cobra.Command{
 				return false
 			}
 
-			err = elem.SetupState(state, int(batchSize_))
-			if err != nil {
-				logger.Warnf("failed to set stream[%s] state due to reason: %s", elem.ID(), err)
-			}
-
+			elem.SetupState(state)
 			selectedStreams = append(selectedStreams, elem.ID())
 			if elem.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)

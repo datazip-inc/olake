@@ -92,9 +92,8 @@ func (s *Stream) WithSchema(schema TypeSchema) *Stream {
 
 func (s *Stream) Wrap(batchSize int) *ConfiguredStream {
 	return &ConfiguredStream{
-		Stream:    s,
-		SyncMode:  FULLREFRESH,
-		batchSize: batchSize,
+		Stream:   s,
+		SyncMode: FULLREFRESH,
 	}
 }
 

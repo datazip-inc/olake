@@ -69,9 +69,14 @@ type Stream interface {
 	SupportedSyncModes() *types.Set[types.SyncMode]
 	Cursor() string
 	InitialState() any
-	GetState() any
-	SetState(value any)
-	BatchSize() int
-	SetBatchSize(size int)
+	GetStateCursor() any
+	GetStateKey(key string) any
+	SetStateCursor(value any)
+	SetStateKey(key string, value any)
 	Validate(source *types.Stream) error
+}
+
+type State interface {
+	SetType(typ types.StateType)
+	IsZero() bool
 }

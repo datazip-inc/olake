@@ -8,20 +8,17 @@ import (
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
+	*StreamState            `json:"-"` // in-memory state copy for individual stream
+	InitialCursorStateValue any        `json:"-"` // Cached initial state value
+
 	Stream   *Stream  `json:"stream,omitempty"`
 	SyncMode SyncMode `json:"sync_mode,omitempty"` // Mode being used for syncing data
 	// Column that's being used as cursor; MUST NOT BE mutated
 	//
 	// Cursor field is used in Incremental and in Mixed type GroupRead where connector uses
 	// this field as recovery column incase of some inconsistencies
-	CursorField    string       `json:"cursor_field,omitempty"`
-	ExcludeColumns []string     `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
-	CursorValue    any          `json:"-"`                         // Cached initial state value
-	batchSize      int          `json:"-"`                         // Batch size for syncing data
-	state          *StreamState `json:"-"`                         // in-memory state copy for individual stream
-	connectorState *State       `json:"-"`                         // in-memory pointer to central state
-
-	// DestinationSyncMode string   `json:"destination_sync_mode,omitempty"`
+	CursorField    string   `json:"cursor_field,omitempty"`
+	ExcludeColumns []string `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
 }
 
 func (s *ConfiguredStream) ID() string {
@@ -61,74 +58,48 @@ func (s *ConfiguredStream) Cursor() string {
 }
 
 // Returns empty and missing
-func (s *ConfiguredStream) SetupState(state *State, batchSize int) error {
-	s.SetBatchSize(batchSize)
-	s.connectorState = state
-
+func (s *ConfiguredStream) SetupState(state *State) {
+	// Initialize a state or map the already present state
 	if !state.IsZero() {
 		i, contains := utils.ArrayContains(state.Streams, func(elem *StreamState) bool {
 			return elem.Namespace == s.Namespace() && elem.Stream == s.Name()
 		})
 		if contains {
-			value, found := state.Streams[i].State[s.CursorField]
-			if !found {
-				return ErrStateCursorMissing
+			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
+			s.StreamState = state.Streams[i]
+		} else {
+			ss := &StreamState{
+				Stream:    s.Name(),
+				Namespace: s.Namespace(),
 			}
 
-			s.CursorValue = value
-			s.state = state.Streams[i]
-
-			return nil
+			// save references of stream state and add it to connector state
+			s.StreamState = ss
+			state.Streams = append(state.Streams, ss)
 		}
-
-		return ErrStateMissing
 	}
-
-	return nil
 }
 
 func (s *ConfiguredStream) InitialState() any {
-	return s.CursorValue
+	return s.InitialCursorStateValue
 }
 
-func (s *ConfiguredStream) SetState(value any) {
-	s.connectorState.Lock()
-	defer s.connectorState.Unlock()
-
-	if s.state == nil {
-		ss := &StreamState{
-			Stream:    s.Name(),
-			Namespace: s.Namespace(),
-			State: map[string]any{
-				s.Cursor(): value,
-			},
-		}
-
-		// save references of state
-		s.state = ss
-		s.connectorState.Streams = append(s.connectorState.Streams, ss)
-		return
-	}
-
-	s.state.State[s.Cursor()] = value
+func (s *ConfiguredStream) SetStateCursor(value any) {
+	s.State.Store(s.Cursor(), value)
 }
 
-func (s *ConfiguredStream) GetState() any {
-	s.connectorState.Lock()
-	defer s.connectorState.Unlock()
-
-	if s.state == nil || s.state.State == nil {
-		return nil
-	}
-	return s.state.State[s.Cursor()]
+func (s *ConfiguredStream) SetStateKey(key string, value any) {
+	s.State.Store(key, value)
 }
 
-func (s *ConfiguredStream) BatchSize() int {
-	return s.batchSize
+func (s *ConfiguredStream) GetStateCursor() any {
+	val, _ := s.State.Load(s.Cursor())
+	return val
 }
 
-func (s *ConfiguredStream) SetBatchSize(size int) {
-	s.batchSize = size
+func (s *ConfiguredStream) GetStateKey(key string) any {
+	val, _ := s.State.Load(key)
+	return val
 }
 
 // Validate Configured Stream with Source Stream

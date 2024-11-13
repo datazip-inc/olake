@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 
 	"github.com/goccy/go-json"
 )
@@ -61,12 +62,78 @@ func (s *State) IsZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
 }
 
+func (s *State) MarshalJSON() ([]byte, error) {
+	if s.IsZero() {
+		return nil, nil
+	}
+
+	type Alias State
+	p := Alias(*s)
+
+	populatedStreams := []*StreamState{}
+	for _, stream := range p.Streams {
+		if stream.Load() {
+			populatedStreams = append(populatedStreams, stream)
+		}
+	}
+
+	p.Streams = populatedStreams
+	return json.Marshal(p)
+}
+
 type StreamState struct {
+	atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
+
 	Stream    string `json:"stream"`
 	Namespace string `json:"namespace"`
-	// State contains the sync's Cursor field and the latest cursor values
-	// This helps in Incremental syncs as well as GroupRead Syncs
-	State map[string]any `mapstructure:"state" json:"state"`
+	State     sync.Map
+}
+
+// MarshalJSON custom marshaller to handle sync.Map encoding
+func (s *StreamState) MarshalJSON() ([]byte, error) {
+	// Create a map to temporarily store data for JSON marshalling
+	stateMap := make(map[string]interface{})
+	s.State.Range(func(key, value interface{}) bool {
+		strKey, ok := key.(string)
+		if !ok {
+			return false
+		}
+		stateMap[strKey] = value
+		return true
+	})
+
+	// Create an alias to avoid infinite recursion
+	type Alias StreamState
+	return json.Marshal(&struct {
+		*Alias
+		State map[string]interface{} `json:"state"`
+	}{
+		Alias: (*Alias)(s),
+		State: stateMap,
+	})
+}
+
+// UnmarshalJSON custom unmarshaller to handle sync.Map decoding
+func (s *StreamState) UnmarshalJSON(data []byte) error {
+	// Create a temporary structure to unmarshal JSON into
+	type Alias StreamState
+	aux := &struct {
+		*Alias
+		State map[string]interface{} `json:"state"`
+	}{
+		Alias: (*Alias)(s),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Populate sync.Map with the data from temporary map
+	for key, value := range aux.State {
+		s.State.Store(key, value)
+	}
+
+	return nil
 }
 
 func NewGlobalState[T GlobalState](state T) *Global[T] {
