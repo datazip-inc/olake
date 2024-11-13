@@ -40,7 +40,7 @@ require (
 	github.com/joomcode/errorx v1.1.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0 // indirect
-	github.com/piyushsingariya/relec v0.0.16
+	github.com/piyushsingariya/relec v0.0.18
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/cobra v1.8.0 // indirect

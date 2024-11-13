@@ -27,7 +27,7 @@ type Driver interface {
 }
 
 // Bulk Read Driver
-type BulkDriver interface {
+type ChangeStreamDriver interface {
 	RunChangeStream(pool *WriterPool, streams ...Stream) error
 	SetupGlobalState(state *types.State) error
 	StateType() types.StateType

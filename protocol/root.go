@@ -6,6 +6,7 @@ import (
 	"github.com/datazip-inc/olake/logger/console"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/piyushsingariya/relec"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +24,12 @@ var (
 
 	commands  = []*cobra.Command{}
 	connector Driver
+
+	concurrentStreamExecution = 6
+	// Global Stream concurrency group;
+	//
+	// Not to confuse with individual stream level concurrency
+	GlobalCxGroup = relec.NewCGroupWithLimit(RootCmd.Context(), concurrentStreamExecution)
 )
 
 // RootCmd represents the base command when called without any subcommands
