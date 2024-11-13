@@ -75,9 +75,7 @@ func (m *Mongo) Discover() ([]*types.Stream, error) {
 	}
 
 	database := m.client.Database(m.config.Database)
-	if m == nil || m.SourceStreams == nil {
-		fmt.Println("m is nil received")
-	}
+
 	collections, err := database.ListCollections(ctx, bson.M{})
 	if err != nil {
 		return nil, err
