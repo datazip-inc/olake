@@ -11,6 +11,6 @@ func main() {
 	driver := &driver.Mongo{}
 	defer driver.Close()
 
-	_ = protocol.BulkDriver(driver)
+	_ = protocol.ChangeStreamDriver(driver)
 	olake.RegisterDriver(driver)
 }

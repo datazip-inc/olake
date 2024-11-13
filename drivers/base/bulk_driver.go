@@ -7,7 +7,7 @@ import (
 )
 
 // Pass dest with all fields initialized to handle nil state case
-func ManageGlobalState[T any](state *types.State, dest *T, driver protocol.BulkDriver) error {
+func ManageGlobalState[T any](state *types.State, dest *T, driver protocol.ChangeStreamDriver) error {
 	state.Type = driver.StateType()
 
 	if state.Global != nil {
