@@ -9,15 +9,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// SpecCmd represents the read command
-var CheckCmd = &cobra.Command{
+// checkCmd represents the check command
+var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "check command",
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		if config_ == "" {
 			return fmt.Errorf("--config not passed")
 		} else {
-			if err := utils.UnmarshalFile(config_, _rawConnector.Config()); err != nil {
+			if err := utils.UnmarshalFile(config_, connector.GetConfigRef()); err != nil {
 				return err
 			}
 		}
@@ -34,14 +34,9 @@ var CheckCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
 			// Catalog has been passed setup and is driver; Connector should be setup
-			if isDriver && catalog != nil {
-				err := _rawConnector.Setup()
-				if err != nil {
-					return err
-				}
-
+			if catalog != nil {
 				// Get Source Streams
-				streams, err := _driver.Discover()
+				streams, err := connector.Discover()
 				if err != nil {
 					return err
 				}
@@ -76,7 +71,7 @@ var CheckCmd = &cobra.Command{
 				}
 			} else {
 				// Only perform checks
-				err := _rawConnector.Check()
+				err := connector.Check()
 				if err != nil {
 					return err
 				}
