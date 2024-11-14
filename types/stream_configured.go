@@ -102,6 +102,19 @@ func (s *ConfiguredStream) GetStateKey(key string) any {
 	return val
 }
 
+// Delete keys from Stream State
+func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
+	values := []any{}
+	for _, key := range keys {
+		val, _ := s.State.Load(key)
+		values = append(values, val) // cache
+
+		s.State.Delete(key) // delete
+	}
+
+	return values
+}
+
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {
 	if !source.SupportedSyncModes.Exists(s.SyncMode) {
