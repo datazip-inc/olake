@@ -19,6 +19,7 @@ type Connector interface {
 
 type Driver interface {
 	Connector
+	// Sets up client, doesn't performs any Checks
 	Setup() error
 	// Discover discovers the streams; Returns cached if already discovered
 	Discover() ([]*types.Stream, error)

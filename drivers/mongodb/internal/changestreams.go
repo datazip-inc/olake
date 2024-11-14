@@ -38,7 +38,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}}},
 	}
 
-	prevResumeToken := stream.GetState()
+	prevResumeToken := stream.GetStateCursor()
 	if prevResumeToken == nil {
 		// get current resume token and do full load for stream
 		resumeToken, err := m.getCurrentResumeToken(collection, pipeline, stream)
@@ -86,7 +86,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 
 	// save state for the current stream
-	stream.SetState(prevResumeToken)
+	stream.SetStateCursor(prevResumeToken)
 	return nil
 }
 
