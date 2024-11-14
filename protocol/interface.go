@@ -19,6 +19,7 @@ type Connector interface {
 
 type Driver interface {
 	Connector
+	Setup() error
 	// Discover discovers the streams; Returns cached if already discovered
 	Discover() ([]*types.Stream, error)
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
@@ -27,7 +28,7 @@ type Driver interface {
 }
 
 // Bulk Read Driver
-type BulkDriver interface {
+type ChangeStreamDriver interface {
 	RunChangeStream(pool *WriterPool, streams ...Stream) error
 	SetupGlobalState(state *types.State) error
 	StateType() types.StateType
@@ -69,9 +70,14 @@ type Stream interface {
 	SupportedSyncModes() *types.Set[types.SyncMode]
 	Cursor() string
 	InitialState() any
-	GetState() any
-	SetState(value any)
-	BatchSize() int
-	SetBatchSize(size int)
+	GetStateCursor() any
+	GetStateKey(key string) any
+	SetStateCursor(value any)
+	SetStateKey(key string, value any)
 	Validate(source *types.Stream) error
+}
+
+type State interface {
+	SetType(typ types.StateType)
+	IsZero() bool
 }

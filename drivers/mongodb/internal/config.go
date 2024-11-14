@@ -10,10 +10,10 @@ type Config struct {
 	Username       string   `json:"username"`
 	Password       string   `json:"password"`
 	AuthDB         string   `json:"authdb"`
-	ReplicaSet     string   `json:"replica-set"`
-	ReadPreference string   `json:"read-preference"`
+	ReplicaSet     string   `json:"replica_set"`
+	ReadPreference string   `json:"read_preference"`
 	Srv            bool     `json:"srv"`
-	ServerRAM      uint     `json:"server-ram"`
+	ServerRAM      uint     `json:"server_ram"`
 	Database       string   `json:"databsae"`
 }
 

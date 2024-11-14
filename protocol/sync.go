@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/piyushsingariya/relec"
 	"github.com/spf13/cobra"
 )
 
@@ -59,6 +61,10 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// add writer pool into global group
+		GlobalCxGroup.Add(func(ctx context.Context) error {
+			return pool.Wait()
+		})
 
 		// Get Source Streams
 		streams, err := connector.Discover()
@@ -70,7 +76,8 @@ var syncCmd = &cobra.Command{
 
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
-		validStreams := []Stream{}
+		cdcStreams := []Stream{}
+		standardModeStreams := []Stream{}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 			source, found := streamsMap[elem.ID()]
 			if !found {
@@ -84,39 +91,47 @@ var syncCmd = &cobra.Command{
 				return false
 			}
 
-			err = elem.SetupState(state, int(batchSize_))
-			if err != nil {
-				logger.Warnf("failed to set stream[%s] state due to reason: %s", elem.ID(), err)
+			elem.SetupState(state)
+			selectedStreams = append(selectedStreams, elem.ID())
+			if elem.SyncMode == types.CDC {
+				cdcStreams = append(cdcStreams, elem)
+			} else {
+				standardModeStreams = append(standardModeStreams, elem)
 			}
 
-			selectedStreams = append(selectedStreams, elem.ID())
-			validStreams = append(validStreams, elem)
 			return false
 		})
 
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
-		// Driver running on GroupRead
-		if connector.ChangeStreamSupported() {
-			driver, yes := connector.(BulkDriver)
-			if !yes {
-				return fmt.Errorf("%s does not implement BulkDriver", connector.Type())
+		// Execute driver ChangeStreams mode
+		GlobalCxGroup.Add(func(_ context.Context) error { // context is not used to keep processes mutually exclusive
+			if connector.ChangeStreamSupported() {
+				driver, yes := connector.(ChangeStreamDriver)
+				if !yes {
+					return fmt.Errorf("%s does not implement ChangeStreamDriver", connector.Type())
+				}
+
+				logger.Info("Starting ChangeStream process in driver")
+
+				// Setup Global State from Connector
+				if err := driver.SetupGlobalState(state); err != nil {
+					return err
+				}
+
+				err := driver.RunChangeStream(pool, cdcStreams...)
+				if err != nil {
+					return fmt.Errorf("error occurred while reading records: %s", err)
+				}
 			}
 
-			// Setup Global State from Connector
-			if err := driver.SetupGlobalState(state); err != nil {
-				return err
-			}
+			return nil
+		})
 
-			err := driver.RunChangeStream(pool, validStreams...)
-			if err != nil {
-				return fmt.Errorf("error occurred while reading records: %s", err)
-			}
-		}
-
-		// Driver running on Stream mode
-		for _, stream := range validStreams {
-			logger.Infof("Reading stream %s", stream.ID())
+		// Execute streams in Standard Stream mode
+		// TODO: Separate streams with FULL and Incremental here only
+		relec.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
+			logger.Info("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
 
 			streamStartTime := time.Now()
 			err := connector.Read(pool, stream)
@@ -125,13 +140,15 @@ var syncCmd = &cobra.Command{
 			}
 
 			logger.Infof("Finished reading stream %s[%s] in %s", stream.Name(), stream.Namespace(), time.Since(streamStartTime).String())
-		}
+
+			return nil
+		})
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
 			logger.LogState(state)
 		}
 
-		return pool.Wait()
+		return GlobalCxGroup.Block()
 	},
 }
