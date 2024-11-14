@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
@@ -15,6 +14,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+const (
+	discoverTime = 5 * time.Minute // maximum time allowed to discover all the streams
 )
 
 type Mongo struct {
@@ -67,56 +70,47 @@ func (m *Mongo) Type() string {
 }
 
 func (m *Mongo) Discover() ([]*types.Stream, error) {
-	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	// TODO: Check must run before discover command
-	if m.client == nil {
-		client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(m.config.URI()))
-		if err != nil {
-			return nil, err
-		}
-
-		m.client = client
+	streams := m.GetStreams()
+	if len(streams) != 0 {
+		return streams, nil
 	}
 
-	database := m.client.Database(m.config.Database)
+	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
+	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
+	defer cancel()
 
-	collections, err := database.ListCollections(ctx, bson.M{})
+	database := m.client.Database(m.config.Database)
+	collections, err := database.ListCollections(discoverCtx, bson.M{})
 	if err != nil {
 		return nil, err
 	}
-	// Channel to collect results
-	var streams []*types.Stream
-	var streamLock sync.Mutex
+
 	var streamNames []string
 	// Iterate through collections and check if they are views
-	for collections.Next(ctx) {
+	for collections.Next(discoverCtx) {
 		var collectionInfo bson.M
 		if err := collections.Decode(&collectionInfo); err != nil {
 			return nil, fmt.Errorf("failed to decode collection: %s", err)
 		}
 
-		// Check if collection is a view
+		// Skip if collection is a view
 		if collectionType, ok := collectionInfo["type"].(string); ok && collectionType == "view" {
 			continue
 		}
 		streamNames = append(streamNames, collectionInfo["name"].(string))
 	}
-	return streams, relec.Concurrent(context.TODO(), streamNames, len(streamNames), func(ctx context.Context, streamName string, execNumber int) error {
-		stream, err := m.produceCollectionSchema(context.TODO(), database, streamName)
-		if err != nil {
+
+	// Either wait for covering 100k records from both sides for all streams
+	// Or wait till discoverCtx exits
+	return m.GetStreams(), relec.Concurrent(discoverCtx, streamNames, len(streamNames), func(ctx context.Context, streamName string, _ int) error {
+		stream, err := m.produceCollectionSchema(discoverCtx, database, streamName)
+		if err != nil && discoverCtx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 			return fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 		}
 
 		// cache stream
-		m.SourceStreams[stream.ID()] = stream
-
-		streamLock.Lock()
-		streams = append(streams, stream)
-		streamLock.Unlock()
-		return nil
+		m.AddStream(stream)
+		return err
 	})
 }
 
@@ -135,11 +129,11 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 	logger.Infof("Producing catalog schema for stream [%s]", streamName)
 
-	// Initialize stream
+	// initialize stream
 	collection := db.Collection(streamName)
-	stream := types.NewStream(streamName, "")
-	stream.WithSyncMode(types.CDC, types.FULLREFRESH)
+	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
 
+	// find primary keys
 	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 	if err != nil {
 		return nil, err
@@ -179,6 +173,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 				return err
 			}
 		}
-		return nil
+
+		return cursor.Err()
 	})
 }

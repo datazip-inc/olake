@@ -102,5 +102,6 @@ func (m *Mongo) getCurrentResumeToken(collection *mongo.Collection, pipeline []b
 		resumeToken := cursor.ResumeToken()
 		return &resumeToken, nil
 	}
+
 	return nil, fmt.Errorf("no resume token found")
 }
