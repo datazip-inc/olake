@@ -102,7 +102,7 @@ func (m *Mongo) Discover() ([]*types.Stream, error) {
 
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
-	return m.GetStreams(), relec.Concurrent(discoverCtx, streamNames, len(streamNames), func(ctx context.Context, streamName string, _ int) error {
+	err = relec.Concurrent(discoverCtx, streamNames, len(streamNames), func(ctx context.Context, streamName string, _ int) error {
 		stream, err := m.produceCollectionSchema(discoverCtx, database, streamName)
 		if err != nil && discoverCtx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 			return fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
@@ -112,6 +112,11 @@ func (m *Mongo) Discover() ([]*types.Stream, error) {
 		m.AddStream(stream)
 		return err
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return m.GetStreams(), nil
 }
 
 func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
@@ -127,7 +132,7 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 
 // fetch schema types from mongo for streamName
 func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
-	logger.Infof("Producing catalog schema for stream [%s]", streamName)
+	logger.Infof("producing type schema for stream [%s]", streamName)
 
 	// initialize stream
 	collection := db.Collection(streamName)
