@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -22,7 +22,8 @@ type Local struct {
 	closed bool
 	config *Config
 	file   source.ParquetFile
-	writer *writer.ParquetWriter
+	writer *writer.CSVWriter
+	stream *protocol.Stream
 }
 
 func (l *Local) GetConfigRef() any {
@@ -35,17 +36,16 @@ func (p *Local) Spec() any {
 }
 
 func (l *Local) Setup(stream protocol.Stream) error {
-	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName())
+	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName("parquet"))
 	// Start a new local writer
+	os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
 	pqFile, err := local.NewLocalFileWriter(destinationFilePath)
 	if err != nil {
 		return err
 	}
 
-	// TODO: Generate Correct parquet write with Schema from Stream
-
 	// Create writer
-	pw, err := writer.NewParquetWriter(pqFile, nil, 4)
+	pw, err := writer.NewCSVWriter(stream.Schema().GetLevelZeroFlattenedParquetSchemaForJsonTypes(), pqFile, 4)
 	if err != nil {
 		return err
 	}
@@ -54,18 +54,19 @@ func (l *Local) Setup(stream protocol.Stream) error {
 
 	l.file = pqFile
 	l.writer = pw
+	l.stream = &stream
 	return nil
 }
 
 func (l *Local) Check() error {
 	// Create a temporary file in the specified directory
-	tempFile, err := os.CreateTemp(filepath.Join(l.config.BaseFilePath, "temp"), "temporary-*.txt")
+	tempFile, err := os.CreateTemp(l.config.BaseFilePath, "temporary-*.txt")
 	if err != nil {
 		return err
 	}
 
 	// Print the file name
-	logger.Infof("Temporary file created:", tempFile.Name())
+	// logger.Infof("Temporary file created:", tempFile.Name())
 
 	// Write some content to the file (optional)
 	if _, err := tempFile.Write([]byte("Hello, this is a temporary file!")); err != nil {
@@ -86,16 +87,35 @@ iteration:
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Println("Writing done")
+			l.writer.WriteStop()
+			l.file.Close()
 			break iteration
 		default:
 			record, ok := <-channel
-			if !ok { // channel has been closed by other process; possibly the producer(i.e. reader)
+			if !ok {
+				// channel has been closed by other process; possibly the producer(i.e. reader)
+				l.writer.WriteStop()
+				l.file.Close()
 				break iteration
 			}
 
-			// TODO: Manipulate the record for parquet
-			// Write the record to the Parquet file
-			if err := l.writer.Write(record); err != nil {
+			data := []string{}
+			for _, ele := range l.writer.SchemaHandler.SchemaElements {
+				if ele.Name != "Parquet_go_root" {
+					val, err := record.GetStringifiedJSONValue(strings.ToLower(ele.Name))
+					if err != nil {
+						return err
+					}
+					data = append(data, val)
+				}
+			}
+
+			rec := make([]*string, len(data))
+			for j := 0; j < len(data); j++ {
+				rec[j] = &data[j]
+			}
+			if err := l.writer.WriteString(rec); err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
 			}
 		}
@@ -105,7 +125,7 @@ iteration:
 }
 
 func (l *Local) ReInitiationRequiredOnSchemaEvolution() bool {
-	return true
+	return false
 }
 
 func (l *Local) Close() error {
@@ -118,10 +138,4 @@ func (l *Local) Close() error {
 
 func (l *Local) Type() string {
 	return string(types.Local)
-}
-
-func init() {
-	protocol.RegisteredWriters[types.Local] = func() protocol.Writer {
-		return &Local{}
-	}
 }

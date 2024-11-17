@@ -197,12 +197,12 @@ func ULID() string {
 }
 
 // Returns a timestamped
-func TimestampedFileName() string {
+func TimestampedFileName(extension string) string {
 	now := time.Now()
 	ulid, err := ulid.New(ulid.Timestamp(now), entropy)
 	if err != nil {
 		logrus.Fatal(err)
 	}
 
-	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), ulid)
+	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), ulid, extension)
 }

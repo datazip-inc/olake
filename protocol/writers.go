@@ -25,6 +25,7 @@ type WriterPool struct {
 	groupCtx      context.Context
 }
 
+// Shouldn't the name be NewWriterPool?
 func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
@@ -87,6 +88,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 		for {
 			select {
 			case <-parent.Done():
+				fmt.Println("parent is done")
 				break main
 			default:
 				record, ok := <-frontend

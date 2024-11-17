@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/logger/console"
@@ -29,7 +30,7 @@ var (
 	// Global Stream concurrency group;
 	//
 	// Not to confuse with individual stream level concurrency
-	GlobalCxGroup = relec.NewCGroupWithLimit(RootCmd.Context(), concurrentStreamExecution)
+	GlobalCxGroup = relec.NewCGroupWithLimit(context.Background(), concurrentStreamExecution)
 )
 
 // RootCmd represents the base command when called without any subcommands

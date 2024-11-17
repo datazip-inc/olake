@@ -6,6 +6,7 @@ import (
 
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
+	"github.com/xitongsys/parquet-go/parquet"
 )
 
 // Message is a dto for olake output row representation
@@ -118,9 +119,11 @@ func (t *TypeSchema) GetType(column string) (DataType, error) {
 func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 	p, found := t.Properties.Load(column)
 	if !found {
-		t.Properties.Store(column, &Property{
+		p = &Property{
 			Type: types,
-		})
+		}
+		t.Properties.Store(column, p)
+		return
 	}
 
 	property := p.(*Property)
@@ -134,6 +137,25 @@ func (t *TypeSchema) GetProperty(column string) (*Property, error) {
 	}
 
 	return p.(*Property), nil
+}
+
+func (t *TypeSchema) GetLevelZeroFlattenedParquetSchemaForJsonTypes() []string {
+
+	sc := []string{}
+	t.Properties.Range(func(key, value interface{}) bool {
+		col := key.(string)
+		minType, convType := value.(*Property).DataType().getParquetEquivalent()
+		ftag := fmt.Sprintf("name=%s, type=%s, repetitiontype=OPTIONAL", col, minType)
+		if convType != -1 {
+			if value.(*Property).DataType().stringificationNeededForJsonTypes() {
+				convType = parquet.ConvertedType_UTF8
+			}
+			ftag = fmt.Sprintf("name=%s, type=%s, convertedtype=%s, repetitiontype=OPTIONAL", col, minType, convType)
+		}
+		sc = append(sc, ftag)
+		return true
+	})
+	return sc
 }
 
 // Property is a dto for catalog properties representation
