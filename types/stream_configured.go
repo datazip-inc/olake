@@ -8,8 +8,8 @@ import (
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
-	*StreamState            `json:"-"` // in-memory state copy for individual stream
-	InitialCursorStateValue any        `json:"-"` // Cached initial state value
+	steamState              *StreamState `json:"-"` // in-memory state copy for individual stream
+	InitialCursorStateValue any          `json:"-"` // Cached initial state value
 
 	Stream   *Stream  `json:"stream,omitempty"`
 	SyncMode SyncMode `json:"sync_mode,omitempty"` // Mode being used for syncing data
@@ -66,7 +66,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 		})
 		if contains {
 			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
-			s.StreamState = state.Streams[i]
+			s.steamState = state.Streams[i]
 		} else {
 			ss := &StreamState{
 				Stream:    s.Name(),
@@ -74,7 +74,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 			}
 
 			// save references of stream state and add it to connector state
-			s.StreamState = ss
+			s.steamState = ss
 			state.Streams = append(state.Streams, ss)
 		}
 	}
@@ -85,20 +85,20 @@ func (s *ConfiguredStream) InitialState() any {
 }
 
 func (s *ConfiguredStream) SetStateCursor(value any) {
-	s.State.Store(s.Cursor(), value)
+	s.steamState.State.Store(s.Cursor(), value)
 }
 
 func (s *ConfiguredStream) SetStateKey(key string, value any) {
-	s.State.Store(key, value)
+	s.steamState.State.Store(key, value)
 }
 
 func (s *ConfiguredStream) GetStateCursor() any {
-	val, _ := s.State.Load(s.Cursor())
+	val, _ := s.steamState.State.Load(s.Cursor())
 	return val
 }
 
 func (s *ConfiguredStream) GetStateKey(key string) any {
-	val, _ := s.State.Load(key)
+	val, _ := s.steamState.State.Load(key)
 	return val
 }
 
@@ -106,10 +106,10 @@ func (s *ConfiguredStream) GetStateKey(key string) any {
 func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
 	values := []any{}
 	for _, key := range keys {
-		val, _ := s.State.Load(key)
+		val, _ := s.steamState.State.Load(key)
 		values = append(values, val) // cache
 
-		s.State.Delete(key) // delete
+		s.steamState.State.Delete(key) // delete
 	}
 
 	return values

@@ -119,12 +119,14 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 	p, found := t.Properties.Load(column)
 	if !found {
 		t.Properties.Store(column, &Property{
-			Type: types,
+			Type: NewSet(types...),
 		})
+
+		return
 	}
 
 	property := p.(*Property)
-	property.Type = append(property.Type, types...)
+	property.Type.Insert(types...)
 }
 
 func (t *TypeSchema) GetProperty(column string) (*Property, error) {
@@ -138,24 +140,25 @@ func (t *TypeSchema) GetProperty(column string) (*Property, error) {
 
 // Property is a dto for catalog properties representation
 type Property struct {
-	Type []DataType `json:"type,omitempty"`
+	Type *Set[DataType] `json:"type,omitempty"`
 	// TODO: Decide to keep in the Protocol Or Not
 	// Format string     `json:"format,omitempty"`
 }
 
 func (p *Property) DataType() DataType {
-	i, found := utils.ArrayContains(p.Type, func(elem DataType) bool {
+	types := p.Type.Array()
+	i, found := utils.ArrayContains(types, func(elem DataType) bool {
 		return elem != NULL
 	})
 	if !found {
 		return NULL
 	}
 
-	return p.Type[i]
+	return types[i]
 }
 
 func (p *Property) Nullable() bool {
-	_, found := utils.ArrayContains(p.Type, func(elem DataType) bool {
+	_, found := utils.ArrayContains(p.Type.Array(), func(elem DataType) bool {
 		return elem == NULL
 	})
 

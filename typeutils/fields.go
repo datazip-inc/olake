@@ -104,7 +104,7 @@ func (f Fields) ToProperties() map[string]*types.Property {
 	result := make(map[string]*types.Property)
 	for fieldName, field := range f {
 		result[fieldName] = &types.Property{
-			Type: field.Types(),
+			Type: types.NewSet(field.Types()...),
 		}
 	}
 
