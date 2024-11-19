@@ -33,14 +33,8 @@ Place these files in your project directory before running the commands.
 The *Discover* command generates the `catalog.json` file, which defines the schema of the collections to be synced.
 
 ```bash
-./build.sh driver-mongodb sync --config ./mongodb/examples/config.json
+./build.sh driver-mongodb discover --config ./mongodb/examples/config.json
 ```
-- **Input**:  
-  - `config.json`: MongoDB connection details.  
-- **Output**:  
-  - `catalog.json`: Discovered schema.
-
----
 
 ### Sync Command
 
