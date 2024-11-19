@@ -18,8 +18,26 @@ type Config struct {
 }
 
 func (c *Config) URI() string {
+	connectionPrefix := "mongodb"
+	options := fmt.Sprintf("?authSource=%s", c.AuthDB)
+
+	if c.Srv {
+		connectionPrefix = "mongodb+srv"
+	}
+
+	if c.ReplicaSet != "" {
+		// configurations for a replica set
+		options = fmt.Sprintf("%s&replicaSet=%s", options, c.ReplicaSet)
+		if c.ReadPreference != "" {
+			options = fmt.Sprintf("%s&readPreference=%s", options, c.ReadPreference)
+		} else {
+			// default secondaryPreferred
+			options = fmt.Sprintf("%s&readPreference=%s", options, "secondaryPreferred")
+		}
+	}
+
 	return fmt.Sprintf(
-		"mongodb://%s:%s@%s/?authSource=%s&replicaSet=%s&readPreference=%s",
-		c.Username, c.Password, strings.Join(c.Hosts, ","), c.AuthDB, c.ReplicaSet, c.ReadPreference,
+		"%s://%s:%s@%s/?%s", connectionPrefix,
+		c.Username, c.Password, strings.Join(c.Hosts, ","), options,
 	)
 }

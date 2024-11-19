@@ -51,6 +51,8 @@ func (m *Mongo) Setup() error {
 	}
 
 	m.client = conn
+	// no need to check from discover if it have cdc support or not
+	m.CDCSupport = true
 	return nil
 }
 
@@ -99,7 +101,6 @@ func (m *Mongo) Discover() ([]*types.Stream, error) {
 		}
 		streamNames = append(streamNames, collectionInfo["name"].(string))
 	}
-
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
 	err = relec.Concurrent(discoverCtx, streamNames, len(streamNames), func(ctx context.Context, streamName string, _ int) error {
@@ -157,8 +158,8 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 	// Define find options for fetching documents in ascending and descending order.
 	findOpts := []*options.FindOptions{
-		options.Find().SetLimit(100000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
-		options.Find().SetLimit(100000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
+		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
+		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 	}
 
 	return stream, relec.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {

@@ -10,11 +10,11 @@ import (
 
 type Driver struct {
 	cachedStreams sync.Map // locally cached streams; It contains all streams
-	GroupRead     bool     // Used in CDC mode
+	CDCSupport    bool     // Used in CDC mode
 }
 
 func (d *Driver) ChangeStreamSupported() bool {
-	return d.GroupRead
+	return d.CDCSupport
 }
 
 // Returns all the possible streams available in the source
@@ -69,6 +69,6 @@ func (d *Driver) UpdateStateCursor(stream protocol.Stream, data types.Record) er
 func NewBase() *Driver {
 	return &Driver{
 		cachedStreams: sync.Map{},
-		GroupRead:     false,
+		CDCSupport:    false,
 	}
 }

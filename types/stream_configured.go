@@ -15,7 +15,7 @@ type ConfiguredStream struct {
 	SyncMode SyncMode `json:"sync_mode,omitempty"` // Mode being used for syncing data
 	// Column that's being used as cursor; MUST NOT BE mutated
 	//
-	// Cursor field is used in Incremental and in Mixed type GroupRead where connector uses
+	// Cursor field is used in Incremental and in Mixed type CDC Read where connector uses
 	// this field as recovery column incase of some inconsistencies
 	CursorField    string   `json:"cursor_field,omitempty"`
 	ExcludeColumns []string `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
@@ -121,9 +121,9 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("invalid sync mode[%s]; valid are %v", s.SyncMode, source.SupportedSyncModes)
 	}
 
-	if !source.AvailableCursorFields.Exists(s.CursorField) {
-		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.AvailableCursorFields)
-	}
+	// if !source.AvailableCursorFields.Exists(s.CursorField) {
+	// 	return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.AvailableCursorFields)
+	// }
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())

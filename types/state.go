@@ -153,8 +153,8 @@ type Global[T GlobalState] struct {
 	// Attaching Streams to Global State helps in recognizing the tables that the state belongs to.
 	//
 	// This results in helping connector determine what streams were synced during the last sync in
-	// Group read. and also helps connectors to migrate from incremental to GroupRead without the need to
-	// full load with the help of using cursor value and field as recovery cursor for GroupRead
+	// Group read. and also helps connectors to migrate from incremental to CDC Read without the need to
+	// full load with the help of using cursor value and field as recovery cursor for CDC
 	Streams *Set[string] `json:"streams"`
 }
 
