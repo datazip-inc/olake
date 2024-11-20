@@ -1,11 +1,14 @@
 # Olake
 
+![undefined](https://github.com/user-attachments/assets/fe37e142-556a-48f0-a649-febc3dbd083c)
+
 Connector ecosystem for Olake, the key points Olake Connectors focuses on are these
 - **Integrated Writers to avoid block of reading, and pushing directly into destinations**
 - **Connector Autonomy**
 - **Avoid operations that don't contribute to increasing record throughput**
 
-## Olake Structure
+
+## Olake Framework Structure
 ![diagram](/.github/assets/Olake.jpg)
 
 ## Components
