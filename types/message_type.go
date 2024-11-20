@@ -7,7 +7,7 @@ const (
 	ConnectionStatusMessage MessageType = "CONNECTION_STATUS"
 	StateMessage            MessageType = "STATE"
 	RecordMessage           MessageType = "RECORD"
-	CataLogMessage          MessageType = "CATALOG"
+	CatalogMessage          MessageType = "CATALOG"
 	SpecMessage             MessageType = "SPEC"
 	ActionMessage           MessageType = "ACTION"
 )

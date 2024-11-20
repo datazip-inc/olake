@@ -77,7 +77,7 @@ func LogSpec(spec map[string]interface{}) {
 
 func LogCatalog(streams []*types.Stream) {
 	message := types.Message{}
-	message.Type = types.CataLogMessage
+	message.Type = types.CatalogMessage
 	message.Catalog = types.GetWrappedCatalog(streams)
 	Info("logging catalog")
 	err := console.Print(console.INFO, message)

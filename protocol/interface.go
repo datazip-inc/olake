@@ -56,7 +56,9 @@ type Writer interface {
 	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
 	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
 	// schema update with an Alter Query
-	ReInitiationRequiredOnSchemaEvolution() bool
+	ReInitiationOnTypeChange() bool
+	ReInitiationOnNewColumns() bool
+	EvolveSchema(map[string]*types.Property) error
 	Close() error
 }
 

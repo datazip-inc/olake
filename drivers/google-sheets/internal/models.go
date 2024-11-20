@@ -37,7 +37,7 @@ type Service struct {
 
 func (c *Config) ValidateAndPopulateDefaults() error {
 	if c.NameConversion == nil {
-		c.NameConversion = types.ToPtr(true)
+		c.NameConversion = types.ToPointer(true)
 	}
 
 	if c.Credentials == nil {

@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -22,7 +23,7 @@ type Local struct {
 	closed bool
 	config *Config
 	file   source.ParquetFile
-	writer *writer.CSVWriter
+	writer *writer.ParquetWriter
 	stream *protocol.Stream
 }
 
@@ -36,16 +37,17 @@ func (p *Local) Spec() any {
 }
 
 func (l *Local) Setup(stream protocol.Stream) error {
-	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName("parquet"))
+	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName(constants.ParquetFileExt))
 	// Start a new local writer
 	os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
+
 	pqFile, err := local.NewLocalFileWriter(destinationFilePath)
 	if err != nil {
 		return err
 	}
 
 	// Create writer
-	pw, err := writer.NewCSVWriter(stream.Schema().GetLevelZeroFlattenedParquetSchemaForJsonTypes(), pqFile, 4)
+	pw, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
 	if err != nil {
 		return err
 	}
@@ -66,7 +68,7 @@ func (l *Local) Check() error {
 	}
 
 	// Print the file name
-	// logger.Infof("Temporary file created:", tempFile.Name())
+	logger.Infof("Temporary file created:", tempFile.Name())
 
 	// Write some content to the file (optional)
 	if _, err := tempFile.Write([]byte("Hello, this is a temporary file!")); err != nil {
@@ -87,35 +89,15 @@ iteration:
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("Writing done")
-			l.writer.WriteStop()
-			l.file.Close()
 			break iteration
 		default:
 			record, ok := <-channel
 			if !ok {
 				// channel has been closed by other process; possibly the producer(i.e. reader)
-				l.writer.WriteStop()
-				l.file.Close()
 				break iteration
 			}
 
-			data := []string{}
-			for _, ele := range l.writer.SchemaHandler.SchemaElements {
-				if ele.Name != "Parquet_go_root" {
-					val, err := record.GetStringifiedJSONValue(strings.ToLower(ele.Name))
-					if err != nil {
-						return err
-					}
-					data = append(data, val)
-				}
-			}
-
-			rec := make([]*string, len(data))
-			for j := 0; j < len(data); j++ {
-				rec[j] = &data[j]
-			}
-			if err := l.writer.WriteString(rec); err != nil {
+			if err := l.writer.Write(record); err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
 			}
 		}

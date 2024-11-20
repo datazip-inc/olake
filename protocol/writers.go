@@ -8,6 +8,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/safego"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"golang.org/x/sync/errgroup"
 )
@@ -65,8 +66,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 	}
 
 	w.threadCounter.Add(1)
-	frontend := make(chan types.Record)
-	backend := make(chan types.Record)
+	frontend := make(chan types.Record) // To be given to Reader
+	backend := make(chan types.Record)  // To be given to Writer
 	child, childCancel := context.WithCancel(parent)
 
 	// spawnWriter spawns a writer process with child context
@@ -79,6 +80,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 		})
 	}
 
+	fields := make(typeutils.Fields)
+
 	w.group.Go(func() error {
 		defer safego.Close(backend)
 		// not defering canceling the child context so that writing process
@@ -88,7 +91,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 		for {
 			select {
 			case <-parent.Done():
-				fmt.Println("parent is done")
 				break main
 			default:
 				record, ok := <-frontend
@@ -96,11 +98,21 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 					break main
 				}
 
-				// TODO: handle schema evolution here
-				if thread.ReInitiationRequiredOnSchemaEvolution() {
+				change, typeChange, mutations := fields.Process(record)
+				if change || typeChange {
+					stream.GetStream().WithSchema(fields.ToTypeSchema()) // update the schema in Stream
+				}
+
+				// handle schema evolution here
+				if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
 					childCancel()                                   // Close the current writer and spawn new
 					child, childCancel = context.WithCancel(parent) // replace the original child context and cancel function
 					spawnWriter()                                   // spawn a writer with newer context
+				} else {
+					err := thread.EvolveSchema(mutations.ToProperties())
+					if err != nil {
+						return err
+					}
 				}
 
 				w.recordCount.Add(1) // increase the record count

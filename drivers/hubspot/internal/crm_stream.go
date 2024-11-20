@@ -118,7 +118,7 @@ func (c *CRMSearchStream) readRecords(send chan<- types.Record) error {
 				return err
 			}
 			if latest_cursor != nil {
-				latest_cursor = types.ToPtr(utils.MaxDate(cursor, *latest_cursor))
+				latest_cursor = types.ToPointer(utils.MaxDate(cursor, *latest_cursor))
 			} else {
 				latest_cursor = &cursor
 			}

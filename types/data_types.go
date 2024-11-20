@@ -1,9 +1,6 @@
 package types
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/xitongsys/parquet-go/parquet"
 )
 
@@ -26,62 +23,82 @@ const (
 
 type Record map[string]any
 
-func (r Record) GetStringifiedJSONValue(key string) (string, error) {
-	value := r[key]
-	switch value.(type) {
-	case struct{}, map[string]interface{}, []interface{}:
-		s, err := json.Marshal(value)
-		return string(s), err
-	default:
-		return fmt.Sprintf("%v", r[key]), nil
-	}
-}
-
 // returns parquet equivalent type & convertedType for the datatype
-func (d DataType) getParquetEquivalent() (parquet.Type, parquet.ConvertedType) {
+func (d DataType) ToParquet() *parquet.SchemaElement {
 	switch d {
 	case INT64:
-		return parquet.Type_INT64, parquet.ConvertedType_INT_64
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_INT64),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	case FLOAT64:
-		return parquet.Type_DOUBLE, -1
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_FLOAT),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	case STRING:
-		return parquet.Type_BYTE_ARRAY, parquet.ConvertedType_UTF8
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
+			ConvertedType:  ToPointer(parquet.ConvertedType_UTF8),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	case BOOL:
-		return parquet.Type_BOOLEAN, -1
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_BOOLEAN),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	//TODO: Not able to generate correctly in parquet, handle later
 	case TIMESTAMP:
-		return parquet.Type_INT64, parquet.ConvertedType_TIMESTAMP_MILLIS
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_INT64),
+			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	case TIMESTAMP_MILLI:
-		return parquet.Type_INT64, parquet.ConvertedType_TIMESTAMP_MILLIS
-	case TIMESTAMP_MICRO:
-		return parquet.Type_INT64, parquet.ConvertedType_TIMESTAMP_MICROS
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_INT64),
+			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	//TODO: Not able to generate correctly in parquet, handle later
 	case TIMESTAMP_NANO:
-		return parquet.Type_INT64, parquet.ConvertedType_TIMESTAMP_MICROS
-	case OBJECT:
-		return parquet.Type_BYTE_ARRAY, parquet.ConvertedType_JSON
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_INT64),
+			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
+	case OBJECT: // Objects are turned into String in parquet
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
+			ConvertedType:  ToPointer(parquet.ConvertedType_UTF8),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	default:
-		return parquet.Type_BYTE_ARRAY, parquet.ConvertedType_JSON
+		return &parquet.SchemaElement{
+			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
+			ConvertedType:  ToPointer(parquet.ConvertedType_JSON),
+			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
+		}
 	}
 }
 
-func (d DataType) stringificationNeededForJsonTypes() bool {
-	switch d {
-	case INT64:
-		return false
-	case FLOAT64:
-		return false
-	case BOOL:
-		return false
-	case TIMESTAMP:
-		return false
-	case TIMESTAMP_MILLI:
-		return false
-	case TIMESTAMP_MICRO:
-		return false
-	case TIMESTAMP_NANO:
-		return false
-	default:
-		return true
-	}
-}
+// func (d DataType) stringificationNeededForJsonTypes() bool {
+// 	switch d {
+// 	case INT64:
+// 		return false
+// 	case FLOAT64:
+// 		return false
+// 	case BOOL:
+// 		return false
+// 	case TIMESTAMP:
+// 		return false
+// 	case TIMESTAMP_MILLI:
+// 		return false
+// 	case TIMESTAMP_MICRO:
+// 		return false
+// 	case TIMESTAMP_NANO:
+// 		return false
+// 	default:
+// 		return true
+// 	}
+// }

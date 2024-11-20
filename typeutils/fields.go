@@ -100,15 +100,51 @@ func (f Fields) Header() (header []string) {
 	return
 }
 
+// Returns change, typeChange, mutations
+func (f Fields) Process(record types.Record) (bool, bool, Fields) {
+	changeDetected := false
+	typeChangeDetected := false
+	mutations := make(Fields)
+
+	for key, value := range record {
+		detectedType := TypeFromValue(value)
+		if val, found := f[key]; found {
+			currentType := val.getType()
+			if detectedType != types.NULL && currentType != detectedType { // compare current type
+				f[key].Merge(NewField(detectedType)) // merged data types for this field
+				updatedType := f[key].getType()
+				if updatedType != currentType {
+					typeChangeDetected = true               // Type has been updated for one key
+					mutations[key] = NewField(detectedType) // record mutations
+				}
+			}
+		} else {
+			changeDetected = true                   // mark true
+			mutations[key] = NewField(detectedType) // record mutations
+		}
+	}
+
+	f.Merge(mutations) // merge the mutation with original fields
+	return changeDetected, typeChangeDetected, mutations
+}
+
 func (f Fields) ToProperties() map[string]*types.Property {
 	result := make(map[string]*types.Property)
 	for fieldName, field := range f {
 		result[fieldName] = &types.Property{
-			Type: field.Types(),
+			Type: types.NewSet(field.Types()...),
 		}
 	}
 
 	return result
+}
+
+func (f Fields) ToTypeSchema() *types.TypeSchema {
+	schema := types.NewTypeSchema()
+	for key, val := range f {
+		schema.AddTypes(key, val.getType())
+	}
+	return schema
 }
 
 // Field is a data type holder with occurrences

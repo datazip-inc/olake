@@ -56,7 +56,7 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 
 // Unmarshal serializes and deserializes any from into the object
 // return error if occurred
-func Unmarshal(from interface{}, object interface{}) error {
+func Unmarshal(from, object any) error {
 	reformatted := reformatInnerMaps(from)
 	b, err := json.Marshal(reformatted)
 	if err != nil {
@@ -74,24 +74,24 @@ func IsInstance(val any, typ reflect.Kind) bool {
 	return reflect.ValueOf(val).Kind() == typ
 }
 
-// reformatInnerMaps converts all map[interface{}]interface{} into map[string]interface{}
-// because json.Marshal doesn't support map[interface{}]interface{} (supports only string keys)
-// but viper produces map[interface{}]interface{} for inner maps
-// return recursively converted all map[interface]interface{} to map[string]interface{}
-func reformatInnerMaps(valueI interface{}) interface{} {
+// reformatInnerMaps converts all map[any]any into map[string]any
+// because json.Marshal doesn't support map[any]any (supports only string keys)
+// but viper produces map[any]any for inner maps
+// return recursively converted all map[interface]any to map[string]any
+func reformatInnerMaps(valueI any) any {
 	switch value := valueI.(type) {
-	case []interface{}:
+	case []any:
 		for i, subValue := range value {
 			value[i] = reformatInnerMaps(subValue)
 		}
 		return value
-	case map[interface{}]interface{}:
-		newMap := make(map[string]interface{}, len(value))
+	case map[any]any:
+		newMap := make(map[string]any, len(value))
 		for k, subValue := range value {
 			newMap[fmt.Sprint(k)] = reformatInnerMaps(subValue)
 		}
 		return newMap
-	case map[string]interface{}:
+	case map[string]any:
 		for k, subValue := range value {
 			value[k] = reformatInnerMaps(subValue)
 		}
@@ -142,8 +142,8 @@ func UnmarshalFile(file string, dest any) error {
 	return nil
 }
 
-func IsOfType(object interface{}, decidingKey string) (bool, error) {
-	objectMap := make(map[string]interface{})
+func IsOfType(object any, decidingKey string) (bool, error) {
+	objectMap := make(map[string]any)
 	if err := Unmarshal(object, &objectMap); err != nil {
 		return false, err
 	}
@@ -205,4 +205,9 @@ func TimestampedFileName(extension string) string {
 	}
 
 	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), ulid, extension)
+}
+
+func IsJSON(str string) bool {
+	var js json.RawMessage
+	return json.Unmarshal([]byte(str), &js) == nil
 }

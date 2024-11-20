@@ -1,6 +1,6 @@
 package types
 
-func ToPtr[T any](val T) *T {
+func ToPointer[T any](val T) *T {
 	return &val
 }
 
