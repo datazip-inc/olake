@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/flatten"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/source"
@@ -24,7 +25,7 @@ type Local struct {
 	config *Config
 	file   source.ParquetFile
 	writer *writer.ParquetWriter
-	stream *protocol.Stream
+	stream protocol.Stream
 }
 
 func (l *Local) GetConfigRef() any {
@@ -56,7 +57,7 @@ func (l *Local) Setup(stream protocol.Stream) error {
 
 	l.file = pqFile
 	l.writer = pw
-	l.stream = &stream
+	l.stream = stream
 	return nil
 }
 
@@ -85,6 +86,7 @@ func (l *Local) Check() error {
 }
 
 func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
+	flattener := flatten.NewFlattener()
 iteration:
 	for {
 		select {
@@ -97,6 +99,11 @@ iteration:
 				break iteration
 			}
 
+			record, err := flattener.Flatten(record) // flatten the record
+			if err != nil {
+				return err
+			}
+
 			if err := l.writer.Write(record); err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
 			}
@@ -106,8 +113,22 @@ iteration:
 	return nil
 }
 
-func (l *Local) ReInitiationRequiredOnSchemaEvolution() bool {
+func (l *Local) ReInitiationOnTypeChange() bool {
+	return true
+}
+
+func (l *Local) ReInitiationOnNewColumns() bool {
 	return false
+}
+
+func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
+	for column, property := range mutation {
+		pqSchemaElem := property.DataType().ToParquet()
+		pqSchemaElem.Name = column
+		l.writer.SchemaHandler.SchemaElements = append(l.writer.SchemaHandler.SchemaElements, pqSchemaElem)
+	}
+
+	return nil
 }
 
 func (l *Local) Close() error {
@@ -120,4 +141,10 @@ func (l *Local) Close() error {
 
 func (l *Local) Type() string {
 	return string(types.Local)
+}
+
+func init() {
+	protocol.RegisteredWriters[types.Local] = func() protocol.Writer {
+		return &Local{}
+	}
 }

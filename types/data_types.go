@@ -67,7 +67,7 @@ func (d DataType) ToParquet() *parquet.SchemaElement {
 			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
-	case OBJECT: // Objects are turned into String in parquet
+	case OBJECT, ARRAY: // Objects/Arrays are turned into String in parquet
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
 			ConvertedType:  ToPointer(parquet.ConvertedType_UTF8),
@@ -81,24 +81,3 @@ func (d DataType) ToParquet() *parquet.SchemaElement {
 		}
 	}
 }
-
-// func (d DataType) stringificationNeededForJsonTypes() bool {
-// 	switch d {
-// 	case INT64:
-// 		return false
-// 	case FLOAT64:
-// 		return false
-// 	case BOOL:
-// 		return false
-// 	case TIMESTAMP:
-// 		return false
-// 	case TIMESTAMP_MILLI:
-// 		return false
-// 	case TIMESTAMP_MICRO:
-// 		return false
-// 	case TIMESTAMP_NANO:
-// 		return false
-// 	default:
-// 		return true
-// 	}
-// }

@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/datazip-inc/olake/logger"
@@ -24,6 +25,7 @@ type WriterPool struct {
 	init          NewFunc      // To initialize exclusive destination threads
 	group         *errgroup.Group
 	groupCtx      context.Context
+	smu           sync.Mutex // Stream mutex
 }
 
 // Shouldn't the name be NewWriterPool?
@@ -51,6 +53,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 		init:          newfunc,
 		group:         group,
 		groupCtx:      ctx,
+		smu:           sync.Mutex{},
 	}, nil
 }
 
@@ -100,7 +103,9 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 
 				change, typeChange, mutations := fields.Process(record)
 				if change || typeChange {
-					stream.GetStream().WithSchema(fields.ToTypeSchema()) // update the schema in Stream
+					w.smu.Lock()
+					stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
+					w.smu.Unlock()
 				}
 
 				// handle schema evolution here
