@@ -62,7 +62,6 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}
 
 	}
-	time.Sleep(30 * time.Second)
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(prevResumeToken)
 	// resume cdc sync from prev resume token
 	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.Name(), prevResumeToken)
