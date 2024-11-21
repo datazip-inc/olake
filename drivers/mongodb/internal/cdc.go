@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
