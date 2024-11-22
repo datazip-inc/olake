@@ -52,6 +52,9 @@ var syncCmd = &cobra.Command{
 				return err
 			}
 		}
+		// TODO: state formatting
+		logger.Infof("Running sync with state: %v", state)
+
 		state.Mutex = &sync.Mutex{}
 
 		return nil
@@ -151,7 +154,6 @@ var syncCmd = &cobra.Command{
 		if err := GlobalCxGroup.Block(); err != nil {
 			return err
 		}
-
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
 			logger.LogState(state)

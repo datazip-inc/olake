@@ -23,14 +23,13 @@ func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 }
 
 func (m *Mongo) SetupGlobalState(state *types.State) error {
-	state.Type = m.StateType()
-	// Setup raw state
-	// m.cdcState = types.NewGlobalState()
+	// mongo db does not support any gloabal state
+	// stream level states can be used
 	return nil
 }
 
 func (m *Mongo) StateType() types.StateType {
-	return ""
+	return types.StreamType
 }
 
 // does full load on empty state
@@ -45,8 +44,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
 		}}},
 	}
-
-	var prevResumeToken interface{}
+	prevResumeToken := stream.GetStateCursor()
 	if prevResumeToken == nil {
 		// get current resume token and do full load for stream
 		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
@@ -88,12 +86,13 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}
 		prevResumeToken = cursor.ResumeToken().String()
 	}
+
 	if err := cursor.Err(); err != nil {
 		return fmt.Errorf("failed to iterate cursor on change streams: %s", err)
 	}
 
 	// save state for the current stream
-	// stream.SetStateCursor(prevResumeToken)
+	stream.SetStateCursor(prevResumeToken)
 	return nil
 }
 

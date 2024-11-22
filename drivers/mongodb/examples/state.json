@@ -1,0 +1,21 @@
+{
+    "type": "STREAM",
+    "streams": [
+        {
+            "stream":"stream_8",
+            "namespace":"otter_db",
+            "sync_mode":"cdc",
+            "state": {
+                "resume_token": {"_data": "82673F82FE000000022B0429296E1404"}
+            }
+        },
+        {
+            "stream":"stream_0",
+            "namespace":"otter_db",
+            "sync_mode":"cdc",
+            "state": {
+                "resume_token": {"_data": "82673F82FE000000022B0429296E1404"}
+            }
+        }
+    ]
+}

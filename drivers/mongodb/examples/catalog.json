@@ -118,7 +118,8 @@
           "source_defined_primary_key": ["_id"],
           "available_cursor_fields": []
         },
-        "sync_mode": "cdc"
+        "sync_mode": "cdc",
+        "cursor_field":"resume_token"
       },
       {
         "stream": {
@@ -219,7 +220,8 @@
           "source_defined_primary_key": ["_id"],
           "available_cursor_fields": []
         },
-        "sync_mode": "cdc"
+        "sync_mode": "cdc",
+        "cursor_field":"resume_token"
       }
     ]
   }
