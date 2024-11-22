@@ -11,6 +11,55 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 ## Olake Framework Structure
 ![diagram](/.github/assets/Olake.jpg)
 
+## Benchmark Results: Refer this doc for complete information
+
+### Speed Comparison: Full Load Performance
+
+For a collection of 230 million rows (664.81GB) from [Twitter data](https://archive.org/details/archiveteam-twitter-stream-2017-11), here's how Olake compares to other tools:
+
+| Tool              | Full Load Time    | Performance          |
+|-------------------|-------------------|----------------------|
+| **Olake**         | 46 mins           | X times faster       |
+| **Fivetran**      | 4 hours 39 mins (279 mins) | 6x slower          |
+| **Airbyte**       | 16 hours (960 mins) | 20x slower         |
+| **Debezium (Embedded)** | 11.65 hours (699 mins) | 15x slower     |
+
+
+### Incremental Sync Performance
+
+| Tool                 | Incremental Sync Time | Records per Second (r/s) | Performance      |
+|----------------------|------------------------|---------------------------|------------------|
+| **Olake**            | 28.3 sec              | 35,694 r/s                | X times faster   |
+| **Fivetran**         | 3 min 10 sec          | 5,260 r/s                 | 6.7x slower      |
+| **Airbyte**          | 12 min 44 sec         | 1,308 r/s                 | 27.3x slower     |
+| **Debezium (Embedded)** | 12 min 44 sec       | 1,308 r/s                 | 27.3x slower     |
+
+### Cost Comparison: (Considering 230mil first full load & 50million rows incremental rows per month) as dated 30th Sep:
+
+| Tool                           | First Full Sync Cost | Incremental Sync Cost (Monthly) | Total Monthly Cost | Info                                          | Factor           |
+|--------------------------------|----------------------|----------------------------------|--------------------|-----------------------------------------------|------------------|
+| **Olake**                      | 10-50 USD           | 250 USD                          | 300 USD            | Heavier instance required only for 1-2 hours | X times          |
+| **Fivetran**                   | Free                | 6000 USD                        | 6000 USD          | 15 min sync frequency; pricing for 50M rows & standard plan | 20x costlier    |
+| **Airbyte**                    | 6000 USD           | 1408 USD                        | 7400 USD          | First load - 1.15 TB data synced             | 24.6x costlier   |
+| **Debezium MSK Connect + AWS MSK Serverless** | -                  | -                                | 900 USD           | 1.2 TB total data (incremental & first full sync) | 3x costlier      |
+
+### Testing Infrastructure
+
+Virtual Machine: `Standard_D64as_v5`
+
+- CPU: `64` vCPUs
+- Memory: `256` GiB RAM
+- Storage: `250` GB of shared storage
+
+### MongoDB Setup:
+
+- 3 Nodes running in a replica set configuration:
+  - 1 Primary Node (Master) that handles all write operations.
+  - 2 Secondary Nodes (Replicas) that replicate data from the primary node.
+
+Find more [here](https://datazip.io/olake/docs/olake/mongodb/benchmark).
+
+
 ## Components
 ### Drivers
 
