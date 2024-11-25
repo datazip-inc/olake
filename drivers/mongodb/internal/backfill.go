@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -24,7 +26,7 @@ type Boundry struct {
 }
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
-	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Snapshot())).Collection(stream.Name())
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	totalCount, err := m.totalCountInCollection(collection)
 	if err != nil {
 		return err
@@ -61,7 +63,10 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		return exit, boundry, nil
 	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
-		insert, err := pool.NewThread(ctx, stream)
+		threadContext, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		insert, err := pool.NewThread(threadContext, stream)
 		if err != nil {
 			return err
 		}
@@ -81,6 +86,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				return fmt.Errorf("backfill decoding document: %s", err)
 			}
 
+			handleObjectID(doc)
 			exit, err := insert(types.Record(doc))
 			if err != nil {
 				return err
@@ -204,4 +210,9 @@ func generateMinObjectID(t time.Time) *primitive.ObjectID {
 	}
 
 	return &objectID
+}
+
+func handleObjectID(doc bson.M) {
+	objectID := doc[constants.MongoPrimaryID].(primitive.ObjectID).String()
+	doc[constants.MongoPrimaryID] = strings.TrimRight(strings.TrimLeft(objectID, constants.MongoPrimaryIDPrefix), constants.MongoPrimaryIDSuffix)
 }

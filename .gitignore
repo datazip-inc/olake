@@ -2,3 +2,4 @@ g5
 .vscode
 test
 .DS_Store
+__debug_bin*

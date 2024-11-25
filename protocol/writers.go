@@ -99,9 +99,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 	// middleware that has abstracted the repetition code from Writers
 	w.group.Go(func() error {
 		defer safego.Close(backend)
+		defer safego.Close(frontend)
 		// not defering canceling the child context so that writing process
 		// can finish writing all the records pushed into the channel
-
+		flatten := thread.Flattener()
 	main:
 		for {
 			select {
@@ -111,6 +112,11 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 				record, ok := <-frontend
 				if !ok {
 					break main
+				}
+
+				record, err := flatten(record) // flatten the record first
+				if err != nil {
+					return err
 				}
 
 				change, typeChange, mutations := fields.Process(record)
@@ -128,8 +134,13 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 				} else {
 					err := thread.EvolveSchema(mutations.ToProperties())
 					if err != nil {
-						return err
+						return fmt.Errorf("failed to evolve schema: %s", err)
 					}
+				}
+
+				err = typeutils.ReformatRecord(fields, record)
+				if err != nil {
+					return err
 				}
 
 				w.recordCount.Add(1) // increase the record count

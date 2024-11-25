@@ -191,7 +191,7 @@ func (this *Set[T]) Array() []T {
 
 func (this *Set[T]) UnmarshalJSON(data []byte) error {
 	// to init underlying field during unmarshalling
-	this = NewSet[T]()
+	*this = *NewSet[T]()
 	arr := []T{}
 	err := json.Unmarshal(data, &arr)
 	if err != nil {

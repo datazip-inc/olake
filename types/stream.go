@@ -15,7 +15,7 @@ type Stream struct {
 	// helps in identifying collections with same name in different database
 	Namespace string `json:"namespace,omitempty"`
 	// Possible Schema of the Stream
-	Schema *TypeSchema `json:"json_schema,omitempty"`
+	Schema *TypeSchema `json:"type_schema,omitempty"`
 	// Supported sync modes from driver for the respective Stream
 	SupportedSyncModes *Set[SyncMode] `json:"supported_sync_modes,omitempty"`
 	// Primary key if available

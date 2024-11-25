@@ -1,14 +1,16 @@
-package flatten
+package typeutils
 
 import (
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/datazip-inc/olake/types"
 )
 
 type Flattener interface {
-	Flatten(json map[string]any) (map[string]any, error)
+	Flatten(json types.Record) (types.Record, error)
 }
 
 type FlattenerImpl struct {
@@ -21,8 +23,8 @@ func NewFlattener() Flattener {
 	}
 }
 
-func (f *FlattenerImpl) Flatten(json map[string]any) (map[string]any, error) {
-	destination := make(map[string]any)
+func (f *FlattenerImpl) Flatten(json types.Record) (types.Record, error) {
+	destination := make(types.Record)
 
 	for key, value := range json {
 		err := f.flatten(key, value, destination)
@@ -35,7 +37,7 @@ func (f *FlattenerImpl) Flatten(json map[string]any) (map[string]any, error) {
 }
 
 // Reformat key
-func (f *FlattenerImpl) flatten(key string, value any, destination map[string]any) error {
+func (f *FlattenerImpl) flatten(key string, value any, destination types.Record) error {
 	key = Reformat(key)
 	t := reflect.ValueOf(value)
 	switch t.Kind() {
@@ -51,12 +53,13 @@ func (f *FlattenerImpl) flatten(key string, value any, destination map[string]an
 			return fmt.Errorf("error marshaling array with key[%s] and value %v: %v", key, value, err)
 		}
 		destination[key] = string(b)
-	case reflect.Bool:
-		boolValue, _ := value.(bool)
-		destination[key] = boolValue
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64, reflect.String:
+		destination[key] = value
 	default:
 		if !f.omitNilValues || value != nil {
-			destination[key] = value
+			destination[key] = fmt.Sprint(value)
 		}
 	}
 

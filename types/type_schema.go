@@ -12,7 +12,7 @@ import (
 
 type TypeSchema struct {
 	mu         sync.Mutex
-	Properties sync.Map
+	Properties sync.Map `json:"-"`
 }
 
 func NewTypeSchema() *TypeSchema {
@@ -128,7 +128,6 @@ func (t *TypeSchema) ToParquet() *parquetschema.SchemaDefinition {
 		definition.RootColumn.Children = append(definition.RootColumn.Children, &parquetschema.ColumnDefinition{
 			SchemaElement: schemaElem,
 		})
-		// parquetSchema = append(parquetSchema, pqType)
 		return true
 	})
 

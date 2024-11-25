@@ -10,10 +10,11 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/flatten"
 	goparquet "github.com/fraugster/parquet-go"
 	"github.com/fraugster/parquet-go/parquet"
+	"github.com/fraugster/parquet-go/parquetschema"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/source"
 )
@@ -95,7 +96,6 @@ func (l *Local) Check() error {
 }
 
 func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
-	flattener := flatten.NewFlattener()
 iteration:
 	for {
 		select {
@@ -108,13 +108,21 @@ iteration:
 				break iteration
 			}
 
-			record, err := flattener.Flatten(record) // flatten the record
-			if err != nil {
-				return err
+			def := l.stream.Schema().ToParquet()
+			var columnDef *parquetschema.ColumnDefinition
+			i, found := utils.ArrayContains(def.RootColumn.Children, func(one *parquetschema.ColumnDefinition) bool {
+				return one.SchemaElement.Name == "id"
+			})
+			if found {
+				columnDef = def.RootColumn.Children[i]
 			}
 
 			if err := l.writer.AddData(record); err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
+			}
+
+			if columnDef == nil {
+				fmt.Println("here")
 			}
 		}
 	}
@@ -157,6 +165,11 @@ func (l *Local) Close() error {
 
 func (l *Local) Type() string {
 	return string(types.Local)
+}
+
+func (l *Local) Flattener() protocol.FlattenFunction {
+	flattener := typeutils.NewFlattener()
+	return flattener.Flatten
 }
 
 func init() {
