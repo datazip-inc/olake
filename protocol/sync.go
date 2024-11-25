@@ -135,7 +135,7 @@ var syncCmd = &cobra.Command{
 		// Execute streams in Standard Stream mode
 		// TODO: Separate streams with FULL and Incremental here only
 		relec.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
-			logger.Info("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
+			logger.Infof("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
 
 			streamStartTime := time.Now()
 			err := connector.Read(pool, stream)

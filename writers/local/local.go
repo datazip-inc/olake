@@ -141,7 +141,10 @@ func (l *Local) Close() error {
 		return nil
 	}
 
-	return utils.ErrExecSequential(l.writer.WriteStop, l.file.Close)
+	return utils.ErrExecSequential(
+		utils.ErrExecFormat("failed to stop local writer: %s", l.writer.WriteStop),
+		utils.ErrExecFormat("failed to close parquet file: %s", l.file.Close),
+	)
 }
 
 func (l *Local) Type() string {

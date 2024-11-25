@@ -6,7 +6,6 @@ import (
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
-	"github.com/datazip-inc/olake/safego"
 	"github.com/datazip-inc/olake/types"
 	"github.com/piyushsingariya/relec"
 	"go.mongodb.org/mongo-driver/bson"
@@ -71,11 +70,10 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 	defer cursor.Close(cdcCtx)
 
-	thread, err := pool.NewThread(context.TODO(), stream)
+	insert, err := pool.NewThread(context.TODO(), stream)
 	if err != nil {
 		return err
 	}
-	defer safego.Close(thread)
 	// Iterates over the cursor to print the change stream events
 	for cursor.TryNext(cdcCtx) {
 		var record bson.M
@@ -83,9 +81,14 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return fmt.Errorf("error while decoding: %s", err)
 		}
 		// Only send full document from record received (record -> fullDocument -> record)
-		if !safego.Insert(thread, types.Record(record)) {
-			break
+		exit, err := insert(types.Record(record))
+		if err != nil {
+			return err
 		}
+		if exit {
+			return nil
+		}
+
 		prevResumeToken = cursor.ResumeToken().String()
 	}
 	if err := cursor.Err(); err != nil {

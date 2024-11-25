@@ -15,6 +15,7 @@ import (
 )
 
 type NewFunc func() Writer
+type InsertFunction func(record types.Record) (exit bool, err error)
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
 
@@ -25,7 +26,7 @@ type WriterPool struct {
 	init          NewFunc      // To initialize exclusive destination threads
 	group         *errgroup.Group
 	groupCtx      context.Context
-	smu           sync.Mutex // Stream mutex
+	tmu           sync.Mutex // Mutex between threads
 }
 
 // Shouldn't the name be NewWriterPool?
@@ -53,16 +54,20 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 		init:          newfunc,
 		group:         group,
 		groupCtx:      ctx,
-		smu:           sync.Mutex{},
+		tmu:           sync.Mutex{},
 	}, nil
 }
 
 // Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan types.Record, error) {
+func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFunction, error) {
 	thread := w.init()
+
+	w.tmu.Lock() // lock for concurrent access of w.config
 	if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
+		w.tmu.Unlock() // unlock
 		return nil, err
 	}
+	w.tmu.Unlock() // unlock
 
 	if err := thread.Setup(stream); err != nil {
 		return nil, err
@@ -71,12 +76,18 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 	w.threadCounter.Add(1)
 	frontend := make(chan types.Record) // To be given to Reader
 	backend := make(chan types.Record)  // To be given to Writer
+	errChan := make(chan error)
 	child, childCancel := context.WithCancel(parent)
 
 	// spawnWriter spawns a writer process with child context
 	spawnWriter := func() {
 		w.group.Go(func() error {
-			defer thread.Close()
+			defer func() {
+				err := thread.Close()
+				if err != nil {
+					errChan <- err
+				}
+			}()
 			defer w.threadCounter.Add(-1)
 
 			return thread.Write(child, backend)
@@ -103,9 +114,9 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 
 				change, typeChange, mutations := fields.Process(record)
 				if change || typeChange {
-					w.smu.Lock()
+					w.tmu.Lock()
 					stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
-					w.smu.Unlock()
+					w.tmu.Unlock()
 				}
 
 				// handle schema evolution here
@@ -130,7 +141,19 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 	})
 
 	spawnWriter()
-	return frontend, nil
+	return func(record types.Record) (bool, error) {
+		select {
+		case err := <-errChan:
+			childCancel() // cancel the writers
+			return false, err
+		default:
+			if !safego.Insert(frontend, record) {
+				return true, nil
+			}
+
+			return false, nil
+		}
+	}, nil
 }
 
 // Returns total records fetched at runtime
