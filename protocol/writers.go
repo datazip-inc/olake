@@ -96,6 +96,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 
 	fields := make(typeutils.Fields)
 
+	// middleware that has abstracted the repetition code from Writers
 	w.group.Go(func() error {
 		defer safego.Close(backend)
 		// not defering canceling the child context so that writing process

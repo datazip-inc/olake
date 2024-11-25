@@ -12,10 +12,10 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/flatten"
+	goparquet "github.com/fraugster/parquet-go"
+	"github.com/fraugster/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go-source/local"
-	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/source"
-	"github.com/xitongsys/parquet-go/writer"
 )
 
 // Local destination writes Parquet files
@@ -24,7 +24,7 @@ type Local struct {
 	closed bool
 	config *Config
 	file   source.ParquetFile
-	writer *writer.ParquetWriter
+	writer *goparquet.FileWriter
 	stream protocol.Stream
 }
 
@@ -47,16 +47,20 @@ func (l *Local) Setup(stream protocol.Stream) error {
 		return err
 	}
 
+	// parquetschema.ParseSchemaDefinition()
+	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
+		goparquet.WithMaxRowGroupSize(128*1024*1024), // 128MB
+		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
+	)
+
 	// Create writer
-	pw, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
-	if err != nil {
-		return err
-	}
-	pw.RowGroupSize = 128 * 1024 * 1024 // 128MB
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
+	// pw, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
+	// if err != nil {
+	// 	return err
+	// }
 
 	l.file = pqFile
-	l.writer = pw
+	l.writer = writer
 	l.stream = stream
 	return nil
 }
@@ -109,7 +113,7 @@ iteration:
 				return err
 			}
 
-			if err := l.writer.Write(record); err != nil {
+			if err := l.writer.AddData(record); err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
 			}
 		}
@@ -130,7 +134,9 @@ func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
 	for column, property := range mutation {
 		pqSchemaElem := property.DataType().ToParquet()
 		pqSchemaElem.Name = column
-		l.writer.SchemaHandler.SchemaElements = append(l.writer.SchemaHandler.SchemaElements, pqSchemaElem)
+
+		l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
+		// l.writer.SchemaHandler.SchemaElements = append(l.writer.SchemaHandler.SchemaElements, pqSchemaElem)
 	}
 
 	return nil
@@ -142,7 +148,9 @@ func (l *Local) Close() error {
 	}
 
 	return utils.ErrExecSequential(
-		utils.ErrExecFormat("failed to stop local writer: %s", l.writer.WriteStop),
+		utils.ErrExecFormat("failed to stop local writer: %s", func() error {
+			return l.writer.Close()
+		}),
 		utils.ErrExecFormat("failed to close parquet file: %s", l.file.Close),
 	)
 }

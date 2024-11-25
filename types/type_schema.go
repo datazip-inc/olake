@@ -5,8 +5,9 @@ import (
 	"sync"
 
 	"github.com/datazip-inc/olake/utils"
+	"github.com/fraugster/parquet-go/parquet"
+	"github.com/fraugster/parquet-go/parquetschema"
 	"github.com/goccy/go-json"
-	"github.com/xitongsys/parquet-go/parquet"
 )
 
 type TypeSchema struct {
@@ -115,17 +116,36 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet() []*parquet.SchemaElement {
-	parquetSchema := []*parquet.SchemaElement{}
+func (t *TypeSchema) ToParquet() *parquetschema.SchemaDefinition {
+	definition := parquetschema.SchemaDefinition{
+		RootColumn: &parquetschema.ColumnDefinition{
+			SchemaElement: &parquet.SchemaElement{},
+		},
+	}
 	t.Properties.Range(func(key, value interface{}) bool {
-		pqType := value.(*Property).DataType().ToParquet() // get parquet type
-		pqType.Name = key.(string)                         // attach Column name
-		parquetSchema = append(parquetSchema, pqType)
+		schemaElem := value.(*Property).DataType().ToParquet() // get parquet type
+		schemaElem.Name = key.(string)                         // attach Column name
+		definition.RootColumn.Children = append(definition.RootColumn.Children, &parquetschema.ColumnDefinition{
+			SchemaElement: schemaElem,
+		})
+		// parquetSchema = append(parquetSchema, pqType)
 		return true
 	})
 
-	return parquetSchema
+	return &definition
 }
+
+// func (t *TypeSchema) ToParquet() []*parquet.SchemaElement {
+// 	parquetSchema := []*parquet.SchemaElement{}
+// 	t.Properties.Range(func(key, value interface{}) bool {
+// 		pqType := value.(*Property).DataType().ToParquet() // get parquet type
+// 		pqType.Name = key.(string)                         // attach Column name
+// 		parquetSchema = append(parquetSchema, pqType)
+// 		return true
+// 	})
+
+// 	return parquetSchema
+// }
 
 // Property is a dto for catalog properties representation
 type Property struct {
