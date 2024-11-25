@@ -71,7 +71,7 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 		// Get Source Streams
-		streams, err := connector.Discover()
+		streams, err := connector.Discover(false)
 		if err != nil {
 			return err
 		}

@@ -71,7 +71,8 @@ func (m *Mongo) Type() string {
 	return "Mongo"
 }
 
-func (m *Mongo) Discover() ([]*types.Stream, error) {
+// TODO: utilize discoverSchema boolean
+func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	streams := m.GetStreams()
 	if len(streams) != 0 {
 		return streams, nil

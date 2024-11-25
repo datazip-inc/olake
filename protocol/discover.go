@@ -30,7 +30,7 @@ var discoverCmd = &cobra.Command{
 			return err
 		}
 
-		streams, err := connector.Discover()
+		streams, err := connector.Discover(true)
 		if err != nil {
 			return err
 		}

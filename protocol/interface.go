@@ -22,7 +22,7 @@ type Driver interface {
 	// Sets up client, doesn't performs any Checks
 	Setup() error
 	// Discover discovers the streams; Returns cached if already discovered
-	Discover() ([]*types.Stream, error)
+	Discover(discoverSchema bool) ([]*types.Stream, error)
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(pool *WriterPool, stream Stream) error
 	ChangeStreamSupported() bool

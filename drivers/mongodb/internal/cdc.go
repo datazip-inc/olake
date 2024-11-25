@@ -35,7 +35,7 @@ func (m *Mongo) StateType() types.StateType {
 
 // does full load on empty state
 func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPool) error {
-	logger.Infof("starting change stream for stream [%s]", stream.Name())
+	logger.Infof("starting change stream for stream [%s]", stream.ID())
 
 	cdcCtx := context.TODO()
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
@@ -63,7 +63,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(prevResumeToken)
 	// resume cdc sync from prev resume token
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.Name(), prevResumeToken)
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
 	if err != nil {
