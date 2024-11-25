@@ -11,9 +11,18 @@ import (
 
 // TypeFromValue return [types.DataType] from v type
 func TypeFromValue(v interface{}) types.DataType {
-	// check if passed value is nil
 	if v == nil {
 		return types.NULL
+	}
+
+	// Check if v is a pointer and get the underlying element type if it is
+	valType := reflect.TypeOf(v)
+	if valType.Kind() == reflect.Pointer {
+		if valType.Elem() != nil {
+			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
+		}
+
+		return types.NULL // Handle nil pointers
 	}
 
 	switch reflect.TypeOf(v).Kind() {

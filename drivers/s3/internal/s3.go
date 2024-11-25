@@ -67,7 +67,7 @@ func (s *S3) Spec() (schema.JSONSchema, error) {
 
 func (s *S3) Check() error {
 	for stream, pattern := range s.config.Streams {
-		err := s.iteration(types.ToPtr(int64(100)), pattern, 1, func(reader reader.Reader, file *s3.Object) (bool, error) {
+		err := s.iteration(types.ToPointer(int64(100)), pattern, 1, func(reader reader.Reader, file *s3.Object) (bool, error) {
 			// break iteration after single item
 			return false, nil
 		})
@@ -84,7 +84,7 @@ func (s *S3) Discover() ([]protocol.Stream, error) {
 	for stream, pattern := range s.config.Streams {
 		var schema map[string]*types.Property
 		var err error
-		err = s.iteration(types.ToPtr(int64(100)), pattern, 1, func(reader reader.Reader, file *s3.Object) (bool, error) {
+		err = s.iteration(types.ToPointer(int64(100)), pattern, 1, func(reader reader.Reader, file *s3.Object) (bool, error) {
 			schema, err = reader.GetSchema()
 			return false, err
 		})
@@ -132,7 +132,7 @@ func (s *S3) Read(stream protocol.Stream, channel chan<- types.Record) error {
 		}
 	}
 
-	err := s.iteration(types.ToPtr(stream.BatchSize()), pattern, s.config.PreLoadFactor, func(reader reader.Reader, file *s3.Object) (bool, error) {
+	err := s.iteration(types.ToPointer(stream.BatchSize()), pattern, s.config.PreLoadFactor, func(reader reader.Reader, file *s3.Object) (bool, error) {
 		if localCursor != nil && file.LastModified.Before(*localCursor) {
 			// continue iteration
 			return true, nil
@@ -164,7 +164,7 @@ func (s *S3) Read(stream protocol.Stream, channel chan<- types.Record) error {
 		if localCursor == nil {
 			localCursor = file.LastModified
 		} else {
-			localCursor = types.ToPtr((utils.MaxDate(*localCursor, *file.LastModified)))
+			localCursor = types.ToPointer((utils.MaxDate(*localCursor, *file.LastModified)))
 		}
 
 		logger.Infof("%d Records found in file %s", totalRecords, *file.Key)

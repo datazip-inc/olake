@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/flatten"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/source"
@@ -23,6 +25,7 @@ type Local struct {
 	config *Config
 	file   source.ParquetFile
 	writer *writer.ParquetWriter
+	stream protocol.Stream
 }
 
 func (l *Local) GetConfigRef() any {
@@ -35,17 +38,17 @@ func (p *Local) Spec() any {
 }
 
 func (l *Local) Setup(stream protocol.Stream) error {
-	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName())
+	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName(constants.ParquetFileExt))
 	// Start a new local writer
+	os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
+
 	pqFile, err := local.NewLocalFileWriter(destinationFilePath)
 	if err != nil {
 		return err
 	}
 
-	// TODO: Generate Correct parquet write with Schema from Stream
-
 	// Create writer
-	pw, err := writer.NewParquetWriter(pqFile, nil, 4)
+	pw, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
 	if err != nil {
 		return err
 	}
@@ -54,12 +57,13 @@ func (l *Local) Setup(stream protocol.Stream) error {
 
 	l.file = pqFile
 	l.writer = pw
+	l.stream = stream
 	return nil
 }
 
 func (l *Local) Check() error {
 	// Create a temporary file in the specified directory
-	tempFile, err := os.CreateTemp(filepath.Join(l.config.BaseFilePath, "temp"), "temporary-*.txt")
+	tempFile, err := os.CreateTemp(l.config.BaseFilePath, "temporary-*.txt")
 	if err != nil {
 		return err
 	}
@@ -82,6 +86,7 @@ func (l *Local) Check() error {
 }
 
 func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
+	flattener := flatten.NewFlattener()
 iteration:
 	for {
 		select {
@@ -89,12 +94,16 @@ iteration:
 			break iteration
 		default:
 			record, ok := <-channel
-			if !ok { // channel has been closed by other process; possibly the producer(i.e. reader)
+			if !ok {
+				// channel has been closed by other process; possibly the producer(i.e. reader)
 				break iteration
 			}
 
-			// TODO: Manipulate the record for parquet
-			// Write the record to the Parquet file
+			record, err := flattener.Flatten(record) // flatten the record
+			if err != nil {
+				return err
+			}
+
 			if err := l.writer.Write(record); err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
 			}
@@ -104,8 +113,22 @@ iteration:
 	return nil
 }
 
-func (l *Local) ReInitiationRequiredOnSchemaEvolution() bool {
+func (l *Local) ReInitiationOnTypeChange() bool {
 	return true
+}
+
+func (l *Local) ReInitiationOnNewColumns() bool {
+	return false
+}
+
+func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
+	for column, property := range mutation {
+		pqSchemaElem := property.DataType().ToParquet()
+		pqSchemaElem.Name = column
+		l.writer.SchemaHandler.SchemaElements = append(l.writer.SchemaHandler.SchemaElements, pqSchemaElem)
+	}
+
+	return nil
 }
 
 func (l *Local) Close() error {
