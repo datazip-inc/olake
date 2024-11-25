@@ -65,8 +65,8 @@ func (p *Postgres) Check() error {
 		if !exists {
 			return fmt.Errorf("replication slot %s does not exist!", cdc.ReplicationSlot)
 		}
-
-		p.Driver.GroupRead = true
+		// no use of it if check not being called while sync run
+		p.Driver.CDCSupport = true
 		p.cdcConfig = *cdc
 	} else {
 		logger.Info("Standard Replication is selected")
@@ -173,7 +173,7 @@ func (p *Postgres) loadStreams() error {
 		}
 
 		// cdc additional fields
-		if p.Driver.GroupRead {
+		if p.Driver.CDCSupport {
 			for column, typ := range jdbc.CDCColumns {
 				stream.UpsertField(column, typ, true)
 			}
@@ -187,7 +187,7 @@ func (p *Postgres) loadStreams() error {
 			}
 		}
 
-		if !p.Driver.GroupRead {
+		if !p.Driver.CDCSupport {
 			stream.WithSyncMode(types.FULLREFRESH)
 			// source has cursor fields, hence incremental also supported
 			if stream.DefaultCursorFields.Len() > 0 {

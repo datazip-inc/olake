@@ -97,7 +97,7 @@ func (m *Mongo) totalCountInCollection(collection *mongo.Collection) (int64, err
 	var countResult bson.M
 	command := bson.D{{
 		Key:   "collStats",
-		Value: collection,
+		Value: collection.Name(),
 	}}
 	// Select the database
 	err := collection.Database().RunCommand(context.TODO(), command).Decode(&countResult)

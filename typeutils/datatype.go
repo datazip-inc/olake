@@ -26,6 +26,11 @@ func TypeFromValue(v interface{}) types.DataType {
 	}
 
 	switch reflect.TypeOf(v).Kind() {
+	case reflect.Pointer:
+		if reflect.TypeOf(v).Elem() != nil {
+			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
+		}
+		return types.NULL
 	case reflect.Invalid:
 		return types.NULL
 	case reflect.Bool:

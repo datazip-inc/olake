@@ -14,7 +14,7 @@ import (
 )
 
 func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config, error) {
-	if !p.Driver.GroupRead {
+	if !p.Driver.CDCSupport {
 		return nil, fmt.Errorf("Invalid call; %s not running in CDC mode", p.Type())
 	}
 

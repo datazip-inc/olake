@@ -65,7 +65,11 @@ var syncCmd = &cobra.Command{
 		GlobalCxGroup.Add(func(ctx context.Context) error {
 			return pool.Wait()
 		})
-
+		// setup conector first
+		err = connector.Setup()
+		if err != nil {
+			return err
+		}
 		// Get Source Streams
 		streams, err := connector.Discover()
 		if err != nil {
@@ -124,7 +128,7 @@ var syncCmd = &cobra.Command{
 					return fmt.Errorf("error occurred while reading records: %s", err)
 				}
 			}
-
+			logger.Info("Sync Process Completed")
 			return nil
 		})
 
@@ -144,11 +148,15 @@ var syncCmd = &cobra.Command{
 			return nil
 		})
 
+		if err := GlobalCxGroup.Block(); err != nil {
+			return err
+		}
+
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
 			logger.LogState(state)
 		}
 
-		return GlobalCxGroup.Block()
+		return nil
 	},
 }
