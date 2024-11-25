@@ -62,6 +62,11 @@ func (l *Local) Setup(stream protocol.Stream) error {
 }
 
 func (l *Local) Check() error {
+	err := os.MkdirAll(l.config.BaseFilePath, os.ModePerm)
+	if err != nil {
+		return err
+	}
+
 	// Create a temporary file in the specified directory
 	tempFile, err := os.CreateTemp(l.config.BaseFilePath, "temporary-*.txt")
 	if err != nil {

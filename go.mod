@@ -45,6 +45,7 @@ require (
 
 require (
 	github.com/brainicorn/ganno v0.0.0-20220304182003-e638228cd865
+	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pglogrepl v0.0.0-20240307033717-828fbfe908e9

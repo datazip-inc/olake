@@ -143,7 +143,7 @@ func (w *WriterPool) Wait() error {
 }
 
 func (w *WriterPool) logState() {
-	if w.TotalRecords()%int64(batchSize_) == 0 {
+	if w.TotalRecords()%int64(batchSize_) == 0 && !state.IsZero() {
 		logger.LogState(state)
 	}
 }
