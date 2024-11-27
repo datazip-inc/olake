@@ -152,9 +152,11 @@ func (l *Local) Close() error {
 		return nil
 	}
 
-	return utils.ErrExecFormat(fmt.Sprintf("failed to stop local writer after adding %d records: %s", l.records.Load()), func() error {
-		return l.writer.Close()
-	})()
+	if err := l.writer.Close(); err != nil {
+		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)
+	}
+
+	return nil
 }
 
 func (l *Local) Type() string {

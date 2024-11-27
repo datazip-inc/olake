@@ -99,6 +99,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 	}
 
 	fields := make(typeutils.Fields)
+	fields.FromSchema(stream.Schema())
 
 	// middleware that has abstracted the repetition code from Writers
 	w.group.Go(func() error {
