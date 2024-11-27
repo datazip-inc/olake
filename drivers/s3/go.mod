@@ -6,7 +6,6 @@ require github.com/datazip-inc/olake v0.0.0-20230727050722-6795340c7033
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
-	github.com/apache/arrow/go/arrow v0.0.0-20200730104253-651201b0f516 // indirect
 	github.com/apache/thrift v0.19.0 // indirect
 	github.com/cyberdelia/lzo v1.0.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
@@ -31,7 +30,6 @@ require (
 	golang.org/x/net v0.24.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 )
 
 require (

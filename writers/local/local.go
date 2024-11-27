@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
@@ -14,19 +15,24 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	goparquet "github.com/fraugster/parquet-go"
 	"github.com/fraugster/parquet-go/parquet"
-	"github.com/fraugster/parquet-go/parquetschema"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/source"
+)
+
+const (
+	flushfrequency = 100
 )
 
 // Local destination writes Parquet files
 // local_path/database/table/1...999.parquet
 type Local struct {
-	closed bool
-	config *Config
-	file   source.ParquetFile
-	writer *goparquet.FileWriter
-	stream protocol.Stream
+	fileName string
+	closed   bool
+	config   *Config
+	file     source.ParquetFile
+	writer   *goparquet.FileWriter
+	stream   protocol.Stream
+	records  atomic.Int64
 }
 
 func (l *Local) GetConfigRef() any {
@@ -39,7 +45,9 @@ func (p *Local) Spec() any {
 }
 
 func (l *Local) Setup(stream protocol.Stream) error {
-	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName(constants.ParquetFileExt))
+	l.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
+	fmt.Println(l.fileName)
+	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), l.fileName)
 	// Start a new local writer
 	os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
 
@@ -50,7 +58,7 @@ func (l *Local) Setup(stream protocol.Stream) error {
 
 	// parquetschema.ParseSchemaDefinition()
 	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
-		goparquet.WithMaxRowGroupSize(128*1024*1024), // 128MB
+		goparquet.WithMaxRowGroupSize(1024*1024), // 128MB
 		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
 
@@ -108,22 +116,11 @@ iteration:
 				break iteration
 			}
 
-			def := l.stream.Schema().ToParquet()
-			var columnDef *parquetschema.ColumnDefinition
-			i, found := utils.ArrayContains(def.RootColumn.Children, func(one *parquetschema.ColumnDefinition) bool {
-				return one.SchemaElement.Name == "id"
-			})
-			if found {
-				columnDef = def.RootColumn.Children[i]
-			}
-
 			if err := l.writer.AddData(record); err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
 			}
 
-			if columnDef == nil {
-				fmt.Println("here")
-			}
+			l.records.Add(1)
 		}
 	}
 
@@ -135,7 +132,7 @@ func (l *Local) ReInitiationOnTypeChange() bool {
 }
 
 func (l *Local) ReInitiationOnNewColumns() bool {
-	return false
+	return true
 }
 
 func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
@@ -155,12 +152,9 @@ func (l *Local) Close() error {
 		return nil
 	}
 
-	return utils.ErrExecSequential(
-		utils.ErrExecFormat("failed to stop local writer: %s", func() error {
-			return l.writer.Close()
-		}),
-		utils.ErrExecFormat("failed to close parquet file: %s", l.file.Close),
-	)
+	return utils.ErrExecFormat(fmt.Sprintf("failed to stop local writer after adding %d records: %s", l.records.Load()), func() error {
+		return l.writer.Close()
+	})()
 }
 
 func (l *Local) Type() string {
@@ -174,6 +168,6 @@ func (l *Local) Flattener() protocol.FlattenFunction {
 
 func init() {
 	protocol.RegisteredWriters[types.Local] = func() protocol.Writer {
-		return &Local{}
+		return new(Local)
 	}
 }

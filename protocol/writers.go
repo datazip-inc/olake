@@ -82,15 +82,19 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 	// spawnWriter spawns a writer process with child context
 	spawnWriter := func() {
 		w.group.Go(func() error {
-			defer func() {
-				err := thread.Close()
-				if err != nil {
-					errChan <- err
-				}
-			}()
-			defer w.threadCounter.Add(-1)
+			err := func() error {
+				defer w.threadCounter.Add(-1)
 
-			return thread.Write(child, backend)
+				return utils.ErrExecSequential(func() error {
+					return thread.Write(child, backend)
+				}, thread.Close)
+			}()
+			// if err != nil && !strings.Contains(err.Error(), "short write") {
+			if err != nil {
+				errChan <- err
+			}
+
+			return err
 		})
 	}
 
