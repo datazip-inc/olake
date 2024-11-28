@@ -25,14 +25,15 @@ import (
 // Local destination writes Parquet files
 // local_path/database/table/1...999.parquet
 type Local struct {
-	fileName      string
-	closed        bool
-	config        *Config
-	file          source.ParquetFile
-	writer        *goparquet.FileWriter
-	stream        protocol.Stream
-	records       atomic.Int64
-	pqSchemaMutex sync.Mutex // To prevent concurrent underlying map access from fraugster library
+	fileName            string
+	destinationFilePath string
+	closed              bool
+	config              *Config
+	file                source.ParquetFile
+	writer              *goparquet.FileWriter
+	stream              protocol.Stream
+	records             atomic.Int64
+	pqSchemaMutex       sync.Mutex // To prevent concurrent underlying map access from fraugster library
 }
 
 func (l *Local) GetConfigRef() any {
@@ -46,14 +47,15 @@ func (p *Local) Spec() any {
 
 func (l *Local) Setup(stream protocol.Stream) error {
 	l.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
-	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), l.fileName)
+	l.destinationFilePath = filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), l.fileName)
+
 	// Start a new local writer
-	err := os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
+	err := os.MkdirAll(filepath.Dir(l.destinationFilePath), os.ModePerm)
 	if err != nil {
 		return err
 	}
 
-	pqFile, err := local.NewLocalFileWriter(destinationFilePath)
+	pqFile, err := local.NewLocalFileWriter(l.destinationFilePath)
 	if err != nil {
 		return err
 	}
@@ -102,7 +104,7 @@ func (l *Local) Check() error {
 
 func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
 iteration:
-	for {
+	for !l.closed {
 		select {
 		case <-ctx.Done():
 			break iteration
@@ -128,7 +130,7 @@ iteration:
 }
 
 func (l *Local) ReInitiationOnTypeChange() bool {
-	return true
+	return false
 }
 
 func (l *Local) ReInitiationOnNewColumns() bool {
@@ -150,10 +152,23 @@ func (l *Local) Close() error {
 	}
 	l.closed = true
 
+	defer func() {
+		if l.records.Load() == 0 {
+			logger.Debugf("Wrote zero records in file[%s]; Deleting it!", l.destinationFilePath)
+			err := os.Remove(l.destinationFilePath)
+			if err != nil {
+				logger.Warnf("failed to delete file[%s] with zero records", l.destinationFilePath)
+			}
+		}
+	}()
+
 	if err := l.writer.Close(); err != nil {
 		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)
 	}
 
+	if l.records.Load() > 0 {
+		logger.Infof("Finished writing file [%s] with %d records", l.destinationFilePath, l.records.Load())
+	}
 	return nil
 }
 
