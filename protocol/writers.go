@@ -64,8 +64,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 	threadInitialized := make(chan struct{}) // to handle the first initialization
 
 	w.threadCounter.Add(1)
-	frontend := make(chan types.Record)  // To be given to Reader
-	backend := make(chan []types.Record) // To be given to Writer
+	frontend := make(chan types.Record) // To be given to Reader
+	backend := make(chan types.Record)  // To be given to Writer
 	errChan := make(chan error)
 	child, childCancel := context.WithCancel(parent)
 
@@ -124,7 +124,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 			// not defering canceling the child context so that writing process
 			// can finish writing all the records pushed into the channel
 			flatten := thread.Flattener()
-			records := []types.Record{}
 		main:
 			for {
 				select {
@@ -133,16 +132,13 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 				case <-parent.Done():
 					break main
 				default:
-					// Note: Why push logic is not at the end of the code block
+					// Note: Why printing state logic is at start
 					// i.e. because if Writer has exited before pushing into the channel;
 					// first the code will be blocked, second we might endup printing wrong state
 					if w.TotalRecords()%int64(batchSize_) == 0 {
-						backend <- records
 						if !state.IsZero() {
 							logger.LogState(state)
 						}
-
-						records = []types.Record{}
 					}
 
 					record, ok := <-frontend
@@ -179,8 +175,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 						return err
 					}
 
+					backend <- record
 					w.recordCount.Add(1) // increase the record count
-					records = append(records, record)
 				}
 			}
 

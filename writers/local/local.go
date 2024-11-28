@@ -48,7 +48,10 @@ func (l *Local) Setup(stream protocol.Stream) error {
 	l.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
 	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), l.fileName)
 	// Start a new local writer
-	os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
+	err := os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
+	if err != nil {
+		return err
+	}
 
 	pqFile, err := local.NewLocalFileWriter(destinationFilePath)
 	if err != nil {
@@ -61,15 +64,6 @@ func (l *Local) Setup(stream protocol.Stream) error {
 		goparquet.WithMaxPageSize(100),
 		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
-
-	// Create writer
-	// writer, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// writer.RowGroupSize = 128 * 1024 * 1024 // 128MB
-	// writer.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	l.file = pqFile
 	l.writer = writer
@@ -106,26 +100,27 @@ func (l *Local) Check() error {
 	return os.Remove(tempFile.Name())
 }
 
-func (l *Local) Write(ctx context.Context, channel <-chan []types.Record) error {
+func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
 iteration:
 	for {
 		select {
 		case <-ctx.Done():
 			break iteration
 		default:
-			records, ok := <-channel
+			record, ok := <-channel
 			if !ok {
 				// channel has been closed by other process; possibly the producer(i.e. reader)
 				break iteration
 			}
 
-			for _, record := range records {
-				if err := l.writer.AddData(record); err != nil {
-					return fmt.Errorf("parquet write error: %s", err)
-				}
-
-				l.records.Add(1)
+			l.pqSchemaMutex.Lock()
+			if err := l.writer.AddData(record); err != nil {
+				l.pqSchemaMutex.Unlock()
+				return fmt.Errorf("parquet write error: %s", err)
 			}
+			l.pqSchemaMutex.Unlock()
+
+			l.records.Add(1)
 		}
 	}
 
@@ -137,15 +132,16 @@ func (l *Local) ReInitiationOnTypeChange() bool {
 }
 
 func (l *Local) ReInitiationOnNewColumns() bool {
-	return true
+	return false
 }
 
 func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
-	// l.pqSchemaMutex.Lock()
-	// defer l.pqSchemaMutex.Unlock()
+	l.pqSchemaMutex.Lock()
+	defer l.pqSchemaMutex.Unlock()
 
-	// l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
-	return fmt.Errorf("EvolveSchema not implemented in %s", l.Type())
+	l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
+	return nil
+	// return fmt.Errorf("EvolveSchema not implemented in %s", l.Type())
 }
 
 func (l *Local) Close() error {
