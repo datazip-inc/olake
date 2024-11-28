@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
+	"sync"
 	"sync/atomic"
 
 	"github.com/datazip-inc/olake/constants"
@@ -13,26 +15,26 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
-	goparquet "github.com/fraugster/parquet-go"
 	"github.com/fraugster/parquet-go/parquet"
+	"github.com/goccy/go-json"
+
+	goparquet "github.com/fraugster/parquet-go"
+
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/source"
-)
-
-const (
-	flushfrequency = 100
 )
 
 // Local destination writes Parquet files
 // local_path/database/table/1...999.parquet
 type Local struct {
-	fileName string
-	closed   bool
-	config   *Config
-	file     source.ParquetFile
-	writer   *goparquet.FileWriter
-	stream   protocol.Stream
-	records  atomic.Int64
+	fileName      string
+	closed        bool
+	config        *Config
+	file          source.ParquetFile
+	writer        *goparquet.FileWriter
+	stream        protocol.Stream
+	records       atomic.Int64
+	pqSchemaMutex sync.Mutex // To prevent concurrent underlying map access from fraugster library
 }
 
 func (l *Local) GetConfigRef() any {
@@ -58,15 +60,19 @@ func (l *Local) Setup(stream protocol.Stream) error {
 
 	// parquetschema.ParseSchemaDefinition()
 	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
-		goparquet.WithMaxRowGroupSize(1024*1024), // 128MB
+		goparquet.WithMaxRowGroupSize(1000),
+		goparquet.WithMaxPageSize(100),
 		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
 
 	// Create writer
-	// pw, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
+	// writer, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
 	// if err != nil {
 	// 	return err
 	// }
+
+	// writer.RowGroupSize = 128 * 1024 * 1024 // 128MB
+	// writer.CompressionType = parquet.CompressionCodec_SNAPPY
 
 	l.file = pqFile
 	l.writer = writer
@@ -103,21 +109,41 @@ func (l *Local) Check() error {
 	return os.Remove(tempFile.Name())
 }
 
-func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
+func (l *Local) Write(ctx context.Context, channel <-chan []types.Record) error {
+	var prev, current types.Record
+	defer func() {
+		err := recover()
+		if err != nil {
+			enc := json.NewEncoder(os.Stdout)
+			enc.Encode(prev)
+			enc.Encode(current)
+
+			fmt.Println("")
+			fmt.Println(err)
+			fmt.Println(string(debug.Stack()))
+			os.Exit(1)
+		}
+	}()
 iteration:
 	for {
 		select {
 		case <-ctx.Done():
 			break iteration
 		default:
-			record, ok := <-channel
+			records, ok := <-channel
 			if !ok {
 				// channel has been closed by other process; possibly the producer(i.e. reader)
 				break iteration
 			}
 
-			if err := l.writer.AddData(record); err != nil {
-				return fmt.Errorf("parquet write error: %s", err)
+			for _, record := range records {
+				prev = current
+				current = record
+				l.pqSchemaMutex.Lock()
+				if err := l.writer.AddData(record); err != nil {
+					return fmt.Errorf("parquet write error: %s", err)
+				}
+				l.pqSchemaMutex.Unlock()
 			}
 
 			l.records.Add(1)
@@ -136,15 +162,11 @@ func (l *Local) ReInitiationOnNewColumns() bool {
 }
 
 func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
-	for column, property := range mutation {
-		pqSchemaElem := property.DataType().ToParquet()
-		pqSchemaElem.Name = column
+	// l.pqSchemaMutex.Lock()
+	// defer l.pqSchemaMutex.Unlock()
 
-		l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
-		// l.writer.SchemaHandler.SchemaElements = append(l.writer.SchemaHandler.SchemaElements, pqSchemaElem)
-	}
-
-	return nil
+	// l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
+	return fmt.Errorf("EvolveSchema not implemented in %s", l.Type())
 }
 
 func (l *Local) Close() error {
