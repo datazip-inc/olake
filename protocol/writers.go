@@ -60,18 +60,8 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 
 // Initialize new adapter thread for writing into destination
 func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFunction, error) {
-	thread := w.init()
-
-	w.tmu.Lock() // lock for concurrent access of w.config
-	if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
-		w.tmu.Unlock() // unlock
-		return nil, err
-	}
-	w.tmu.Unlock() // unlock
-
-	if err := thread.Setup(stream); err != nil {
-		return nil, err
-	}
+	var thread Writer
+	threadInitialized := make(chan struct{}) // to handle the first initialization
 
 	w.threadCounter.Add(1)
 	frontend := make(chan types.Record)  // To be given to Reader
@@ -81,8 +71,25 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 
 	// spawnWriter spawns a writer process with child context
 	spawnWriter := func() {
+		spawned := make(chan struct{})
+
 		w.group.Go(func() error {
 			defer childCancel() // spawnWriter uses childCancel to exit the middleware
+
+			thread = w.init() // set the thread variable
+			w.tmu.Lock()      // lock for concurrent access of w.config
+			if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
+				w.tmu.Unlock() // unlock
+				return err
+			}
+			w.tmu.Unlock() // unlock
+
+			if err := thread.Setup(stream); err != nil {
+				return err
+			}
+
+			safego.Close(spawned)           // signal spawnWriter to exit
+			safego.Close(threadInitialized) // close after initialization
 
 			err := func() error {
 				defer w.threadCounter.Add(-1)
@@ -98,6 +105,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 
 			return err
 		})
+
+		<-spawned
 	}
 
 	fields := make(typeutils.Fields)
@@ -110,6 +119,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 			defer func() {
 				safego.Close(frontend)
 			}()
+
+			<-threadInitialized // wait till thread is initialized for the first time
 			// not defering canceling the child context so that writing process
 			// can finish writing all the records pushed into the channel
 			flatten := thread.Flattener()

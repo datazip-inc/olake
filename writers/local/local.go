@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/fraugster/parquet-go/parquet"
-	"github.com/goccy/go-json"
 
 	goparquet "github.com/fraugster/parquet-go"
 
@@ -48,7 +46,6 @@ func (p *Local) Spec() any {
 
 func (l *Local) Setup(stream protocol.Stream) error {
 	l.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
-	fmt.Println(l.fileName)
 	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), l.fileName)
 	// Start a new local writer
 	os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
@@ -110,20 +107,6 @@ func (l *Local) Check() error {
 }
 
 func (l *Local) Write(ctx context.Context, channel <-chan []types.Record) error {
-	var prev, current types.Record
-	defer func() {
-		err := recover()
-		if err != nil {
-			enc := json.NewEncoder(os.Stdout)
-			enc.Encode(prev)
-			enc.Encode(current)
-
-			fmt.Println("")
-			fmt.Println(err)
-			fmt.Println(string(debug.Stack()))
-			os.Exit(1)
-		}
-	}()
 iteration:
 	for {
 		select {
@@ -137,16 +120,12 @@ iteration:
 			}
 
 			for _, record := range records {
-				prev = current
-				current = record
-				l.pqSchemaMutex.Lock()
 				if err := l.writer.AddData(record); err != nil {
 					return fmt.Errorf("parquet write error: %s", err)
 				}
-				l.pqSchemaMutex.Unlock()
-			}
 
-			l.records.Add(1)
+				l.records.Add(1)
+			}
 		}
 	}
 
@@ -173,6 +152,7 @@ func (l *Local) Close() error {
 	if l.closed {
 		return nil
 	}
+	l.closed = true
 
 	if err := l.writer.Close(); err != nil {
 		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)

@@ -42,7 +42,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 	// for every 6hr difference ideal density is 10 Seconds
 	density := time.Duration(last.Sub(first).Hours()/6) * (10 * time.Second)
-	concurrency := 1 // default; TODO: decide from MongoDB server resources
+	concurrency := 50 // default; TODO: decide from MongoDB server resources
 	first = first.Add(15 * density)
 	return relec.ConcurrentC(context.TODO(), relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
 		start := first
