@@ -19,6 +19,25 @@ type InsertFunction func(record types.Record) (exit bool, err error)
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
 
+type Options struct {
+	Identifier string
+	Number     int64
+}
+
+type ThreadOptions func(opt *Options)
+
+func WithIdentifier(identifier string) ThreadOptions {
+	return func(opt *Options) {
+		opt.Identifier = identifier
+	}
+}
+
+func WithNumber(number int64) ThreadOptions {
+	return func(opt *Options) {
+		opt.Number = number
+	}
+}
+
 type WriterPool struct {
 	recordCount   atomic.Int64
 	threadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
@@ -31,6 +50,7 @@ type WriterPool struct {
 
 // Shouldn't the name be NewWriterPool?
 func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
+
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -59,7 +79,13 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 }
 
 // Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFunction, error) {
+func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ...ThreadOptions) (InsertFunction, error) {
+	// setup options
+	opts := &Options{}
+	for _, one := range options {
+		one(opts)
+	}
+
 	var thread Writer
 	threadInitialized := make(chan struct{}) // to handle the first initialization
 
@@ -84,7 +110,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFun
 			}
 			w.tmu.Unlock() // unlock
 
-			if err := thread.Setup(stream); err != nil {
+			if err := thread.Setup(stream, opts); err != nil {
 				return err
 			}
 

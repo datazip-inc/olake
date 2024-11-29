@@ -25,6 +25,7 @@ import (
 // Local destination writes Parquet files
 // local_path/database/table/1...999.parquet
 type Local struct {
+	options             *protocol.Options
 	fileName            string
 	destinationFilePath string
 	closed              bool
@@ -45,7 +46,8 @@ func (p *Local) Spec() any {
 	return Config{}
 }
 
-func (l *Local) Setup(stream protocol.Stream) error {
+func (l *Local) Setup(stream protocol.Stream, options *protocol.Options) error {
+	l.options = options
 	l.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
 	l.destinationFilePath = filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), l.fileName)
 
@@ -159,10 +161,13 @@ func (l *Local) Close() error {
 			if err != nil {
 				logger.Warnf("failed to delete file[%s] with zero records", l.destinationFilePath)
 			}
+			logger.Debugf("Deleted file[%s].", l.destinationFilePath)
 		}
 	}()
 
-	if err := l.writer.Close(); err != nil {
+	// send error if only records were stored and error occured; This to handle error "short write"
+	if err := l.writer.Close(); err != nil && l.records.Load() > 0 {
+		logger.Errorf("failed to close writer with identifier %s: %s", l.options.Identifier, err) // TODO: remove
 		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)
 	}
 

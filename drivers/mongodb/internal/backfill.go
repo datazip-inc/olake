@@ -67,7 +67,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		threadContext, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		insert, err := pool.NewThread(threadContext, stream)
+		insert, err := pool.NewThread(threadContext, stream, protocol.WithNumber(number))
 		if err != nil {
 			return err
 		}

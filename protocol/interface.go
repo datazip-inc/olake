@@ -50,7 +50,7 @@ type Writer interface {
 	Connector
 	// Setup sets up an Adapter for dedicated use for a stream
 	// avoiding the headover for different streams
-	Setup(stream Stream) error
+	Setup(stream Stream, opts *Options) error
 	// Write function being used by drivers
 	Write(ctx context.Context, channel <-chan types.Record) error
 
