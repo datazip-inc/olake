@@ -1,10 +1,11 @@
 package typeutils
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/goccy/go-json"
 
 	"github.com/datazip-inc/olake/types"
 )

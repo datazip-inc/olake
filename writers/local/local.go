@@ -175,8 +175,12 @@ func (l *Local) Close() error {
 		}
 	}()
 
+	err := utils.ErrExecSequential(
+		utils.ErrExecFormat("failed to close writer: %s", func() error { return l.writer.Close() }),
+		utils.ErrExecFormat("failed to close file: %s", l.file.Close),
+	)
 	// send error if only records were stored and error occured; This to handle error "short write"
-	if err := l.writer.Close(); err != nil && l.records.Load() > 0 {
+	if err != nil && l.records.Load() > 0 {
 		logger.Errorf("failed to close writer with identifier %s: %s", l.options.Identifier, err) // TODO: remove
 		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)
 	}

@@ -9,9 +9,12 @@ require (
 
 require (
 	github.com/apache/thrift v0.16.0 // indirect
+	github.com/felixge/fgprof v0.9.5 // indirect
 	github.com/fraugster/parquet-go v0.12.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
+	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
