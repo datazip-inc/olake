@@ -2,18 +2,8 @@ package utils
 
 import (
 	"reflect"
-	"runtime"
 	"unsafe"
 )
-
-func FreeMemory() uint64 {
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-	// You can use memStats.Sys or another appropriate memory metric.
-	// Consider leaving some memory unused for other processes.
-	availableMemory := memStats.Sys - memStats.HeapInuse
-	return availableMemory
-}
 
 // Of returns the size of 'v' in bytes.
 // If there is an error during calculation, Of returns -1.

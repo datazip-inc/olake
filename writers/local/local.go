@@ -15,6 +15,7 @@ import (
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/fraugster/parquet-go/parquet"
+	"github.com/piyushsingariya/relec/memory"
 
 	goparquet "github.com/fraugster/parquet-go"
 
@@ -64,8 +65,8 @@ func (l *Local) Setup(stream protocol.Stream, options *protocol.Options) error {
 
 	// parquetschema.ParseSchemaDefinition()
 	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
-		goparquet.WithMaxRowGroupSize(1000),
-		goparquet.WithMaxPageSize(100),
+		// goparquet.WithMaxRowGroupSize(10),
+		// goparquet.WithMaxPageSize(100),
 		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
 
@@ -115,6 +116,15 @@ iteration:
 			if !ok {
 				// channel has been closed by other process; possibly the producer(i.e. reader)
 				break iteration
+			}
+
+			// check memory and dump row group
+			var err error
+			memory.LockWithTrigger(ctx, func() {
+				err = l.writer.FlushRowGroupWithContext(ctx)
+			})
+			if err != nil {
+				return err
 			}
 
 			l.pqSchemaMutex.Lock()

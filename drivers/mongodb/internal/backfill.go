@@ -59,7 +59,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			boundry.EndID = generateMinObjectID(end)
 			boundry.end = end
 		} else {
-			logger.Infof("Scheduling final full load chunk!")
+			logger.Info("Scheduling last full load chunk query!")
 		}
 
 		return exit, boundry, nil
