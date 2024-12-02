@@ -65,8 +65,8 @@ func (l *Local) Setup(stream protocol.Stream, options *protocol.Options) error {
 
 	// parquetschema.ParseSchemaDefinition()
 	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
-		// goparquet.WithMaxRowGroupSize(10),
-		// goparquet.WithMaxPageSize(100),
+		goparquet.WithMaxRowGroupSize(10),
+		goparquet.WithMaxPageSize(1),
 		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
 

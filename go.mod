@@ -58,7 +58,7 @@ require (
 	github.com/joomcode/errorx v1.1.0
 	github.com/mitchellh/hashstructure v1.1.0
 	github.com/oklog/ulid v1.3.1
-	github.com/piyushsingariya/relec v0.0.19
+	github.com/piyushsingariya/relec v0.0.20
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/pflag v1.0.5 // indirect
 	golang.org/x/sync v0.8.0

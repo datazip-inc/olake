@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/piyushsingariya/relec/memory"
 	"github.com/piyushsingariya/relec/safego"
 	"golang.org/x/sync/errgroup"
 )
@@ -172,6 +173,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						break main
 					}
 
+					memory.Lock(child)             // lock until memory free
 					record, err := flatten(record) // flatten the record first
 					if err != nil {
 						return err
