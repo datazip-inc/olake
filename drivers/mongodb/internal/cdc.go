@@ -16,8 +16,15 @@ import (
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
 	// TODO: concurrency based on configuration
-	return relec.Concurrent(context.TODO(), streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
-		return m.changeStreamSync(stream, pool)
+	changeStreamCtx, cancelChangeStream := context.WithCancel(context.TODO())
+	defer cancelChangeStream()
+
+	return relec.Concurrent(changeStreamCtx, streams, 2, func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
+		err := m.changeStreamSync(ctx, stream, pool)
+		if err != nil {
+			cancelChangeStream()
+		}
+		return err
 	})
 }
 
@@ -33,10 +40,12 @@ func (m *Mongo) StateType() types.StateType {
 }
 
 // does full load on empty state
-func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPool) error {
+func (m *Mongo) changeStreamSync(ctx context.Context, stream protocol.Stream, pool *protocol.WriterPool) error {
 	logger.Infof("starting change stream for stream [%s]", stream.ID())
 
-	cdcCtx := context.TODO()
+	cdcCtx, cancelCDC := context.WithCancel(ctx)
+	defer cancelCDC()
+
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
 	pipeline := mongo.Pipeline{

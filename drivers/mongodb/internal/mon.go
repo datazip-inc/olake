@@ -126,7 +126,7 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 	case types.FULLREFRESH:
 		return m.backfill(stream, pool)
 	case types.CDC:
-		return m.changeStreamSync(stream, pool)
+		return m.changeStreamSync(context.TODO(), stream, pool)
 	}
 
 	return nil

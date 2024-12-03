@@ -103,12 +103,16 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			defer childCancel() // spawnWriter uses childCancel to exit the middleware
 
 			thread = w.init() // set the thread variable
-			w.tmu.Lock()      // lock for concurrent access of w.config
-			if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
-				w.tmu.Unlock() // unlock
+
+			err := func() error {
+				w.tmu.Lock()         // lock for concurrent access of w.config
+				defer w.tmu.Unlock() // unlock
+				return utils.Unmarshal(w.config, thread.GetConfigRef())
+			}()
+
+			if err != nil {
 				return err
 			}
-			w.tmu.Unlock() // unlock
 
 			if err := thread.Setup(stream, opts); err != nil {
 				return err
@@ -117,14 +121,14 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			safego.Close(spawned)           // signal spawnWriter to exit
 			safego.Close(threadInitialized) // close after initialization
 
-			err := func() error {
+			err = func() error {
 				defer w.threadCounter.Add(-1)
 
 				return utils.ErrExecSequential(func() error {
 					return thread.Write(child, backend)
 				}, thread.Close)
 			}()
-			// if err != nil && !strings.Contains(err.Error(), "short write") {
+
 			if err != nil {
 				errChan <- err
 			}
@@ -145,10 +149,11 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			defer func() {
 				safego.Close(frontend)
 			}()
-
-			<-threadInitialized // wait till thread is initialized for the first time
+			// wait till thread is initialized for the first time
 			// not defering canceling the child context so that writing process
 			// can finish writing all the records pushed into the channel
+			<-threadInitialized
+
 			flatten := thread.Flattener()
 		main:
 			for {
@@ -161,10 +166,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 					// Note: Why printing state logic is at start
 					// i.e. because if Writer has exited before pushing into the channel;
 					// first the code will be blocked, second we might endup printing wrong state
-					if w.TotalRecords()%int64(batchSize_) == 0 {
-						if !state.IsZero() {
-							logger.LogState(state)
-						}
+					if w.TotalRecords()%int64(batchSize_) == 0 && !state.IsZero() {
+						logger.LogState(state)
 					}
 
 					record, ok := <-frontend

@@ -26,6 +26,9 @@ type Boundry struct {
 }
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
+	backfillCtx, cancelBackfill := context.WithCancel(context.TODO())
+	defer cancelBackfill()
+
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	totalCount, err := m.totalCountInCollection(collection)
 	if err != nil {
@@ -41,45 +44,31 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
 
 	// for every 6hr difference ideal density is 10 Seconds
-	density := time.Duration(last.Sub(first).Hours()/6) * (10 * time.Second)
-	concurrency := 50 // default; TODO: decide from MongoDB server resources
-	return relec.ConcurrentC(context.TODO(), relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
-		start := first
-		if prev != nil {
-			start = prev.end
-		}
-		boundry := &Boundry{
-			StartID: *generateMinObjectID(start),
-		}
+	subHours := last.Sub(first).Hours() / 6
+	if subHours < 1 {
+		subHours = 1
+	}
+	density := time.Duration(subHours) * (10 * time.Second)
+	concurrency := 10 // default; TODO: decide from MongoDB server resources
 
-		end := start.Add(density)
-		exit := true
-		if !end.After(last) {
-			exit = false
-			boundry.EndID = generateMinObjectID(end)
-			boundry.end = end
-		} else {
-			logger.Infof("Scheduling final full load chunk!")
-		}
+	// reader to read data from mongo db
+	reader := func(ctx context.Context, one *Boundry, number int64) error {
+		readerCtx, cancelReader := context.WithCancel(ctx)
+		defer cancelReader()
 
-		return exit, boundry, nil
-	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
-		threadContext, cancel := context.WithCancel(ctx)
-		defer cancel()
-
-		insert, err := pool.NewThread(threadContext, stream, protocol.WithNumber(number))
+		insert, err := pool.NewThread(readerCtx, stream, protocol.WithNumber(number))
 		if err != nil {
 			return err
 		}
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
-		cursor, err := collection.Aggregate(ctx, generatepipeline(one.StartID, one.EndID), opts)
+		cursor, err := collection.Aggregate(readerCtx, generatepipeline(one.StartID, one.EndID), opts)
 		if err != nil {
 			return fmt.Errorf("collection.Find: %s", err)
 		}
-		defer cursor.Close(ctx)
+		defer cursor.Close(readerCtx)
 
-		for cursor.Next(ctx) {
+		for cursor.Next(readerCtx) {
 			var doc bson.M
 			if _, err = cursor.Current.LookupErr("_id"); err != nil {
 				return fmt.Errorf("looking up idProperty: %s", err)
@@ -104,6 +93,33 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		logger.Infof("Finished full load chunk number %d.", number)
 		return nil
+	}
+	return relec.ConcurrentC(backfillCtx, relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
+		start := first
+		if prev != nil {
+			start = prev.end
+		}
+		boundry := &Boundry{
+			StartID: *generateMinObjectID(start),
+		}
+
+		end := start.Add(density)
+		exit := true
+		if !end.After(last) {
+			exit = false
+			boundry.EndID = generateMinObjectID(end)
+			boundry.end = end
+		} else {
+			logger.Infof("Scheduling final full load chunk!")
+		}
+
+		return exit, boundry, nil
+	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
+		err := reader(ctx, one, number)
+		if err != nil {
+			cancelBackfill()
+		}
+		return err
 	})
 
 }
