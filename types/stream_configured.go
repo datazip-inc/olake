@@ -55,7 +55,6 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 }
 
 func (s *ConfiguredStream) Cursor() string {
-	fmt.Println("cursor field: ", s.CursorField)
 	return s.CursorField
 }
 
