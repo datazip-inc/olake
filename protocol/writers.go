@@ -122,6 +122,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				defer w.threadCounter.Add(-1)
 
 				return utils.ErrExecSequential(func() error {
+					// Close backend here since with writer exit; processes pushing into backend will be stuck
+					// since no reader on backend
+					defer safego.Close(backend)
+
 					return thread.Write(child, backend)
 				}, thread.Close)
 			}()
@@ -203,7 +207,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						return err
 					}
 
-					backend <- record
+					if !safego.Insert(backend, record) {
+						return nil // Exit here since backend closed by backend reader
+					}
+
 					w.recordCount.Add(1) // increase the record count
 				}
 			}
