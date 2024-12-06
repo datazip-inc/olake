@@ -146,14 +146,14 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	// middleware that has abstracted the repetition code from Writers
 	w.group.Go(func() error {
 		err := func() error {
+			// not defering canceling the child context so that writing process
+			// can finish writing all the records pushed into the channel
 			defer safego.Close(backend)
 			defer func() {
 				safego.Close(frontend)
 			}()
 
 			<-threadInitialized // wait till thread is initialized for the first time
-			// not defering canceling the child context so that writing process
-			// can finish writing all the records pushed into the channel
 			flatten := thread.Flattener()
 		main:
 			for {
