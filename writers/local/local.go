@@ -155,7 +155,6 @@ func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
 
 	l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
 	return nil
-	// return fmt.Errorf("EvolveSchema not implemented in %s", l.Type())
 }
 
 func (l *Local) Close() error {
@@ -181,7 +180,6 @@ func (l *Local) Close() error {
 	)
 	// send error if only records were stored and error occured; This to handle error "short write"
 	if err != nil && l.records.Load() > 0 {
-		logger.Errorf("failed to close writer with identifier %s: %s", l.options.Identifier, err) // TODO: remove
 		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)
 	}
 
