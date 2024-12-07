@@ -14,7 +14,7 @@ type Config struct {
 	ReadPreference string   `json:"read_preference"`
 	Srv            bool     `json:"srv"`
 	ServerRAM      uint     `json:"server_ram"`
-	Database       string   `json:"databsae"`
+	Database       string   `json:"database"`
 }
 
 func (c *Config) URI() string {
