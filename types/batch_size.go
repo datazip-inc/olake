@@ -26,7 +26,7 @@ func (b *BatchSizeEstimator) Size() int64 {
 	return int64((float64(utils.FreeMemory()) * 0.8) / float64(b.avgrecordsize.Load()))
 }
 
-func (b *BatchSizeEstimator) Consume(data RecordData) {
+func (b *BatchSizeEstimator) Consume(data Record) {
 	size := utils.SizeOf(data)
 	if b.avgrecordsize == nil {
 		b.avgrecordsize = &atomic.Int64{}

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
-	"time"
 
 	"github.com/datazip-inc/olake/logger/console"
 	"github.com/datazip-inc/olake/types"
@@ -62,18 +61,6 @@ func Warn(v ...interface{}) {
 // Warn writes record into os.stdout with log level WARN
 func Warnf(format string, v ...interface{}) {
 	console.Log(format, console.WARN, v...)
-}
-
-func LogRecord(record types.Record) {
-	message := types.Message{}
-	message.Type = types.RecordMessage
-	message.Record = &record
-	message.Record.EmittedAt = time.Now()
-
-	err := console.Print(console.INFO, message)
-	if err != nil {
-		Fatalf("failed to encode record %v: %s", record, err)
-	}
 }
 
 func LogSpec(spec map[string]interface{}) {
