@@ -16,7 +16,7 @@ const (
 	// Streme Type indicates that the connector solely acts on individual stream state
 	StreamType StateType = "STREAM"
 	// Mixed type indicates that the connector works with a mix of Globally shared and
-	// Individual stream state
+	// Individual stream state (Note: not being used yet but in plan)
 	MixedType StateType = "MIXED"
 )
 
@@ -86,6 +86,7 @@ type StreamState struct {
 
 	Stream    string   `json:"stream"`
 	Namespace string   `json:"namespace"`
+	SyncMode  string   `json:"sync_mode"`
 	State     sync.Map `json:"-"`
 }
 
