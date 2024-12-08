@@ -1,8 +1,8 @@
 package utils
 
 import (
+	"crypto/rand"
 	"fmt"
-	mathrand "math/rand"
 	"os"
 	"reflect"
 	"time"
@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	entropy = mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	entropy = ulid.Monotonic(rand.Reader, 0)
 )
 
 func Absolute[T int | int8 | int16 | int32 | int64 | float32 | float64](value T) T {
