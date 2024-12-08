@@ -68,9 +68,9 @@ func (s *ConfiguredStream) SetupState(state *State) {
 
 		if contains {
 			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
+			s.streamState = state.Streams[i]
+			return
 		}
-
-		s.streamState = state.Streams[i]
 	}
 
 	ss := &StreamState{
