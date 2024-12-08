@@ -38,7 +38,7 @@ type Local struct {
 	pqSchemaMutex       sync.Mutex // To prevent concurrent underlying map access from fraugster library
 }
 
-func (l *Local) GetConfigRef() any {
+func (l *Local) GetConfigRef() protocol.Config {
 	l.config = &Config{}
 	return l.config
 }
