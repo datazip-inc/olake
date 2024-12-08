@@ -6,9 +6,13 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
+type Config interface {
+	Validate() error
+}
+
 type Connector interface {
 	// Setting up config reference in driver i.e. must be pointer
-	GetConfigRef() any
+	GetConfigRef() Config
 	Spec() any
 	// Sets up connections and perform checks; doesn't load Streams
 	//

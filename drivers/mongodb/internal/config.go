@@ -3,6 +3,8 @@ package driver
 import (
 	"fmt"
 	"strings"
+
+	"github.com/piyushsingariya/relec"
 )
 
 type Config struct {
@@ -40,4 +42,9 @@ func (c *Config) URI() string {
 		"%s://%s:%s@%s/?%s", connectionPrefix,
 		c.Username, c.Password, strings.Join(c.Hosts, ","), options,
 	)
+}
+
+// TODO: Add go struct validation in Config
+func (c *Config) Validate() error {
+	return relec.Validate(c)
 }
