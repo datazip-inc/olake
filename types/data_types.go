@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/xitongsys/parquet-go/parquet"
+	"github.com/fraugster/parquet-go/parquet"
 )
 
 type DataType string

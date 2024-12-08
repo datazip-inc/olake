@@ -37,6 +37,23 @@ func getFirstNotNullType(datatypes []types.DataType) types.DataType {
 	return types.NULL
 }
 
+func ReformatRecord(fields Fields, record types.Record) error {
+	for key, val := range record {
+		field, found := fields[key]
+		if !found {
+			return fmt.Errorf("missing field [%s]", key)
+		}
+
+		updated, err := ReformatValue(field.getType(), val)
+		if err != nil {
+			return fmt.Errorf("failed to reformat value[%s] to datatype[%s] for key[%s]: %s", val, field.getType(), key, err)
+		}
+		record[key] = updated
+	}
+
+	return nil
+}
+
 func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
 	return ReformatValue(getFirstNotNullType(datatypes), v)
 }

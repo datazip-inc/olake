@@ -6,9 +6,13 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
+type Config interface {
+	Validate() error
+}
+
 type Connector interface {
 	// Setting up config reference in driver i.e. must be pointer
-	GetConfigRef() any
+	GetConfigRef() Config
 	Spec() any
 	// Sets up connections and perform checks; doesn't load Streams
 	//
@@ -44,12 +48,13 @@ type JDBCDriver interface {
 }
 
 type Write = func(ctx context.Context, channel <-chan types.Record) error
+type FlattenFunction = func(record types.Record) (types.Record, error)
 
 type Writer interface {
 	Connector
 	// Setup sets up an Adapter for dedicated use for a stream
 	// avoiding the headover for different streams
-	Setup(stream Stream) error
+	Setup(stream Stream, opts *Options) error
 	// Write function being used by drivers
 	Write(ctx context.Context, channel <-chan types.Record) error
 
@@ -58,6 +63,7 @@ type Writer interface {
 	// schema update with an Alter Query
 	ReInitiationOnTypeChange() bool
 	ReInitiationOnNewColumns() bool
+	Flattener() FlattenFunction
 	EvolveSchema(map[string]*types.Property) error
 	Close() error
 }

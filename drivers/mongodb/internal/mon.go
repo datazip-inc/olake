@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/piyushsingariya/relec"
+	"github.com/piyushsingariya/relec/memory"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -27,7 +28,7 @@ type Mongo struct {
 }
 
 // config reference; must be pointer
-func (m *Mongo) GetConfigRef() any {
+func (m *Mongo) GetConfigRef() protocol.Config {
 	m.config = &Config{}
 	return m.config
 }
@@ -171,11 +172,14 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		defer cursor.Close(ctx)
 
 		for cursor.Next(ctx) {
+			memory.Lock(ctx) // lock until memory free
+
 			var row bson.M
 			if err := cursor.Decode(&row); err != nil {
 				return err
 			}
 
+			handleObjectID(row)
 			if err := typeutils.Resolve(stream, row); err != nil {
 				return err
 			}

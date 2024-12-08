@@ -5,30 +5,40 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/flatten"
+	"github.com/fraugster/parquet-go/parquet"
+	"github.com/piyushsingariya/relec/memory"
+
+	goparquet "github.com/fraugster/parquet-go"
+
 	"github.com/xitongsys/parquet-go-source/local"
-	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/source"
-	"github.com/xitongsys/parquet-go/writer"
 )
 
 // Local destination writes Parquet files
 // local_path/database/table/1...999.parquet
 type Local struct {
-	closed bool
-	config *Config
-	file   source.ParquetFile
-	writer *writer.ParquetWriter
-	stream protocol.Stream
+	options             *protocol.Options
+	fileName            string
+	destinationFilePath string
+	closed              bool
+	config              *Config
+	file                source.ParquetFile
+	writer              *goparquet.FileWriter
+	stream              protocol.Stream
+	records             atomic.Int64
+	pqSchemaMutex       sync.Mutex // To prevent concurrent underlying map access from fraugster library
 }
 
-func (l *Local) GetConfigRef() any {
+func (l *Local) GetConfigRef() protocol.Config {
 	l.config = &Config{}
 	return l.config
 }
@@ -37,26 +47,31 @@ func (p *Local) Spec() any {
 	return Config{}
 }
 
-func (l *Local) Setup(stream protocol.Stream) error {
-	destinationFilePath := filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), utils.TimestampedFileName(constants.ParquetFileExt))
+func (l *Local) Setup(stream protocol.Stream, options *protocol.Options) error {
+	l.options = options
+	l.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
+	l.destinationFilePath = filepath.Join(l.config.BaseFilePath, stream.Namespace(), stream.Name(), l.fileName)
+
 	// Start a new local writer
-	os.MkdirAll(filepath.Dir(destinationFilePath), os.ModePerm)
-
-	pqFile, err := local.NewLocalFileWriter(destinationFilePath)
+	err := os.MkdirAll(filepath.Dir(l.destinationFilePath), os.ModePerm)
 	if err != nil {
 		return err
 	}
 
-	// Create writer
-	pw, err := writer.NewParquetWriter(pqFile, stream.Schema().ToParquet(), 4)
+	pqFile, err := local.NewLocalFileWriter(l.destinationFilePath)
 	if err != nil {
 		return err
 	}
-	pw.RowGroupSize = 128 * 1024 * 1024 // 128MB
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
+
+	// parquetschema.ParseSchemaDefinition()
+	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
+		goparquet.WithMaxRowGroupSize(100),
+		goparquet.WithMaxPageSize(10),
+		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
+	)
 
 	l.file = pqFile
-	l.writer = pw
+	l.writer = writer
 	l.stream = stream
 	return nil
 }
@@ -91,9 +106,8 @@ func (l *Local) Check() error {
 }
 
 func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
-	flattener := flatten.NewFlattener()
 iteration:
-	for {
+	for !l.closed {
 		select {
 		case <-ctx.Done():
 			break iteration
@@ -104,14 +118,23 @@ iteration:
 				break iteration
 			}
 
-			record, err := flattener.Flatten(record) // flatten the record
+			// check memory and dump row group
+			var err error
+			memory.LockWithTrigger(ctx, func() {
+				err = l.writer.FlushRowGroupWithContext(ctx)
+			})
 			if err != nil {
 				return err
 			}
 
-			if err := l.writer.Write(record); err != nil {
+			l.pqSchemaMutex.Lock()
+			if err := l.writer.AddData(record); err != nil {
+				l.pqSchemaMutex.Unlock()
 				return fmt.Errorf("parquet write error: %s", err)
 			}
+			l.pqSchemaMutex.Unlock()
+
+			l.records.Add(1)
 		}
 	}
 
@@ -119,7 +142,7 @@ iteration:
 }
 
 func (l *Local) ReInitiationOnTypeChange() bool {
-	return true
+	return false
 }
 
 func (l *Local) ReInitiationOnNewColumns() bool {
@@ -127,12 +150,10 @@ func (l *Local) ReInitiationOnNewColumns() bool {
 }
 
 func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
-	for column, property := range mutation {
-		pqSchemaElem := property.DataType().ToParquet()
-		pqSchemaElem.Name = column
-		l.writer.SchemaHandler.SchemaElements = append(l.writer.SchemaHandler.SchemaElements, pqSchemaElem)
-	}
+	l.pqSchemaMutex.Lock()
+	defer l.pqSchemaMutex.Unlock()
 
+	l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
 	return nil
 }
 
@@ -140,19 +161,45 @@ func (l *Local) Close() error {
 	if l.closed {
 		return nil
 	}
+	l.closed = true
 
-	return utils.ErrExecSequential(
-		utils.ErrExecFormat("failed to stop local writer: %s", l.writer.WriteStop),
-		utils.ErrExecFormat("failed to close parquet file: %s", l.file.Close),
+	defer func() {
+		if l.records.Load() == 0 {
+			logger.Debugf("Wrote zero records in file[%s]; Deleting it!", l.destinationFilePath)
+			err := os.Remove(l.destinationFilePath)
+			if err != nil {
+				logger.Warnf("failed to delete file[%s] with zero records", l.destinationFilePath)
+			}
+			logger.Debugf("Deleted file[%s].", l.destinationFilePath)
+		}
+	}()
+
+	err := utils.ErrExecSequential(
+		utils.ErrExecFormat("failed to close writer: %s", func() error { return l.writer.Close() }),
+		utils.ErrExecFormat("failed to close file: %s", l.file.Close),
 	)
+	// send error if only records were stored and error occured; This to handle error "short write"
+	if err != nil && l.records.Load() > 0 {
+		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)
+	}
+
+	if l.records.Load() > 0 {
+		logger.Infof("Finished writing file [%s] with %d records", l.destinationFilePath, l.records.Load())
+	}
+	return nil
 }
 
 func (l *Local) Type() string {
 	return string(types.Local)
 }
 
+func (l *Local) Flattener() protocol.FlattenFunction {
+	flattener := typeutils.NewFlattener()
+	return flattener.Flatten
+}
+
 func init() {
 	protocol.RegisteredWriters[types.Local] = func() protocol.Writer {
-		return &Local{}
+		return new(Local)
 	}
 }

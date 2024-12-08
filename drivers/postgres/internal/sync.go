@@ -9,10 +9,9 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
-	"github.com/datazip-inc/olake/safego"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/jmoiron/sqlx"
+	"github.com/piyushsingariya/relec/safego"
 )
 
 // Simple Full Refresh Sync; Loads table fully

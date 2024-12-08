@@ -139,6 +139,17 @@ func (f Fields) ToProperties() map[string]*types.Property {
 	return result
 }
 
+func (f Fields) FromSchema(schema *types.TypeSchema) {
+	schema.Properties.Range(func(key, value any) bool {
+		fieldName := key.(string)
+		property := value.(*types.Property)
+
+		f[fieldName] = NewField(property.DataType())
+
+		return true
+	})
+}
+
 func (f Fields) ToTypeSchema() *types.TypeSchema {
 	schema := types.NewTypeSchema()
 	for key, val := range f {

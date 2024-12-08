@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -24,7 +26,7 @@ type Boundry struct {
 }
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
-	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Snapshot())).Collection(stream.Name())
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	totalCount, err := m.totalCountInCollection(collection)
 	if err != nil {
 		return err
@@ -41,7 +43,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	// for every 6hr difference ideal density is 10 Seconds
 	density := time.Duration(last.Sub(first).Hours()/6) * (10 * time.Second)
 	concurrency := 50 // default; TODO: decide from MongoDB server resources
-
 	return relec.ConcurrentC(context.TODO(), relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
 		start := first
 		if prev != nil {
@@ -57,11 +58,16 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			exit = false
 			boundry.EndID = generateMinObjectID(end)
 			boundry.end = end
+		} else {
+			logger.Info("Scheduling last full load chunk query!")
 		}
 
 		return exit, boundry, nil
 	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
-		insert, err := pool.NewThread(ctx, stream)
+		threadContext, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		insert, err := pool.NewThread(threadContext, stream, protocol.WithNumber(number))
 		if err != nil {
 			return err
 		}
@@ -81,16 +87,23 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				return fmt.Errorf("backfill decoding document: %s", err)
 			}
 
+			handleObjectID(doc)
 			exit, err := insert(types.Record(doc))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to finish backfill chunk %d: %s", number, err)
 			}
 			if exit {
 				return nil
 			}
 		}
 
-		return cursor.Err()
+		err = cursor.Err()
+		if err != nil {
+			return err
+		}
+
+		logger.Infof("Finished full load chunk number %d.", number)
+		return nil
 	})
 
 }
@@ -204,4 +217,9 @@ func generateMinObjectID(t time.Time) *primitive.ObjectID {
 	}
 
 	return &objectID
+}
+
+func handleObjectID(doc bson.M) {
+	objectID := doc[constants.MongoPrimaryID].(primitive.ObjectID).String()
+	doc[constants.MongoPrimaryID] = strings.TrimRight(strings.TrimLeft(objectID, constants.MongoPrimaryIDPrefix), constants.MongoPrimaryIDSuffix)
 }

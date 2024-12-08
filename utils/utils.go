@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -15,7 +16,8 @@ import (
 )
 
 var (
-	entropy = ulid.Monotonic(rand.Reader, 0)
+	ulidMutex = sync.Mutex{}
+	entropy   = ulid.Monotonic(rand.Reader, 0)
 )
 
 func Absolute[T int | int8 | int16 | int32 | int64 | float32 | float64](value T) T {
@@ -187,7 +189,13 @@ func MaxDate(v1, v2 time.Time) time.Time {
 }
 
 func ULID() string {
-	t := time.Now()
+	return genULID(time.Now())
+}
+
+func genULID(t time.Time) string {
+	ulidMutex.Lock()
+	defer ulidMutex.Unlock()
+
 	newUlid, err := ulid.New(ulid.Timestamp(t), entropy)
 	if err != nil {
 		logrus.Fatal(err)
@@ -199,12 +207,7 @@ func ULID() string {
 // Returns a timestamped
 func TimestampedFileName(extension string) string {
 	now := time.Now()
-	ulid, err := ulid.New(ulid.Timestamp(now), entropy)
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
-	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), ulid, extension)
+	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
 func IsJSON(str string) bool {

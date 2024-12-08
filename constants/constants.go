@@ -1,5 +1,8 @@
 package constants
 
 const (
-	ParquetFileExt = "parquet"
+	ParquetFileExt       = "parquet"
+	MongoPrimaryID       = "_id"
+	MongoPrimaryIDPrefix = `ObjectID("`
+	MongoPrimaryIDSuffix = `")`
 )

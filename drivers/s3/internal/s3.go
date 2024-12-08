@@ -16,12 +16,12 @@ import (
 	"github.com/datazip-inc/olake/jsonschema/schema"
 	"github.com/datazip-inc/olake/logger"
 	protocol "github.com/datazip-inc/olake/protocol"
-	"github.com/datazip-inc/olake/safego"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/gobwas/glob"
 	"github.com/piyushsingariya/drivers/s3/internal/reader"
+	"github.com/piyushsingariya/relec/safego"
 )
 
 const patternSymbols = "*[]!{}"
