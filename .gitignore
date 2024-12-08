@@ -5,3 +5,4 @@ test
 __debug_bin*
 go.sum
 go.work.sum
+**/examples
