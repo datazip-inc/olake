@@ -1,0 +1,6 @@
+{
+    "type" : "LOCAL",
+    "writer": {
+        "path":"./drivers/mongodb/examples"
+    }
+}

@@ -19,8 +19,10 @@ type Connector interface {
 
 type Driver interface {
 	Connector
+	// Sets up client, doesn't performs any Checks
+	Setup() error
 	// Discover discovers the streams; Returns cached if already discovered
-	Discover() ([]*types.Stream, error)
+	Discover(discoverSchema bool) ([]*types.Stream, error)
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(pool *WriterPool, stream Stream) error
 	ChangeStreamSupported() bool
@@ -54,7 +56,9 @@ type Writer interface {
 	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
 	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
 	// schema update with an Alter Query
-	ReInitiationRequiredOnSchemaEvolution() bool
+	ReInitiationOnTypeChange() bool
+	ReInitiationOnNewColumns() bool
+	EvolveSchema(map[string]*types.Property) error
 	Close() error
 }
 

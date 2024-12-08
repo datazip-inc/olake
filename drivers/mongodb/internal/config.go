@@ -6,20 +6,38 @@ import (
 )
 
 type Config struct {
-	Hosts          []string
-	Username       string
-	Password       string
-	AuthDB         string
-	ReplicaSet     string
-	ReadPreference string
-	Srv            bool
-	ServerRAM      uint
-	Database       string
+	Hosts          []string `json:"hosts"`
+	Username       string   `json:"username"`
+	Password       string   `json:"password"`
+	AuthDB         string   `json:"authdb"`
+	ReplicaSet     string   `json:"replica_set"`
+	ReadPreference string   `json:"read_preference"`
+	Srv            bool     `json:"srv"`
+	ServerRAM      uint     `json:"server_ram"`
+	Database       string   `json:"database"`
 }
 
 func (c *Config) URI() string {
+	connectionPrefix := "mongodb"
+	options := fmt.Sprintf("?authSource=%s", c.AuthDB)
+
+	if c.Srv {
+		connectionPrefix = "mongodb+srv"
+	}
+
+	if c.ReplicaSet != "" {
+		// configurations for a replica set
+		options = fmt.Sprintf("%s&replicaSet=%s", options, c.ReplicaSet)
+		if c.ReadPreference != "" {
+			options = fmt.Sprintf("%s&readPreference=%s", options, c.ReadPreference)
+		} else {
+			// default secondaryPreferred
+			options = fmt.Sprintf("%s&readPreference=%s", options, "secondaryPreferred")
+		}
+	}
+
 	return fmt.Sprintf(
-		"mongodb://%s:%s@%s?authSource=%s&replicaSet=%s&readPreference=%s",
-		c.Username, c.Password, strings.Join(c.Hosts, ","), c.AuthDB, c.ReplicaSet, c.ReadPreference,
+		"%s://%s:%s@%s/?%s", connectionPrefix,
+		c.Username, c.Password, strings.Join(c.Hosts, ","), options,
 	)
 }

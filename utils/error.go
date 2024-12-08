@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/go-multierror"
 	"golang.org/x/sync/errgroup"
@@ -26,4 +27,14 @@ func ErrExecSequential(functions ...func() error) error {
 	}
 
 	return multErr
+}
+
+func ErrExecFormat(format string, function func() error) func() error {
+	return func() error {
+		if err := function(); err != nil {
+			return fmt.Errorf(format, err)
+		}
+
+		return nil
+	}
 }

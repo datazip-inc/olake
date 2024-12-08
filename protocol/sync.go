@@ -65,9 +65,13 @@ var syncCmd = &cobra.Command{
 		GlobalCxGroup.Add(func(ctx context.Context) error {
 			return pool.Wait()
 		})
-
+		// setup conector first
+		err = connector.Setup()
+		if err != nil {
+			return err
+		}
 		// Get Source Streams
-		streams, err := connector.Discover()
+		streams, err := connector.Discover(false)
 		if err != nil {
 			return err
 		}
@@ -124,14 +128,14 @@ var syncCmd = &cobra.Command{
 					return fmt.Errorf("error occurred while reading records: %s", err)
 				}
 			}
-
+			logger.Info("Sync Process Completed")
 			return nil
 		})
 
 		// Execute streams in Standard Stream mode
 		// TODO: Separate streams with FULL and Incremental here only
 		relec.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
-			logger.Info("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
+			logger.Infof("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
 
 			streamStartTime := time.Now()
 			err := connector.Read(pool, stream)
@@ -144,11 +148,15 @@ var syncCmd = &cobra.Command{
 			return nil
 		})
 
+		if err := GlobalCxGroup.Block(); err != nil {
+			return err
+		}
+
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
 			logger.LogState(state)
 		}
 
-		return GlobalCxGroup.Block()
+		return nil
 	},
 }

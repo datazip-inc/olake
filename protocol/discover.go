@@ -25,7 +25,12 @@ var discoverCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		streams, err := connector.Discover()
+		err := connector.Setup()
+		if err != nil {
+			return err
+		}
+
+		streams, err := connector.Discover(true)
 		if err != nil {
 			return err
 		}

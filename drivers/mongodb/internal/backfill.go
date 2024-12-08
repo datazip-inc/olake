@@ -8,7 +8,6 @@ import (
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
-	"github.com/datazip-inc/olake/safego"
 	"github.com/datazip-inc/olake/types"
 	"github.com/piyushsingariya/relec"
 	"go.mongodb.org/mongo-driver/bson"
@@ -40,7 +39,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
 
 	// for every 6hr difference ideal density is 10 Seconds
-	density := (last.Sub(first) / 6 * time.Hour) * (10 * time.Second)
+	density := time.Duration(last.Sub(first).Hours()/6) * (10 * time.Second)
 	concurrency := 50 // default; TODO: decide from MongoDB server resources
 
 	return relec.ConcurrentC(context.TODO(), relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
@@ -62,11 +61,10 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		return exit, boundry, nil
 	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
-		thread, err := pool.NewThread(ctx, stream)
+		insert, err := pool.NewThread(ctx, stream)
 		if err != nil {
 			return err
 		}
-		defer safego.Close(thread)
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursor, err := collection.Aggregate(ctx, generatepipeline(one.StartID, one.EndID), opts)
@@ -83,7 +81,11 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				return fmt.Errorf("backfill decoding document: %s", err)
 			}
 
-			if !safego.Insert(thread, types.Record(doc)) {
+			exit, err := insert(types.Record(doc))
+			if err != nil {
+				return err
+			}
+			if exit {
 				return nil
 			}
 		}
@@ -97,7 +99,7 @@ func (m *Mongo) totalCountInCollection(collection *mongo.Collection) (int64, err
 	var countResult bson.M
 	command := bson.D{{
 		Key:   "collStats",
-		Value: collection,
+		Value: collection.Name(),
 	}}
 	// Select the database
 	err := collection.Database().RunCommand(context.TODO(), command).Decode(&countResult)

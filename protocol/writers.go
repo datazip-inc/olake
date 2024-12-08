@@ -3,16 +3,19 @@ package protocol
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/safego"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"golang.org/x/sync/errgroup"
 )
 
 type NewFunc func() Writer
+type InsertFunction func(record types.Record) (exit bool, err error)
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
 
@@ -23,8 +26,10 @@ type WriterPool struct {
 	init          NewFunc      // To initialize exclusive destination threads
 	group         *errgroup.Group
 	groupCtx      context.Context
+	tmu           sync.Mutex // Mutex between threads
 }
 
+// Shouldn't the name be NewWriterPool?
 func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
@@ -49,34 +54,47 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 		init:          newfunc,
 		group:         group,
 		groupCtx:      ctx,
+		tmu:           sync.Mutex{},
 	}, nil
 }
 
 // Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan types.Record, error) {
+func (w *WriterPool) NewThread(parent context.Context, stream Stream) (InsertFunction, error) {
 	thread := w.init()
+
+	w.tmu.Lock() // lock for concurrent access of w.config
 	if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
+		w.tmu.Unlock() // unlock
 		return nil, err
 	}
+	w.tmu.Unlock() // unlock
 
 	if err := thread.Setup(stream); err != nil {
 		return nil, err
 	}
 
 	w.threadCounter.Add(1)
-	frontend := make(chan types.Record)
-	backend := make(chan types.Record)
+	frontend := make(chan types.Record) // To be given to Reader
+	backend := make(chan types.Record)  // To be given to Writer
+	errChan := make(chan error)
 	child, childCancel := context.WithCancel(parent)
 
 	// spawnWriter spawns a writer process with child context
 	spawnWriter := func() {
 		w.group.Go(func() error {
-			defer thread.Close()
+			defer func() {
+				err := thread.Close()
+				if err != nil {
+					errChan <- err
+				}
+			}()
 			defer w.threadCounter.Add(-1)
 
 			return thread.Write(child, backend)
 		})
 	}
+
+	fields := make(typeutils.Fields)
 
 	w.group.Go(func() error {
 		defer safego.Close(backend)
@@ -94,11 +112,23 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 					break main
 				}
 
-				// TODO: handle schema evolution here
-				if thread.ReInitiationRequiredOnSchemaEvolution() {
+				change, typeChange, mutations := fields.Process(record)
+				if change || typeChange {
+					w.tmu.Lock()
+					stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
+					w.tmu.Unlock()
+				}
+
+				// handle schema evolution here
+				if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
 					childCancel()                                   // Close the current writer and spawn new
 					child, childCancel = context.WithCancel(parent) // replace the original child context and cancel function
 					spawnWriter()                                   // spawn a writer with newer context
+				} else {
+					err := thread.EvolveSchema(mutations.ToProperties())
+					if err != nil {
+						return err
+					}
 				}
 
 				w.recordCount.Add(1) // increase the record count
@@ -111,7 +141,19 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream) (chan type
 	})
 
 	spawnWriter()
-	return frontend, nil
+	return func(record types.Record) (bool, error) {
+		select {
+		case err := <-errChan:
+			childCancel() // cancel the writers
+			return false, err
+		default:
+			if !safego.Insert(frontend, record) {
+				return true, nil
+			}
+
+			return false, nil
+		}
+	}, nil
 }
 
 // Returns total records fetched at runtime
@@ -124,7 +166,7 @@ func (w *WriterPool) Wait() error {
 }
 
 func (w *WriterPool) logState() {
-	if w.TotalRecords()%int64(batchSize_) == 0 {
+	if w.TotalRecords()%int64(batchSize_) == 0 && !state.IsZero() {
 		logger.LogState(state)
 	}
 }

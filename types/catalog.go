@@ -1,11 +1,5 @@
 package types
 
-import (
-	"fmt"
-
-	"github.com/datazip-inc/olake/utils"
-)
-
 // Message is a dto for olake output row representation
 type Message struct {
 	Type             MessageType            `json:"type"`
@@ -40,46 +34,6 @@ type StatusRow struct {
 // ConfiguredCatalog is a dto for formatted airbyte catalog serialization
 type Catalog struct {
 	Streams []*ConfiguredStream `json:"streams,omitempty"`
-}
-
-// Schema is a dto for Airbyte catalog Schema object serialization
-type TypeSchema struct {
-	Properties map[string]*Property `json:"properties,omitempty"`
-}
-
-func (t *TypeSchema) GetType(column string) (DataType, error) {
-	p, found := t.Properties[column]
-	if !found {
-		return "", fmt.Errorf("column [%s] missing from type schema", column)
-	}
-
-	return p.DataType(), nil
-}
-
-// Property is a dto for catalog properties representation
-type Property struct {
-	Type []DataType `json:"type,omitempty"`
-	// TODO: Decide to keep in the Protocol Or Not
-	// Format string     `json:"format,omitempty"`
-}
-
-func (p *Property) DataType() DataType {
-	i, found := utils.ArrayContains(p.Type, func(elem DataType) bool {
-		return elem != NULL
-	})
-	if !found {
-		return NULL
-	}
-
-	return p.Type[i]
-}
-
-func (p *Property) Nullable() bool {
-	_, found := utils.ArrayContains(p.Type, func(elem DataType) bool {
-		return elem == NULL
-	})
-
-	return found
 }
 
 func GetWrappedCatalog(streams []*Stream) *Catalog {

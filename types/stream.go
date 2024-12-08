@@ -35,6 +35,7 @@ func NewStream(name, namespace string) *Stream {
 		SupportedSyncModes:      NewSet[SyncMode](),
 		SourceDefinedPrimaryKey: NewSet[string](),
 		AvailableCursorFields:   NewSet[string](),
+		Schema:                  NewTypeSchema(),
 	}
 }
 
@@ -66,28 +67,19 @@ func (s *Stream) WithCursorField(columns ...string) *Stream {
 	return s
 }
 
-// Add or Update Column in Stream Type Schema
-func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
-	if s.Schema == nil {
-		s.Schema = &TypeSchema{
-			Properties: map[string]*Property{},
-		}
-	}
-
-	property := &Property{
-		Type: []DataType{typ},
-	}
-
-	if nullable {
-		property.Type = append(property.Type, NULL)
-	}
-
-	s.Schema.Properties[column] = property
+func (s *Stream) WithSchema(schema *TypeSchema) *Stream {
+	s.Schema = schema
+	return s
 }
 
-func (s *Stream) WithSchema(schema TypeSchema) *Stream {
-	s.Schema = &schema
-	return s
+// Add or Update Column in Stream Type Schema
+func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
+	types := []DataType{typ}
+	if nullable {
+		types = append(types, NULL)
+	}
+
+	s.Schema.AddTypes(column, types...)
 }
 
 func (s *Stream) Wrap(batchSize int) *ConfiguredStream {

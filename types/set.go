@@ -98,15 +98,17 @@ func (this *Set[T]) Exists(element T) bool {
 }
 
 // Add an element to the set
-func (this *Set[T]) Insert(element T) {
-	if this.Exists(element) {
-		return
+func (this *Set[T]) Insert(elements ...T) {
+	for _, elem := range elements {
+		if this.Exists(elem) {
+			continue
+		}
+
+		hash := this.Hash(elem)
+
+		this.hash[hash] = nothing{}
+		this.storage[hash] = elem
 	}
-
-	hash := this.Hash(element)
-
-	this.hash[hash] = nothing{}
-	this.storage[hash] = element
 }
 
 // Find the intersection of two sets
@@ -188,6 +190,8 @@ func (this *Set[T]) Array() []T {
 }
 
 func (this *Set[T]) UnmarshalJSON(data []byte) error {
+	// to init underlying field during unmarshalling
+	this = NewSet[T]()
 	arr := []T{}
 	err := json.Unmarshal(data, &arr)
 	if err != nil {

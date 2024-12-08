@@ -9,9 +9,28 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// TypeFromValue return DataType from v type
+// TypeFromValue return [types.DataType] from v type
 func TypeFromValue(v interface{}) types.DataType {
+	if v == nil {
+		return types.NULL
+	}
+
+	// Check if v is a pointer and get the underlying element type if it is
+	valType := reflect.TypeOf(v)
+	if valType.Kind() == reflect.Pointer {
+		if valType.Elem() != nil {
+			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
+		}
+
+		return types.NULL // Handle nil pointers
+	}
+
 	switch reflect.TypeOf(v).Kind() {
+	case reflect.Pointer:
+		if reflect.TypeOf(v).Elem() != nil {
+			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
+		}
+		return types.NULL
 	case reflect.Invalid:
 		return types.NULL
 	case reflect.Bool:

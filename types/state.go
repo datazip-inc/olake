@@ -64,7 +64,7 @@ func (s *State) IsZero() bool {
 
 func (s *State) MarshalJSON() ([]byte, error) {
 	if s.IsZero() {
-		return nil, nil
+		return json.Marshal(nil)
 	}
 
 	type Alias State
@@ -72,7 +72,7 @@ func (s *State) MarshalJSON() ([]byte, error) {
 
 	populatedStreams := []*StreamState{}
 	for _, stream := range p.Streams {
-		if stream.Load() {
+		if stream.holdsValue.Load() {
 			populatedStreams = append(populatedStreams, stream)
 		}
 	}
@@ -82,11 +82,11 @@ func (s *State) MarshalJSON() ([]byte, error) {
 }
 
 type StreamState struct {
-	atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
+	holdsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
-	Stream    string `json:"stream"`
-	Namespace string `json:"namespace"`
-	State     sync.Map
+	Stream    string   `json:"stream"`
+	Namespace string   `json:"namespace"`
+	State     sync.Map `json:"-"`
 }
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
@@ -153,8 +153,8 @@ type Global[T GlobalState] struct {
 	// Attaching Streams to Global State helps in recognizing the tables that the state belongs to.
 	//
 	// This results in helping connector determine what streams were synced during the last sync in
-	// Group read. and also helps connectors to migrate from incremental to GroupRead without the need to
-	// full load with the help of using cursor value and field as recovery cursor for GroupRead
+	// Group read. and also helps connectors to migrate from incremental to CDC Read without the need to
+	// full load with the help of using cursor value and field as recovery cursor for CDC
 	Streams *Set[string] `json:"streams"`
 }
 
