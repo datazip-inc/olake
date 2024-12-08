@@ -4,7 +4,7 @@ go 1.23
 
 require (
 	github.com/datazip-inc/olake v0.0.0-20230727050722-6795340c7033
-	github.com/piyushsingariya/relec v0.0.19
+	github.com/piyushsingariya/relec v0.0.20
 )
 
 require (

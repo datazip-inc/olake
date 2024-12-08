@@ -51,7 +51,6 @@ type WriterPool struct {
 
 // Shouldn't the name be NewWriterPool?
 func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
-
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)

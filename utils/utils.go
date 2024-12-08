@@ -17,6 +17,7 @@ import (
 
 var (
 	ulidMutex = sync.Mutex{}
+	entropy   = ulid.Monotonic(rand.Reader, 0)
 )
 
 func Absolute[T int | int8 | int16 | int32 | int64 | float32 | float64](value T) T {
@@ -195,7 +196,7 @@ func genULID(t time.Time) string {
 	ulidMutex.Lock()
 	defer ulidMutex.Unlock()
 
-	newUlid, err := ulid.New(ulid.Timestamp(t), ulid.Monotonic(rand.Reader, 0))
+	newUlid, err := ulid.New(ulid.Timestamp(t), entropy)
 	if err != nil {
 		logrus.Fatal(err)
 	}

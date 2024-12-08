@@ -134,18 +134,6 @@ func (t *TypeSchema) ToParquet() *parquetschema.SchemaDefinition {
 	return &definition
 }
 
-// func (t *TypeSchema) ToParquet() []*parquet.SchemaElement {
-// 	parquetSchema := []*parquet.SchemaElement{}
-// 	t.Properties.Range(func(key, value interface{}) bool {
-// 		pqType := value.(*Property).DataType().ToParquet() // get parquet type
-// 		pqType.Name = key.(string)                         // attach Column name
-// 		parquetSchema = append(parquetSchema, pqType)
-// 		return true
-// 	})
-
-// 	return parquetSchema
-// }
-
 // Property is a dto for catalog properties representation
 type Property struct {
 	Type *Set[DataType] `json:"type,omitempty"`

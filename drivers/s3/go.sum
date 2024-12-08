@@ -543,8 +543,8 @@ github.com/pierrec/lz4/v4 v4.1.8/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuR
 github.com/pierrec/lz4/v4 v4.1.14/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
 github.com/pierrec/lz4/v4 v4.1.21 h1:yOVMLb6qSIDP67pl/5F7RepeKYu/VmTyEXvuMI5d9mQ=
 github.com/pierrec/lz4/v4 v4.1.21/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
-github.com/piyushsingariya/relec v0.0.19 h1:pHWucinWdmezZ+Y8SKUjYcwIg2PD6THmpVrRJjV+LNI=
-github.com/piyushsingariya/relec v0.0.19/go.mod h1:/uSOTyUESjm5ow515VHtwCSopkbBVHGOKwgmiKVwVnA=
+github.com/piyushsingariya/relec v0.0.20 h1:YU+18d1e1uMqqp0a2L8/Afz0BGCS6k/fEcyB3EjNzT0=
+github.com/piyushsingariya/relec v0.0.20/go.mod h1:/uSOTyUESjm5ow515VHtwCSopkbBVHGOKwgmiKVwVnA=
 github.com/pkg/browser v0.0.0-20180916011732-0a3d74bf9ce4/go.mod h1:4OwLy04Bl9Ef3GJJCoec+30X3LQs/0/m4HFRt/2LUSA=
 github.com/pkg/browser v0.0.0-20210115035449-ce105d075bb4/go.mod h1:N6UoU20jOqggOuDwUaBQpluzLNDqif3kq9z2wpdYEfQ=
 github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8/go.mod h1:HKlIX3XHQyzLZPlr7++PzdhaXEj94dEiJgZDTsxEqUI=
