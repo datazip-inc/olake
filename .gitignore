@@ -3,3 +3,5 @@ g5
 test
 .DS_Store
 __debug_bin*
+go.sum
+go.work.sum
