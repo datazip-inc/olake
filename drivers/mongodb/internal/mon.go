@@ -28,7 +28,7 @@ type Mongo struct {
 }
 
 // config reference; must be pointer
-func (m *Mongo) GetConfigRef() any {
+func (m *Mongo) GetConfigRef() protocol.Config {
 	m.config = &Config{}
 	return m.config
 }
