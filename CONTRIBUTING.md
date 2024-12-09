@@ -33,15 +33,18 @@ For more information on the different ways in which you can contribute to Olake,
 
 The type of change you make will dictate what repositories you will need to make pull requests for. You can reach out to us on our [**Slack**](https://join.slack.com/t/getolake/shared_invite/zt-2usyz3i6r-8I8c9MtfcQUINQbR7vNtCQ/) channel if you have any questions.
 
-For instance, to create a PR for contributing to a new driver, follow these instructions on [**submitting an Driver PR**]().
+For example to contribute a new driver, you need to create a pull request (PR). Follow these steps to ensure your PR is well-prepared:
+- Provide a clear and concise PR title.
+- Write a detailed and descriptive PR description.
+- Request a code review from the maintainers.
 
 ## Committing
 
-We prefer squash or rebase commits so that all changes from a branch are committed to master as a single commit. All pull requests are squashed when merged, but rebasing prior to merge gives you better control over the commit message.
+We prefer squash or rebase commits so that all changes from a branch are committed to master as a single commit. All pull requests are squashed when merged, but rebasing prior to merge gives you better control over the commit message. Only signed commits are accepted for contribution.
 
 ## Installing and setting up Olake
 
-To contribute to this project, you may need to install Olake on your machine. You can do so by following our [**docs**]() and set up Olake in no time.
+To contribute to this project, you may need to install Olake on your machine. You can do so by following our [**docs**](https://datazip.io/olake/docs/olake/mongodb/how-to-start-contributing-on-olake) and set up Olake in no time.
 
 ## Getting help
 
