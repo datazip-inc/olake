@@ -53,4 +53,4 @@ For any questions, concerns, or queries, you can start by asking a question on o
 
 <!----variables---->
 
-[CLA]: https://datazip.io
+[CLA]: https://docs.google.com/forms/d/e/1FAIpQLSdze2q6gn81fmbIp2bW5cIpAXcpv7Y5OQjQyXflNvoYWiO4OQ/viewform
