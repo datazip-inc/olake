@@ -54,15 +54,14 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if resumeToken != nil {
 			prevResumeToken = *resumeToken
 		}
-		if err := m.backfill(stream, pool); err != nil {
-			return err
-		}
+		// if err := m.backfill(stream, pool); err != nil {
+		// 	return err
+		// }
 
 	}
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(prevResumeToken)
 	// resume cdc sync from prev resume token
 	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
-
 	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
 	if err != nil {
 		return fmt.Errorf("failed to open change stream: %s", err)
@@ -94,8 +93,9 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		return fmt.Errorf("failed to iterate cursor on change streams: %s", err)
 	}
 
-	// save state for the current stream
-	stream.SetStateCursor(prevResumeToken)
+	// get resume_token value from token
+	stream.SetStateKey("_data", prevResumeToken.(map[string]string)["_data"])
+
 	return nil
 }
 

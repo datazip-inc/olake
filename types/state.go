@@ -62,24 +62,24 @@ func (s *State) IsZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
 }
 
-func (s *State) MarshalJSON() ([]byte, error) {
-	if s.IsZero() {
-		return json.Marshal(nil)
-	}
+// func (s *State) MarshalJSON() ([]byte, error) {
+// 	if s.IsZero() {
+// 		return json.Marshal(nil)
+// 	}
 
-	type Alias State
-	p := Alias(*s)
+// 	type Alias State
+// 	p := Alias(*s)
 
-	populatedStreams := []*StreamState{}
-	for _, stream := range p.Streams {
-		if stream.holdsValue.Load() {
-			populatedStreams = append(populatedStreams, stream)
-		}
-	}
+// 	populatedStreams := []*StreamState{}
+// 	for _, stream := range p.Streams {
+// 		if stream.holdsValue.Load() {
+// 			populatedStreams = append(populatedStreams, stream)
+// 		}
+// 	}
 
-	p.Streams = populatedStreams
-	return json.Marshal(p)
-}
+// 	p.Streams = populatedStreams
+// 	return json.Marshal(*s)
+// }
 
 type StreamState struct {
 	holdsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
