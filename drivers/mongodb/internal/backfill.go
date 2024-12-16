@@ -40,8 +40,12 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
 	logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
 
+	timeDiff := last.Sub(first).Hours() / 6
+	if timeDiff < 1 {
+		timeDiff = 1
+	}
 	// for every 6hr difference ideal density is 10 Seconds
-	density := time.Duration(last.Sub(first).Hours()/6) * (10 * time.Second)
+	density := time.Duration(timeDiff) * (10 * time.Second)
 	concurrency := 50 // default; TODO: decide from MongoDB server resources
 	return relec.ConcurrentC(context.TODO(), relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
 		start := first

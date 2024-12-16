@@ -22,14 +22,13 @@ func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 }
 
 func (m *Mongo) SetupGlobalState(state *types.State) error {
-	state.Type = m.StateType()
-	// Setup raw state
-	// m.cdcState = types.NewGlobalState()
+	// mongo db does not support any gloabal state
+	// stream level states can be used
 	return nil
 }
 
 func (m *Mongo) StateType() types.StateType {
-	return ""
+	return types.StreamType
 }
 
 // does full load on empty state
@@ -45,7 +44,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}}},
 	}
 
-	var prevResumeToken interface{}
+	prevResumeToken := stream.GetStateKey("_data")
 	if prevResumeToken == nil {
 		// get current resume token and do full load for stream
 		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
@@ -53,16 +52,18 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return err
 		}
 		if resumeToken != nil {
-			prevResumeToken = *resumeToken
+			prevResumeToken = (*resumeToken).Lookup("_data").StringValue()
 		}
 		if err := m.backfill(stream, pool); err != nil {
 			return err
 		}
 
 	}
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(prevResumeToken)
+
+	changeStreamToken := map[string]any{"_data": prevResumeToken}
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(changeStreamToken)
 	// resume cdc sync from prev resume token
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), changeStreamToken)
 
 	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -89,14 +90,14 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return nil
 		}
 
-		prevResumeToken = cursor.ResumeToken().String()
+		prevResumeToken = cursor.ResumeToken().Lookup("_data").StringValue()
 	}
 	if err := cursor.Err(); err != nil {
 		return fmt.Errorf("failed to iterate cursor on change streams: %s", err)
 	}
 
 	// save state for the current stream
-	// stream.SetStateCursor(prevResumeToken)
+	stream.SetStateKey("_data", prevResumeToken)
 	return nil
 }
 
