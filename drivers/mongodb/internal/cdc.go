@@ -44,7 +44,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}}},
 	}
 
-	prevResumeToken := stream.GetStateKey("_data")
+	prevResumeToken := stream.GetStateKey(cdcCursorField)
 	if prevResumeToken == nil {
 		// get current resume token and do full load for stream
 		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
@@ -52,7 +52,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return err
 		}
 		if resumeToken != nil {
-			prevResumeToken = (*resumeToken).Lookup("_data").StringValue()
+			prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
 		}
 		if err := m.backfill(stream, pool); err != nil {
 			return err
@@ -60,10 +60,9 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 
 	}
 
-	changeStreamToken := map[string]any{"_data": prevResumeToken}
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(changeStreamToken)
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
 	// resume cdc sync from prev resume token
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), changeStreamToken)
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -71,7 +70,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 	defer cursor.Close(cdcCtx)
 
-	insert, err := pool.NewThread(context.TODO(), stream)
+	inserter, err := pool.NewThread(cdcCtx, stream)
 	if err != nil {
 		return err
 	}
@@ -81,8 +80,8 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		// Only send full document from record received (record -> fullDocument -> record)
-		exit, err := insert(types.Record(record))
+		// TODO: send full document along with delete and current timestamp to write
+		exit, err := inserter(types.Record(record))
 		if err != nil {
 			return err
 		}
@@ -90,14 +89,14 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return nil
 		}
 
-		prevResumeToken = cursor.ResumeToken().Lookup("_data").StringValue()
+		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
 	}
 	if err := cursor.Err(); err != nil {
-		return fmt.Errorf("failed to iterate cursor on change streams: %s", err)
+		return fmt.Errorf("failed to iterate change streams cursor: %s", err)
 	}
 
 	// save state for the current stream
-	stream.SetStateKey("_data", prevResumeToken)
+	stream.SetStateKey(cdcCursorField, prevResumeToken)
 	return nil
 }
 
