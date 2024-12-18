@@ -16,7 +16,7 @@ const (
 	// Streme Type indicates that the connector solely acts on individual stream state
 	StreamType StateType = "STREAM"
 	// Mixed type indicates that the connector works with a mix of Globally shared and
-	// Individual stream state
+	// Individual stream state (Note: not being used yet but in plan)
 	MixedType StateType = "MIXED"
 )
 
@@ -72,7 +72,7 @@ func (s *State) MarshalJSON() ([]byte, error) {
 
 	populatedStreams := []*StreamState{}
 	for _, stream := range p.Streams {
-		if stream.holdsValue.Load() {
+		if stream.HoldsValue.Load() {
 			populatedStreams = append(populatedStreams, stream)
 		}
 	}
@@ -82,10 +82,11 @@ func (s *State) MarshalJSON() ([]byte, error) {
 }
 
 type StreamState struct {
-	holdsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
+	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
 	Stream    string   `json:"stream"`
 	Namespace string   `json:"namespace"`
+	SyncMode  string   `json:"sync_mode"`
 	State     sync.Map `json:"-"`
 }
 
