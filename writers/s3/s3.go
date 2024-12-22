@@ -55,7 +55,12 @@ func (s *S3) Spec() any {
 func (s *S3) Setup(stream protocol.Stream, options *protocol.Options) error {
 	s.options = options
 	s.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
-	s.destinationFilePath = filepath.Join(stream.Namespace(), stream.Name(), s.fileName)
+
+	basePath := filepath.Join(stream.Namespace(), stream.Name())
+	if s.config.Prefix != "" {
+		basePath = filepath.Join(s.config.Prefix, basePath)
+	}
+	s.destinationFilePath = filepath.Join(basePath, s.fileName)
 	s.tempFilePath = filepath.Join(os.TempDir(), s.fileName)
 
 	// Create AWS session with optional credentials

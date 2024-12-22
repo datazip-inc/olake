@@ -7,6 +7,7 @@ type Config struct {
 	Region    string `json:"region" validate:"required"`
 	AccessKey string `json:"access_key,omitempty"`
 	SecretKey string `json:"secret_key,omitempty"`
+	Prefix    string `json:"prefix,omitempty"`
 }
 
 func (c *Config) Validate() error {
