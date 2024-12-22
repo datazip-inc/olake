@@ -1,0 +1,7 @@
+{
+    "type" : "S3",
+    "writer": {
+        "bucket":"test-snowfl",
+        "region":"ap-south-1"
+    }
+}
