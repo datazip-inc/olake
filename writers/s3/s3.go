@@ -21,6 +21,7 @@ import (
 	"github.com/fraugster/parquet-go/parquet"
 	"github.com/piyushsingariya/relec/memory"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	goparquet "github.com/fraugster/parquet-go"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/source"
@@ -57,10 +58,16 @@ func (s *S3) Setup(stream protocol.Stream, options *protocol.Options) error {
 	s.destinationFilePath = filepath.Join(stream.Namespace(), stream.Name(), s.fileName)
 	s.tempFilePath = filepath.Join(os.TempDir(), s.fileName)
 
-	// Create AWS session
-	sess, err := session.NewSession(&aws.Config{
+	// Create AWS session with optional credentials
+	config := aws.Config{
 		Region: aws.String(s.config.Region),
-	})
+	}
+
+	if s.config.AccessKey != "" && s.config.SecretKey != "" {
+		config.Credentials = credentials.NewStaticCredentials(s.config.AccessKey, s.config.SecretKey, "")
+	}
+
+	sess, err := session.NewSession(&config)
 	if err != nil {
 		return fmt.Errorf("failed to create AWS session: %s", err)
 	}
@@ -90,10 +97,16 @@ func (s *S3) Setup(stream protocol.Stream, options *protocol.Options) error {
 }
 
 func (s *S3) Check() error {
-	// Create AWS session to verify credentials and region
-	sess, err := session.NewSession(&aws.Config{
+	// Create AWS session with optional credentials
+	config := aws.Config{
 		Region: aws.String(s.config.Region),
-	})
+	}
+
+	if s.config.AccessKey != "" && s.config.SecretKey != "" {
+		config.Credentials = credentials.NewStaticCredentials(s.config.AccessKey, s.config.SecretKey, "")
+	}
+
+	sess, err := session.NewSession(&config)
 	if err != nil {
 		return fmt.Errorf("failed to create AWS session: %s", err)
 	}
