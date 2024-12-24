@@ -223,7 +223,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 					if err != nil {
 						return err
 					}
-					// indefinite wait if backend channel is not empty
+
 					if !safego.Insert(processedRecord, record) {
 						return nil
 					}
@@ -248,7 +248,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			case <-child.Done(): // TODO: child.Done() can come at point when schema change has cancelled child context so handle this case
 				return false, fmt.Errorf("cancelled main writer before insert")
 			default:
-				// indefinite wait if frontend channel is not empty
 				if !safego.Insert(rawRecord, record) {
 					return true, nil
 				}
