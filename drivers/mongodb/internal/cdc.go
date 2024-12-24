@@ -33,8 +33,6 @@ func (m *Mongo) StateType() types.StateType {
 
 // does full load on empty state
 func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPool) error {
-	logger.Infof("starting change stream for stream [%s]", stream.ID())
-
 	cdcCtx := context.TODO()
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
@@ -70,10 +68,11 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 	defer cursor.Close(cdcCtx)
 
-	inserter, err := pool.NewThread(cdcCtx, stream)
+	insert, err := pool.NewThread(cdcCtx, stream)
 	if err != nil {
 		return err
 	}
+	defer insert.Close()
 	// Iterates over the cursor to print the change stream events
 	for cursor.TryNext(cdcCtx) {
 		var record bson.M
@@ -81,7 +80,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return fmt.Errorf("error while decoding: %s", err)
 		}
 		// TODO: send full document along with delete and current timestamp to write
-		exit, err := inserter(types.Record(record))
+		exit, err := insert.Insert(types.Record(record))
 		if err != nil {
 			return err
 		}

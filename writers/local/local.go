@@ -15,7 +15,6 @@ import (
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/fraugster/parquet-go/parquet"
-	"github.com/piyushsingariya/relec/memory"
 
 	goparquet "github.com/fraugster/parquet-go"
 
@@ -119,20 +118,19 @@ iteration:
 			}
 
 			// check memory and dump row group
-			var err error
-			memory.LockWithTrigger(ctx, func() {
-				err = l.writer.FlushRowGroupWithContext(ctx)
-			})
+			err := l.writer.FlushRowGroupWithContext(ctx)
 			if err != nil {
 				return err
 			}
 
-			l.pqSchemaMutex.Lock()
-			if err := l.writer.AddData(record); err != nil {
-				l.pqSchemaMutex.Unlock()
+			err = func() error {
+				l.pqSchemaMutex.Lock()
+				defer l.pqSchemaMutex.Unlock()
+				return l.writer.AddData(record)
+			}()
+			if err != nil {
 				return fmt.Errorf("parquet write error: %s", err)
 			}
-			l.pqSchemaMutex.Unlock()
 
 			l.records.Add(1)
 		}

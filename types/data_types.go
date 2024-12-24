@@ -33,7 +33,7 @@ func (d DataType) ToParquet() *parquet.SchemaElement {
 		}
 	case FLOAT64:
 		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_FLOAT),
+			Type:           ToPointer(parquet.Type_DOUBLE),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
 	case STRING:

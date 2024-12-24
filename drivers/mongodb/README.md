@@ -122,40 +122,23 @@ Before running the Sync command, the generated `catalog.json` file must be confi
    {
       "streams": [
          {
-            "stream": {
-            "name": "tweets",
-            "namespace": "twitter_data",
-            "json_schema": {
-               "Properties": {},
+         "stream": {
+            "name": "incr2",
+            "namespace": "incr",
+            "type_schema": {
                "properties": {
-                  "_id": {
-                  "type": [
-                     "array"
-                  ]
-                  },
-                  "user": {
-                  "type": [
-                     "object"
-                  ]
-                  },
-                  "withheld_in_countries": {
-                  "type": [
-                     "array"
-                  ]
-                  }
+               "_id": { "type": ["string"] },
+               "address": { "type": ["string"] },
+               "age": { "type": ["integer"] },
+               "height": { "type": ["number"] },
+               "name": { "type": ["string"] }
                }
             },
-            "supported_sync_modes": [
-               "full_refresh",
-               "cdc"
-            ],
-            "source_defined_primary_key": [
-               "_id"
-            ],
-            "available_cursor_fields": []
-            },
-            "sync_mode": "cdc",
-            "cursor_field": ""
+            "supported_sync_modes": ["full_refresh", "cdc"],
+            "source_defined_primary_key": ["_id"],
+            "available_cursor_fields": [],
+         },
+         "sync_mode": "cdc"
          }
       ]
    }
