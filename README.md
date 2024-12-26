@@ -34,14 +34,9 @@ For a collection of 230 million rows (664.81GB) from [Twitter data](https://arch
 | **Airbyte**          | 12 min 44 sec         | 1,308 r/s                 | 27.3x slower     |
 | **Debezium (Embedded)** | 12 min 44 sec       | 1,308 r/s                 | 27.3x slower     |
 
-### Cost Comparison: (Considering 230mil first full load & 50million rows incremental rows per month) as dated 30th Sep:
+Cost Comparison: (Considering 230mil first full load & 50million rows incremental rows per month) as dated 30th Sep: Find more [here](https://datazip.io/olake/docs/olake/mongodb/benchmark).
 
-| Tool                           | First Full Sync Cost | Incremental Sync Cost (Monthly) | Total Monthly Cost | Info                                          | Factor           |
-|--------------------------------|----------------------|----------------------------------|--------------------|-----------------------------------------------|------------------|
-| **Olake**                      | 10-50 USD           | 250 USD                          | 300 USD            | Heavier instance required only for 1-2 hours | X times          |
-| **Fivetran**                   | Free                | 6000 USD                        | 6000 USD          | 15 min sync frequency; pricing for 50M rows & standard plan | 20x costlier    |
-| **Airbyte**                    | 6000 USD           | 1408 USD                        | 7400 USD          | First load - 1.15 TB data synced             | 24.6x costlier   |
-| **Debezium MSK Connect + AWS MSK Serverless** | -                  | -                                | 900 USD           | 1.2 TB total data (incremental & first full sync) | 3x costlier      |
+
 
 ### Testing Infrastructure
 
