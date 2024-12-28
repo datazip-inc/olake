@@ -104,38 +104,21 @@ func (l *Local) Check() error {
 	return os.Remove(tempFile.Name())
 }
 
-func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
-iteration:
-	for !l.closed {
-		select {
-		case <-ctx.Done():
-			break iteration
-		default:
-			record, ok := <-channel
-			if !ok {
-				// channel has been closed by other process; possibly the producer(i.e. reader)
-				break iteration
-			}
-
-			// check memory and dump row group
-			err := l.writer.FlushRowGroupWithContext(ctx)
-			if err != nil {
-				return err
-			}
-
-			err = func() error {
-				l.pqSchemaMutex.Lock()
-				defer l.pqSchemaMutex.Unlock()
-				return l.writer.AddData(record)
-			}()
-			if err != nil {
-				return fmt.Errorf("parquet write error: %s", err)
-			}
-
-			l.records.Add(1)
-		}
+func (l *Local) Write(ctx context.Context, record types.Record) error {
+	err := l.writer.FlushRowGroupWithContext(ctx)
+	if err != nil {
+		return err
+	}
+	err = func() error {
+		l.pqSchemaMutex.Lock()
+		defer l.pqSchemaMutex.Unlock()
+		return l.writer.AddData(record)
+	}()
+	if err != nil {
+		return fmt.Errorf("parquet write error: %s", err)
 	}
 
+	l.records.Add(1)
 	return nil
 }
 

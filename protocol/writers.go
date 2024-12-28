@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/piyushsingariya/relec/safego"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -98,43 +97,27 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		one(opts)
 	}
 
-	var thread Writer
-	threadInitialized := make(chan struct{})   // to handle the first initialization
-	processedRecord := make(chan types.Record) // To be given to Writer
-	rawRecord := make(chan types.Record)       // To be given to Reader
-	errChan := make(chan error)                // error channel for the writer
-	w.threadCounter.Add(1)
-
+	var thread Writer                     // new writer
+	recordChan := make(chan types.Record) // To be given to Reader
 	child, childCancel := context.WithCancel(parent)
 
-	// Go routine to read and cancel based on error received
 	w.group.Go(func() error {
-		// only close if error channel is closed
-		for err := range errChan {
-			childCancel()
-			return err
-		}
-		return nil
-	})
+		w.threadCounter.Add(1)
+		defer func() {
+			childCancel()  // no more inserts
+			thread.Close() // close it after closing inserts
+			// if wait channel is provided, close it
+			if opts.WaitChannel != nil {
+				close(opts.WaitChannel)
+			}
+			w.threadCounter.Add(-1)
+		}()
 
-	// spawnWriter spawns a writer process with child context
-	mainWriter := func() {
-		spawned := make(chan struct{}) //  not return insert function until thread is initialized
-
-		w.group.Go(func() error {
-			defer func() {
-				safego.Close(errChan) // close error channel (only being closed by the main writer)
-				childCancel()         // cancel child context and its underlying goroutines
-
-				if opts.WaitChannel != nil { // if wait channel is provided, close it
-					safego.Close(opts.WaitChannel)
-				}
-			}()
-
+		initNewWriter := func() error {
 			thread = w.init() // set the thread variable
 			err := func() error {
-				w.tmu.Lock()         // lock for concurrent access of w.config
-				defer w.tmu.Unlock() // unlock
+				w.tmu.Lock() // lock for concurrent access of w.config
+				defer w.tmu.Unlock()
 				if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
 					return err
 				}
@@ -143,61 +126,26 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			if err != nil {
 				return err
 			}
-			if err := thread.Setup(stream, opts); err != nil {
-				return err
-			}
-			safego.Close(spawned)           // signal spawnWriter to exit
-			safego.Close(threadInitialized) // close after initialization
-			err = func() error {
-				defer w.threadCounter.Add(-1)
+			return thread.Setup(stream, opts)
+		}
 
-				return utils.ErrExecSequential(func() error {
-					return thread.Write(child, processedRecord)
-				}, thread.Close)
-			}()
-			if err != nil {
-				errChan <- err
-			}
-			return nil
-		})
+		if err := initNewWriter(); err != nil {
+			return err
+		}
+		// fields to be used for flattening and schema evolution
+		fields := make(typeutils.Fields)
+		fields.FromSchema(stream.Schema())
+		flatten := thread.Flattener()
 
-		<-spawned
-	}
-
-	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
-
-	// middleware that has abstracted the repetition code from Writers
-	w.group.Go(func() error {
-		err := func() error {
-			// not defering canceling the child context so that writing process
-			// can finish writing all the records pushed into the channel
-			defer safego.Close(processedRecord)
-			select {
-			case <-threadInitialized: // wait till thread is initialized for the first time
-			case <-parent.Done():
-				return parent.Err()
-			}
-			flatten := thread.Flattener()
-		middleware:
+		return func() error {
 			for {
 				select {
-				case <-child.Done():
-					return nil
 				case <-parent.Done():
-					return nil
+					return parent.Err()
 				default:
-					// Note: Why printing state logic is at start
-					// i.e. because if Writer has exited before pushing into the channel;
-					// first the code will be blocked, second we might endup printing wrong state
-					if w.TotalRecords()%int64(batchSize_) == 0 {
-						if !state.IsZero() {
-							logger.LogState(state)
-						}
-					}
-					record, ok := <-rawRecord
+					record, ok := <-recordChan
 					if !ok {
-						break middleware
+						return nil
 					}
 					record, err := flatten(record) // flatten the record first
 					if err != nil {
@@ -209,9 +157,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
 						w.tmu.Unlock()
 						if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
-							childCancel()                                   // Close the current writer and spawn new
-							child, childCancel = context.WithCancel(parent) // replace the original child context and cancel function
-							mainWriter()                                    // spawn a mainWriter with newer context
+							thread.Close()
+							if err := initNewWriter(); err != nil { // init new writer
+								return err
+							}
 						} else {
 							err := thread.EvolveSchema(mutations.ToProperties())
 							if err != nil {
@@ -223,40 +172,34 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 					if err != nil {
 						return err
 					}
-
-					if !safego.Insert(processedRecord, record) {
-						return nil
+					if err := thread.Write(child, record); err != nil {
+						return err
 					}
 					w.recordCount.Add(1) // increase the record count
+
+					if w.TotalRecords()%int64(batchSize_) == 0 {
+						if !state.IsZero() {
+							logger.LogState(state)
+						}
+					}
+
 				}
 			}
-
-			return nil
 		}()
-		if err != nil {
-			errChan <- err
-		}
-
-		return nil
 	})
-
-	mainWriter()
 
 	return &ThreadEvent{
 		Insert: func(record types.Record) (bool, error) {
 			select {
-			case <-child.Done(): // TODO: child.Done() can come at point when schema change has cancelled child context so handle this case
-				return false, fmt.Errorf("cancelled main writer before insert")
+			case <-child.Done():
+				return false, fmt.Errorf("main writer closed")
 			default:
-				if !safego.Insert(rawRecord, record) {
-					return true, nil
-				}
-
+				recordChan <- record
 				return false, nil
 			}
 		},
 		Close: func() {
-			safego.Close(rawRecord)
+			close(recordChan)
 		},
 	}, nil
 }

@@ -55,7 +55,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := m.backfill(stream, pool); err != nil {
 			return err
 		}
-
+		logger.Infof("backfill done for stream[%s]", stream.ID())
 	}
 
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
@@ -79,7 +79,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		// TODO: send full document along with delete and current timestamp to write
+		// TODO: send document along with delete and current timestamp to write
 		exit, err := insert.Insert(types.Record(record))
 		if err != nil {
 			return err
