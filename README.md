@@ -34,7 +34,7 @@ For a collection of 230 million rows (664.81GB) from [Twitter data](https://arch
 | **Airbyte**          | 12 min 44 sec         | 1,308 r/s                 | 27.3x slower     |
 | **Debezium (Embedded)** | 12 min 44 sec       | 1,308 r/s                 | 27.3x slower     |
 
-Cost Comparison: (Considering 230mil first full load & 50million rows incremental rows per month) as dated 30th Sep: Find more [here](https://datazip.io/olake/docs/olake/mongodb/benchmark).
+Cost Comparison: (Considering 230 million first full load & 50 million rows incremental rows per month) as dated 30th September: Find more [here](https://datazip.io/olake/docs/olake/mongodb/benchmark).
 
 
 
