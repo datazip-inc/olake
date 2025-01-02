@@ -22,7 +22,7 @@ func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 }
 
 func (m *Mongo) SetupGlobalState(state *types.State) error {
-	// mongo db does not support any gloabal state
+	// mongo db does not support any global state
 	// stream level states can be used
 	return nil
 }
