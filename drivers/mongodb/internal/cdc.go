@@ -84,7 +84,10 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		record.FullDocument["cdc_type"] = record.OperationType
+		// TODO: Handle Deleted documents (Good First Issue)
+		if record.FullDocument != nil {
+			record.FullDocument["cdc_type"] = record.OperationType
+		}
 		exit, err := insert.Insert(types.Record(record.FullDocument))
 		if err != nil {
 			return err
