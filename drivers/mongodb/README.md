@@ -40,7 +40,7 @@ Add MongoDB credentials in following format in config.json file
       "read-preference": "secondaryPreferred",
       "srv": true,
       "server-ram": 16,
-      "databsae": "database"
+      "database": "database"
    }
 ```
 
