@@ -97,8 +97,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		one(opts)
 	}
 
-	var thread Writer                     // new writer
-	recordChan := make(chan types.Record) // To be given to Reader
+	var thread Writer
+	recordChan := make(chan types.Record, 1) // buffered because reader can close before writer (on error conditions)
 	child, childCancel := context.WithCancel(parent)
 
 	w.group.Go(func() error {
