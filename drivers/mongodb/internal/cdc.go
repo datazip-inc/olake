@@ -14,6 +14,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
+type CDCDocument struct {
+	OperationType string         `json:"operationType"`
+	FullDocument  map[string]any `json:"fullDocument"`
+}
+
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
 	// TODO: concurrency based on configuration
 	return relec.Concurrent(context.TODO(), streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
@@ -75,12 +80,12 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	defer insert.Close()
 	// Iterates over the cursor to print the change stream events
 	for cursor.TryNext(cdcCtx) {
-		var record bson.M
+		var record CDCDocument
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		// TODO: send document along with delete and current timestamp to write
-		exit, err := insert.Insert(types.Record(record))
+		record.FullDocument["cdc_type"] = record.OperationType
+		exit, err := insert.Insert(types.Record(record.FullDocument))
 		if err != nil {
 			return err
 		}

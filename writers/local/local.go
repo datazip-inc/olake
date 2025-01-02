@@ -123,7 +123,7 @@ func (l *Local) Write(ctx context.Context, record types.Record) error {
 }
 
 func (l *Local) ReInitiationOnTypeChange() bool {
-	return false
+	return true
 }
 
 func (l *Local) ReInitiationOnNewColumns() bool {

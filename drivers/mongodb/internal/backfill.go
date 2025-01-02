@@ -48,7 +48,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	}
 	// for every 6hr difference ideal density is 10 Seconds
 	density := time.Duration(timeDiff) * (10 * time.Second)
-	concurrency := 50 // default; TODO: decide from MongoDB server resources
 	return relec.ConcurrentC(context.TODO(), relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
 		start := first
 		if prev != nil {
@@ -69,7 +68,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 
 		return exit, boundry, nil
-	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
+	}), m.config.MaxThreads, func(ctx context.Context, one *Boundry, number int64) error {
 		threadContext, cancelThread := context.WithCancel(ctx)
 		defer cancelThread()
 

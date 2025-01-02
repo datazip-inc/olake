@@ -228,6 +228,8 @@ func ReformatInt64(v any) (int64, error) {
 		return int64(v), nil
 	case uint64:
 		return int64(v), nil
+	case bool:
+		return 1, nil
 	case *any:
 		return ReformatInt64(*v)
 	}
@@ -261,6 +263,8 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 		return float64(v), nil
 	case uint64:
 		return float64(v), nil
+	case bool:
+		return 1.0, nil
 	case string:
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {

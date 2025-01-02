@@ -16,6 +16,7 @@ type Config struct {
 	ReadPreference string   `json:"read_preference"`
 	Srv            bool     `json:"srv"`
 	ServerRAM      uint     `json:"server_ram"`
+	MaxThreads     int      `json:"max_threads"`
 	Database       string   `json:"database"`
 }
 
@@ -29,13 +30,11 @@ func (c *Config) URI() string {
 
 	if c.ReplicaSet != "" {
 		// configurations for a replica set
-		options = fmt.Sprintf("%s&replicaSet=%s", options, c.ReplicaSet)
-		if c.ReadPreference != "" {
-			options = fmt.Sprintf("%s&readPreference=%s", options, c.ReadPreference)
-		} else {
-			// default secondaryPreferred
-			options = fmt.Sprintf("%s&readPreference=%s", options, "secondaryPreferred")
+		if c.ReadPreference == "" {
+			// set default
+			c.ReadPreference = "secondaryPreferred"
 		}
+		options = fmt.Sprintf("%s&replicaSet=%s&readPreference=%s", options, c.ReplicaSet, c.ReadPreference)
 	}
 
 	return fmt.Sprintf(

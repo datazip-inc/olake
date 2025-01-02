@@ -17,10 +17,10 @@ function build_and_run() {
     fi
     cd $path || fail "Failed to navigate to path: $path"
     go mod tidy
-    go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o g5 main.go || fail "build failed"
+    go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
 
     echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
-    ./g5 $joined_arguments
+    ./olake $joined_arguments
 }
 
 if [ $# -gt 0 ]; then
