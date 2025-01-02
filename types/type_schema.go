@@ -27,10 +27,11 @@ func (t *TypeSchema) Override(fields map[string]*Property) {
 	defer t.mu.Unlock()
 
 	for key, value := range fields {
-		stored, loaded := t.Properties.LoadOrStore(key, value)
+		stored, loaded := t.Properties.LoadAndDelete(key)
 		if loaded && stored.(*Property).Nullable() {
 			value.Type.Insert(NULL)
 		}
+		t.Properties.Store(key, value)
 	}
 }
 
