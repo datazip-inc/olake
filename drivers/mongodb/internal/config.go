@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/piyushsingariya/relec"
 )
 
@@ -23,7 +24,11 @@ type Config struct {
 func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	options := fmt.Sprintf("?authSource=%s", c.AuthDB)
-
+	if c.MaxThreads == 0 {
+		// set default threads
+		logger.Info("setting max threads to default[10]")
+		c.MaxThreads = 10
+	}
 	if c.Srv {
 		connectionPrefix = "mongodb+srv"
 	}

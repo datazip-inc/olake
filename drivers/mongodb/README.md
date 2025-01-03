@@ -40,7 +40,8 @@ Add MongoDB credentials in following format in config.json file
       "read-preference": "secondaryPreferred",
       "srv": true,
       "server-ram": 16,
-      "database": "database"
+      "database": "database",
+      "max_threads": 50
    }
 ```
 
@@ -53,7 +54,7 @@ The *Discover* command generates json content for `catalog.json` file, which def
 #### Usage
 To run the Discover command, use the following syntax
    ```bash
-   ./build.sh driver-mongodb discover --config ./mongodb/examples/config.json
+   ./build.sh driver-mongodb discover --config /mongodb/examples/config.json 
    ```
 
 #### Example Response (Formatted)
@@ -163,12 +164,12 @@ Example:
 The *Sync* command fetches data from MongoDB and ingests it into the destination.
 
 ```bash
-./build.sh driver-mongodb sync --config ./mongodb/examples/config.json --catalog ./mongodb/examples/catalog.json --destination ./mongodb/examples/write.json
+./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/catalog.json --destination /mongodb/examples/write.json
 ```
 
 To run sync with state 
 ```bash
-./build.sh driver-mongodb sync --config ./mongodb/examples/config.json --catalog ./mongodb/examples/catalog.json --destination ./mongodb/examples/write.json --state ./mongodb/examples/state.json
+./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/catalog.json --destination /mongodb/examples/write.json --state /mongodb/examples/state.json
 ```
 
 
