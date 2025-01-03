@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/piyushsingariya/relec"
 )
 
@@ -16,26 +17,29 @@ type Config struct {
 	ReadPreference string   `json:"read_preference"`
 	Srv            bool     `json:"srv"`
 	ServerRAM      uint     `json:"server_ram"`
+	MaxThreads     int      `json:"max_threads"`
 	Database       string   `json:"database"`
 }
 
 func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	options := fmt.Sprintf("?authSource=%s", c.AuthDB)
-
+	if c.MaxThreads == 0 {
+		// set default threads
+		logger.Info("setting max threads to default[10]")
+		c.MaxThreads = 10
+	}
 	if c.Srv {
 		connectionPrefix = "mongodb+srv"
 	}
 
 	if c.ReplicaSet != "" {
 		// configurations for a replica set
-		options = fmt.Sprintf("%s&replicaSet=%s", options, c.ReplicaSet)
-		if c.ReadPreference != "" {
-			options = fmt.Sprintf("%s&readPreference=%s", options, c.ReadPreference)
-		} else {
-			// default secondaryPreferred
-			options = fmt.Sprintf("%s&readPreference=%s", options, "secondaryPreferred")
+		if c.ReadPreference == "" {
+			// set default
+			c.ReadPreference = "secondaryPreferred"
 		}
+		options = fmt.Sprintf("%s&replicaSet=%s&readPreference=%s", options, c.ReplicaSet, c.ReadPreference)
 	}
 
 	return fmt.Sprintf(

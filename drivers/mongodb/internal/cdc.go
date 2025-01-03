@@ -14,6 +14,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
+type CDCDocument struct {
+	OperationType string         `json:"operationType"`
+	FullDocument  map[string]any `json:"fullDocument"`
+}
+
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
 	// TODO: concurrency based on configuration
 	return relec.Concurrent(context.TODO(), streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
@@ -22,7 +27,7 @@ func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 }
 
 func (m *Mongo) SetupGlobalState(state *types.State) error {
-	// mongo db does not support any gloabal state
+	// mongo db does not support any global state
 	// stream level states can be used
 	return nil
 }
@@ -33,8 +38,6 @@ func (m *Mongo) StateType() types.StateType {
 
 // does full load on empty state
 func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPool) error {
-	logger.Infof("starting change stream for stream [%s]", stream.ID())
-
 	cdcCtx := context.TODO()
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
@@ -57,7 +60,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := m.backfill(stream, pool); err != nil {
 			return err
 		}
-
+		logger.Infof("backfill done for stream[%s]", stream.ID())
 	}
 
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
@@ -70,18 +73,22 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 	defer cursor.Close(cdcCtx)
 
-	inserter, err := pool.NewThread(cdcCtx, stream)
+	insert, err := pool.NewThread(cdcCtx, stream)
 	if err != nil {
 		return err
 	}
+	defer insert.Close()
 	// Iterates over the cursor to print the change stream events
 	for cursor.TryNext(cdcCtx) {
-		var record bson.M
+		var record CDCDocument
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		// TODO: send full document along with delete and current timestamp to write
-		exit, err := inserter(types.Record(record))
+		// TODO: Handle Deleted documents (Good First Issue)
+		if record.FullDocument != nil {
+			record.FullDocument["cdc_type"] = record.OperationType
+		}
+		exit, err := insert.Insert(types.Record(record.FullDocument))
 		if err != nil {
 			return err
 		}

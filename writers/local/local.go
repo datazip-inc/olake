@@ -15,7 +15,6 @@ import (
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/fraugster/parquet-go/parquet"
-	"github.com/piyushsingariya/relec/memory"
 
 	goparquet "github.com/fraugster/parquet-go"
 
@@ -105,44 +104,26 @@ func (l *Local) Check() error {
 	return os.Remove(tempFile.Name())
 }
 
-func (l *Local) Write(ctx context.Context, channel <-chan types.Record) error {
-iteration:
-	for !l.closed {
-		select {
-		case <-ctx.Done():
-			break iteration
-		default:
-			record, ok := <-channel
-			if !ok {
-				// channel has been closed by other process; possibly the producer(i.e. reader)
-				break iteration
-			}
-
-			// check memory and dump row group
-			var err error
-			memory.LockWithTrigger(ctx, func() {
-				err = l.writer.FlushRowGroupWithContext(ctx)
-			})
-			if err != nil {
-				return err
-			}
-
-			l.pqSchemaMutex.Lock()
-			if err := l.writer.AddData(record); err != nil {
-				l.pqSchemaMutex.Unlock()
-				return fmt.Errorf("parquet write error: %s", err)
-			}
-			l.pqSchemaMutex.Unlock()
-
-			l.records.Add(1)
-		}
+func (l *Local) Write(ctx context.Context, record types.Record) error {
+	err := l.writer.FlushRowGroupWithContext(ctx)
+	if err != nil {
+		return err
+	}
+	err = func() error {
+		l.pqSchemaMutex.Lock()
+		defer l.pqSchemaMutex.Unlock()
+		return l.writer.AddData(record)
+	}()
+	if err != nil {
+		return fmt.Errorf("parquet write error: %s", err)
 	}
 
+	l.records.Add(1)
 	return nil
 }
 
 func (l *Local) ReInitiationOnTypeChange() bool {
-	return false
+	return true
 }
 
 func (l *Local) ReInitiationOnNewColumns() bool {

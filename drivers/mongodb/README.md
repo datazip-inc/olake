@@ -40,7 +40,8 @@ Add MongoDB credentials in following format in config.json file
       "read-preference": "secondaryPreferred",
       "srv": true,
       "server-ram": 16,
-      "databsae": "database"
+      "database": "database",
+      "max_threads": 50
    }
 ```
 
@@ -53,7 +54,7 @@ The *Discover* command generates json content for `catalog.json` file, which def
 #### Usage
 To run the Discover command, use the following syntax
    ```bash
-   ./build.sh driver-mongodb discover --config ./mongodb/examples/config.json
+   ./build.sh driver-mongodb discover --config /mongodb/examples/config.json 
    ```
 
 #### Example Response (Formatted)
@@ -122,40 +123,23 @@ Before running the Sync command, the generated `catalog.json` file must be confi
    {
       "streams": [
          {
-            "stream": {
-            "name": "tweets",
-            "namespace": "twitter_data",
-            "json_schema": {
-               "Properties": {},
+         "stream": {
+            "name": "incr2",
+            "namespace": "incr",
+            "type_schema": {
                "properties": {
-                  "_id": {
-                  "type": [
-                     "array"
-                  ]
-                  },
-                  "user": {
-                  "type": [
-                     "object"
-                  ]
-                  },
-                  "withheld_in_countries": {
-                  "type": [
-                     "array"
-                  ]
-                  }
+               "_id": { "type": ["string"] },
+               "address": { "type": ["string"] },
+               "age": { "type": ["integer"] },
+               "height": { "type": ["number"] },
+               "name": { "type": ["string"] }
                }
             },
-            "supported_sync_modes": [
-               "full_refresh",
-               "cdc"
-            ],
-            "source_defined_primary_key": [
-               "_id"
-            ],
-            "available_cursor_fields": []
-            },
-            "sync_mode": "cdc",
-            "cursor_field": ""
+            "supported_sync_modes": ["full_refresh", "cdc"],
+            "source_defined_primary_key": ["_id"],
+            "available_cursor_fields": [],
+         },
+         "sync_mode": "cdc"
          }
       ]
    }
@@ -180,12 +164,12 @@ Example:
 The *Sync* command fetches data from MongoDB and ingests it into the destination.
 
 ```bash
-./build.sh driver-mongodb sync --config ./mongodb/examples/config.json --catalog ./mongodb/examples/catalog.json --destination ./mongodb/examples/write.json
+./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/catalog.json --destination /mongodb/examples/write.json
 ```
 
 To run sync with state 
 ```bash
-./build.sh driver-mongodb sync --config ./mongodb/examples/config.json --catalog ./mongodb/examples/catalog.json --destination ./mongodb/examples/write.json --state ./mongodb/examples/state.json
+./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/catalog.json --destination /mongodb/examples/write.json --state /mongodb/examples/state.json
 ```
 
 
