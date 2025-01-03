@@ -1,0 +1,221 @@
+{
+  "streams": [
+    {
+      "stream": {
+        "name": "tweets",
+        "namespace": "twitter_data",
+        "type_schema": {
+          "properties": {
+            "_id": {
+              "type": [
+                "string"
+              ]
+            },
+            "contributors": {
+              "type": [
+                "null"
+              ]
+            },
+            "coordinates": {
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "created_at": {
+              "type": [
+                "string"
+              ]
+            },
+            "delete": {
+              "type": [
+                "object"
+              ]
+            },
+            "display_text_range": {
+              "type": [
+                "array"
+              ]
+            },
+            "entities": {
+              "type": [
+                "object"
+              ]
+            },
+            "extended_entities": {
+              "type": [
+                "object"
+              ]
+            },
+            "extended_tweet": {
+              "type": [
+                "object"
+              ]
+            },
+            "favorite_count": {
+              "type": [
+                "integer"
+              ]
+            },
+            "favorited": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "filter_level": {
+              "type": [
+                "string"
+              ]
+            },
+            "geo": {
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "id": {
+              "type": [
+                "integer"
+              ]
+            },
+            "id_str": {
+              "type": [
+                "string"
+              ]
+            },
+            "in_reply_to_screen_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "in_reply_to_status_id": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "in_reply_to_status_id_str": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "in_reply_to_user_id": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "in_reply_to_user_id_str": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "is_quote_status": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "lang": {
+              "type": [
+                "string"
+              ]
+            },
+            "place": {
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "possibly_sensitive": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "quote_count": {
+              "type": [
+                "integer"
+              ]
+            },
+            "quoted_status": {
+              "type": [
+                "object"
+              ]
+            },
+            "quoted_status_id": {
+              "type": [
+                "integer"
+              ]
+            },
+            "quoted_status_id_str": {
+              "type": [
+                "string"
+              ]
+            },
+            "reply_count": {
+              "type": [
+                "integer"
+              ]
+            },
+            "retweet_count": {
+              "type": [
+                "integer"
+              ]
+            },
+            "retweeted": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "retweeted_status": {
+              "type": [
+                "object"
+              ]
+            },
+            "source": {
+              "type": [
+                "string"
+              ]
+            },
+            "text": {
+              "type": [
+                "string"
+              ]
+            },
+            "timestamp_ms": {
+              "type": [
+                "string"
+              ]
+            },
+            "truncated": {
+              "type": [
+                "boolean"
+              ]
+            },
+            "user": {
+              "type": [
+                "object"
+              ]
+            },
+            "withheld_in_countries": {
+              "type": [
+                "array"
+              ]
+            }
+          }
+        },
+        "supported_sync_modes": [
+          "full_refresh",
+          "cdc"
+        ],
+        "source_defined_primary_key": [
+          "_id"
+        ],
+        "available_cursor_fields": []
+      },
+      "sync_mode": "cdc"
+    }
+  ]
+}

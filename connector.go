@@ -6,6 +6,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	protocol "github.com/datazip-inc/olake/protocol"
 	_ "github.com/datazip-inc/olake/writers/local"
+	_ "github.com/datazip-inc/olake/writers/s3"
 	"github.com/piyushsingariya/relec/safego"
 )
 
