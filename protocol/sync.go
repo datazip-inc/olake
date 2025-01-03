@@ -52,6 +52,10 @@ var syncCmd = &cobra.Command{
 				return err
 			}
 		}
+
+		// TODO: state formatting
+		logger.Infof("Running sync with state: %v", state)
+
 		state.Mutex = &sync.Mutex{}
 
 		return nil
@@ -61,10 +65,6 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// add writer pool into global group
-		GlobalCxGroup.Add(func(ctx context.Context) error {
-			return pool.Wait()
-		})
 		// setup conector first
 		err = connector.Setup()
 		if err != nil {
@@ -128,7 +128,7 @@ var syncCmd = &cobra.Command{
 					return fmt.Errorf("error occurred while reading records: %s", err)
 				}
 			}
-			logger.Info("Sync Process Completed")
+			logger.Info("Read Process Completed")
 			return nil
 		})
 
@@ -150,6 +150,11 @@ var syncCmd = &cobra.Command{
 
 		if err := GlobalCxGroup.Block(); err != nil {
 			return err
+		}
+
+		// wait for writer pool to finish
+		if err := pool.Wait(); err != nil {
+			return fmt.Errorf("error occurred in writer pool: %s", err)
 		}
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())

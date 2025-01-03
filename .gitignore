@@ -1,7 +1,8 @@
-g5
+olake
 .vscode
 test
 .DS_Store
 __debug_bin*
 go.sum
 go.work.sum
+**/examples

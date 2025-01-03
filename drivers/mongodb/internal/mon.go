@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	discoverTime = 5 * time.Minute // maximum time allowed to discover all the streams
+	discoverTime   = 5 * time.Minute // maximum time allowed to discover all the streams
+	cdcCursorField = "_data"
 )
 
 type Mongo struct {

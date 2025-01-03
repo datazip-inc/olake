@@ -26,6 +26,8 @@ type Boundry struct {
 }
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
+	logger.Infof("starting full load for stream [%s]", stream.ID())
+
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	totalCount, err := m.totalCountInCollection(collection)
 	if err != nil {
@@ -40,9 +42,12 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
 	logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
 
+	timeDiff := last.Sub(first).Hours() / 6
+	if timeDiff < 1 {
+		timeDiff = 1
+	}
 	// for every 6hr difference ideal density is 10 Seconds
-	density := time.Duration(last.Sub(first).Hours()/6) * (10 * time.Second)
-	concurrency := 50 // default; TODO: decide from MongoDB server resources
+	density := time.Duration(timeDiff) * (10 * time.Second)
 	return relec.ConcurrentC(context.TODO(), relec.Yield(func(prev *Boundry) (bool, *Boundry, error) {
 		start := first
 		if prev != nil {
@@ -63,14 +68,9 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 
 		return exit, boundry, nil
-	}), concurrency, func(ctx context.Context, one *Boundry, number int64) error {
-		threadContext, cancel := context.WithCancel(ctx)
-		defer cancel()
-
-		insert, err := pool.NewThread(threadContext, stream, protocol.WithNumber(number))
-		if err != nil {
-			return err
-		}
+	}), m.config.MaxThreads, func(ctx context.Context, one *Boundry, number int64) error {
+		threadContext, cancelThread := context.WithCancel(ctx)
+		defer cancelThread()
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursor, err := collection.Aggregate(ctx, generatepipeline(one.StartID, one.EndID), opts)
@@ -78,6 +78,22 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			return fmt.Errorf("collection.Find: %s", err)
 		}
 		defer cursor.Close(ctx)
+
+		waitChannel := make(chan struct{})
+		defer func() {
+			if stream.GetSyncMode() == types.CDC {
+				// only wait in cdc mode
+				// make sure it get called after insert.Close()
+				<-waitChannel
+			}
+			logger.Infof("Finished full load chunk number %d.", number)
+		}()
+
+		insert, err := pool.NewThread(threadContext, stream, protocol.WithNumber(number), protocol.WithWaitChannel(waitChannel))
+		if err != nil {
+			return err
+		}
+		defer insert.Close()
 
 		for cursor.Next(ctx) {
 			var doc bson.M
@@ -88,7 +104,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			}
 
 			handleObjectID(doc)
-			exit, err := insert(types.Record(doc))
+			exit, err := insert.Insert(types.Record(doc))
 			if err != nil {
 				return fmt.Errorf("failed to finish backfill chunk %d: %s", number, err)
 			}
@@ -96,14 +112,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				return nil
 			}
 		}
-
-		err = cursor.Err()
-		if err != nil {
-			return err
-		}
-
-		logger.Infof("Finished full load chunk number %d.", number)
-		return nil
+		return cursor.Err()
 	})
 
 }
@@ -153,6 +162,9 @@ func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Tim
 		return time.Time{}, time.Time{}, fmt.Errorf("failed to find start: %s", err)
 	}
 
+	// provide gap of 10 minutes
+	start = start.Add(-time.Minute * 10)
+	end = end.Add(time.Minute * 10)
 	return start, end, nil
 }
 

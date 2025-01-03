@@ -59,10 +59,12 @@ Find more [here](https://datazip.io/olake/docs/olake/mongodb/benchmark).
 ### Drivers
 
 Drivers aka Connectors/Source that includes the logic for interacting with database. Upcoming drivers being planned are
-- [x] MongoDB
+- [x] MongoDB ([Documentation](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb))
 - [ ] Kafka
 - [ ] Postgres
 - [ ] DynamoDB
+
+
 
 ### Writers
 
@@ -90,6 +92,7 @@ Core handles the commands to interact with a driver via these
 - check command: performs all necessary checks on the Config, Catalog, State and Writer config
 - discover command: Returns all streams and their schema
 - sync command: Extracts data out of Source and writes into destinations
+
 
 ### SDKs
 
