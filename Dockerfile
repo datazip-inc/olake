@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine as base
+FROM golang:1.22-alpine as base
 
 ADD . /home/app/
 # ADD . /home/app/

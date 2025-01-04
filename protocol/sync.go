@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/piyushsingariya/relec"
 	"github.com/spf13/cobra"
 )
 
@@ -134,7 +133,7 @@ var syncCmd = &cobra.Command{
 
 		// Execute streams in Standard Stream mode
 		// TODO: Separate streams with FULL and Incremental here only
-		relec.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
+		utils.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
 			logger.Infof("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
 
 			streamStartTime := time.Now()

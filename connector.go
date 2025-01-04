@@ -5,8 +5,8 @@ import (
 
 	"github.com/datazip-inc/olake/logger"
 	protocol "github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/safego"
 	_ "github.com/datazip-inc/olake/writers/local"
-	"github.com/piyushsingariya/relec/safego"
 )
 
 func RegisterDriver(driver protocol.Driver) {

@@ -7,7 +7,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/piyushsingariya/relec"
+	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -21,7 +21,7 @@ type CDCDocument struct {
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
 	// TODO: concurrency based on configuration
-	return relec.Concurrent(context.TODO(), streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
+	return utils.Concurrent(context.TODO(), streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
 		return m.changeStreamSync(stream, pool)
 	})
 }
