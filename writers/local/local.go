@@ -127,7 +127,7 @@ func (l *Local) ReInitiationOnTypeChange() bool {
 }
 
 func (l *Local) ReInitiationOnNewColumns() bool {
-	return false
+	return true
 }
 
 func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
