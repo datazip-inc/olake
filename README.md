@@ -1,4 +1,27 @@
-# Olake
+<h1 align="center" style="border-bottom: none">
+    <a href="https://datazip.io/olake" target="_blank">
+        <img alt="olake" src="https://github.com/user-attachments/assets/d204f25f-5289-423c-b3f2-44b2194bdeaf" width="100" height="100"/>
+    </a>
+    <br>OLake
+</h1>
+
+<p align="center">Fastest open-source tool for replicating Databases to Apache Iceberg or Data Lakehouse. ⚡ Efficient, quick and scalable data ingestion for real-time analytics. Starting with MongoDB. Visit <a href="https://datazip.io/olake" target="_blank">datazip.io/olake</a> for the full documentation, and benchmarks</p>
+
+<p align="center">
+    <img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"> </a>
+    <a href="https://twitter.com/intent/tweet?text=Use%20the%20fastest%20open-source%20tool,%20OLake,%20for%20replicating%20Databases%20to%20S3%20and%20Apache%20Iceberg%20or%20Data%20Lakehouse.%20It%E2%80%99s%20Efficient,%20quick%20and%20scalable%20data%20ingestion%20for%20real-time%20analytics.%20Check%20at%20https://datazip.io/%20%23opensource%20%23olake%20via%20%40datazipio">
+        <img alt="tweet" src="https://img.shields.io/twitter/url/http/shields.io.svg?style=social"></a> 
+    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag">
+        <img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"> 
+    </a> 
+</p>
+  
+  
+<h3 align="center">
+  <a href="https://datazip.io/olake/docs"><b>Documentation</b></a> &bull;
+  <a href="https://twitter.com/datazipio"><b>Twitter</b></a>
+</h3>
+
 
 ![undefined](https://github.com/user-attachments/assets/fe37e142-556a-48f0-a649-febc3dbd083c)
 
