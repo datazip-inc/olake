@@ -42,7 +42,7 @@ func Validate[T any](structure T) error {
 }
 
 func init() {
-	// NOTE: ommitting allot of error checking for brevity
+	// NOTE: omitting allot of error checking for brevity
 	en := en.New()
 	uni = ut.New(en, en)
 	trans, _ = uni.GetTranslator("en")

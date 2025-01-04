@@ -18,7 +18,6 @@ func SizeOf(v any) int {
 // If there is an error, sizeOf returns -1.
 func sizeOf(v reflect.Value, cache map[uintptr]bool) int {
 	switch v.Kind() {
-
 	case reflect.Array:
 		sum := 0
 		for i := 0; i < v.Len(); i++ {
@@ -131,8 +130,6 @@ func sizeOf(v reflect.Value, cache map[uintptr]bool) int {
 
 	case reflect.Interface:
 		return sizeOf(v.Elem(), cache) + int(v.Type().Size())
-
 	}
-
 	return -1
 }

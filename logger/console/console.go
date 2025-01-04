@@ -92,7 +92,6 @@ func Log(format string, level Level, v ...interface{}) error {
 func Print(level Level, value any) error {
 	if level == ERROR {
 		return json.NewEncoder(errorWriter).Encode(value)
-
 	}
 	return json.NewEncoder(writer).Encode(value)
 }

@@ -76,13 +76,13 @@ func (s *Stream) WithSchema(schema *TypeSchema) *Stream {
 func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
 	types := []DataType{typ}
 	if nullable {
-		types = append(types, NULL)
+		types = append(types, Null)
 	}
 
 	s.Schema.AddTypes(column, types...)
 }
 
-func (s *Stream) Wrap(batchSize int) *ConfiguredStream {
+func (s *Stream) Wrap(_ int) *ConfiguredStream {
 	return &ConfiguredStream{
 		Stream:   s,
 		SyncMode: FULLREFRESH,

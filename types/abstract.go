@@ -6,9 +6,6 @@ func ToPointer[T any](val T) *T {
 
 const NullStruct = "github.com/datazip-inc/olake/types/Null"
 
-type Null struct {
-}
-
 func Keys[T comparable](v map[T]any) []T {
 	setArray := []T{}
 	for key := range v {

@@ -20,7 +20,7 @@ func (d *Driver) ChangeStreamSupported() bool {
 // Returns all the possible streams available in the source
 func (d *Driver) GetStreams() []*types.Stream {
 	streams := []*types.Stream{}
-	d.cachedStreams.Range(func(key, value any) bool {
+	d.cachedStreams.Range(func(_, value any) bool {
 		streams = append(streams, value.(*types.Stream))
 
 		return true

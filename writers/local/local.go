@@ -42,7 +42,7 @@ func (l *Local) GetConfigRef() protocol.Config {
 	return l.config
 }
 
-func (p *Local) Spec() any {
+func (l *Local) Spec() any {
 	return Config{}
 }
 
@@ -130,12 +130,11 @@ func (l *Local) ReInitiationOnNewColumns() bool {
 	return true
 }
 
-func (l *Local) EvolveSchema(mutation map[string]*types.Property) error {
+func (l *Local) EvolveSchema(_ map[string]*types.Property) error {
 	l.pqSchemaMutex.Lock()
 	defer l.pqSchemaMutex.Unlock()
 
-	l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
-	return nil
+	return l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet())
 }
 
 func (l *Local) Close() error {
@@ -159,7 +158,7 @@ func (l *Local) Close() error {
 		utils.ErrExecFormat("failed to close writer: %s", func() error { return l.writer.Close() }),
 		utils.ErrExecFormat("failed to close file: %s", l.file.Close),
 	)
-	// send error if only records were stored and error occured; This to handle error "short write"
+	// send error if only records were stored and error occurred; This to handle error "short write"
 	if err != nil && l.records.Load() > 0 {
 		return fmt.Errorf("failed to stop local writer after adding %d records: %s", l.records.Load(), err)
 	}
