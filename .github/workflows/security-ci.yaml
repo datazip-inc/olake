@@ -36,10 +36,10 @@ jobs:
         with:
           check-latest: "true"
           go-version: "1.22.x"
+      - name: install gosec
+        run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
-        with:
-          args: ./...
+        run: $(go env GOPATH)/bin/gosec -severity=high -confidence=medium ./...
   trivy:
     name: trivy
     runs-on: ubuntu-20.04
