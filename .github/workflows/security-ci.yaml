@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           check-latest: "true"
-          go-version: "1.21.x"
+          go-version: "1.22.x"
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run vulnerability checks
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           check-latest: "true"
-          go-version: "1.21.x"
+          go-version: "1.22.x"
       - name: Run Gosec Security Scanner
         uses: securego/gosec@master
         with:
