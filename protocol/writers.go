@@ -177,7 +177,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 					}
 					w.recordCount.Add(1) // increase the record count
 
-					if w.TotalRecords()%int64(batchSize) == 0 {
+					if w.TotalRecords()%batchSize == 0 {
 						if !state.IsZero() {
 							logger.LogState(state)
 						}

@@ -70,11 +70,11 @@ func sizeOf(v reflect.Value, cache map[uintptr]bool) int {
 
 	case reflect.String:
 		s := v.String()
-		hdr := (*reflect.StringHeader)(unsafe.Pointer(&s))
-		if cache[hdr.Data] {
+		dataPtr := uintptr(unsafe.Pointer(&s))
+		if cache[dataPtr] {
 			return int(v.Type().Size())
 		}
-		cache[hdr.Data] = true
+		cache[dataPtr] = true
 		return len(s) + int(v.Type().Size())
 
 	case reflect.Ptr:

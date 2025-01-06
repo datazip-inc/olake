@@ -13,6 +13,10 @@ type StringInterface interface {
 	String() string
 }
 
+var (
+	ErrNullValue = fmt.Errorf("null value")
+)
+
 var DateTimeFormats = []string{
 	"2006-01-02",
 	"2006-01-02 15:04:05",
@@ -45,7 +49,7 @@ func ReformatRecord(fields Fields, record types.Record) error {
 		}
 
 		updated, err := ReformatValue(field.getType(), val)
-		if err != nil {
+		if err != nil && err != ErrNullValue {
 			return fmt.Errorf("failed to reformat value[%s] to datatype[%s] for key[%s]: %s", val, field.getType(), key, err)
 		}
 		record[key] = updated
@@ -61,7 +65,7 @@ func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
 func ReformatValue(dataType types.DataType, v any) (any, error) {
 	switch dataType {
 	case types.Null:
-		return nil, nil
+		return nil, ErrNullValue
 	case types.Bool:
 		switch booleanValue := v.(type) {
 		case bool:
@@ -219,6 +223,7 @@ func ReformatInt64(v any) (int64, error) {
 	case int64:
 		return int64(v), nil
 	case uint:
+		//nolint:gosec
 		return int64(v), nil
 	case uint8:
 		return int64(v), nil
@@ -227,6 +232,7 @@ func ReformatInt64(v any) (int64, error) {
 	case uint32:
 		return int64(v), nil
 	case uint64:
+		//nolint:gosec
 		return int64(v), nil
 	case bool:
 		return 1, nil
