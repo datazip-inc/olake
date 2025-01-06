@@ -92,7 +92,7 @@ type StreamState struct {
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
 func (s *StreamState) MarshalJSON() ([]byte, error) {
-	// Create a map to temporarily store data for JSON marshalling
+	// Create a map to temporarily store data for JSON marshaling
 	stateMap := make(map[string]interface{})
 	s.State.Range(func(key, value interface{}) bool {
 		strKey, ok := key.(string)

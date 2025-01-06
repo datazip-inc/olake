@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/piyushsingariya/relec"
 	"github.com/spf13/cobra"
 )
 
@@ -18,28 +17,28 @@ import (
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Olake sync command",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if config_ == "" {
+	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+		if configPath == "" {
 			return fmt.Errorf("--config not passed")
-		} else if destinationConfig_ == "" {
+		} else if destinationConfigPath == "" {
 			return fmt.Errorf("--destination not passed")
-		} else if catalog_ == "" {
+		} else if catalogPath == "" {
 			return fmt.Errorf("--catalog not passed")
 		}
 
 		// unmarshal source config
-		if err := utils.UnmarshalFile(config_, connector.GetConfigRef()); err != nil {
+		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
 			return err
 		}
 
 		// unmarshal destination config
 		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfig_, destinationConfig); err != nil {
+		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig); err != nil {
 			return err
 		}
 
 		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(catalog_, catalog); err != nil {
+		if err := utils.UnmarshalFile(catalogPath, catalog); err != nil {
 			return err
 		}
 
@@ -47,8 +46,8 @@ var syncCmd = &cobra.Command{
 		state = &types.State{
 			Type: types.StreamType,
 		}
-		if state_ != "" {
-			if err := utils.UnmarshalFile(state_, state); err != nil {
+		if statePath != "" {
+			if err := utils.UnmarshalFile(statePath, state); err != nil {
 				return err
 			}
 		}
@@ -60,7 +59,7 @@ var syncCmd = &cobra.Command{
 
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		pool, err := NewWriter(cmd.Context(), destinationConfig)
 		if err != nil {
 			return err
@@ -134,7 +133,7 @@ var syncCmd = &cobra.Command{
 
 		// Execute streams in Standard Stream mode
 		// TODO: Separate streams with FULL and Incremental here only
-		relec.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
+		utils.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
 			logger.Infof("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
 
 			streamStartTime := time.Now()

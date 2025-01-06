@@ -13,6 +13,10 @@ type StringInterface interface {
 	String() string
 }
 
+var (
+	ErrNullValue = fmt.Errorf("null value")
+)
+
 var DateTimeFormats = []string{
 	"2006-01-02",
 	"2006-01-02 15:04:05",
@@ -29,12 +33,12 @@ var DateTimeFormats = []string{
 
 func getFirstNotNullType(datatypes []types.DataType) types.DataType {
 	for _, datatype := range datatypes {
-		if datatype != types.NULL {
+		if datatype != types.Null {
 			return datatype
 		}
 	}
 
-	return types.NULL
+	return types.Null
 }
 
 func ReformatRecord(fields Fields, record types.Record) error {
@@ -45,7 +49,7 @@ func ReformatRecord(fields Fields, record types.Record) error {
 		}
 
 		updated, err := ReformatValue(field.getType(), val)
-		if err != nil {
+		if err != nil && err != ErrNullValue {
 			return fmt.Errorf("failed to reformat value[%s] to datatype[%s] for key[%s]: %s", val, field.getType(), key, err)
 		}
 		record[key] = updated
@@ -60,9 +64,9 @@ func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
 
 func ReformatValue(dataType types.DataType, v any) (any, error) {
 	switch dataType {
-	case types.NULL:
-		return nil, nil
-	case types.BOOL:
+	case types.Null:
+		return nil, ErrNullValue
+	case types.Bool:
 		switch booleanValue := v.(type) {
 		case bool:
 			return booleanValue, nil
@@ -87,11 +91,11 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		}
 
 		return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
-	case types.INT64:
+	case types.Int64:
 		return ReformatInt64(v)
-	case types.TIMESTAMP:
+	case types.Timestamp:
 		return ReformatDate(v)
-	case types.STRING:
+	case types.String:
 		switch v := v.(type) {
 		case int, int8, int16, int32, int64:
 			return fmt.Sprintf("%d", v), nil
@@ -108,9 +112,9 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		default:
 			return fmt.Sprintf("%v", v), nil
 		}
-	case types.FLOAT64:
+	case types.Float64:
 		return ReformatFloat64(v)
-	case types.ARRAY:
+	case types.Array:
 		if value, isArray := v.([]any); isArray {
 			return value, nil
 		}
@@ -179,7 +183,7 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	}
 
 	// manage year limit
-	// even after data being parsed if year doesn't lie in range [0,9999] it failed to get marshalled
+	// even after data being parsed if year doesn't lie in range [0,9999] it failed to get marshaled
 	if parsed.Year() < 0 {
 		parsed = parsed.AddDate(0-parsed.Year(), 0, 0)
 	} else if parsed.Year() > 9999 {
@@ -219,6 +223,7 @@ func ReformatInt64(v any) (int64, error) {
 	case int64:
 		return int64(v), nil
 	case uint:
+		//nolint:gosec,G115
 		return int64(v), nil
 	case uint8:
 		return int64(v), nil
@@ -227,6 +232,7 @@ func ReformatInt64(v any) (int64, error) {
 	case uint32:
 		return int64(v), nil
 	case uint64:
+		//nolint:gosec,G115
 		return int64(v), nil
 	case bool:
 		return 1, nil

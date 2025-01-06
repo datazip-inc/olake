@@ -13,25 +13,25 @@ import (
 var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "check command",
-	PreRunE: func(cmd *cobra.Command, args []string) error {
-		if config_ == "" {
+	PreRunE: func(_ *cobra.Command, _ []string) error {
+		if configPath == "" {
 			return fmt.Errorf("--config not passed")
-		} else {
-			if err := utils.UnmarshalFile(config_, connector.GetConfigRef()); err != nil {
-				return err
-			}
 		}
 
-		if catalog_ != "" {
+		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
+			return err
+		}
+
+		if catalogPath != "" {
 			catalog = &types.Catalog{}
-			if err := utils.UnmarshalFile(catalog_, &catalog); err != nil {
+			if err := utils.UnmarshalFile(catalogPath, &catalog); err != nil {
 				return err
 			}
 		}
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, _ []string) {
 		err := func() error {
 			// Catalog has been passed setup and is driver; Connector should be setup
 			if catalog != nil {

@@ -62,7 +62,7 @@ func Unmarshal(from, object any) error {
 	reformatted := reformatInnerMaps(from)
 	b, err := json.Marshal(reformatted)
 	if err != nil {
-		return fmt.Errorf("error marshalling object: %v", err)
+		return fmt.Errorf("error marshaling object: %v", err)
 	}
 	err = json.Unmarshal(b, object)
 	if err != nil {

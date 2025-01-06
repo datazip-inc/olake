@@ -1,10 +1,6 @@
-go 1.23
+go 1.22
 
 use (
 	.
-	./drivers/google-sheets
-	./drivers/hubspot
-	./drivers/postgres
-	./drivers/s3
 	./drivers/mongodb
 )

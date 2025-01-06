@@ -41,13 +41,13 @@ func NewSet[T comparable](initial ...T) *Set[T] {
 	return s
 }
 
-func (this *Set[T]) WithHasher(f func(T) string) *Set[T] {
-	this.funcHash = f
+func (st *Set[T]) WithHasher(f func(T) string) *Set[T] {
+	st.funcHash = f
 
-	return this
+	return st
 }
 
-func (this *Set[T]) Hash(elem T) string {
+func (st *Set[T]) Hash(elem T) string {
 	hashable, yes := any(elem).(Hashable)
 	if yes {
 		return hashable.Hash()
@@ -58,13 +58,13 @@ func (this *Set[T]) Hash(elem T) string {
 		return identifiable.ID()
 	}
 
-	if this.funcHash != nil {
-		return this.funcHash(elem)
+	if st.funcHash != nil {
+		return st.funcHash(elem)
 	}
 
 	uniqueHash, err := hashstructure.Hash(elem, nil)
 	if err != nil {
-		// TODO: Handle this
+		// TODO: Handle st
 		return "false"
 	}
 
@@ -72,12 +72,12 @@ func (this *Set[T]) Hash(elem T) string {
 }
 
 // Find the difference between two sets
-func (this *Set[T]) Difference(set *Set[T]) *Set[T] {
+func (st *Set[T]) Difference(set *Set[T]) *Set[T] {
 	difference := NewSet[T]()
 
-	for k := range this.hash {
+	for k := range st.hash {
 		if _, exists := set.hash[k]; !exists {
-			difference.Insert(this.storage[k])
+			difference.Insert(st.storage[k])
 		}
 	}
 
@@ -85,37 +85,37 @@ func (this *Set[T]) Difference(set *Set[T]) *Set[T] {
 }
 
 // Call f for each item in the set
-func (this *Set[T]) Range(f func(T)) {
-	for _, value := range this.storage {
+func (st *Set[T]) Range(f func(T)) {
+	for _, value := range st.storage {
 		f(value)
 	}
 }
 
 // Test to see whether or not the element is in the set
-func (this *Set[T]) Exists(element T) bool {
-	_, exists := this.hash[this.Hash(element)]
+func (st *Set[T]) Exists(element T) bool {
+	_, exists := st.hash[st.Hash(element)]
 	return exists
 }
 
 // Add an element to the set
-func (this *Set[T]) Insert(elements ...T) {
+func (st *Set[T]) Insert(elements ...T) {
 	for _, elem := range elements {
-		if this.Exists(elem) {
+		if st.Exists(elem) {
 			continue
 		}
 
-		hash := this.Hash(elem)
+		hash := st.Hash(elem)
 
-		this.hash[hash] = nothing{}
-		this.storage[hash] = elem
+		st.hash[hash] = nothing{}
+		st.storage[hash] = elem
 	}
 }
 
 // Find the intersection of two sets
-func (this *Set[T]) Intersection(set *Set[T]) *Set[T] {
+func (st *Set[T]) Intersection(set *Set[T]) *Set[T] {
 	subset := NewSet[T]()
 
-	for k := range this.hash {
+	for k := range st.hash {
 		if _, exists := set.hash[k]; exists {
 			subset.Insert(set.storage[k])
 		}
@@ -125,29 +125,29 @@ func (this *Set[T]) Intersection(set *Set[T]) *Set[T] {
 }
 
 // Return the number of items in the set
-func (this *Set[T]) Len() int {
-	return len(this.hash)
+func (st *Set[T]) Len() int {
+	return len(st.hash)
 }
 
-// Test whether or not this set is a proper subset of "set"
-func (this *Set[T]) ProperSubsetOf(set *Set[T]) bool {
-	return this.SubsetOf(set) && this.Len() < set.Len()
+// Test whether or not st set is a proper subset of "set"
+func (st *Set[T]) ProperSubsetOf(set *Set[T]) bool {
+	return st.SubsetOf(set) && st.Len() < set.Len()
 }
 
 // Remove an element from the set
-func (this *Set[T]) Remove(element T) {
-	hash := this.Hash(element)
+func (st *Set[T]) Remove(element T) {
+	hash := st.Hash(element)
 
-	delete(this.hash, hash)
-	delete(this.storage, hash)
+	delete(st.hash, hash)
+	delete(st.storage, hash)
 }
 
-// Test whether or not this set is a subset of "set"
-func (this *Set[T]) SubsetOf(set *Set[T]) bool {
-	if this.Len() > set.Len() {
+// Test whether or not st set is a subset of "set"
+func (st *Set[T]) SubsetOf(set *Set[T]) bool {
+	if st.Len() > set.Len() {
 		return false
 	}
-	for k := range this.hash {
+	for k := range st.hash {
 		if _, exists := set.hash[k]; !exists {
 			return false
 		}
@@ -156,11 +156,11 @@ func (this *Set[T]) SubsetOf(set *Set[T]) bool {
 }
 
 // Find the union of two sets
-func (this *Set[T]) Union(set *Set[T]) *Set[T] {
+func (st *Set[T]) Union(set *Set[T]) *Set[T] {
 	union := NewSet[T]()
 
-	for k := range this.hash {
-		union.Insert(this.storage[k])
+	for k := range st.hash {
+		union.Insert(st.storage[k])
 	}
 	for k := range set.hash {
 		union.Insert(set.storage[k])
@@ -169,29 +169,29 @@ func (this *Set[T]) Union(set *Set[T]) *Set[T] {
 	return union
 }
 
-func (this *Set[T]) String() string {
+func (st *Set[T]) String() string {
 	values := []string{}
 
-	for _, value := range this.storage {
+	for _, value := range st.storage {
 		values = append(values, fmt.Sprint(value))
 	}
 
 	return fmt.Sprintf("[%s]", strings.Join(values, ", "))
 }
 
-func (this *Set[T]) Array() []T {
+func (st *Set[T]) Array() []T {
 	arr := []T{}
 
-	for _, value := range this.storage {
+	for _, value := range st.storage {
 		arr = append(arr, value)
 	}
 
 	return arr
 }
 
-func (this *Set[T]) UnmarshalJSON(data []byte) error {
+func (st *Set[T]) UnmarshalJSON(data []byte) error {
 	// to init underlying field during unmarshalling
-	*this = *NewSet[T]()
+	*st = *NewSet[T]()
 	arr := []T{}
 	err := json.Unmarshal(data, &arr)
 	if err != nil {
@@ -199,12 +199,12 @@ func (this *Set[T]) UnmarshalJSON(data []byte) error {
 	}
 
 	for _, item := range arr {
-		this.Insert(item)
+		st.Insert(item)
 	}
 
 	return nil
 }
 
-func (this *Set[T]) MarshalJSON() ([]byte, error) {
-	return json.Marshal(this.Array())
+func (st *Set[T]) MarshalJSON() ([]byte, error) {
+	return json.Marshal(st.Array())
 }

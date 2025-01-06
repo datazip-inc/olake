@@ -29,7 +29,7 @@ func (t *TypeSchema) Override(fields map[string]*Property) {
 	for key, value := range fields {
 		stored, loaded := t.Properties.LoadAndDelete(key)
 		if loaded && stored.(*Property).Nullable() {
-			value.Type.Insert(NULL)
+			value.Type.Insert(Null)
 		}
 		t.Properties.Store(key, value)
 	}
@@ -37,7 +37,7 @@ func (t *TypeSchema) Override(fields map[string]*Property) {
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
 func (t *TypeSchema) MarshalJSON() ([]byte, error) {
-	// Create a map to temporarily store data for JSON marshalling
+	// Create a map to temporarily store data for JSON marshaling
 	propertiesMap := make(map[string]*Property)
 	t.Properties.Range(func(key, value interface{}) bool {
 		strKey, ok := key.(string)
@@ -145,10 +145,10 @@ type Property struct {
 func (p *Property) DataType() DataType {
 	types := p.Type.Array()
 	i, found := utils.ArrayContains(types, func(elem DataType) bool {
-		return elem != NULL
+		return elem != Null
 	})
 	if !found {
-		return NULL
+		return Null
 	}
 
 	return types[i]
@@ -156,7 +156,7 @@ func (p *Property) DataType() DataType {
 
 func (p *Property) Nullable() bool {
 	_, found := utils.ArrayContains(p.Type.Array(), func(elem DataType) bool {
-		return elem == NULL
+		return elem == Null
 	})
 
 	return found

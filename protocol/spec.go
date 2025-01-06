@@ -23,7 +23,7 @@ var (
 var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		wd, _ := os.Getwd()
 		specfile := path.Join(wd, "generated.json")
 		spec := make(map[string]interface{})

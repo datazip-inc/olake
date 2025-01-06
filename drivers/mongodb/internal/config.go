@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/logger"
-	"github.com/piyushsingariya/relec"
+	"github.com/datazip-inc/olake/utils"
 )
 
 type Config struct {
@@ -50,5 +50,5 @@ func (c *Config) URI() string {
 
 // TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
-	return relec.Validate(c)
+	return utils.Validate(c)
 }

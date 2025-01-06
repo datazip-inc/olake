@@ -137,7 +137,7 @@ Before running the Sync command, the generated `catalog.json` file must be confi
             },
             "supported_sync_modes": ["full_refresh", "cdc"],
             "source_defined_primary_key": ["_id"],
-            "available_cursor_fields": [],
+            "available_cursor_fields": []
          },
          "sync_mode": "cdc"
          }
