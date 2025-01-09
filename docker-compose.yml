@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   mongodb_sync:
-    image: olake/source-mongodb:dev
+    image: olake/source-mongodb:v0.0.1dev
     command: >
       sync
       --config /mnt/config/config.json

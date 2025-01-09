@@ -1,42 +1,35 @@
 name: Olake Driver Build And Release
 on:
-  push: # for test purpose remove before merge
-    branches:
-      - '**' # Run on pushes to any branch
   workflow_dispatch:
     inputs:
       driver:
         description: "Driver to build"
         required: true
-        default: mongodb
       version:
         description: "Version to release"
         required: true
-        default: v0.0.0.dev
 
 jobs:
   publish_drivers:
-    # if: github.ref == 'refs/heads/master' # Restrict to master branch
+    if: github.ref == 'refs/heads/master' # Restrict to master branch
     name: Publish driver ${{ github.event.inputs.driver }} [manual]
     environment: Publish Driver
     runs-on: ubuntu-latest
     env:
-      RELEASE_CHANNEL: "Driver"
       DOCKER_LOGIN: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
       DHID: ${{ secrets.DOCKER_USERNAME }}
-      argument: ${{ github.event.inputs.driver }}
-      VERSION: ${{ github.event.inputs.version }}
+      DRIVER: ${{ github.event.inputs.driver || 'mongodb' }}
+      VERSION: ${{ github.event.inputs.version || 'v0.0.0.dev' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
+      - name: Set Driver 
+        run: echo "DRIVER=${{ env.DRIVER }}" >> $GITHUB_ENV
       - name: Set VERSION
-        run: echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-
+        run: echo "VERSION=${{ env.VERSION }}" >> $GITHUB_ENV
       - name: Show VERSION
-        run: echo "Building driver: ${{ github.event.inputs.driver }} with version: $VERSION"
-
+        run: echo "Building driver $DRIVER with version $VERSION"
       - name: Run Release tool
         run: |
           chmod +x ./release-tool.sh
