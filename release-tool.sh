@@ -40,9 +40,6 @@ function release() {
     docker login -u="$DOCKER_LOGIN" -p="$DOCKER_PASSWORD" || fail "Docker login failed for $DOCKER_LOGIN"
     echo "**** Releasing $type-$connector for platforms [$platform] with version [$version] ****"
 
-    # Navigate to the path
-    cd "$path" || fail "Failed to navigate to path: $path"
-
     # Attempt multi-platform build
     echo "Attempting multi-platform build..."
     docker buildx build --platform "$platform" --push \
