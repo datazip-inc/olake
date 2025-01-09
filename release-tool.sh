@@ -26,7 +26,7 @@ function release() {
     docker login -u="$DOCKER_LOGIN" -p="$DOCKER_PASSWORD" || fail "Docker ($DOCKER_LOGIN) login failed"
     echo "**** $type-$connector $2 release [$1] ****"
     cd $path
-    docker buildx build --platform $2 --push -t "$DHID"/$type-$connector:"$RELEASE_CHANNEL"-"$1" -t "$DHID"/$type-$connector:"$RELEASE_CHANNEL"-latest --build-arg GIT_COMMITSHA="$GIT_COMMITSHA" --build-arg GIT_VERSION="$GIT_VERSION" --build-arg RELEASE_CHANNEL="$RELEASE_CHANNEL" . || fail 'dockerx build failed'
+    docker buildx build --platform $2 --push -t "$DHID"/$type-$connector:"$1" -t "$DHID"/$type-$connector:latest --build-arg DRIVER_NAME="$connector" --build-arg DRIVER_VERSION="$VERSION" . || fail 'dockerx build failed'
 }
 
 SEMVER_EXPRESSION='v([0-9].[0-9].[0-9]+(\S*))'
@@ -39,8 +39,8 @@ echo "Latest commit SHA $GIT_COMMITSHA"
 
 echo "Running checks..."
 
-docker login -u="$DOCKER_LOGIN" -p="$DOCKER_PASSWORD" >/dev/null 2>&1 || fail '   ❌ DZ-Cloud docker login failed. Make sure that DOCKER_LOGIN and DOCKER_PASSWORD are properly set'
-echo "   ✅ Can login with DZ-Cloud docker account"
+docker login -u="$DOCKER_LOGIN" -p="$DOCKER_PASSWORD" >/dev/null 2>&1 || fail '   ❌ Olake docker login failed. Make sure that DOCKER_LOGIN and DOCKER_PASSWORD are properly set'
+echo "   ✅ Can login with Olake docker account"
 
 if [[ $CURRENT_BRANCH == "master" ]]; then
     echo "   ✅ Git branch is $CURRENT_BRANCH"
@@ -49,73 +49,33 @@ else
 fi
 
 platform="linux/amd64,linux/arm64"
-if [[ $TARGET_ARCH == "arm" ]]; then
-    platform="linux/arm64"
-elif [[ $TARGET_ARCH == "both" ]]; then
-    platform="linux/amd64,linux/arm64"
+
+echo "Releasing Driver"
+VERSION=$(git rev-parse HEAD | cut -c 1-8)
+
+# check if version is empty
+if [[ $VERSION == "" ]]; then
+    fail " ❌ Failed to get version"
 fi
-
-if [[ $RELEASE_CHANNEL == "stable" ]]; then
-    echo "Releasing stable. Checking if HEAD is tagged"
-    git describe --tags --exact-match HEAD >/dev/null 2>&1 || fail "   ❌ HEAD is not tagged. Run git describe --exact-match HEAD "
-    latest_tag=$(git describe --tags --exact-match HEAD)
-
-    IFS='/' read -ra tag_elements <<<"$latest_tag"
-
-    if [ "${#tag_elements[@]}" -ne 2 ]; then
-        fail "Error: The latest_tag($latest_tag) does not have exactly two elements."
-    fi
-    argument=$tag_elements[0]
-    VERSION=$$tag_elements[1]
-
-    # check if version is empty
-    if [[ $VERSION == "" ]]; then
-        fail " ❌ Failed to get version via latest tag"
-    fi
-    # check if version passed regex
-    if [[ $VERSION =~ $SEMVER_EXPRESSION ]]; then
-        echo "✅ Version $VERSION matches Regex Expression"
-    else
-        fail "❌ Version $VERSION does not matches Regex Expression; eg v1.0.0, v1.0.0-alpha.beta, v0.6.0-rc.6fd"
-    fi
-
-    echo "   ✅ Releasing stable channel; Latest tag is $latest_tag, Version is $VERSION Target platform: $platform"
+# check if version passed regex
+if [[ $VERSION =~ $SEMVER_EXPRESSION ]]; then
+    echo "✅ Version $VERSION matches Regex Expression"
 else
-    echo "Releasing edge channel version: $VERSION Target platform: $platform"
+    fail "❌ Version $VERSION does not matches Regex Expression; eg v1.0.0, v1.0.0-alpha.beta, v0.6.0-rc.6fd"
 fi
+
+echo "✅ Releasing driver; Version is $VERSION Target platform: $platform"
+
 
 # checking again if version is not empty
 if [[ $VERSION == "" ]]; then
     fail "❌ Version not set; Empty version passed"
 fi
 
-if [[ $argument == driver-* ]]; then
-    driver="${argument#driver-}"
-    chalk green "=== Releasing driver: $driver ==="
-    connector=$driver
-    type="driver"
-elif [[ $argument == adapter-* ]]; then
-    adapter="${argument#adapter-}"
-    chalk green "=== Releasing adapter: $adapter ==="
-    connector=$adapter
-    type="adapter"
-else
-    fail "The argument does not have a recognized prefix."
-fi
-
-if [[ $2 == "driver" ]]; then
-    path=drivers/$connector
-elif [[ $2 == "adapter" ]]; then
-    path=adapters/$connector
-else
-    fail "The argument does not have a recognized prefix."
-fi
-
+chalk green "=== Releasing driver: $driver ==="
 chalk green "=== Release channel: $RELEASE_CHANNEL ==="
-
 chalk green "=== Release version: $VERSION ==="
-
-# Set GIT_VERSION with VERSION
-GIT_VERSION=$VERSION
+connector=$driver
+type="source"
 
 release $VERSION $platform
