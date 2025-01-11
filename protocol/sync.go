@@ -52,10 +52,8 @@ var syncCmd = &cobra.Command{
 			}
 		}
 
-		// TODO: state formatting
-		logger.Infof("Running sync with state: %v", state)
-
 		state.Mutex = &sync.Mutex{}
+		logger.LogState(state)
 
 		return nil
 	},
