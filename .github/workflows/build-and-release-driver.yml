@@ -1,8 +1,5 @@
 name: Olake Driver Build And Release
 on:
-  push: # for test purpose remove before merge
-    branches:
-      - '**' # Run on pushes to any branch
   workflow_dispatch:
     inputs:
       driver:
@@ -14,7 +11,7 @@ on:
 
 jobs:
   publish_drivers:
-    # if: github.ref == 'refs/heads/master' # Restrict to master branch
+    if: github.ref == 'refs/heads/master' # Restrict to master branch
     name: Publish driver ${{ github.event.inputs.driver }} [manual]
     environment: Publish Driver
     runs-on: ubuntu-latest
