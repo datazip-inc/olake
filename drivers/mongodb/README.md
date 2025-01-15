@@ -153,7 +153,7 @@ The Writer file defines the configuration for the destination where data needs t
 Example:
    ```
    {
-      "type" : "LOCAL",
+      "type" : "PARQUET",
       "writer": {
          "path":"./drivers/mongodb/examples"
       }

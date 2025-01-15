@@ -25,8 +25,8 @@ import (
 	"github.com/xitongsys/parquet-go/source"
 )
 
-// ParquetWriter destination writes Parquet files to a local path and optionally uploads them to S3.
-type ParquetWriter struct {
+// Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
+type Parquet struct {
 	options             *protocol.Options
 	fileName            string
 	destinationFilePath string
@@ -42,18 +42,18 @@ type ParquetWriter struct {
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
-func (p *ParquetWriter) GetConfigRef() protocol.Config {
+func (p *Parquet) GetConfigRef() protocol.Config {
 	p.config = &Config{}
 	return p.config
 }
 
 // Spec returns a new Config instance.
-func (p *ParquetWriter) Spec() any {
+func (p *Parquet) Spec() any {
 	return Config{}
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *ParquetWriter) Setup(stream protocol.Stream, options *protocol.Options) error {
+func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error {
 	p.options = options
 	p.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
 	p.destinationFilePath = filepath.Join(p.config.Path, stream.Namespace(), stream.Name(), p.fileName)
@@ -103,7 +103,7 @@ func (p *ParquetWriter) Setup(stream protocol.Stream, options *protocol.Options)
 }
 
 // Write writes a record to the Parquet file.
-func (p *ParquetWriter) Write(_ context.Context, record types.Record) error {
+func (p *Parquet) Write(_ context.Context, record types.Record) error {
 	// Lock for thread safety and write the record
 	p.pqSchemaMutex.Lock()
 	defer p.pqSchemaMutex.Unlock()
@@ -117,17 +117,17 @@ func (p *ParquetWriter) Write(_ context.Context, record types.Record) error {
 }
 
 // ReInitiationOnTypeChange always returns true to reinitialize on type change.
-func (p *ParquetWriter) ReInitiationOnTypeChange() bool {
+func (p *Parquet) ReInitiationOnTypeChange() bool {
 	return true
 }
 
 // ReInitiationOnNewColumns always returns true to reinitialize on new columns.
-func (p *ParquetWriter) ReInitiationOnNewColumns() bool {
+func (p *Parquet) ReInitiationOnNewColumns() bool {
 	return true
 }
 
 // Check validates local paths and S3 credentials if applicable.
-func (p *ParquetWriter) Check() error {
+func (p *Parquet) Check() error {
 	// Validate the local path
 	if err := os.MkdirAll(p.config.Path, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create path: %s", err)
@@ -151,7 +151,7 @@ func (p *ParquetWriter) Check() error {
 	return nil
 }
 
-func (p *ParquetWriter) Close() error {
+func (p *Parquet) Close() error {
 	if p.closed {
 		return nil
 	}
@@ -209,7 +209,7 @@ func (p *ParquetWriter) Close() error {
 }
 
 // EvolveSchema updates the schema based on changes.
-func (p *ParquetWriter) EvolveSchema(_ map[string]*types.Property) error {
+func (p *Parquet) EvolveSchema(_ map[string]*types.Property) error {
 	p.pqSchemaMutex.Lock()
 	defer p.pqSchemaMutex.Unlock()
 
@@ -221,18 +221,18 @@ func (p *ParquetWriter) EvolveSchema(_ map[string]*types.Property) error {
 }
 
 // Type returns the type of the writer.
-func (p *ParquetWriter) Type() string {
+func (p *Parquet) Type() string {
 	return string(types.Parquet)
 }
 
 // Flattener returns a flattening function for records.
-func (p *ParquetWriter) Flattener() protocol.FlattenFunction {
+func (p *Parquet) Flattener() protocol.FlattenFunction {
 	flattener := typeutils.NewFlattener()
 	return flattener.Flatten
 }
 
 func init() {
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
-		return new(ParquetWriter)
+		return new(Parquet)
 	}
 }
