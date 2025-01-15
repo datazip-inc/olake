@@ -79,7 +79,7 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 	p.stream = stream
 
 	// Setup S3 client if S3 configuration is provided
-	if p.config.Bucket != "" {
+	if p.config.Bucket != "" && p.config.Region != "" {
 		s3Config := aws.Config{
 			Region: aws.String(p.config.Region),
 		}
@@ -141,13 +141,10 @@ func (p *Parquet) Check() error {
 	tempFile.Close()
 	os.Remove(tempFile.Name())
 
-	// Validate S3 credentials if S3 is configured
-	if p.s3Client != nil {
-		if _, err := p.s3Client.ListBuckets(&s3.ListBucketsInput{}); err != nil {
-			return fmt.Errorf("failed to validate S3 credentials: %s", err)
-		}
+	if p.config.Bucket == "" || p.config.Region == "" {
+		logger.Info("skipping writing to s3, credentials not provided")
 	}
-
+	// TODO: Validate S3 Credentials (Good First Issue)
 	return nil
 }
 
