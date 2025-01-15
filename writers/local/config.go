@@ -1,12 +1,11 @@
-package local
+package parquet
 
 import (
 	"github.com/datazip-inc/olake/utils"
 )
 
 type Config struct {
-	// Local file path (for local file system usage)
-	Path      string `json:"path"`
+	Path      string `json:"path"` // Local file path (for local file system usage)
 	Bucket    string `json:"s3_bucket" validate:"omitempty"`
 	Region    string `json:"s3_region" validate:"omitempty"`
 	AccessKey string `json:"s3_access_key,omitempty"`

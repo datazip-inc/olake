@@ -1,4 +1,4 @@
-package local
+package parquet
 
 import (
 	"context"
@@ -25,8 +25,8 @@ import (
 	"github.com/xitongsys/parquet-go/source"
 )
 
-// Local destination writes Parquet files to a local path and optionally uploads them to S3.
-type Local struct {
+// ParquetWriter destination writes Parquet files to a local path and optionally uploads them to S3.
+type ParquetWriter struct {
 	options             *protocol.Options
 	fileName            string
 	destinationFilePath string
@@ -41,32 +41,32 @@ type Local struct {
 	s3KeyPath           string
 }
 
-// GetConfigRef returns the config reference for the local writer.
-func (l *Local) GetConfigRef() protocol.Config {
-	l.config = &Config{}
-	return l.config
+// GetConfigRef returns the config reference for the parquet writer.
+func (p *ParquetWriter) GetConfigRef() protocol.Config {
+	p.config = &Config{}
+	return p.config
 }
 
 // Spec returns a new Config instance.
-func (l *Local) Spec() any {
+func (p *ParquetWriter) Spec() any {
 	return Config{}
 }
 
-// Setup configures the local writer, including paths, file names, and optional S3 setup.
-func (l *Local) Setup(stream protocol.Stream, options *protocol.Options) error {
-	l.options = options
-	l.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
-	l.destinationFilePath = filepath.Join(l.config.Path, stream.Namespace(), stream.Name(), l.fileName)
+// Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
+func (p *ParquetWriter) Setup(stream protocol.Stream, options *protocol.Options) error {
+	p.options = options
+	p.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
+	p.destinationFilePath = filepath.Join(p.config.Path, stream.Namespace(), stream.Name(), p.fileName)
 
 	// Create directories
-	if err := os.MkdirAll(filepath.Dir(l.destinationFilePath), os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directories: %w", err)
+	if err := os.MkdirAll(filepath.Dir(p.destinationFilePath), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create directories: %s", err)
 	}
 
 	// Initialize local Parquet writer
-	pqFile, err := local.NewLocalFileWriter(l.destinationFilePath)
+	pqFile, err := local.NewLocalFileWriter(p.destinationFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to create local file writer: %w", err)
+		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
 	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
 		goparquet.WithMaxRowGroupSize(100),
@@ -74,144 +74,165 @@ func (l *Local) Setup(stream protocol.Stream, options *protocol.Options) error {
 		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 	)
 
-	l.file = pqFile
-	l.writer = writer
-	l.stream = stream
+	p.file = pqFile
+	p.writer = writer
+	p.stream = stream
 
 	// Setup S3 client if S3 configuration is provided
-	if l.config.Bucket != "" {
+	if p.config.Bucket != "" {
 		s3Config := aws.Config{
-			Region: aws.String(l.config.Region),
+			Region: aws.String(p.config.Region),
 		}
-		if l.config.AccessKey != "" && l.config.SecretKey != "" {
-			s3Config.Credentials = credentials.NewStaticCredentials(l.config.AccessKey, l.config.SecretKey, "")
+		if p.config.AccessKey != "" && p.config.SecretKey != "" {
+			s3Config.Credentials = credentials.NewStaticCredentials(p.config.AccessKey, p.config.SecretKey, "")
 		}
 		sess, err := session.NewSession(&s3Config)
 		if err != nil {
-			return fmt.Errorf("failed to create AWS session: %w", err)
+			return fmt.Errorf("failed to create AWS session: %s", err)
 		}
-		l.s3Client = s3.New(sess)
+		p.s3Client = s3.New(sess)
 
 		basePath := filepath.Join(stream.Namespace(), stream.Name())
-		if l.config.Prefix != "" {
-			basePath = filepath.Join(l.config.Prefix, basePath)
+		if p.config.Prefix != "" {
+			basePath = filepath.Join(p.config.Prefix, basePath)
 		}
-		l.s3KeyPath = filepath.Join(basePath, l.fileName)
+		p.s3KeyPath = filepath.Join(basePath, p.fileName)
 	}
 
 	return nil
 }
 
 // Write writes a record to the Parquet file.
-func (l *Local) Write(_ context.Context, record types.Record) error {
+func (p *ParquetWriter) Write(_ context.Context, record types.Record) error {
 	// Lock for thread safety and write the record
-	l.pqSchemaMutex.Lock()
-	defer l.pqSchemaMutex.Unlock()
+	p.pqSchemaMutex.Lock()
+	defer p.pqSchemaMutex.Unlock()
 
-	if err := l.writer.AddData(record); err != nil {
-		return fmt.Errorf("parquet write error: %w", err)
+	if err := p.writer.AddData(record); err != nil {
+		return fmt.Errorf("parquet write error: %s", err)
 	}
 
-	l.records.Add(1)
+	p.records.Add(1)
 	return nil
 }
 
 // ReInitiationOnTypeChange always returns true to reinitialize on type change.
-func (l *Local) ReInitiationOnTypeChange() bool {
+func (p *ParquetWriter) ReInitiationOnTypeChange() bool {
 	return true
 }
 
 // ReInitiationOnNewColumns always returns true to reinitialize on new columns.
-func (l *Local) ReInitiationOnNewColumns() bool {
+func (p *ParquetWriter) ReInitiationOnNewColumns() bool {
 	return true
 }
 
 // Check validates local paths and S3 credentials if applicable.
-func (l *Local) Check() error {
+func (p *ParquetWriter) Check() error {
 	// Validate the local path
-	if err := os.MkdirAll(l.config.Path, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create path: %w", err)
+	if err := os.MkdirAll(p.config.Path, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create path: %s", err)
 	}
 
 	// Test directory writability
-	tempFile, err := os.CreateTemp(l.config.Path, "temporary-*.txt")
+	tempFile, err := os.CreateTemp(p.config.Path, "temporary-*.txt")
 	if err != nil {
-		return fmt.Errorf("directory is not writable: %w", err)
+		return fmt.Errorf("directory is not writable: %s", err)
 	}
 	tempFile.Close()
 	os.Remove(tempFile.Name())
 
 	// Validate S3 credentials if S3 is configured
-	if l.config.Bucket != "" && l.s3Client != nil {
-		if _, err := l.s3Client.ListBuckets(&s3.ListBucketsInput{}); err != nil {
-			return fmt.Errorf("failed to validate S3 credentials: %w", err)
+	if p.s3Client != nil {
+		if _, err := p.s3Client.ListBuckets(&s3.ListBucketsInput{}); err != nil {
+			return fmt.Errorf("failed to validate S3 credentials: %s", err)
 		}
 	}
 
 	return nil
 }
 
-func (l *Local) Close() error {
-	if l.closed {
+func (p *ParquetWriter) Close() error {
+	if p.closed {
 		return nil
 	}
-	l.closed = true
+	removeLocalFile := func() {
+		err := os.Remove(p.destinationFilePath)
+		if err != nil {
+			logger.Warnf("failed to delete file[%s] with records %d", p.destinationFilePath, p.records.Load())
+			return
+		}
+		logger.Debugf("Deleted file[%s] with records %d.", p.destinationFilePath, p.records.Load())
+	}
+
+	// Defer file deletion if no records were written
+	defer func() {
+		p.closed = true
+		if p.records.Load() == 0 {
+			removeLocalFile()
+		}
+	}()
 
 	// Close the writer and file
 	if err := utils.ErrExecSequential(
-		utils.ErrExecFormat("failed to close writer: %s", func() error { return l.writer.Close() }),
-		utils.ErrExecFormat("failed to close file: %s", l.file.Close),
+		utils.ErrExecFormat("failed to close writer: %s", func() error { return p.writer.Close() }),
+		utils.ErrExecFormat("failed to close file: %s", p.file.Close),
 	); err != nil {
-		return fmt.Errorf("failed to close local writer: %w", err)
+		return fmt.Errorf("failed to close parquet writer: %s", err)
+	}
+
+	// Log if records were written
+	if p.records.Load() > 0 {
+		logger.Infof("Finished writing file [%s] with %d records", p.destinationFilePath, p.records.Load())
 	}
 
 	// Upload to S3 if configured and records exist
-	if l.s3Client != nil && l.records.Load() > 0 {
-		file, err := os.Open(l.destinationFilePath)
+	if p.s3Client != nil && p.records.Load() > 0 {
+		file, err := os.Open(p.destinationFilePath)
 		if err != nil {
-			return fmt.Errorf("failed to open local file for S3 upload: %w", err)
+			return fmt.Errorf("failed to open local file for S3 upload: %s", err)
 		}
 		defer file.Close()
 
-		if _, err = l.s3Client.PutObject(&s3.PutObjectInput{
-			Bucket: aws.String(l.config.Bucket),
-			Key:    aws.String(l.s3KeyPath),
+		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
+			Bucket: aws.String(p.config.Bucket),
+			Key:    aws.String(p.s3KeyPath),
 			Body:   file,
-		}); err != nil {
-			return fmt.Errorf("failed to upload file to S3: %w", err)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upload file to S3: %s", err)
 		}
-
-		logger.Infof("Successfully uploaded file to S3: s3://%s/%s", l.config.Bucket, l.s3KeyPath)
+		// remove file from local once written to s3
+		removeLocalFile()
+		logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, p.s3KeyPath)
 	}
-
 	return nil
 }
 
 // EvolveSchema updates the schema based on changes.
-func (l *Local) EvolveSchema(_ map[string]*types.Property) error {
-	l.pqSchemaMutex.Lock()
-	defer l.pqSchemaMutex.Unlock()
+func (p *ParquetWriter) EvolveSchema(_ map[string]*types.Property) error {
+	p.pqSchemaMutex.Lock()
+	defer p.pqSchemaMutex.Unlock()
 
 	// Attempt to set the schema definition
-	if err := l.writer.SetSchemaDefinition(l.stream.Schema().ToParquet()); err != nil {
-		return fmt.Errorf("failed to set schema definition: %w", err)
+	if err := p.writer.SetSchemaDefinition(p.stream.Schema().ToParquet()); err != nil {
+		return fmt.Errorf("failed to set schema definition: %s", err)
 	}
 	return nil
 }
 
 // Type returns the type of the writer.
-func (l *Local) Type() string {
-	return string(types.Local)
+func (p *ParquetWriter) Type() string {
+	return string(types.Parquet)
 }
 
 // Flattener returns a flattening function for records.
-func (l *Local) Flattener() protocol.FlattenFunction {
+func (p *ParquetWriter) Flattener() protocol.FlattenFunction {
 	flattener := typeutils.NewFlattener()
 	return flattener.Flatten
 }
 
 func init() {
-	protocol.RegisteredWriters[types.Local] = func() protocol.Writer {
-		return new(Local)
+	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
+		return new(ParquetWriter)
 	}
 }
