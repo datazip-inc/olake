@@ -155,20 +155,22 @@ func (p *Parquet) Close() error {
 	if p.closed {
 		return nil
 	}
-	removeLocalFile := func() {
+
+	recordCount := p.records.Load()
+	removeLocalFile := func(reason string) {
 		err := os.Remove(p.destinationFilePath)
 		if err != nil {
-			logger.Warnf("failed to delete file[%s] with records %d", p.destinationFilePath, p.records.Load())
+			logger.Warnf("Failed to delete file [%s] with %d records (%s): %s", p.destinationFilePath, recordCount, reason, err)
 			return
 		}
-		logger.Debugf("Deleted file[%s] with records %d.", p.destinationFilePath, p.records.Load())
+		logger.Debugf("Deleted file [%s] with %d records (%s).", p.destinationFilePath, recordCount, reason)
 	}
 
-	// Defer file deletion if no records were written
+	// Defer closing and possible file removal if no records were written
 	defer func() {
 		p.closed = true
-		if p.records.Load() == 0 {
-			removeLocalFile()
+		if recordCount == 0 {
+			removeLocalFile("no records written")
 		}
 	}()
 
@@ -177,16 +179,16 @@ func (p *Parquet) Close() error {
 		utils.ErrExecFormat("failed to close writer: %s", func() error { return p.writer.Close() }),
 		utils.ErrExecFormat("failed to close file: %s", p.file.Close),
 	); err != nil {
-		return fmt.Errorf("failed to close parquet writer: %s", err)
+		return fmt.Errorf("failed to close parquet writer after adding %d records: %s", recordCount, err)
 	}
 
 	// Log if records were written
-	if p.records.Load() > 0 {
-		logger.Infof("Finished writing file [%s] with %d records", p.destinationFilePath, p.records.Load())
+	if recordCount > 0 {
+		logger.Infof("Finished writing file [%s] with %d records.", p.destinationFilePath, recordCount)
 	}
 
 	// Upload to S3 if configured and records exist
-	if p.s3Client != nil && p.records.Load() > 0 {
+	if p.s3Client != nil && recordCount > 0 {
 		file, err := os.Open(p.destinationFilePath)
 		if err != nil {
 			return fmt.Errorf("failed to open local file for S3 upload: %s", err)
@@ -199,12 +201,14 @@ func (p *Parquet) Close() error {
 			Body:   file,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to upload file to S3: %s", err)
+			return fmt.Errorf("failed to upload file to S3 (bucket: %s, path: %s): %s", p.config.Bucket, p.s3KeyPath, err)
 		}
-		// remove file from local once written to s3
-		removeLocalFile()
+
+		// remove local file after upload
+		removeLocalFile("uploaded to S3")
 		logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, p.s3KeyPath)
 	}
+
 	return nil
 }
 
