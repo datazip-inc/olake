@@ -81,6 +81,12 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
+// Chunk struct that holds status, min, and max values
+type Chunk struct {
+	Min string `json:"min"`
+	Max string `json:"max"`
+}
+
 type StreamState struct {
 	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 

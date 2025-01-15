@@ -106,6 +106,14 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			handleObjectID(doc)
 			exit, err := insert.Insert(types.Record(doc))
 			if err != nil {
+				// Create a chunk for the current batch and append it to stream state
+				chunk := types.Chunk{
+					Min: one.StartID.String(),
+					Max: one.EndID.String(),
+				}
+
+				// Append chunks to stream state
+				stream.AppendChunksToStreamState(chunk)
 				return fmt.Errorf("failed to finish backfill chunk %d: %s", number, err)
 			}
 			if exit {
