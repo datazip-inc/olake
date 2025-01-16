@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -52,13 +53,38 @@ func (p *Parquet) Spec() any {
 	return Config{}
 }
 
+// setup s3 client if credentials provided
+func (p *Parquet) initS3Writer() error {
+	if p.config.Bucket == "" || p.config.Region == "" {
+		return nil
+	}
+
+	s3Config := aws.Config{
+		Region: aws.String(p.config.Region),
+	}
+	if p.config.AccessKey != "" && p.config.SecretKey != "" {
+		s3Config.Credentials = credentials.NewStaticCredentials(p.config.AccessKey, p.config.SecretKey, "")
+	}
+	sess, err := session.NewSession(&s3Config)
+	if err != nil {
+		return fmt.Errorf("failed to create AWS session: %s", err)
+	}
+	p.s3Client = s3.New(sess)
+
+	return nil
+}
+
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
 func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error {
 	p.options = options
 	p.fileName = utils.TimestampedFileName(constants.ParquetFileExt)
-	p.destinationFilePath = filepath.Join(p.config.Path, stream.Namespace(), stream.Name(), p.fileName)
 
-	// Create directories
+	// for s3 p.config.path may not be provided
+	if p.config.Path == "" {
+		p.config.Path = os.TempDir()
+	}
+
+	p.destinationFilePath = filepath.Join(p.config.Path, stream.Namespace(), stream.Name(), p.fileName)
 	if err := os.MkdirAll(filepath.Dir(p.destinationFilePath), os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create directories: %s", err)
 	}
@@ -78,20 +104,12 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 	p.writer = writer
 	p.stream = stream
 
+	err = p.initS3Writer()
+	if err != nil {
+		return err
+	}
 	// Setup S3 client if S3 configuration is provided
-	if p.config.Bucket != "" && p.config.Region != "" {
-		s3Config := aws.Config{
-			Region: aws.String(p.config.Region),
-		}
-		if p.config.AccessKey != "" && p.config.SecretKey != "" {
-			s3Config.Credentials = credentials.NewStaticCredentials(p.config.AccessKey, p.config.SecretKey, "")
-		}
-		sess, err := session.NewSession(&s3Config)
-		if err != nil {
-			return fmt.Errorf("failed to create AWS session: %s", err)
-		}
-		p.s3Client = s3.New(sess)
-
+	if p.s3Client != nil {
 		basePath := filepath.Join(stream.Namespace(), stream.Name())
 		if p.config.Prefix != "" {
 			basePath = filepath.Join(p.config.Prefix, basePath)
@@ -128,7 +146,32 @@ func (p *Parquet) ReInitiationOnNewColumns() bool {
 
 // Check validates local paths and S3 credentials if applicable.
 func (p *Parquet) Check() error {
-	// Validate the local path
+	// check for s3 writer configuration
+	err := p.initS3Writer()
+	if err != nil {
+		return err
+	}
+	// test for s3 permissions
+	if p.s3Client != nil {
+		testKey := fmt.Sprintf("olake_writer_test/%s", utils.TimestampedFileName(".txt"))
+		// Try to upload a small test file
+		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
+			Bucket: aws.String(p.config.Bucket),
+			Key:    aws.String(testKey),
+			Body:   strings.NewReader("S3 write test"),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to write test file to S3: %s", err)
+		}
+		p.config.Path = os.TempDir()
+		logger.Info("s3 writer configuration found")
+	} else if p.config.Path != "" {
+		logger.Info("local writer configuration found, writing at location[%s]", p.config.Path)
+	} else {
+		return fmt.Errorf("invalid configuration found")
+	}
+
+	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(p.config.Path, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create path: %s", err)
 	}
@@ -140,11 +183,6 @@ func (p *Parquet) Check() error {
 	}
 	tempFile.Close()
 	os.Remove(tempFile.Name())
-
-	if p.config.Bucket == "" || p.config.Region == "" {
-		logger.Info("skipping writing to s3, credentials not provided")
-	}
-	// TODO: Validate S3 Credentials (Good First Issue)
 	return nil
 }
 
