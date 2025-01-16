@@ -99,21 +99,6 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
                 }
 		exit, err := insert.Insert(types.Record(doc))
 
-
-
-if record.OperationType == "delete" {
-    // For delete operations, create a minimal document with operation type
-    doc = map[string]any{
-        "cdc_type": record.OperationType,
-        "_id":      cursor.Current.Lookup("documentKey").Document().Lookup("_id"),
-    }
-} else {
-    doc = record.FullDocument
-    doc["cdc_type"] = record.OperationType
-}
-exit, err := insert.Insert(types.Record(doc))
-
-
 		if err != nil {
 			return err
 		}
