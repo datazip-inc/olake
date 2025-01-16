@@ -1,0 +1,37 @@
+name: Olake Driver Build And Release
+on:
+  workflow_dispatch:
+    inputs:
+      driver:
+        description: "Driver to build"
+        required: true
+      version:
+        description: "Version to release"
+        required: true
+
+jobs:
+  publish_drivers:
+    if: github.ref == 'refs/heads/master' # Restrict to master branch
+    name: Publish driver ${{ github.event.inputs.driver }} [manual]
+    environment: Publish Driver
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_LOGIN: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      DHID: ${{ secrets.DOCKER_USERNAME }}
+      DRIVER: ${{ github.event.inputs.driver || 'mongodb' }}
+      VERSION: ${{ github.event.inputs.version || 'v0.0.0.dev' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Set Driver 
+        run: echo "DRIVER=${{ env.DRIVER }}" >> $GITHUB_ENV
+      - name: Set VERSION
+        run: echo "VERSION=${{ env.VERSION }}" >> $GITHUB_ENV
+      - name: Show VERSION
+        run: echo "Building driver $DRIVER with version $VERSION"
+      - name: Run Release tool
+        run: |
+          chmod +x ./release-tool.sh
+          ./release-tool.sh
+        shell: bash
