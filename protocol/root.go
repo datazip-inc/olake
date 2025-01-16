@@ -7,17 +7,16 @@ import (
 	"github.com/datazip-inc/olake/logger/console"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/piyushsingariya/relec"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 var (
-	config_            string
-	destinationConfig_ string
-	state_             string
-	catalog_           string
-	batchSize_         uint
+	configPath            string
+	destinationConfigPath string
+	statePath             string
+	catalogPath           string
+	batchSize             int64
 
 	catalog           *types.Catalog
 	state             *types.State
@@ -30,7 +29,7 @@ var (
 	// Global Stream concurrency group;
 	//
 	// Not to confuse with individual stream level concurrency
-	GlobalCxGroup = relec.NewCGroupWithLimit(context.Background(), concurrentStreamExecution)
+	GlobalCxGroup = utils.NewCGroupWithLimit(context.Background(), concurrentStreamExecution)
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -50,7 +49,7 @@ var RootCmd = &cobra.Command{
 	},
 }
 
-func CreateRootCommand(forDriver bool, driver any) *cobra.Command {
+func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
 	connector = driver.(Driver)
 
@@ -59,11 +58,11 @@ func CreateRootCommand(forDriver bool, driver any) *cobra.Command {
 
 func init() {
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
-	RootCmd.PersistentFlags().StringVarP(&config_, "config", "", "", "(Required) Config for connector")
-	RootCmd.PersistentFlags().StringVarP(&destinationConfig_, "destination", "", "", "(Required) Destination config for connector")
-	RootCmd.PersistentFlags().StringVarP(&catalog_, "catalog", "", "", "(Required) Catalog for connector")
-	RootCmd.PersistentFlags().StringVarP(&state_, "state", "", "", "(Required) State for connector")
-	RootCmd.PersistentFlags().UintVarP(&batchSize_, "batch", "", 10000, "(Optional) Batch size for connector")
+	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "", "(Required) Config for connector")
+	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "", "(Required) Destination config for connector")
+	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")
+	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
+	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true

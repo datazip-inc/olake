@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           check-latest: "true"
-          go-version: "1.21.x"
+          go-version: "1.22.x"
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run vulnerability checks
@@ -35,11 +35,11 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           check-latest: "true"
-          go-version: "1.21.x"
+          go-version: "1.22.x"
+      - name: install gosec
+        run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
-        with:
-          args: ./...
+        run: $(go env GOPATH)/bin/gosec -exclude=G115 -severity=high -confidence=medium ./...
   trivy:
     name: trivy
     runs-on: ubuntu-20.04

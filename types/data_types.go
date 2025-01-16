@@ -7,18 +7,18 @@ import (
 type DataType string
 
 const (
-	NULL            DataType = "null"
-	INT64           DataType = "integer"
-	FLOAT64         DataType = "number"
-	STRING          DataType = "string"
-	BOOL            DataType = "boolean"
-	OBJECT          DataType = "object"
-	ARRAY           DataType = "array"
-	UNKNOWN         DataType = "unknown"
-	TIMESTAMP       DataType = "timestamp"
-	TIMESTAMP_MILLI DataType = "timestamp_milli" // storing datetime upto 3 precisions
-	TIMESTAMP_MICRO DataType = "timestamp_micro" // storing datetime upto 6 precisions
-	TIMESTAMP_NANO  DataType = "timestamp_nano"  // storing datetime upto 9 precisions
+	Null           DataType = "null"
+	Int64          DataType = "integer"
+	Float64        DataType = "number"
+	String         DataType = "string"
+	Bool           DataType = "boolean"
+	Object         DataType = "object"
+	Array          DataType = "array"
+	Unknown        DataType = "unknown"
+	Timestamp      DataType = "timestamp"
+	TimestampMilli DataType = "timestamp_milli" // storing datetime up to 3 precisions
+	TimestampMicro DataType = "timestamp_micro" // storing datetime up to 6 precisions
+	TimestampNano  DataType = "timestamp_nano"  // storing datetime up to 9 precisions
 )
 
 type Record map[string]any
@@ -26,48 +26,48 @@ type Record map[string]any
 // returns parquet equivalent type & convertedType for the datatype
 func (d DataType) ToParquet() *parquet.SchemaElement {
 	switch d {
-	case INT64:
+	case Int64:
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_INT64),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
-	case FLOAT64:
+	case Float64:
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_DOUBLE),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
-	case STRING:
+	case String:
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
 			ConvertedType:  ToPointer(parquet.ConvertedType_UTF8),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
-	case BOOL:
+	case Bool:
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_BOOLEAN),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
 	//TODO: Not able to generate correctly in parquet, handle later
-	case TIMESTAMP:
+	case Timestamp:
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_INT64),
 			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
-	case TIMESTAMP_MILLI:
+	case TimestampMilli:
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_INT64),
 			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
 	//TODO: Not able to generate correctly in parquet, handle later
-	case TIMESTAMP_NANO:
+	case TimestampNano:
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_INT64),
 			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
 			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
 		}
-	case OBJECT, ARRAY: // Objects/Arrays are turned into String in parquet
+	case Object, Array: // Objects/Arrays are turned into String in parquet
 		return &parquet.SchemaElement{
 			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
 			ConvertedType:  ToPointer(parquet.ConvertedType_UTF8),

@@ -12,7 +12,7 @@ import (
 // TypeFromValue return [types.DataType] from v type
 func TypeFromValue(v interface{}) types.DataType {
 	if v == nil {
-		return types.NULL
+		return types.Null
 	}
 
 	// Check if v is a pointer and get the underlying element type if it is
@@ -22,7 +22,7 @@ func TypeFromValue(v interface{}) types.DataType {
 			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
 		}
 
-		return types.NULL // Handle nil pointers
+		return types.Null // Handle nil pointers
 	}
 
 	switch reflect.TypeOf(v).Kind() {
@@ -30,35 +30,35 @@ func TypeFromValue(v interface{}) types.DataType {
 		if reflect.TypeOf(v).Elem() != nil {
 			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
 		}
-		return types.NULL
+		return types.Null
 	case reflect.Invalid:
-		return types.NULL
+		return types.Null
 	case reflect.Bool:
-		return types.BOOL
+		return types.Bool
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return types.INT64
+		return types.Int64
 	case reflect.Float32, reflect.Float64:
-		return types.FLOAT64
+		return types.Float64
 	case reflect.String:
-		return types.STRING
+		return types.String
 	case reflect.Slice, reflect.Array:
-		return types.ARRAY
+		return types.Array
 	case reflect.Map:
-		return types.OBJECT
+		return types.Object
 	default:
 		// Check if the type is time.Time for timestamp detection
 		if reflect.TypeOf(v) == reflect.TypeOf(time.Time{}) {
 			return detectTimestampPrecision(v.(time.Time))
 		}
 
-		return types.UNKNOWN
+		return types.Unknown
 	}
 }
 
 func MaximumOnDataType[T any](typ types.DataType, a, b T) (T, error) {
 	switch typ {
-	case types.TIMESTAMP:
+	case types.Timestamp:
 		adate, err := ReformatDate(a)
 		if err != nil {
 			return a, fmt.Errorf("failed to reformat[%v] while comparing: %s", a, err)
@@ -73,7 +73,7 @@ func MaximumOnDataType[T any](typ types.DataType, a, b T) (T, error) {
 		}
 
 		return b, nil
-	case types.INT64:
+	case types.Int64:
 		aint, err := ReformatInt64(a)
 		if err != nil {
 			return a, fmt.Errorf("failed to reformat[%v] while comparing: %s", a, err)
@@ -98,14 +98,14 @@ func MaximumOnDataType[T any](typ types.DataType, a, b T) (T, error) {
 func detectTimestampPrecision(t time.Time) types.DataType {
 	nanos := t.Nanosecond()
 	if nanos == 0 { // if their is no nanosecond
-		return types.TIMESTAMP
+		return types.Timestamp
 	}
 	switch {
 	case nanos%int(time.Millisecond) == 0:
-		return types.TIMESTAMP_MILLI // store in milliseconds
+		return types.TimestampMilli // store in milliseconds
 	case nanos%int(time.Microsecond) == 0:
-		return types.TIMESTAMP_MICRO // store in microseconds
+		return types.TimestampMicro // store in microseconds
 	default:
-		return types.TIMESTAMP_NANO // store in nanoseconds
+		return types.TimestampNano // store in nanoseconds
 	}
 }

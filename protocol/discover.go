@@ -13,23 +13,22 @@ import (
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
-	PreRunE: func(cmd *cobra.Command, args []string) error {
-		if config_ == "" {
+	PreRunE: func(_ *cobra.Command, _ []string) error {
+		if configPath == "" {
 			return fmt.Errorf("--config not passed")
-		} else {
-			if err := utils.UnmarshalFile(config_, connector.GetConfigRef()); err != nil {
-				return err
-			}
+		}
+
+		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
+			return err
 		}
 
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		err := connector.Setup()
 		if err != nil {
 			return err
 		}
-
 		streams, err := connector.Discover(true)
 		if err != nil {
 			return err

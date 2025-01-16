@@ -13,54 +13,54 @@ import (
 
 // Info writes record into os.stdout with log level INFO
 func Info(v ...interface{}) {
-	console.Log("", console.INFO, v...)
+	_ = console.Log("", console.INFO, v...)
 }
 
 // Info writes record into os.stdout with log level INFO
 func Infof(format string, v ...interface{}) {
-	console.Log(format, console.INFO, v...)
+	_ = console.Log(format, console.INFO, v...)
 }
 
 // Debug writes record into os.stdout with log level DEBUG
 func Debug(v ...interface{}) {
-	console.Log("", console.DEBUG, v...)
+	_ = console.Log("", console.DEBUG, v...)
 }
 
 // Debugf writes record into os.stdout with log level DEBUG
 func Debugf(format string, v ...interface{}) {
-	console.Log(format, console.DEBUG, v...)
+	_ = console.Log(format, console.DEBUG, v...)
 }
 
 // Error writes record into os.stdout with log level ERROR
 func Error(v ...interface{}) {
-	console.Log("", console.ERROR, v...)
+	_ = console.Log("", console.ERROR, v...)
 }
 
 // Fatal writes record into os.stdout with log level ERROR and exits
 func Fatal(v ...interface{}) {
-	console.Log("", console.ERROR, v...)
+	_ = console.Log("", console.ERROR, v...)
 	os.Exit(1)
 }
 
 // Fatal writes record into os.stdout with log level ERROR
 func Fatalf(format string, v ...interface{}) {
-	console.Log(format, console.ERROR, v...)
+	_ = console.Log(format, console.ERROR, v...)
 	os.Exit(1)
 }
 
 // Error writes record into os.stdout with log level ERROR
 func Errorf(format string, v ...interface{}) {
-	console.Log(format, console.ERROR, v...)
+	_ = console.Log(format, console.ERROR, v...)
 }
 
 // Warn writes record into os.stdout with log level WARN
 func Warn(v ...interface{}) {
-	console.Log("", console.WARN, v...)
+	_ = console.Log("", console.WARN, v...)
 }
 
 // Warn writes record into os.stdout with log level WARN
 func Warnf(format string, v ...interface{}) {
-	console.Log(format, console.WARN, v...)
+	_ = console.Log(format, console.WARN, v...)
 }
 
 func LogSpec(spec map[string]interface{}) {

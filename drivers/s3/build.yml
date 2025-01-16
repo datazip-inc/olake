@@ -1,9 +1,0 @@
-build:
-  dependencies:
-    - build-base
-    - lzo-dev
-  cgo_enabled: true
-final:
-  dependencies:
-    - build-base
-    - lzo-dev

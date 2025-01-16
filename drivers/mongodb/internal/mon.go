@@ -10,8 +10,7 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
-	"github.com/piyushsingariya/relec"
-	"github.com/piyushsingariya/relec/memory"
+	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -106,7 +105,7 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	}
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
-	err = relec.Concurrent(discoverCtx, streamNames, len(streamNames), func(ctx context.Context, streamName string, _ int) error {
+	err = utils.Concurrent(discoverCtx, streamNames, len(streamNames), func(ctx context.Context, streamName string, _ int) error {
 		stream, err := m.produceCollectionSchema(discoverCtx, database, streamName)
 		if err != nil && discoverCtx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 			return fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
@@ -165,7 +164,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 	}
 
-	return stream, relec.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
 		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 		if err != nil {
 			return err
@@ -173,7 +172,6 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		defer cursor.Close(ctx)
 
 		for cursor.Next(ctx) {
-			memory.Lock(ctx) // lock until memory free
 
 			var row bson.M
 			if err := cursor.Decode(&row); err != nil {

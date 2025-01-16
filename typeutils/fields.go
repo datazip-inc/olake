@@ -16,22 +16,22 @@ type typeNode struct {
 }
 
 var typecastTree = &typeNode{
-	t: types.STRING,
+	t: types.String,
 	left: &typeNode{
-		t: types.FLOAT64,
+		t: types.Float64,
 		left: &typeNode{
-			t:    types.INT64,
-			left: &typeNode{t: types.BOOL},
+			t:    types.Int64,
+			left: &typeNode{t: types.Bool},
 		},
 	},
 	right: &typeNode{
-		t: types.TIMESTAMP_NANO,
+		t: types.TimestampNano,
 		left: &typeNode{
-			t: types.TIMESTAMP_MICRO,
+			t: types.TimestampMicro,
 			left: &typeNode{
-				t: types.TIMESTAMP_MILLI,
+				t: types.TimestampMilli,
 				left: &typeNode{
-					t: types.TIMESTAMP,
+					t: types.Timestamp,
 				},
 			},
 		},
@@ -110,7 +110,7 @@ func (f Fields) Process(record types.Record) (bool, bool, Fields) {
 		detectedType := TypeFromValue(value)
 		if val, found := f[key]; found {
 			currentType := val.getType()
-			if detectedType != types.NULL && currentType != detectedType { // compare current type
+			if detectedType != types.Null && currentType != detectedType { // compare current type
 				f[key].Merge(NewField(detectedType)) // merged data types for this field
 				updatedType := f[key].getType()
 				if updatedType != currentType {
@@ -187,7 +187,7 @@ func (f *Field) getType() types.DataType {
 
 	if len(typs) == 0 {
 		logger.Fatal("Field typeOccurrence can't be empty")
-		return types.UNKNOWN
+		return types.Unknown
 	}
 
 	common := typs[0]
@@ -202,7 +202,7 @@ func (f *Field) getType() types.DataType {
 
 func (f *Field) Types() []types.DataType {
 	if f.isNullable() {
-		return []types.DataType{types.NULL, f.getType()}
+		return []types.DataType{types.Null, f.getType()}
 	}
 	return []types.DataType{f.getType()}
 }
@@ -216,7 +216,7 @@ func (f *Field) isNullable() bool {
 		return true
 	}
 
-	if _, found := f.typeOccurrence[types.NULL]; found {
+	if _, found := f.typeOccurrence[types.Null]; found {
 		return true
 	}
 
@@ -259,5 +259,5 @@ func lowestCommonAncestor(root *typeNode, t1, t2 types.DataType) types.DataType 
 		}
 	}
 
-	return types.UNKNOWN
+	return types.Unknown
 }

@@ -1,6 +1,8 @@
 package local
 
-import "github.com/piyushsingariya/relec"
+import (
+	"github.com/datazip-inc/olake/utils"
+)
 
 type Config struct {
 	BaseFilePath string `json:"path"`
@@ -8,5 +10,5 @@ type Config struct {
 
 // TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
-	return relec.Validate(c)
+	return utils.Validate(c)
 }
