@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/logger/console"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/spf13/cobra"
@@ -54,18 +53,8 @@ var syncCmd = &cobra.Command{
 		}
 
 		state.Mutex = &sync.Mutex{}
-		message := types.Message{
-			Type:  types.StateMessage,
-			State: state,
-			Log: &types.Log{
-				Level:   console.INFO.String(),
-				Message: "Running sync with state:",
-			},
-		}
-		
-		if err := console.Print(console.INFO, message); err != nil {
-			return err
-		}
+		logger.Info("Running sync with state: ")
+		logger.LogState(state)
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
