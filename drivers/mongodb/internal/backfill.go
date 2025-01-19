@@ -42,6 +42,35 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
 	logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
 
+	//process failed chunks
+	failedChunks := stream.GetChunksFromStreamState()
+	logger.Infof("Processing %d failed chunks for stream [%s]", len(failedChunks), stream.ID())
+
+	err = utils.ConcurrentC(context.TODO(), utils.Yield(func(_ *types.Chunk) (bool, *types.Chunk, error) {
+		if len(failedChunks) == 0 {
+			return true, nil, nil
+		}
+		chunk := failedChunks[0]
+		failedChunks = failedChunks[1:]
+		return false, &chunk, nil
+	}), m.config.MaxThreads, func(ctx context.Context, chunk *types.Chunk, number int64) error {
+
+		minId, err := primitive.ObjectIDFromHex(chunk.Min)
+		if err != nil {
+			return err
+		}
+		maxId, err := primitive.ObjectIDFromHex(chunk.Max)
+		if err != nil {
+			return err
+		}
+
+		return m.processChunk(ctx, pool, stream, collection, minId, &maxId)
+	})
+	if err != nil {
+		logger.Errorf("Failed to process one or more failed chunks: %v", err)
+		return err
+	}
+
 	timeDiff := last.Sub(first).Hours() / 6
 	if timeDiff < 1 {
 		timeDiff = 1
@@ -69,60 +98,67 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		return exit, boundry, nil
 	}), m.config.MaxThreads, func(ctx context.Context, one *Boundry, number int64) error {
-		threadContext, cancelThread := context.WithCancel(ctx)
-		defer cancelThread()
-
-		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
-		cursor, err := collection.Aggregate(ctx, generatepipeline(one.StartID, one.EndID), opts)
-		if err != nil {
-			return fmt.Errorf("collection.Find: %s", err)
-		}
-		defer cursor.Close(ctx)
-
-		waitChannel := make(chan struct{})
-		defer func() {
-			if stream.GetSyncMode() == types.CDC {
-				// only wait in cdc mode
-				// make sure it get called after insert.Close()
-				<-waitChannel
-			}
-			logger.Infof("Finished full load chunk number %d.", number)
-		}()
-
-		insert, err := pool.NewThread(threadContext, stream, protocol.WithNumber(number), protocol.WithWaitChannel(waitChannel))
-		if err != nil {
-			return err
-		}
-		defer insert.Close()
-
-		for cursor.Next(ctx) {
-			var doc bson.M
-			if _, err = cursor.Current.LookupErr("_id"); err != nil {
-				return fmt.Errorf("looking up idProperty: %s", err)
-			} else if err = cursor.Decode(&doc); err != nil {
-				return fmt.Errorf("backfill decoding document: %s", err)
-			}
-
-			handleObjectID(doc)
-			exit, err := insert.Insert(types.Record(doc))
-			if err != nil {
-				// Create a chunk for the current batch and append it to stream state
-				chunk := types.Chunk{
-					Min: one.StartID.String(),
-					Max: one.EndID.String(),
-				}
-
-				// Append chunks to stream state
-				stream.AppendChunksToStreamState(chunk)
-				return fmt.Errorf("failed to finish backfill chunk %d: %s", number, err)
-			}
-			if exit {
-				return nil
-			}
-		}
-		return cursor.Err()
+		return m.processChunk(ctx, pool, stream, collection, one.StartID, one.EndID)
 	})
 
+}
+
+func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, start primitive.ObjectID, end *primitive.ObjectID) error {
+	threadContext, cancelThread := context.WithCancel(ctx)
+	defer cancelThread()
+
+	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
+	cursor, err := collection.Aggregate(ctx, generatepipeline(start, end), opts)
+	if err != nil {
+		return fmt.Errorf("collection.Find: %s", err)
+	}
+	defer cursor.Close(ctx)
+
+	waitChannel := make(chan struct{})
+	defer func() {
+		if stream.GetSyncMode() == types.CDC {
+			// only wait in cdc mode
+			// make sure it get called after insert.Close()
+			<-waitChannel
+		}
+	}()
+
+	insert, err := pool.NewThread(threadContext, stream, protocol.WithWaitChannel(waitChannel))
+	if err != nil {
+		return err
+	}
+	defer insert.Close()
+
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if _, err = cursor.Current.LookupErr("_id"); err != nil {
+			return fmt.Errorf("looking up idProperty: %s", err)
+		} else if err = cursor.Decode(&doc); err != nil {
+			return fmt.Errorf("backfill decoding document: %s", err)
+		}
+
+		handleObjectID(doc)
+		exit, err := insert.Insert(types.Record(doc))
+		if err != nil {
+			// Append chunks to stream state with the original min and max
+			chunk := types.Chunk{
+				Min: start.Hex(),
+				Max: func() string {
+					if end != nil {
+						return end.Hex()
+					}
+					return ""
+				}(),
+			}
+			stream.AppendChunksToStreamState(chunk)
+
+			return fmt.Errorf("failed to finish backfill chunk: %s", err)
+		}
+		if exit {
+			return nil
+		}
+	}
+	return cursor.Err()
 }
 
 func (m *Mongo) totalCountInCollection(collection *mongo.Collection) (int64, error) {

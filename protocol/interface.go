@@ -85,6 +85,7 @@ type Stream interface {
 	SetStateKey(key string, value any)
 	Validate(source *types.Stream) error
 	AppendChunksToStreamState(newChunk types.Chunk)
+	GetChunksFromStreamState() []types.Chunk
 }
 
 type State interface {

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/datazip-inc/olake/utils"
@@ -99,20 +100,81 @@ func (s *ConfiguredStream) SetStateKey(key string, value any) {
 }
 
 func (s *ConfiguredStream) AppendChunksToStreamState(newChunk Chunk) {
-	// Retrieve existing chunks (if any)
+	// Retrieve existing chunks from the stream state.
 	existingChunks, _ := s.streamState.State.Load("chunks")
 	var chunks []Chunk
 
-	// Check if there are existing chunks
-	if existingChunks != nil {
-		chunks = existingChunks.([]Chunk)
-	}
+	// Convert the retrieved value into a []Chunk.
+	chunks = convertToChunkSlice(existingChunks)
 
-	// Append the new chunk to the list
+	// Append the new chunk to the list.
 	chunks = append(chunks, newChunk)
 
-	// Store the updated chunks list back in the StreamState
+	// Store the updated list back in the StreamState.
 	s.streamState.State.Store("chunks", chunks)
+}
+
+func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
+	// Retrieve existing chunks from the StreamState.
+	existingChunks, _ := s.streamState.State.Load("chunks")
+
+	// Convert the retrieved value into a []Chunk.
+	return convertToChunkSlice(existingChunks)
+}
+
+// Helper function to convert an interface{} to a []Chunk.
+func convertToChunkSlice(existingChunks interface{}) []Chunk {
+	var chunks []Chunk
+
+	if existingChunks == nil {
+		return chunks // Return an empty slice if no chunks exist.
+	}
+
+	// Handle the case where the value is a []Chunk directly.
+	if chunksSlice, ok := existingChunks.([]Chunk); ok {
+		return chunksSlice
+	}
+
+	// Handle the case where the value is a []interface{}.
+	if interfaceSlice, ok := existingChunks.([]interface{}); ok {
+		for _, item := range interfaceSlice {
+			// Convert map[string]interface{} to Chunk
+			if chunkMap, ok := item.(map[string]interface{}); ok {
+				chunk := mapToChunk(chunkMap) // Convert map to Chunk
+				chunks = append(chunks, chunk)
+			} else if chunk, ok := item.(Chunk); ok {
+				chunks = append(chunks, chunk)
+			} else {
+				log.Printf("Unexpected type in existing chunks: %T", item)
+			}
+		}
+		return chunks
+	}
+
+	// Log an error for unexpected types.
+	log.Printf("Unexpected type of existingChunks: %T", existingChunks)
+	return chunks
+}
+
+// Convert map[string]interface{} to Chunk
+func mapToChunk(chunkMap map[string]interface{}) Chunk {
+	var chunk Chunk
+
+	// Map the "min" field
+	if minValue, ok := chunkMap["min"].(string); ok {
+		chunk.Min = minValue
+	} else {
+		log.Printf("Missing or invalid 'min' field in chunk: %+v", chunkMap)
+	}
+
+	// Map the "max" field
+	if maxValue, ok := chunkMap["max"].(string); ok {
+		chunk.Max = maxValue
+	} else {
+		log.Printf("Missing or invalid 'max' field in chunk: %+v", chunkMap)
+	}
+
+	return chunk
 }
 
 func (s *ConfiguredStream) GetStateCursor() any {
