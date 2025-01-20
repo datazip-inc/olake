@@ -4,7 +4,7 @@ gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
 golangci:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.63.4;
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest;
 	$(GOPATH)/bin/golangci-lint run
 
 
