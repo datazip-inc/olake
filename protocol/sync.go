@@ -158,7 +158,7 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
-			logger.LogState(state)
+			logger.LogState(state, configPath)
 		}
 
 		return nil

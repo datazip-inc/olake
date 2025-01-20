@@ -42,8 +42,10 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 	}
 
 	for _, stream := range streams {
+
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
-			Stream: stream,
+			Stream:   stream,
+			SyncMode: CDC,
 		})
 	}
 

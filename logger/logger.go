@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,7 +9,9 @@ import (
 	"os"
 
 	"github.com/datazip-inc/olake/logger/console"
+
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 )
 
 // Info writes record into os.stdout with log level INFO
@@ -75,12 +78,18 @@ func LogSpec(spec map[string]interface{}) {
 	}
 }
 
-func LogCatalog(streams []*types.Stream) {
+func LogCatalog(streams []*types.Stream, path string) {
 	message := types.Message{}
 	message.Type = types.CatalogMessage
 	message.Catalog = types.GetWrappedCatalog(streams)
+
+	err := MarshalAndWriteFile(message.Catalog, path, "catalog-test", ".json")
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
 	Info("logging catalog")
-	err := console.Print(console.INFO, message)
+	err = console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode catalog %v: %s", streams, err)
 	}
@@ -121,16 +130,39 @@ func LogRequest(req *http.Request) {
 	fmt.Println(string(requestDump))
 }
 
-func LogState(state *types.State) {
+func LogState(state *types.State, path string) {
 	state.Lock()
 	defer state.Unlock()
 
 	message := types.Message{}
 	message.Type = types.StateMessage
 	message.State = state
-
-	err := console.Print(console.INFO, message)
+	err := MarshalAndWriteFile(message.State, path, "state-test", ".json")
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	err = console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode connection status: %s", err)
 	}
+}
+func MarshalAndWriteFile(catalog interface{}, path, fileName, fileExtension string) error {
+	// Marshal the catalog to JSON
+	directory, err := utils.ExtractDirFromPath(path)
+	if err != nil {
+		fmt.Printf("Failed to extract directory: %v\n", err)
+	}
+	catalogBytes, err := json.Marshal(catalog)
+	if err != nil {
+		return fmt.Errorf("failed to marshal catalog: %w", err)
+	}
+
+	// Write the marshaled catalog to the specified file
+	err = utils.CreateFile(directory, fileName, fileExtension, catalogBytes)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+
+	return nil
 }
