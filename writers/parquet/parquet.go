@@ -123,6 +123,7 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, record types.Record) error {
 	// Lock for thread safety and write the record
+	// TODO: Need to check if we can remove locking to fasten sync (Good First Issue)
 	p.pqSchemaMutex.Lock()
 	defer p.pqSchemaMutex.Unlock()
 
