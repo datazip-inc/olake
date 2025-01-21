@@ -94,8 +94,7 @@ Drivers aka Connectors/Source that includes the logic for interacting with datab
 Writers are directly integrated into drivers to avoid blockage of writing/reading into/from os.StdOut or any other type of I/O. This enables direct insertion of records from each individual fired query to the destination.
 
 Writers are being planned in this order
-- [ ] Local Parquet
-- [ ] S3 Simple Parquet
+- [x] Parquet Writer (Writes Parquet files on Local/S3)
 - [ ] S3 Iceberg Parquet
 - [ ] Snowflake
 - [ ] BigQuery

@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/apache/thrift v0.16.0 // indirect
+	github.com/aws/aws-sdk-go v1.43.31 // indirect
 	github.com/felixge/fgprof v0.9.5 // indirect
 	github.com/fraugster/parquet-go v0.12.0 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
@@ -16,6 +17,7 @@ require (
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
