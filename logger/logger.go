@@ -78,18 +78,21 @@ func LogSpec(spec map[string]interface{}) {
 	}
 }
 
-func LogCatalog(streams []*types.Stream, path string) {
+func LogCatalog(streams []*types.Stream, path string, autoSaveFile bool) {
 	message := types.Message{}
 	message.Type = types.CatalogMessage
 	message.Catalog = types.GetWrappedCatalog(streams)
 
-	err := MarshalAndWriteFile(message.Catalog, path, "catalog-test", ".json")
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
+	if !autoSaveFile {
+		err := MarshalAndWriteFile(message.Catalog, path, "catalog-test", ".json")
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
 	}
+
 	Info("logging catalog")
-	err = console.Print(console.INFO, message)
+	err := console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode catalog %v: %s", streams, err)
 	}
@@ -130,19 +133,21 @@ func LogRequest(req *http.Request) {
 	fmt.Println(string(requestDump))
 }
 
-func LogState(state *types.State, path string) {
+func LogState(state *types.State, path string, autoSaveFile bool) {
 	state.Lock()
 	defer state.Unlock()
 
 	message := types.Message{}
 	message.Type = types.StateMessage
 	message.State = state
-	err := MarshalAndWriteFile(message.State, path, "state-test", ".json")
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
+	if !autoSaveFile {
+		err := MarshalAndWriteFile(message.State, path, "state-test", ".json")
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
 	}
-	err = console.Print(console.INFO, message)
+	err := console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode connection status: %s", err)
 	}

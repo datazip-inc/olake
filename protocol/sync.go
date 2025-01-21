@@ -77,11 +77,30 @@ var syncCmd = &cobra.Command{
 
 		streamsMap := types.StreamsToMap(streams...)
 
+		//create a map for namespace and name
+		selectedStreamMap := make(map[string]bool)
+
+		for nameSpace, streamNames := range catalog.SelectedStreams {
+			for _, name := range streamNames {
+				key := generateStreamKey(name, nameSpace)
+				selectedStreamMap[key] = true
+			}
+		}
+
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
 		cdcStreams := []Stream{}
 		standardModeStreams := []Stream{}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
+
+			// Generate the key for the current stream
+			key := generateStreamKey(elem.Name(), elem.Namespace())
+			// Check if the stream is in the selectedStreamMap
+			if !selectedStreamMap[key] {
+				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Name(), elem.Namespace())
+				return false
+			}
+
 			source, found := streamsMap[elem.ID()]
 			if !found {
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
@@ -158,9 +177,14 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
-			logger.LogState(state, configPath)
+			logger.LogState(state, configPath, autoSaveFile)
 		}
 
 		return nil
 	},
+}
+
+// Helper function to generate a unique key for the map
+func generateStreamKey(name, namespace string) string {
+	return fmt.Sprintf("%s.%s", namespace, name)
 }

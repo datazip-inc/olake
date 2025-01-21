@@ -17,6 +17,7 @@ var (
 	statePath             string
 	catalogPath           string
 	batchSize             int64
+	autoSaveFile          bool
 
 	catalog           *types.Catalog
 	state             *types.State
@@ -63,7 +64,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
-
+	RootCmd.PersistentFlags().BoolVarP(&autoSaveFile, "no-save", "", false, "(Optional) Flag to skip saving the data")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

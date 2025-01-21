@@ -38,7 +38,7 @@ var discoverCmd = &cobra.Command{
 			return errors.New("no streams found in connector")
 		}
 
-		logger.LogCatalog(streams, configPath)
+		logger.LogCatalog(streams, configPath, autoSaveFile)
 		return nil
 	},
 }
