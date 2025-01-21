@@ -44,7 +44,6 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 	}
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
-
 		// Create ConfiguredStream and append to Streams
 		configuredStream := &ConfiguredStream{
 			Stream:   stream,
