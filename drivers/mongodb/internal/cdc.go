@@ -84,11 +84,21 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
+
 		// TODO: Handle Deleted documents (Good First Issue)
-		if record.FullDocument != nil {
-			record.FullDocument["cdc_type"] = record.OperationType
-		}
-		exit, err := insert.Insert(types.Record(record.FullDocument))
+		//Solving
+		var doc map[string]any
+		if record.OperationType == "delete" {
+		    doc = map[string]any{
+            "cdc_type": record.OperationType,
+            "_id": cursor.Current.Lookup("documentKey").Document().Lookup("_id"),
+                    }
+        } else {
+                doc = record.FullDocument
+                doc["cdc_type"] = record.OperationType
+                }
+		exit, err := insert.Insert(types.Record(doc))
+
 		if err != nil {
 			return err
 		}
