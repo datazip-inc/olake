@@ -3,8 +3,9 @@ package types
 type AdapterType string
 
 const (
-	Parquet   AdapterType = "PARQUET"
-	S3Iceberg AdapterType = "S3_ICEBERG"
+	Parquet    AdapterType = "PARQUET"
+	RawParquet AdapterType = "RAW_PARQUET"
+	S3Iceberg  AdapterType = "S3_ICEBERG"
 )
 
 // TODO: Add validations

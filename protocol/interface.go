@@ -56,7 +56,7 @@ type Writer interface {
 	// avoiding the headover for different streams
 	Setup(stream Stream, opts *Options) error
 	// Write function being used by drivers
-	Write(ctx context.Context, record types.Record) error
+	Write(ctx context.Context, record types.RawRecord) error
 
 	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
 	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle

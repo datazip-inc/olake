@@ -1,4 +1,5 @@
-package parquet
+// TODO: olake should use single parquet writer (parquet-go)
+package normalize
 
 import (
 	"context"
@@ -17,11 +18,9 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/fraugster/parquet-go/parquet"
-
-	goparquet "github.com/fraugster/parquet-go"
+	wp "github.com/datazip-inc/olake/writers/parquet"
+	"github.com/parquet-go/parquet-go"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/source"
 )
@@ -32,9 +31,9 @@ type Parquet struct {
 	fileName            string
 	destinationFilePath string
 	closed              bool
-	config              *Config
+	config              *wp.Config
 	file                source.ParquetFile
-	writer              *goparquet.FileWriter // TODO: implement parquet writer as interface (dependency injection)
+	writer              *parquet.GenericWriter[types.RawRecord]
 	stream              protocol.Stream
 	records             atomic.Int64
 	pqSchemaMutex       sync.Mutex // To prevent concurrent map access from fraugster library
@@ -44,13 +43,13 @@ type Parquet struct {
 
 // GetConfigRef returns the config reference for the parquet writer.
 func (p *Parquet) GetConfigRef() protocol.Config {
-	p.config = &Config{}
+	p.config = &wp.Config{}
 	return p.config
 }
 
 // Spec returns a new Config instance.
 func (p *Parquet) Spec() any {
-	return Config{}
+	return wp.Config{}
 }
 
 // setup s3 client if credentials provided
@@ -90,16 +89,12 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 	}
 
 	// Initialize local Parquet writer
+
 	pqFile, err := local.NewLocalFileWriter(p.destinationFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
-	writer := goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
-		goparquet.WithMaxRowGroupSize(100),
-		goparquet.WithMaxPageSize(10),
-		goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
-	)
-
+	writer := parquet.NewGenericWriter[types.RawRecord](pqFile)
 	p.file = pqFile
 	p.writer = writer
 	p.stream = stream
@@ -122,12 +117,8 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
-	// Lock for thread safety and write the record
-	// TODO: Need to check if we can remove locking to fasten sync (Good First Issue)
-	p.pqSchemaMutex.Lock()
-	defer p.pqSchemaMutex.Unlock()
-
-	if err := p.writer.AddData(record.Data); err != nil {
+	logger.Infof("record: %s", record)
+	if _, err := p.writer.Write([]types.RawRecord{record}); err != nil {
 		return fmt.Errorf("parquet write error: %s", err)
 	}
 
@@ -137,12 +128,12 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 
 // ReInitiationOnTypeChange always returns true to reinitialize on type change.
 func (p *Parquet) ReInitiationOnTypeChange() bool {
-	return true
+	return false
 }
 
 // ReInitiationOnNewColumns always returns true to reinitialize on new columns.
 func (p *Parquet) ReInitiationOnNewColumns() bool {
-	return true
+	return false
 }
 
 // Check validates local paths and S3 credentials if applicable.
@@ -191,7 +182,6 @@ func (p *Parquet) Close() error {
 	if p.closed {
 		return nil
 	}
-
 	recordCount := p.records.Load()
 	removeLocalFile := func(reason string) {
 		err := os.Remove(p.destinationFilePath)
@@ -254,9 +244,9 @@ func (p *Parquet) EvolveSchema(_ map[string]*types.Property) error {
 	defer p.pqSchemaMutex.Unlock()
 
 	// Attempt to set the schema definition
-	if err := p.writer.SetSchemaDefinition(p.stream.Schema().ToParquet()); err != nil {
-		return fmt.Errorf("failed to set schema definition: %s", err)
-	}
+	// if err := p.writer.SetSchemaDefinition(p.stream.Schema().ToParquet()); err != nil {
+	// 	return fmt.Errorf("failed to set schema definition: %s", err)
+	// }
 	return nil
 }
 
@@ -267,12 +257,13 @@ func (p *Parquet) Type() string {
 
 // Flattener returns a flattening function for records.
 func (p *Parquet) Flattener() protocol.FlattenFunction {
-	flattener := typeutils.NewFlattener()
-	return flattener.Flatten
+	return func(record types.Record) (types.Record, error) {
+		return nil, nil
+	}
 }
 
 func init() {
-	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
+	protocol.RegisteredWriters[types.RawParquet] = func() protocol.Writer {
 		return new(Parquet)
 	}
 }

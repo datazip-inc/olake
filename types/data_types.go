@@ -1,8 +1,6 @@
 package types
 
 import (
-	"time"
-
 	"github.com/fraugster/parquet-go/parquet"
 )
 
@@ -25,14 +23,15 @@ const (
 
 type Record map[string]any
 
-type DriverRecord struct {
-	OlakeID    string     `json:"olake_id"`
-	Data       Record     `json:"data"`
-	DeleteTime *time.Time `json:"cdc_deleted_at,omitempty"`
+type RawRecord struct {
+	OlakeID        string         `parquet:"olake_id"`
+	Data           map[string]any `parquet:"data,json"`
+	DeleteTime     int64          `parquet:"cdc_deleted_at"`
+	OlakeTimestamp int64          `parquet:"olake_timestamp"`
 }
 
-func CreateRecord(olakeID string, data map[string]any, deleteAt *time.Time) DriverRecord {
-	return DriverRecord{
+func CreateRawRecord(olakeID string, data map[string]any, deleteAt int64) RawRecord {
+	return RawRecord{
 		OlakeID:    olakeID,
 		Data:       data,
 		DeleteTime: deleteAt,
