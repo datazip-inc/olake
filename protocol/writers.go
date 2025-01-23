@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	// "time"
+
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
@@ -14,7 +18,7 @@ import (
 )
 
 type NewFunc func() Writer
-type InsertFunction func(record types.Record) (exit bool, err error)
+type InsertFunction func(record types.DriverRecord) (exit bool, err error)
 type CloseFunction func()
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
@@ -96,12 +100,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	for _, one := range options {
 		one(opts)
 	}
-
 	var thread Writer
-	recordChan := make(chan types.Record)
+	recordChan := make(chan types.DriverRecord)
 	child, childCancel := context.WithCancel(parent)
 
 	w.group.Go(func() error {
+
 		w.threadCounter.Add(1)
 		defer func() {
 			childCancel()  // no more inserts
@@ -124,12 +128,14 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				return nil
 			}()
 			if err != nil {
+				logger.Errorf("error in writer: %s", err)
 				return err
 			}
 			return thread.Setup(stream, opts)
 		}
 
 		if err := initNewWriter(); err != nil {
+			logger.Errorf("error in writer: %s", err)
 			return err
 		}
 		// fields to be used for flattening and schema evolution
@@ -137,7 +143,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		fields.FromSchema(stream.Schema())
 		flatten := thread.Flattener()
 
-		return func() error {
+		err := func() error {
 			for {
 				select {
 				case <-parent.Done():
@@ -147,11 +153,19 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 					if !ok {
 						return nil
 					}
-					record, err := flatten(record) // flatten the record first
+					flattenedData, err := flatten(record.Data) // flatten the record first
 					if err != nil {
 						return err
 					}
-					change, typeChange, mutations := fields.Process(record)
+
+					// handle default key fields
+					flattenedData[constants.OlakeID] = record.OlakeID
+					flattenedData[constants.OlakeTimestamp] = time.Now().UTC().UnixMilli()
+					if record.DeleteTime != nil {
+						flattenedData[constants.CDCDeletedAt] = record.DeleteTime.UnixMilli()
+					}
+
+					change, typeChange, mutations := fields.Process(flattenedData)
 					if change || typeChange {
 						w.tmu.Lock()
 						stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
@@ -168,11 +182,11 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 							}
 						}
 					}
-					err = typeutils.ReformatRecord(fields, record)
+					err = typeutils.ReformatRecord(fields, flattenedData)
 					if err != nil {
 						return err
 					}
-					if err := thread.Write(child, record); err != nil {
+					if err := thread.Write(child, flattenedData); err != nil {
 						return err
 					}
 					w.recordCount.Add(1) // increase the record count
@@ -185,10 +199,14 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				}
 			}
 		}()
+		if err != nil {
+			logger.Errorf("error in writer: %s", err)
+		}
+		return err
 	})
 
 	return &ThreadEvent{
-		Insert: func(record types.Record) (bool, error) {
+		Insert: func(record types.DriverRecord) (bool, error) {
 			select {
 			case <-child.Done():
 				return false, fmt.Errorf("main writer closed")

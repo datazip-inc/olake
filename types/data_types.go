@@ -1,6 +1,8 @@
 package types
 
 import (
+	"time"
+
 	"github.com/fraugster/parquet-go/parquet"
 )
 
@@ -22,6 +24,20 @@ const (
 )
 
 type Record map[string]any
+
+type DriverRecord struct {
+	OlakeID    string     `json:"olake_id"`
+	Data       Record     `json:"data"`
+	DeleteTime *time.Time `json:"cdc_deleted_at,omitempty"`
+}
+
+func CreateRecord(olakeID string, data map[string]any, deleteAt *time.Time) DriverRecord {
+	return DriverRecord{
+		OlakeID:    olakeID,
+		Data:       data,
+		DeleteTime: deleteAt,
+	}
+}
 
 // returns parquet equivalent type & convertedType for the datatype
 func (d DataType) ToParquet() *parquet.SchemaElement {

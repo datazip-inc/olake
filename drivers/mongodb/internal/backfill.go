@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -104,7 +105,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			}
 
 			handleObjectID(doc)
-			exit, err := insert.Insert(types.Record(doc))
+			exit, err := insert.Insert(types.CreateRecord(utils.GetKeysHash(doc, []string{constants.MongoPrimaryID}), doc, nil))
 			if err != nil {
 				return fmt.Errorf("failed to finish backfill chunk %d: %s", number, err)
 			}
