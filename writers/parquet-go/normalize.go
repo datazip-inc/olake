@@ -255,7 +255,7 @@ func (p *Parquet) Type() string {
 
 // Flattener returns a flattening function for records.
 func (p *Parquet) Flattener() protocol.FlattenFunction {
-	return func(record types.Record) (types.Record, error) {
+	return func(_ types.Record) (types.Record, error) {
 		return nil, nil
 	}
 }
