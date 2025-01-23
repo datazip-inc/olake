@@ -74,5 +74,4 @@ func init() {
 	logrus.SetOutput(nil)
 
 	console.SetupWriter(RootCmd.OutOrStdout(), RootCmd.ErrOrStderr())
-
 }
