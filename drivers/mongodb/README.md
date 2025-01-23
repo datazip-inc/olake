@@ -41,7 +41,8 @@ Add MongoDB credentials in following format in config.json file
       "srv": true,
       "server-ram": 16,
       "database": "database",
-      "max_threads": 50
+      "max_threads": 50,
+      "default_mode" :"cdc"
    }
 ```
 
@@ -95,7 +96,8 @@ After executing the Discover command, a formatted response will look like this:
           "source_defined_primary_key": [
             "_id"
           ],
-          "available_cursor_fields": []
+          "available_cursor_fields": [],
+           "sync_mode": "cdc"
         }
       }
     ]
@@ -137,9 +139,10 @@ Before running the Sync command, the generated `catalog.json` file must be confi
             },
             "supported_sync_modes": ["full_refresh", "cdc"],
             "source_defined_primary_key": ["_id"],
-            "available_cursor_fields": []
-         },
-         "sync_mode": "cdc"
+            "available_cursor_fields": [],
+             "sync_mode": "cdc"
+         }
+        
          }
       ]
    }
