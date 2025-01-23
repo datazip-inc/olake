@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
@@ -17,6 +18,8 @@ import (
 type CDCDocument struct {
 	OperationType string         `json:"operationType"`
 	FullDocument  map[string]any `json:"fullDocument"`
+	DocumentKey   map[string]any `json:"documentKey"` // for delete operations
+	Timestamp     time.Time      `json:"timestamp"`   // Add timestamp field
 }
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
@@ -85,15 +88,37 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return fmt.Errorf("error while decoding: %s", err)
 		}
 		// TODO: Handle Deleted documents (Good First Issue)
-		if record.FullDocument != nil {
+		//handle delete,update,insert operation
+		if record.OperationType == "delete" && record.FullDocument == nil {
+			deletionTime := record.Timestamp
+
+			if id, ok := record.DocumentKey["_id"]; ok {
+				logger.Infof("Delete operation detected. Document ID: %v", id)
+				deleteDocument := map[string]any{
+					"cdc_type":       record.OperationType,
+					"cdc_deleted_at": deletionTime,
+					"_id":            id,
+				}
+				exit, err := insert.Insert(types.Record(deleteDocument))
+				if err != nil {
+					return err
+				}
+				if exit {
+					return nil
+				}
+			} else {
+				logger.Errorf("Delete operation missing _id in DocumentKey")
+			}
+		} else if record.FullDocument != nil {
 			record.FullDocument["cdc_type"] = record.OperationType
-		}
-		exit, err := insert.Insert(types.Record(record.FullDocument))
-		if err != nil {
-			return err
-		}
-		if exit {
-			return nil
+
+			exit, err := insert.Insert(types.Record(record.FullDocument))
+			if err != nil {
+				return err
+			}
+			if exit {
+				return nil
+			}
 		}
 
 		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
