@@ -119,7 +119,7 @@ var syncCmd = &cobra.Command{
 
 			elem.SetupState(state)
 			selectedStreams = append(selectedStreams, elem.ID())
-			if elem.SyncMode == types.CDC {
+			if elem.Stream.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)
 			} else {
 				standardModeStreams = append(standardModeStreams, elem)

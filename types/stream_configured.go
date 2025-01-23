@@ -12,8 +12,8 @@ type ConfiguredStream struct {
 	streamState             *StreamState `json:"-"` // in-memory state copy for individual stream
 	InitialCursorStateValue any          `json:"-"` // Cached initial state value
 
-	Stream   *Stream  `json:"stream,omitempty"`
-	SyncMode SyncMode `json:"sync_mode,omitempty"` // Mode being used for syncing data
+	Stream *Stream `json:"stream,omitempty"`
+
 	// Column that's being used as cursor; MUST NOT BE mutated
 	//
 	// Cursor field is used in Incremental and in Mixed type CDC Read where connector uses
@@ -51,7 +51,7 @@ func (s *ConfiguredStream) SupportedSyncModes() *Set[SyncMode] {
 }
 
 func (s *ConfiguredStream) GetSyncMode() SyncMode {
-	return s.SyncMode
+	return s.Stream.SyncMode
 }
 
 func (s *ConfiguredStream) Cursor() string {
@@ -123,12 +123,12 @@ func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
 
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {
-	if !source.SupportedSyncModes.Exists(s.SyncMode) {
-		return fmt.Errorf("invalid sync mode[%s]; valid are %v", s.SyncMode, source.SupportedSyncModes)
+	if !source.SupportedSyncModes.Exists(s.Stream.SyncMode) {
+		return fmt.Errorf("invalid sync mode[%s]; valid are %v", s.Stream.SyncMode, source.SupportedSyncModes)
 	}
 
 	// no cursor validation in cdc and backfill sync
-	if s.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.CursorField) {
+	if s.Stream.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.CursorField) {
 		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.AvailableCursorFields)
 	}
 
