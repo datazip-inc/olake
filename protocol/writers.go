@@ -154,8 +154,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						if err != nil {
 							return err
 						}
-
-						// if flattening happen
 						if flattenedData != nil {
 							// constants key fields in flattened data only
 							flattenedData[constants.OlakeID] = record.OlakeID
