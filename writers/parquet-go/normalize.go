@@ -117,11 +117,9 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
-	logger.Infof("record: %s", record)
 	if _, err := p.writer.Write([]types.RawRecord{record}); err != nil {
 		return fmt.Errorf("parquet write error: %s", err)
 	}
-
 	p.records.Add(1)
 	return nil
 }
