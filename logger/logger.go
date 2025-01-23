@@ -78,16 +78,21 @@ func LogSpec(spec map[string]interface{}) {
 	}
 }
 
-func LogCatalog(streams []*types.Stream, path string, autoSaveFile bool) {
+func LogCatalog(streams []*types.Stream, dir *string) {
 	message := types.Message{}
 	message.Type = types.CatalogMessage
 	message.Catalog = types.GetWrappedCatalog(streams)
 
-	if !autoSaveFile {
-		err := MarshalAndWriteFile(message.Catalog, path, "catalog-test", ".json")
+	if dir != nil {
+		catalogBytes, err := json.Marshal(message.Catalog)
 		if err != nil {
-			fmt.Println("Error:", err)
-			return
+			Fatalf("failed to marshal catalog: %v", err)
+		}
+
+		// Write the marshaled catalog to the specified file
+		err = utils.CreateFile(dir, "catalog", ".json", catalogBytes)
+		if err != nil {
+			Fatalf("failed to create file: %v", err)
 		}
 	}
 
@@ -133,41 +138,28 @@ func LogRequest(req *http.Request) {
 	fmt.Println(string(requestDump))
 }
 
-func LogState(state *types.State, path string, autoSaveFile bool) {
+func LogState(state *types.State, dir *string) {
 	state.Lock()
 	defer state.Unlock()
 
 	message := types.Message{}
 	message.Type = types.StateMessage
 	message.State = state
-	if !autoSaveFile {
-		err := MarshalAndWriteFile(message.State, path, "state-test", ".json")
+
+	if dir != nil {
+		stateBytes, err := json.Marshal(message.State)
 		if err != nil {
-			fmt.Println("Error:", err)
-			return
+			Fatalf("failed to marshal catalog: %v", err)
+		}
+
+		// Write the marshaled state to the specified file
+		err = utils.CreateFile(dir, "state", ".json", stateBytes)
+		if err != nil {
+			Fatalf("failed to create file: %v", err)
 		}
 	}
 	err := console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode connection status: %s", err)
 	}
-}
-func MarshalAndWriteFile(catalog interface{}, path, fileName, fileExtension string) error {
-	// Marshal the catalog to JSON
-	directory, err := utils.ExtractDirFromPath(path)
-	if err != nil {
-		fmt.Printf("Failed to extract directory: %v\n", err)
-	}
-	catalogBytes, err := json.Marshal(catalog)
-	if err != nil {
-		return fmt.Errorf("failed to marshal catalog: %w", err)
-	}
-
-	// Write the marshaled catalog to the specified file
-	err = utils.CreateFile(directory, fileName, fileExtension, catalogBytes)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-
-	return nil
 }

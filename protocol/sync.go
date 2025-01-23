@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,12 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("--destination not passed")
 		} else if catalogPath == "" {
 			return fmt.Errorf("--catalog not passed")
+		}
+		if noSave {
+			configFolder = nil
+		} else {
+			folder := filepath.Dir(configPath)
+			configFolder = &folder
 		}
 
 		// unmarshal source config
@@ -82,8 +89,7 @@ var syncCmd = &cobra.Command{
 
 		for nameSpace, streamNames := range catalog.SelectedStreams {
 			for _, name := range streamNames {
-				key := generateStreamKey(name, nameSpace)
-				selectedStreamMap[key] = true
+				selectedStreamMap[fmt.Sprintf("%s.%s", nameSpace, name)] = true
 			}
 		}
 
@@ -93,10 +99,8 @@ var syncCmd = &cobra.Command{
 		standardModeStreams := []Stream{}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 
-			// Generate the key for the current stream
-			key := generateStreamKey(elem.Name(), elem.Namespace())
 			// Check if the stream is in the selectedStreamMap
-			if !selectedStreamMap[key] {
+			if !selectedStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())] && catalog.SelectedStreams != nil {
 				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Name(), elem.Namespace())
 				return false
 			}
@@ -177,14 +181,9 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
-			logger.LogState(state, configPath, autoSaveFile)
+			logger.LogState(state, configFolder)
 		}
 
 		return nil
 	},
-}
-
-// Helper function to generate a unique key for the map
-func generateStreamKey(name, namespace string) string {
-	return fmt.Sprintf("%s.%s", namespace, name)
 }

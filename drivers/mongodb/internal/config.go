@@ -19,6 +19,7 @@ type Config struct {
 	ServerRAM      uint     `json:"server_ram"`
 	MaxThreads     int      `json:"max_threads"`
 	Database       string   `json:"database"`
+	DefaultMode    string   `json:"default_mode"`
 }
 
 func (c *Config) URI() string {
