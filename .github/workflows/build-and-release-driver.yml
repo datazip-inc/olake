@@ -18,7 +18,7 @@ jobs:
     env:
       DOCKER_LOGIN: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      DHID: ${{ secrets.DOCKER_USERNAME }}
+      DHID: ${{ secrets.DOCKER_REPO || 'olakego' }}
       DRIVER: ${{ github.event.inputs.driver || 'mongodb' }}
       VERSION: ${{ github.event.inputs.version || 'v0.0.0.dev' }}
     steps:

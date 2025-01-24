@@ -25,6 +25,7 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -37,6 +38,7 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go v1.43.31
 	github.com/brainicorn/ganno v0.0.0-20220304182003-e638228cd865
 	github.com/felixge/fgprof v0.9.5
 	github.com/gorilla/mux v1.8.1
