@@ -103,7 +103,6 @@ func LogCatalog(streams []*types.Stream, catalogPath *string) {
 	}
 
 }
-
 func LogConnectionStatus(err error) {
 	message := types.Message{}
 	message.Type = types.ConnectionStatusMessage
@@ -138,7 +137,6 @@ func LogRequest(req *http.Request) {
 
 	fmt.Println(string(requestDump))
 }
-
 func LogState(state *types.State, statePath *string) {
 	state.Lock()
 	defer state.Unlock()
