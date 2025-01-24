@@ -26,9 +26,7 @@ var syncCmd = &cobra.Command{
 		} else if catalogPath == "" {
 			return fmt.Errorf("--catalog not passed")
 		}
-		if noSave {
-			configFolder = nil
-		} else {
+		if !noSave {
 			folder := filepath.Dir(configPath)
 			configFolder = &folder
 		}

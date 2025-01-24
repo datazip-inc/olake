@@ -22,9 +22,7 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
 			return err
 		}
-		if noSave {
-			configFolder = nil
-		} else {
+		if !noSave {
 			folder := filepath.Dir(configPath)
 			configFolder = &folder
 		}
