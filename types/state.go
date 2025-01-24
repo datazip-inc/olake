@@ -81,6 +81,12 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
+// DualSyncMap struct to hold Cursor and Chunks
+type DualSyncMap struct {
+	Cursor sync.Map `json:"_data"`  // Represents a map of arbitrary data (not directly serialized as-is)
+	Chunks []Chunk  `json:"chunks"` // Represents a flat slice of chunks
+}
+
 // Chunk struct that holds status, min, and max values
 type Chunk struct {
 	Min string `json:"min"`
@@ -90,22 +96,24 @@ type Chunk struct {
 type StreamState struct {
 	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
-	Stream    string   `json:"stream"`
-	Namespace string   `json:"namespace"`
-	SyncMode  string   `json:"sync_mode"`
-	State     sync.Map `json:"-"`
+	Stream    string      `json:"stream"`
+	Namespace string      `json:"namespace"`
+	SyncMode  string      `json:"sync_mode"`
+	State     DualSyncMap `json:"state"`
 }
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
 func (s *StreamState) MarshalJSON() ([]byte, error) {
-	// Create a map to temporarily store data for JSON marshaling
-	stateMap := make(map[string]interface{})
-	s.State.Range(func(key, value interface{}) bool {
+	// Create a map for cursor data
+	cursorMap := make(map[string]interface{})
+
+	// Serialize the Cursor sync.Map (map it to "cursor")
+	s.State.Cursor.Range(func(key, value interface{}) bool {
 		strKey, ok := key.(string)
 		if !ok {
 			return false
 		}
-		stateMap[strKey] = value
+		cursorMap[strKey] = value
 		return true
 	})
 
@@ -113,10 +121,19 @@ func (s *StreamState) MarshalJSON() ([]byte, error) {
 	type Alias StreamState
 	return json.Marshal(&struct {
 		*Alias
-		State map[string]interface{} `json:"state"`
+		State struct {
+			Cursor map[string]interface{} `json:"cdc_cursor"`
+			Chunks []Chunk                `json:"chunks"`
+		} `json:"state"`
 	}{
 		Alias: (*Alias)(s),
-		State: stateMap,
+		State: struct {
+			Cursor map[string]interface{} `json:"cdc_cursor"`
+			Chunks []Chunk                `json:"chunks"`
+		}{
+			Cursor: cursorMap,
+			Chunks: s.State.Chunks,
+		},
 	})
 }
 
@@ -126,7 +143,10 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 	type Alias StreamState
 	aux := &struct {
 		*Alias
-		State map[string]interface{} `json:"state"`
+		State struct {
+			Cursor map[string]interface{} `json:"cdc_cursor"`
+			Chunks []Chunk                `json:"chunks"`
+		} `json:"state"`
 	}{
 		Alias: (*Alias)(s),
 	}
@@ -135,10 +155,13 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Populate sync.Map with the data from temporary map
-	for key, value := range aux.State {
-		s.State.Store(key, value)
+	// Populate Cursor sync.Map with the data from the "cursor" field
+	for key, value := range aux.State.Cursor {
+		s.State.Cursor.Store(key, value)
 	}
+
+	// Populate the Chunks slice
+	s.State.Chunks = aux.State.Chunks
 
 	return nil
 }
