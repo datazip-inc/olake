@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/datazip-inc/olake/logger/console"
-
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
@@ -101,7 +100,6 @@ func LogCatalog(streams []*types.Stream, catalogPath *string) {
 			Fatalf("failed to create file: %v", err)
 		}
 	}
-
 }
 func LogConnectionStatus(err error) {
 	message := types.Message{}
