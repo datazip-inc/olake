@@ -103,7 +103,7 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 			goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 		)
 	} else {
-		p.baseWriter = pqgo.NewGenericWriter[types.RawRecord](pqFile)
+		p.baseWriter = pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}
 
 	p.file = pqFile
