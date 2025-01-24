@@ -136,7 +136,7 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 			return fmt.Errorf("parquet write error: %s", err)
 		}
 	} else {
-		// locking not required as schema if fix for normalized writer
+		// locking not required as schema is fixed for base writer
 		if _, err := p.baseWriter.Write([]types.RawRecord{record}); err != nil {
 			return fmt.Errorf("parquet write error: %s", err)
 		}
