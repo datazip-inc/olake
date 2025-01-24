@@ -67,7 +67,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 		})
 
 		if contains {
-			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
+			s.InitialCursorStateValue, _ = state.Streams[i].State.Cursor.Load(s.CursorField)
 			s.streamState = state.Streams[i]
 			return
 		}
@@ -76,7 +76,9 @@ func (s *ConfiguredStream) SetupState(state *State) {
 	ss := &StreamState{
 		Stream:    s.Name(),
 		Namespace: s.Namespace(),
-		State:     sync.Map{},
+		State: DualSyncMap{
+			Cursor: sync.Map{},
+		},
 	}
 
 	// save references of stream state and add it to connector state
@@ -90,32 +92,42 @@ func (s *ConfiguredStream) InitialState() any {
 
 func (s *ConfiguredStream) SetStateCursor(value any) {
 	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Store(s.Cursor(), value)
+	s.streamState.State.Cursor.Store(s.Cursor(), value)
 }
 
 func (s *ConfiguredStream) SetStateKey(key string, value any) {
 	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Store(key, value)
+	s.streamState.State.Cursor.Store(key, value)
 }
 
 func (s *ConfiguredStream) GetStateCursor() any {
-	val, _ := s.streamState.State.Load(s.Cursor())
+	val, _ := s.streamState.State.Cursor.Load(s.Cursor())
 	return val
 }
 
 func (s *ConfiguredStream) GetStateKey(key string) any {
-	val, _ := s.streamState.State.Load(key)
+	val, _ := s.streamState.State.Cursor.Load(key)
 	return val
+}
+
+// AppendChunksToStreamState appends new chunks to the Chunks slice in the state.
+func (s *ConfiguredStream) AppendChunksToStreamState(newChunk Chunk) {
+	s.streamState.State.Chunks = append(s.streamState.State.Chunks, newChunk)
+}
+
+// GetChunksFromStreamState retrieves all chunks from the state.
+func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
+	return s.streamState.State.Chunks
 }
 
 // Delete keys from Stream State
 func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
 	values := []any{}
 	for _, key := range keys {
-		val, _ := s.streamState.State.Load(key)
+		val, _ := s.streamState.State.Cursor.Load(key)
 		values = append(values, val) // cache
 
-		s.streamState.State.Delete(key) // delete
+		s.streamState.State.Cursor.Delete(key) // delete
 	}
 
 	return values
