@@ -142,7 +142,6 @@ func LogRequest(req *http.Request) {
 func LogState(state *types.State, statePath *string) {
 	state.Lock()
 	defer state.Unlock()
-
 	message := types.Message{}
 	message.Type = types.StateMessage
 	message.State = state
@@ -150,18 +149,15 @@ func LogState(state *types.State, statePath *string) {
 	if err != nil {
 		Fatalf("failed to encode connection status: %s", err)
 	}
-
 	if statePath != nil {
 		stateBytes, err := json.Marshal(message.State)
 		if err != nil {
 			Errorf("failed to marshal state: %v", err)
 		}
-
 		// Write the marshaled state to the specified file
 		err = utils.CreateFile(statePath, "state", ".json", stateBytes)
 		if err != nil {
 			Fatalf("failed to create file: %v", err)
 		}
 	}
-
 }
