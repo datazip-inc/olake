@@ -102,6 +102,60 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	recordChan := make(chan types.RawRecord)
 	child, childCancel := context.WithCancel(parent)
 
+	initNewWriter := func() error {
+		thread = w.init() // set the thread variable
+		err := func() error {
+			w.tmu.Lock() // lock for concurrent access of w.config
+			defer w.tmu.Unlock()
+			if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
+				return err
+			}
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
+		return thread.Setup(stream, opts)
+	}
+	normalizeFunc := func(rawRecord types.RawRecord) (types.Record, error) {
+		flattenedData, err := thread.Flattener()(rawRecord.Data) // flatten the record first
+		if err != nil {
+			return nil, err
+		}
+
+		// add constants key fields
+		flattenedData[constants.OlakeID] = rawRecord.OlakeID
+		flattenedData[constants.OlakeTimestamp] = rawRecord.OlakeTimestamp
+		if rawRecord.DeleteTime != 0 {
+			flattenedData[constants.CDCDeletedAt] = rawRecord.DeleteTime
+		}
+
+		// schema evolution
+		fields := make(typeutils.Fields)
+		fields.FromSchema(stream.Schema())
+		change, typeChange, mutations := fields.Process(flattenedData)
+		if change || typeChange {
+			w.tmu.Lock()
+			stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
+			w.tmu.Unlock()
+			if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
+				thread.Close()
+				if err := initNewWriter(); err != nil { // init new writer
+					return nil, err
+				}
+			} else {
+				err := thread.EvolveSchema(mutations.ToProperties())
+				if err != nil {
+					return nil, fmt.Errorf("failed to evolve schema: %s", err)
+				}
+			}
+		}
+		err = typeutils.ReformatRecord(fields, flattenedData)
+		if err != nil {
+			return nil, err
+		}
+		return flattenedData, nil
+	}
 	w.group.Go(func() error {
 		err := func() error {
 			w.threadCounter.Add(1)
@@ -114,30 +168,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				}
 				w.threadCounter.Add(-1)
 			}()
-
-			initNewWriter := func() error {
-				thread = w.init() // set the thread variable
-				err := func() error {
-					w.tmu.Lock() // lock for concurrent access of w.config
-					defer w.tmu.Unlock()
-					if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
-						return err
-					}
-					return nil
-				}()
-				if err != nil {
-					return err
-				}
-				return thread.Setup(stream, opts)
-			}
-
+			// init writer first
 			if err := initNewWriter(); err != nil {
 				return err
 			}
-			// fields to be used for flattening and schema evolution
-			fields := make(typeutils.Fields)
-			fields.FromSchema(stream.Schema())
-			flatten := thread.Flattener()
 
 			return func() error {
 				for {
@@ -149,43 +183,17 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						if !ok {
 							return nil
 						}
+						// add insert time
 						record.OlakeTimestamp = time.Now().UTC().UnixMilli()
-						flattenedData, err := flatten(record.Data) // flatten the record first
-						if err != nil {
-							return err
-						}
-						if flattenedData != nil {
-							// constants key fields in flattened data only
-							flattenedData[constants.OlakeID] = record.OlakeID
-							flattenedData[constants.OlakeTimestamp] = record.OlakeTimestamp
-							if record.DeleteTime != 0 {
-								flattenedData[constants.CDCDeletedAt] = record.DeleteTime
-							}
-							record.Data = flattenedData
-
-							change, typeChange, mutations := fields.Process(record.Data)
-							if change || typeChange {
-								w.tmu.Lock()
-								stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
-								w.tmu.Unlock()
-								if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
-									thread.Close()
-									if err := initNewWriter(); err != nil { // init new writer
-										return err
-									}
-								} else {
-									err := thread.EvolveSchema(mutations.ToProperties())
-									if err != nil {
-										return fmt.Errorf("failed to evolve schema: %s", err)
-									}
-								}
-							}
-							err = typeutils.ReformatRecord(fields, record.Data)
+						// check for normalization
+						if thread.Normalization() {
+							normalizedData, err := normalizeFunc(record)
 							if err != nil {
 								return err
 							}
+							record.Data = normalizedData
 						}
-
+						// insert record
 						if err := thread.Write(child, record); err != nil {
 							return err
 						}

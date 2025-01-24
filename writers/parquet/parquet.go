@@ -35,8 +35,8 @@ type Parquet struct {
 	closed              bool
 	config              *Config
 	file                source.ParquetFile
-	writer              *goparquet.FileWriter // TODO: implement parquet writer as interface (dependency injection)
-	normalizeWriter     *pqgo.GenericWriter[types.RawRecord]
+	normalizeWriter     *goparquet.FileWriter // TODO: implement parquet writer as interface (dependency injection)
+	baseWriter          *pqgo.GenericWriter[types.RawRecord]
 	stream              protocol.Stream
 	records             atomic.Int64
 	pqSchemaMutex       sync.Mutex // To prevent concurrent map access from fraugster library
@@ -97,13 +97,13 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
 	if p.config.Normalization {
-		p.writer = goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
+		p.normalizeWriter = goparquet.NewFileWriter(pqFile, goparquet.WithSchemaDefinition(stream.Schema().ToParquet()),
 			goparquet.WithMaxRowGroupSize(100),
 			goparquet.WithMaxPageSize(10),
 			goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
 		)
 	} else {
-		p.normalizeWriter = pqgo.NewGenericWriter[types.RawRecord](pqFile)
+		p.baseWriter = pqgo.NewGenericWriter[types.RawRecord](pqFile)
 	}
 
 	p.file = pqFile
@@ -128,21 +128,19 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 	// Lock for thread safety and write the record
-	// TODO: Need to check if we can remove locking to fasten sync (Good First Issue)
-	if p.writer != nil {
+	if p.normalizeWriter != nil {
+		// TODO: Need to check if we can remove locking to fasten sync (Good First Issue)
 		p.pqSchemaMutex.Lock()
 		defer p.pqSchemaMutex.Unlock()
-		if err := p.writer.AddData(record.Data); err != nil {
-			return fmt.Errorf("parquet write error: %s", err)
-		}
-	} else if p.normalizeWriter != nil {
-		if _, err := p.normalizeWriter.Write([]types.RawRecord{record}); err != nil {
+		if err := p.normalizeWriter.AddData(record.Data); err != nil {
 			return fmt.Errorf("parquet write error: %s", err)
 		}
 	} else {
-		return fmt.Errorf("no writer initialized")
+		// locking not required as schema if fix for normalized writer
+		if _, err := p.baseWriter.Write([]types.RawRecord{record}); err != nil {
+			return fmt.Errorf("parquet write error: %s", err)
+		}
 	}
-
 	p.records.Add(1)
 	return nil
 }
@@ -225,10 +223,10 @@ func (p *Parquet) Close() error {
 	// Close the writer and file
 	if err := utils.ErrExecSequential(
 		utils.ErrExecFormat("failed to close writer: %s", func() error {
-			if p.normalizeWriter != nil {
-				return p.normalizeWriter.Close()
+			if p.baseWriter != nil {
+				return p.baseWriter.Close()
 			}
-			return p.writer.Close()
+			return p.normalizeWriter.Close()
 		}),
 		utils.ErrExecFormat("failed to close file: %s", p.file.Close),
 	); err != nil {
@@ -271,7 +269,7 @@ func (p *Parquet) EvolveSchema(_ map[string]*types.Property) error {
 	defer p.pqSchemaMutex.Unlock()
 
 	// Attempt to set the schema definition
-	if err := p.writer.SetSchemaDefinition(p.stream.Schema().ToParquet()); err != nil {
+	if err := p.normalizeWriter.SetSchemaDefinition(p.stream.Schema().ToParquet()); err != nil {
 		return fmt.Errorf("failed to set schema definition: %s", err)
 	}
 	return nil
@@ -284,13 +282,17 @@ func (p *Parquet) Type() string {
 
 // Flattener returns a flattening function for records.
 func (p *Parquet) Flattener() protocol.FlattenFunction {
-	if p.normalizeWriter != nil {
+	if p.baseWriter != nil {
 		return func(_ types.Record) (types.Record, error) {
 			return nil, nil
 		}
 	}
 	flattener := typeutils.NewFlattener()
 	return flattener.Flatten
+}
+
+func (p *Parquet) Normalization() bool {
+	return p.config.Normalization
 }
 
 func init() {

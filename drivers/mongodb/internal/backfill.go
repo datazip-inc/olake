@@ -105,7 +105,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			}
 
 			handleObjectID(doc)
-			exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, []string{constants.MongoPrimaryID}), doc, 0))
+			exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
 			if err != nil {
 				return fmt.Errorf("failed to finish backfill chunk %d: %s", number, err)
 			}

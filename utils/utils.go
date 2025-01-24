@@ -220,7 +220,7 @@ func IsJSON(str string) bool {
 }
 
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
-func GetKeysHash(m map[string]interface{}, keys []string) string {
+func GetKeysHash(m map[string]interface{}, keys ...string) string {
 	sort.Strings(keys)
 
 	var str strings.Builder
@@ -239,5 +239,5 @@ func GetHash(m map[string]interface{}) string {
 		keys = append(keys, k)
 	}
 
-	return GetKeysHash(m, keys)
+	return GetKeysHash(m, keys...)
 }

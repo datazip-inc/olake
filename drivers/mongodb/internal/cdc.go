@@ -90,7 +90,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			record.FullDocument["cdc_type"] = record.OperationType
 		}
 		handleObjectID(record.FullDocument)
-		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, []string{constants.MongoPrimaryID}), record.FullDocument, 0)
+		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID), record.FullDocument, 0)
 		exit, err := insert.Insert(rawRecord)
 		if err != nil {
 			return err

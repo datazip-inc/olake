@@ -63,6 +63,7 @@ type Writer interface {
 	// schema update with an Alter Query
 	ReInitiationOnTypeChange() bool
 	ReInitiationOnNewColumns() bool
+	Normalization() bool
 	Flattener() FlattenFunction
 	EvolveSchema(map[string]*types.Property) error
 	Close() error
