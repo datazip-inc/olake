@@ -100,7 +100,7 @@ var syncCmd = &cobra.Command{
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 
 			// Check if the stream is in the selectedStreamMap
-			if !selectedStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())] && catalog.SelectedStreams != nil {
+			if catalog.SelectedStreams != nil && !selectedStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())] {
 				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Name(), elem.Namespace())
 				return false
 			}

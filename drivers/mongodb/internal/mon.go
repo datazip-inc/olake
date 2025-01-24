@@ -110,7 +110,7 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 		if err != nil && discoverCtx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 			return fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 		}
-		stream.SyncMode = types.SyncMode(m.config.DefaultMode)
+		stream.SyncMode = m.config.DefaultMode
 		// cache stream
 		m.AddStream(stream)
 		return err

@@ -78,29 +78,30 @@ func LogSpec(spec map[string]interface{}) {
 	}
 }
 
-func LogCatalog(streams []*types.Stream, dir *string) {
+func LogCatalog(streams []*types.Stream, catalogPath *string) {
 	message := types.Message{}
 	message.Type = types.CatalogMessage
 	message.Catalog = types.GetWrappedCatalog(streams)
-
-	if dir != nil {
-		catalogBytes, err := json.Marshal(message.Catalog)
-		if err != nil {
-			Fatalf("failed to marshal catalog: %v", err)
-		}
-
-		// Write the marshaled catalog to the specified file
-		err = utils.CreateFile(dir, "catalog", ".json", catalogBytes)
-		if err != nil {
-			Fatalf("failed to create file: %v", err)
-		}
-	}
-
 	Info("logging catalog")
 	err := console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode catalog %v: %s", streams, err)
 	}
+
+	if catalogPath != nil {
+		catalogBytes, err := json.Marshal(message.Catalog)
+		if err != nil {
+			Errorf("failed to marshal catalog: %v", err)
+			return
+		}
+
+		// Write the marshaled catalog to the specified file
+		err = utils.CreateFile(catalogPath, "catalog", ".json", catalogBytes)
+		if err != nil {
+			Fatalf("failed to create file: %v", err)
+		}
+	}
+
 }
 
 func LogConnectionStatus(err error) {
@@ -138,28 +139,29 @@ func LogRequest(req *http.Request) {
 	fmt.Println(string(requestDump))
 }
 
-func LogState(state *types.State, dir *string) {
+func LogState(state *types.State, statePath *string) {
 	state.Lock()
 	defer state.Unlock()
 
 	message := types.Message{}
 	message.Type = types.StateMessage
 	message.State = state
-
-	if dir != nil {
-		stateBytes, err := json.Marshal(message.State)
-		if err != nil {
-			Fatalf("failed to marshal catalog: %v", err)
-		}
-
-		// Write the marshaled state to the specified file
-		err = utils.CreateFile(dir, "state", ".json", stateBytes)
-		if err != nil {
-			Fatalf("failed to create file: %v", err)
-		}
-	}
 	err := console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode connection status: %s", err)
 	}
+
+	if statePath != nil {
+		stateBytes, err := json.Marshal(message.State)
+		if err != nil {
+			Errorf("failed to marshal state: %v", err)
+		}
+
+		// Write the marshaled state to the specified file
+		err = utils.CreateFile(statePath, "state", ".json", stateBytes)
+		if err != nil {
+			Fatalf("failed to create file: %v", err)
+		}
+	}
+
 }
