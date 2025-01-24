@@ -102,6 +102,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	recordChan := make(chan types.RawRecord)
 	child, childCancel := context.WithCancel(parent)
 
+	// fields to make sure schema evolution remain specifc to one thread
+	fields := make(typeutils.Fields)
+	fields.FromSchema(stream.Schema())
+
 	initNewWriter := func() error {
 		thread = w.init() // set the thread variable
 		err := func() error {
@@ -117,6 +121,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		}
 		return thread.Setup(stream, opts)
 	}
+
 	normalizeFunc := func(rawRecord types.RawRecord) (types.Record, error) {
 		flattenedData, err := thread.Flattener()(rawRecord.Data) // flatten the record first
 		if err != nil {
@@ -131,8 +136,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		}
 
 		// schema evolution
-		fields := make(typeutils.Fields)
-		fields.FromSchema(stream.Schema())
 		change, typeChange, mutations := fields.Process(flattenedData)
 		if change || typeChange {
 			w.tmu.Lock()
@@ -156,6 +159,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		}
 		return flattenedData, nil
 	}
+
 	w.group.Go(func() error {
 		err := func() error {
 			w.threadCounter.Add(1)

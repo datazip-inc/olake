@@ -27,7 +27,7 @@ type RawRecord struct {
 	OlakeID        string         `parquet:"olake_id"`
 	Data           map[string]any `parquet:"data,json"`
 	DeleteTime     int64          `parquet:"cdc_deleted_at"`
-	OlakeTimestamp int64          `parquet:"olake_timestamp"`
+	OlakeTimestamp int64          `parquet:"olake_insert_time"`
 }
 
 func CreateRawRecord(olakeID string, data map[string]any, deleteAt int64) RawRecord {
