@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -88,7 +89,9 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if record.FullDocument != nil {
 			record.FullDocument["cdc_type"] = record.OperationType
 		}
-		exit, err := insert.Insert(types.Record(record.FullDocument))
+		handleObjectID(record.FullDocument)
+		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID), record.FullDocument, 0)
+		exit, err := insert.Insert(rawRecord)
 		if err != nil {
 			return err
 		}

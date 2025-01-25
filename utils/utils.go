@@ -1,10 +1,14 @@
 package utils
 
 import (
+	//nolint:gosec,G115
+	"crypto/md5"
 	"crypto/rand"
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -213,4 +217,27 @@ func TimestampedFileName(extension string) string {
 func IsJSON(str string) bool {
 	var js json.RawMessage
 	return json.Unmarshal([]byte(str), &js) == nil
+}
+
+// GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
+func GetKeysHash(m map[string]interface{}, keys ...string) string {
+	sort.Strings(keys)
+
+	var str strings.Builder
+	for _, k := range keys {
+		str.WriteString(fmt.Sprint(m[k]))
+		str.WriteRune('|')
+	}
+	//nolint:gosec,G115
+	return fmt.Sprintf("%x", md5.Sum([]byte(str.String())))
+}
+
+// GetHash returns GetKeysHash result with keys from m
+func GetHash(m map[string]interface{}) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	return GetKeysHash(m, keys...)
 }
