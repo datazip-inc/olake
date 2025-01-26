@@ -179,7 +179,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 
 					if w.TotalRecords()%batchSize == 0 {
 						if !state.IsZero() {
-							logger.LogState(state, configFolder)
+							logger.LogState(state)
 						}
 					}
 				}

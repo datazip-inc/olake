@@ -125,24 +125,23 @@ Before running the Sync command, the generated `catalog.json` file must be confi
    {
       "streams": [
          {
-         "stream": {
-            "name": "incr2",
-            "namespace": "incr",
-            "type_schema": {
-               "properties": {
-               "_id": { "type": ["string"] },
-               "address": { "type": ["string"] },
-               "age": { "type": ["integer"] },
-               "height": { "type": ["number"] },
-               "name": { "type": ["string"] }
-               }
-            },
-            "supported_sync_modes": ["full_refresh", "cdc"],
-            "source_defined_primary_key": ["_id"],
-            "available_cursor_fields": [],
-             "sync_mode": "cdc"
-         }
-        
+            "stream": {
+               "name": "incr2",
+               "namespace": "incr",
+               "type_schema": {
+                  "properties": {
+                  "_id": { "type": ["string"] },
+                  "address": { "type": ["string"] },
+                  "age": { "type": ["integer"] },
+                  "height": { "type": ["number"] },
+                  "name": { "type": ["string"] }
+                  }
+               },
+               "supported_sync_modes": ["full_refresh", "cdc"],
+               "source_defined_primary_key": ["_id"],
+               "available_cursor_fields": [],
+               "sync_mode": "cdc"
+            }
          }
       ]
    }

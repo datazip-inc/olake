@@ -3,7 +3,6 @@ package protocol
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/utils"
@@ -22,10 +21,6 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
 			return err
 		}
-		if !noSave {
-			folder := filepath.Dir(configPath)
-			configFolder = &folder
-		}
 
 		return nil
 	},
@@ -43,7 +38,7 @@ var discoverCmd = &cobra.Command{
 			return errors.New("no streams found in connector")
 		}
 
-		logger.LogCatalog(streams, configFolder)
+		logger.LogCatalog(streams)
 		return nil
 	},
 }

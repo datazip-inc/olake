@@ -3,12 +3,14 @@ package protocol
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/datazip-inc/olake/logger/console"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -47,6 +49,11 @@ var RootCmd = &cobra.Command{
 			return fmt.Errorf("'%s' is an invalid command. Use 'olake --help' to display usage guide", args[0])
 		}
 
+		// set global variables
+		if !noSave {
+			viper.Set("configFolder", filepath.Dir(configPath))
+		}
+
 		return nil
 	},
 }
@@ -70,6 +77,9 @@ func init() {
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
 
+	if err := RootCmd.Execute(); err != nil {
+		logrus.Fatal(err)
+	}
 	// Disable logging
 	logrus.SetOutput(nil)
 

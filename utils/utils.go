@@ -32,7 +32,7 @@ func Absolute[T int | int8 | int16 | int32 | int64 | float32 | float64](value T)
 // IsValidSubcommand checks if the passed subcommand is supported by the parent command
 func IsValidSubcommand(available []*cobra.Command, sub string) bool {
 	for _, s := range available {
-		if sub == s.CalledAs() {
+		if sub == s.Use || sub == s.CalledAs() {
 			return true
 		}
 	}
@@ -217,9 +217,14 @@ func IsJSON(str string) bool {
 }
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
-func CreateFile(filePath *string, fileName, fileExtension string, data []byte) error {
+func CreateFile(content any, filePath string, fileName, fileExtension string) error {
 	// Construct the full file path
-	fullPath := filepath.Join(*filePath, fileName+fileExtension)
+	contentBytes, err := json.Marshal(content)
+	if err != nil {
+		return fmt.Errorf("failed to marshal content: %v", err)
+	}
+
+	fullPath := filepath.Join(filePath, fileName+fileExtension)
 
 	// Create or truncate the file
 	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
@@ -229,7 +234,7 @@ func CreateFile(filePath *string, fileName, fileExtension string, data []byte) e
 	defer file.Close()
 
 	// Write data to the file
-	_, err = file.Write(data)
+	_, err = file.Write(contentBytes)
 	if err != nil {
 		return fmt.Errorf("failed to write data to file: %w", err)
 	}

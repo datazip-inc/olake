@@ -3,7 +3,6 @@ package protocol
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -25,10 +24,6 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("--destination not passed")
 		} else if catalogPath == "" {
 			return fmt.Errorf("--catalog not passed")
-		}
-		if !noSave {
-			folder := filepath.Dir(configPath)
-			configFolder = &folder
 		}
 
 		// unmarshal source config
@@ -82,12 +77,11 @@ var syncCmd = &cobra.Command{
 
 		streamsMap := types.StreamsToMap(streams...)
 
-		//create a map for namespace and name
-		selectedStreamMap := make(map[string]bool)
-
-		for nameSpace, streamNames := range catalog.SelectedStreams {
+		// create a map for namespace and name
+		selectedStreamsMap := make(map[string]bool)
+		for namespace, streamNames := range catalog.SelectedStreams {
 			for _, name := range streamNames {
-				selectedStreamMap[fmt.Sprintf("%s.%s", nameSpace, name)] = true
+				selectedStreamsMap[fmt.Sprintf("%s.%s", namespace, name)] = true
 			}
 		}
 
@@ -98,7 +92,7 @@ var syncCmd = &cobra.Command{
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 
 			// Check if the stream is in the selectedStreamMap
-			if catalog.SelectedStreams != nil && !selectedStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())] {
+			if catalog.SelectedStreams != nil && !selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())] {
 				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Name(), elem.Namespace())
 				return false
 			}
@@ -179,7 +173,7 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())
 		if !state.IsZero() {
-			logger.LogState(state, configFolder)
+			logger.LogState(state)
 		}
 
 		return nil

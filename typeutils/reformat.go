@@ -274,7 +274,7 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 	case string:
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return float64(0), fmt.Errorf("failed to change string %v to float64: %w", v, err)
+			return float64(0), fmt.Errorf("failed to change string %v to float64: %v", v, err)
 		}
 		return f, nil
 	}

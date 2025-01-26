@@ -110,7 +110,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
 	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream())
 	if err != nil {
-		return nil, fmt.Errorf("failed to open change stream: %w", err)
+		return nil, fmt.Errorf("failed to open change stream: %v", err)
 	}
 	defer cursor.Close(cdcCtx)
 
