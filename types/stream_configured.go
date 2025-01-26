@@ -120,6 +120,10 @@ func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
 	return s.streamState.State.Chunks
 }
 
+func (s *ConfiguredStream) SetChunksFromStreamState(chunks []Chunk) {
+	s.streamState.State.Chunks = chunks
+}
+
 // Delete keys from Stream State
 func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
 	values := []any{}

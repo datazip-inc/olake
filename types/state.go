@@ -116,21 +116,19 @@ func (s *StreamState) MarshalJSON() ([]byte, error) {
 		cursorMap[strKey] = value
 		return true
 	})
+	type customState struct {
+		Cursor map[string]interface{} `json:"cdc_cursor"`
+		Chunks []Chunk                `json:"chunks"`
+	}
 
 	// Create an alias to avoid infinite recursion
 	type Alias StreamState
 	return json.Marshal(&struct {
 		*Alias
-		State struct {
-			Cursor map[string]interface{} `json:"cdc_cursor"`
-			Chunks []Chunk                `json:"chunks"`
-		} `json:"state"`
+		State customState `json:"state"`
 	}{
 		Alias: (*Alias)(s),
-		State: struct {
-			Cursor map[string]interface{} `json:"cdc_cursor"`
-			Chunks []Chunk                `json:"chunks"`
-		}{
+		State: customState{
 			Cursor: cursorMap,
 			Chunks: s.State.Chunks,
 		},

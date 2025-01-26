@@ -52,6 +52,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 		chunk := failedChunks[0]
 		failedChunks = failedChunks[1:]
+		//stream.SetChunksFromStreamState(failedChunks)
 		return false, &chunk, nil
 	}), m.config.MaxThreads, func(ctx context.Context, chunk *types.Chunk, number int64) error {
 
