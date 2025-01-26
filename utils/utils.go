@@ -229,14 +229,14 @@ func CreateFile(content any, filePath string, fileName, fileExtension string) er
 	// Create or truncate the file
 	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create or open file: %w", err)
+		return fmt.Errorf("failed to create or open file: %v", err)
 	}
 	defer file.Close()
 
 	// Write data to the file
 	_, err = file.Write(contentBytes)
 	if err != nil {
-		return fmt.Errorf("failed to write data to file: %w", err)
+		return fmt.Errorf("failed to write data to file: %v", err)
 	}
 
 	return nil

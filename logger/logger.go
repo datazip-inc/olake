@@ -129,12 +129,15 @@ func LogRequest(req *http.Request) {
 
 	fmt.Println(string(requestDump))
 }
+
 func LogState(state *types.State) {
 	state.Lock()
 	defer state.Unlock()
+
 	message := types.Message{}
 	message.Type = types.StateMessage
 	message.State = state
+
 	err := console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode connection status: %s", err)
