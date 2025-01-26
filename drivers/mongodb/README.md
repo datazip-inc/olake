@@ -152,10 +152,12 @@ Before running the Sync command, the generated `catalog.json` file must be confi
 
 ### Writer File 
 The Writer file defines the configuration for the destination where data needs to be added.<br>
+`normalization` determine that Level 1 flattening is required. <br>
 Example (For Local):
    ```
    {
       "type": "PARQUET",
+      "normalization":true,
       "writer": {
          "local_path": "./examples/reader"
       }
@@ -165,6 +167,7 @@ Example (For S3):
    ```
    {
       "type": "PARQUET",
+      "normalization":false,
       "writer": {
          "s3_bucket": "olake",  
          "s3_region": "",
