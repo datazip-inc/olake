@@ -77,11 +77,26 @@ var syncCmd = &cobra.Command{
 
 		streamsMap := types.StreamsToMap(streams...)
 
+		// create a map for namespace and name
+		selectedStreamsMap := make(map[string]bool)
+		for namespace, streamNames := range catalog.SelectedStreams {
+			for _, name := range streamNames {
+				selectedStreamsMap[fmt.Sprintf("%s.%s", namespace, name)] = true
+			}
+		}
+
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
 		cdcStreams := []Stream{}
 		standardModeStreams := []Stream{}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
+
+			// Check if the stream is in the selectedStreamMap
+			if catalog.SelectedStreams != nil && !selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())] {
+				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Name(), elem.Namespace())
+				return false
+			}
+
 			source, found := streamsMap[elem.ID()]
 			if !found {
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
@@ -96,7 +111,7 @@ var syncCmd = &cobra.Command{
 
 			elem.SetupState(state)
 			selectedStreams = append(selectedStreams, elem.ID())
-			if elem.SyncMode == types.CDC {
+			if elem.Stream.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)
 			} else {
 				standardModeStreams = append(standardModeStreams, elem)

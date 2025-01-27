@@ -9,6 +9,8 @@ import (
 
 	"github.com/datazip-inc/olake/logger/console"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
+	"github.com/spf13/viper"
 )
 
 // Info writes record into os.stdout with log level INFO
@@ -84,8 +86,15 @@ func LogCatalog(streams []*types.Stream) {
 	if err != nil {
 		Fatalf("failed to encode catalog %v: %s", streams, err)
 	}
-}
 
+	// write catalog to the specified file
+	if configFolder := viper.GetString("configFolder"); configFolder != "" {
+		err = utils.CreateFile(message.Catalog, configFolder, "catalog", ".json")
+		if err != nil {
+			Fatalf("failed to create catalog file: %v", err)
+		}
+	}
+}
 func LogConnectionStatus(err error) {
 	message := types.Message{}
 	message.Type = types.ConnectionStatusMessage
@@ -132,5 +141,11 @@ func LogState(state *types.State) {
 	err := console.Print(console.INFO, message)
 	if err != nil {
 		Fatalf("failed to encode connection status: %s", err)
+	}
+	if configFolder := viper.GetString("configFolder"); configFolder != "" {
+		err = utils.CreateFile(state, configFolder, "state", ".json")
+		if err != nil {
+			Fatalf("failed to create state file: %v", err)
+		}
 	}
 }
