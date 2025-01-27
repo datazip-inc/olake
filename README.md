@@ -42,20 +42,20 @@ Follow the steps below to get started with OLake:
 
     - `config.json`: This file contains the configuration settings for OLake. You can find the file format and detailed information [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
   
-    - `write.json`: This file is used to specify the destination and write settings. Ensure that the `local_path` field is set to `/mnt/config`. To enable Level 1 flattening, set the `normalization` key to `true` in the `write.json` configuration file.
+    - `write.json`: This file is used to specify the destination and write settings. Ensure that the `local_path` field is set to `/mnt/config` for local writer only. To enable Level 1 flattening, set the `normalization` key to `true` in the `write.json` configuration file.
     ### Example Structure of `write.json`:
     Example (For Local):
-    ```
+    ```json
     {
       "type": "PARQUET",
          "writer": {
            "normalization":false,
-           "local_path": "./examples/reader"
+           "local_path": "/mnt/config"
       }
     }
     ```
     Example (For S3):
-    ```
+    ```json
     {
       "type": "PARQUET",
          "writer": {
@@ -72,14 +72,90 @@ Follow the steps below to get started with OLake:
     ```bash
    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
     ```
+    Once the discovery process completes, a catalog.json file will be generated. This file contains the streams that were discovered in your MongoDB source, and the structure looks similar to the example below:
+    ```json
+    {
+    "selected_streams": {
+        "incr": [
+            "incr1",
+            "incr2"
+        ]
+    },
+    "streams": [
+        {
+            "stream": {
+                "name": "incr1",
+                "namespace": "incr",
+                "type_schema": {
+                    "properties": {
+                        "_id": { "type": ["string"] },
+                        "address": { "type": ["string"] },
+                        "age": { "type": ["string"] },
+                        "favo": { "type": ["string"] },
+                        "height": { "type": ["integer", "string", "number", "boolean"] },
+                        "name": { "type": ["string"] },
+                        "town": { "type": ["string"] }
+                    }
+                },
+                "supported_sync_modes": ["full_refresh", "cdc"],
+                "source_defined_primary_key": ["_id"],
+                "available_cursor_fields": [],
+                "sync_mode": "cdc"
+            }
+        },
+        {
+            "stream": {
+                "name": "incr2",
+                "namespace": "incr",
+                "type_schema": {
+                    "properties": {
+                        "_id": { "type": ["string"] },
+                        "address": { "type": ["string"] },
+                        "age": { "type": ["integer"] },
+                        "height": { "type": ["number"] },
+                        "name": { "type": ["string"] }
+                    }
+                },
+                "supported_sync_modes": ["full_refresh", "cdc"],
+                "source_defined_primary_key": ["_id"],
+                "available_cursor_fields": [],
+                "sync_mode": "cdc"
+            }
+        }
+      ]
+    }
+    ```
+    #### Removing Unwanted Streams (Optional)
 
-4. Run the sync process to replicate data:  
+   If you do not want to sync certain streams (for example, you don't want to sync `incr2`), you can easily remove those streams by editing the `catalog.json` file:
+
+   **Locate the `selected_streams` section** in the JSON. This section lists the streams you have selected to sync. Simply remove any stream names you don't wish to sync. For example, if you don't want to sync `incr2`, you can delete `"incr2"` from the array under `"selected_streams"`.
+    
+    **Before:**
+    ```json
+    "selected_streams": {
+        "incr": [
+            "incr1",
+            "incr2"
+        ]
+    }
+    ```
+
+    **After (removing `incr2`):**
+    ```json
+    "selected_streams": {
+        "incr": [
+            "incr1"
+        ]
+    }
+    ```
+4. The Sync command fetches data from MongoDB and ingests it into the destination:  
     ```bash
    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json
 
     ```
 
-5. For incremental sync with state, run:  
+5. To run sync with state: 
     ```bash
     docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json --state /mnt/config/state.json
 
