@@ -157,8 +157,8 @@ Example (For Local):
    ```
    {
       "type": "PARQUET",
-      "normalization":true,
       "writer": {
+         "normalization":true,
          "local_path": "./examples/reader"
       }
    }
@@ -167,8 +167,8 @@ Example (For S3):
    ```
    {
       "type": "PARQUET",
-      "normalization":false,
       "writer": {
+         "normalization":false,
          "s3_bucket": "olake",  
          "s3_region": "",
          "s3_access_key": "", 
