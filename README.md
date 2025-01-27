@@ -34,25 +34,25 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 
 To get started with OLake, follow these steps:
 
-1. Save your configuration in a `config.json` file (in the correct format, available [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb)) and place it in the examples folder along with `write.json` (with the path set to `/mnt/config`).
+1. Save your configuration in a `config.json` file (in the correct format, available [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file)) and place it in a config folder along with `write.json` (with the local_path set to `/mnt/config`).
 
-2. Ensure you have Docker installed and running on your machine.
+2. Create the folder for mounting: Make sure the folder `your_folder_path` exists and contains `config.json`, `write.json`
 
-3. Use the existing `docker-compose.yml` file in the repository ([link to file](https://github.com/datazip-inc/olake/blob/master/docker-compose.yml)).
-
-4. Run the discovery process to generate the catalog:  
+3. Run the discovery process to generate the catalog:  
     ```bash
-    docker run -v ./drivers/mongodb/examples:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
+   docker run -v your_folder_path:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
     ```
 
-5. Run the sync process to replicate data:  
+4. Run the sync process to replicate data:  
     ```bash
-    docker run -v ./drivers/mongodb/examples:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json
+   docker run -v your_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json
+
     ```
 
-6. For incremental sync with state, run:  
+5. For incremental sync with state, run:  
     ```bash
-    docker run -v ./drivers/mongodb/examples:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json --state /mnt/config/state.json
+    docker run -v your_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json --state /mnt/config/state.json
+
     ```
 
 For more details, refer to the [documentation](https://datazip.io/olake/docs).
@@ -150,7 +150,3 @@ SDKs are libraries/packages that can orchestrate the connector in two environmen
 ### Olake
 
 Olake will be built on top of SDK providing persistent storage and a user interface that enables orchestration directly from your machine with default writer mode as `S3 Iceberg Parquet`
-
-
-
-
