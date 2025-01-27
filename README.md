@@ -36,38 +36,53 @@ Follow the steps below to get started with OLake:
 
 1. Set Up Your Folder and Configuration Files
 
-    First, create a folder on your system where you'll store the necessary configuration files. We'll refer to this folder as `your_folder_path`.
+    First, create a folder on your system where you'll store the necessary configuration files. We'll refer to this folder as `olake_folder_path`.
 
-    Inside `your_folder_path`, create the following files:
+    Inside `olake_folder_path`, create the following files:
 
     - `config.json`: This file contains the configuration settings for OLake. You can find the file format and detailed information [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
   
     - `write.json`: This file is used to specify the destination and write settings. Ensure that the `local_path` field is set to `/mnt/config`.
 
     ### Example Structure of `write.json`:
-    ```json
+    Example (For Local):
+    ```
     {
-    "type": "PARQUET",
-    "writer": {
-    "normalization": true,
-    "local_path": "/mnt/config"
+      "type": "PARQUET",
+         "writer": {
+           "normalization":true,
+           "local_path": "./examples/reader"
       }
+    }
+    ```
+    Example (For S3):
+    ```
+    {
+      "type": "PARQUET",
+         "writer": {
+           "normalization":false,
+           "s3_bucket": "olake",  
+           "s3_region": "",
+           "s3_access_key": "", 
+           "s3_secret_key": "", 
+           "s3_path": ""
+       }
     }
     ```
 3. Run the discovery process to generate the catalog:  
     ```bash
-   docker run -v your_folder_path:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
+   docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
     ```
 
 4. Run the sync process to replicate data:  
     ```bash
-   docker run -v your_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json
+   docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json
 
     ```
 
 5. For incremental sync with state, run:  
     ```bash
-    docker run -v your_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json --state /mnt/config/state.json
+    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json --state /mnt/config/state.json
 
     ```
 
