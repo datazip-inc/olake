@@ -42,15 +42,14 @@ Follow the steps below to get started with OLake:
 
     - `config.json`: This file contains the configuration settings for OLake. You can find the file format and detailed information [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
   
-    - `write.json`: This file is used to specify the destination and write settings. Ensure that the `local_path` field is set to `/mnt/config`.
-
+    - `write.json`: This file is used to specify the destination and write settings. Ensure that the `local_path` field is set to `/mnt/config`. To enable Level 1 flattening, set the `normalization` key to `true` in the `write.json` configuration file.
     ### Example Structure of `write.json`:
     Example (For Local):
     ```
     {
       "type": "PARQUET",
          "writer": {
-           "normalization":true,
+           "normalization":false,
            "local_path": "./examples/reader"
       }
     }
