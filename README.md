@@ -30,14 +30,30 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 - **Connector Autonomy**
 - **Avoid operations that don't contribute to increasing record throughput**
 
-## Getting Started with OLake
+# Getting Started with OLake
 
-To get started with OLake, follow these steps:
+Follow the steps below to get started with OLake:
 
-1. Save your configuration in a `config.json` file (in the correct format, available [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file)) and place it in a config folder along with `write.json` (with the local_path set to `/mnt/config`).
+1. Set Up Your Folder and Configuration Files
 
-2. Create the folder for mounting: Make sure the folder `your_folder_path` exists and contains `config.json`, `write.json`
+    First, create a folder on your system where you'll store the necessary configuration files. We'll refer to this folder as `your_folder_path`.
 
+    Inside `your_folder_path`, create the following files:
+
+    - `config.json`: This file contains the configuration settings for OLake. You can find the file format and detailed information [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
+  
+    - `write.json`: This file is used to specify the destination and write settings. Ensure that the `local_path` field is set to `/mnt/config`.
+
+    ### Example Structure of `write.json`:
+    ```json
+    {
+    "type": "PARQUET",
+    "writer": {
+    "normalization": true,
+    "local_path": "/mnt/config"
+      }
+    }
+    ```
 3. Run the discovery process to generate the catalog:  
     ```bash
    docker run -v your_folder_path:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
