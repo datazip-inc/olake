@@ -33,18 +33,22 @@ type StatusRow struct {
 
 // ConfiguredCatalog is a dto for formatted airbyte catalog serialization
 type Catalog struct {
-	Streams []*ConfiguredStream `json:"streams,omitempty"`
+	SelectedStreams map[string][]string `json:"selected_streams,omitempty"`
+	Streams         []*ConfiguredStream `json:"streams,omitempty"`
 }
 
 func GetWrappedCatalog(streams []*Stream) *Catalog {
 	catalog := &Catalog{
-		Streams: []*ConfiguredStream{},
+		Streams:         []*ConfiguredStream{},
+		SelectedStreams: make(map[string][]string),
 	}
-
+	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
+		// Create ConfiguredStream and append to Streams
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
 		})
+		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], stream.Name)
 	}
 
 	return catalog
