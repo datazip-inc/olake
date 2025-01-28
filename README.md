@@ -37,19 +37,23 @@ Follow the steps below to get started with OLake:
 1. ### Prepare Your Folder
 
     1. Create a folder on your computer. Let’s call it `olake_folder_path`.
+        <div style="background-color: #f9f9f9; border-left: 6px solid #007bff; padding: 10px; color: black;">
+
+        💡 **Note:** In below configurations replace `olake_folder_path` with the newly created folder path.
+
+        </div>
     2. Inside this folder, create two files:
        - config.json: This file contains your connection details. You can find examples and instructions [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
-       - write.json: This file specifies where to save your data (local machine or S3).
+       - writer.json: This file specifies where to save your data (local machine or S3).
     
-    ### Example Structure of `write.json`:
+    ### Example Structure of `writer.json` :
     Example (For Local): 
-    The `local_path` is the folder on your system where files are stored. Set it to `/mnt/config` for the local writer. 
     ```json
     {
       "type": "PARQUET",
          "writer": {
-           "normalization":false,
-           "local_path": "/mnt/config"
+           "normalization":false, // to enable/disable level one flattening
+           "local_path": "/mnt/config/{olake_reader}" // replace {olake_folder} with desired name
       }
     }
     ```
@@ -58,7 +62,7 @@ Follow the steps below to get started with OLake:
     {
       "type": "PARQUET",
          "writer": {
-           "normalization":false,
+           "normalization":false, // to enable/disable level one flattening
            "s3_bucket": "olake",  
            "s3_region": "",
            "s3_access_key": "", 
@@ -67,7 +71,6 @@ Follow the steps below to get started with OLake:
        }
     }
     ```
-    (Optional) To enable Level 1 flattening, set the `normalization` key to true in the above `write.json` configuration file.
 2. ### Generate a Catalog File
 
    Run the discovery process to identify your MongoDB data:  
@@ -88,9 +91,7 @@ Follow the steps below to get started with OLake:
                     "stream": {
                         "name": "table1",
                         "namespace": "namespace",
-
-                        ...
-
+                        // ...
                         "sync_mode": "cdc"
                     }
                 },
@@ -98,9 +99,7 @@ Follow the steps below to get started with OLake:
                     "stream": {
                         "name": "table2",
                         "namespace": "namespace",
-
-                        ...
-
+                        // ...
                         "sync_mode": "cdc"
                     }
                 }
@@ -108,11 +107,10 @@ Follow the steps below to get started with OLake:
         }
     ```
 
-    #### Optional: Exclude Unwanted Streams
-
-    To exclude streams, edit catalog.json and remove them from selected_streams
-
-    **Before:**
+    #### (Optional) Exclude Unwanted Streams
+    To exclude streams, edit catalog.json and remove them from selected_streams. <br>
+    #### Example (For Exclusion of table2) 
+    **Before**
     ```json
      "selected_streams": {
         "namespace": [
@@ -121,8 +119,7 @@ Follow the steps below to get started with OLake:
         ]
      }
     ```
-
-    **After: (to exclude table2)**
+    **After Exclusion of table2**
     ```json
     "selected_streams": {
         "namespace": [
@@ -134,14 +131,14 @@ Follow the steps below to get started with OLake:
    Run the following command to sync data from MongoDB to your destination:
     
     ```bash
-   docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json
+   docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/writer.json
 
     ```
 
 4. ### sync with state: 
    If you’ve previously synced data and want to continue from where you left off, use the state file:
     ```bash
-    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json --state /mnt/config/state.json
+    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/writer.json --state /mnt/config/state.json
 
     ```
 
