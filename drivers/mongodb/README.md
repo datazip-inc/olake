@@ -38,7 +38,7 @@ Add MongoDB credentials in following format in config.json file
       "authdb": "admin",
       "replica-set": "rs0",
       "read-preference": "secondaryPreferred",
-      "srv": true,
+      "srv": false,
       "server-ram": 16,
       "database": "database",
       "max_threads": 50,

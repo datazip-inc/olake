@@ -52,11 +52,9 @@ var syncCmd = &cobra.Command{
 			}
 		}
 
-		// TODO: state formatting
-		logger.Infof("Running sync with state: %v", state)
-
 		state.Mutex = &sync.Mutex{}
-
+		logger.Info("Running sync with state: ")
+		logger.LogState(state)
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
