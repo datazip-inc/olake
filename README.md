@@ -30,9 +30,121 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 - **Connector Autonomy**
 - **Avoid operations that don't contribute to increasing record throughput**
 
+# Getting Started with OLake
 
-## Olake Framework Structure
-![diagram](/.github/assets/Olake.jpg)
+Follow the steps below to get started with OLake:
+
+1. ### Prepare Your Folder
+
+    1. Create a folder on your computer. Let’s call it `olake_folder_path`.
+        <div style="background-color: #f9f9f9; border-left: 6px solid #007bff; padding: 10px; color: black;">
+
+        💡 **Note:** In below configurations replace `olake_folder_path` with the newly created folder path.
+
+        </div>
+    2. Inside this folder, create two files:
+       - config.json: This file contains your connection details. You can find examples and instructions [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
+       - writer.json: This file specifies where to save your data (local machine or S3).
+    
+    ### Example Structure of `writer.json` :
+    Example (For Local): 
+    ```json
+    {
+      "type": "PARQUET",
+         "writer": {
+           "normalization":false, // to enable/disable level one flattening
+           "local_path": "/mnt/config/{olake_reader}" // replace {olake_folder} with desired name
+      }
+    }
+    ```
+    Example (For S3):
+    ```json
+    {
+      "type": "PARQUET",
+         "writer": {
+           "normalization":false, // to enable/disable level one flattening
+           "s3_bucket": "olake",  
+           "s3_region": "",
+           "s3_access_key": "", 
+           "s3_secret_key": "", 
+           "s3_path": ""
+       }
+    }
+    ```
+2. ### Generate a Catalog File
+
+   Run the discovery process to identify your MongoDB data:  
+    ```bash
+   docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
+    ```
+    This will create a catalog.json file in your folder. The file lists the data streams from your MongoDB
+    ```json
+        {
+         "selected_streams": {
+                "namespace": [
+                    "table1",
+                    "table2"
+                ]
+            },
+            "streams": [
+                {
+                    "stream": {
+                        "name": "table1",
+                        "namespace": "namespace",
+                        // ...
+                        "sync_mode": "cdc"
+                    }
+                },
+                {
+                    "stream": {
+                        "name": "table2",
+                        "namespace": "namespace",
+                        // ...
+                        "sync_mode": "cdc"
+                    }
+                }
+            ]
+        }
+    ```
+
+    #### (Optional) Exclude Unwanted Streams
+    To exclude streams, edit catalog.json and remove them from selected_streams. <br>
+    #### Example (For Exclusion of table2) 
+    **Before**
+    ```json
+     "selected_streams": {
+        "namespace": [
+            "table1",
+            "table2"
+        ]
+     }
+    ```
+    **After Exclusion of table2**
+    ```json
+    "selected_streams": {
+        "namespace": [
+            "table1"
+        ]
+     }
+    ```
+3. ### Sync Your Data
+   Run the following command to sync data from MongoDB to your destination:
+    
+    ```bash
+   docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/writer.json
+
+    ```
+
+4. ### sync with state: 
+   If you’ve previously synced data and want to continue from where you left off, use the state file:
+    ```bash
+    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/writer.json --state /mnt/config/state.json
+
+    ```
+
+For more details, refer to the [documentation](https://datazip.io/olake/docs).
+
+
 
 ## Benchmark Results: Refer this doc for complete information
 

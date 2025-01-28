@@ -3,13 +3,16 @@
 Thanks for taking the time and for your help in improving this project!
 
 ## Table of contents
-
+- [Olake Framework Structure](#olake-framework-structure)
 - [Olake Contributing Agreement](#olake-contributor-agreement)
 - [How You Can Contribute to Olake](#how-you-can-contribute-to-olake)
 - [Submitting a Pull Request](#submitting-a-pull-request)
 - [Committing](#committing)
 - [Installing and Setting Up Olake](#installing-and-setting-up-olake)
 - [Getting Help](#getting-help)
+
+## Olake Framework Structure
+![diagram](/.github/assets/Olake.jpg)
 
 ## Olake Contributor Agreement
 
