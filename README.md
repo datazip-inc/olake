@@ -88,9 +88,9 @@ Follow the steps below to get started with OLake:
                     "stream": {
                         "name": "table1",
                         "namespace": "namespace",
-                        "type_schema": {
-                            "properties": {...}
-                        },
+
+                        ...
+
                         "sync_mode": "cdc"
                     }
                 },
@@ -98,9 +98,9 @@ Follow the steps below to get started with OLake:
                     "stream": {
                         "name": "table2",
                         "namespace": "namespace",
-                        "type_schema": {
-                             "properties": {...}
-                        },
+                        
+                        ...
+
                         "sync_mode": "cdc"
                     }
                 }
