@@ -79,45 +79,28 @@ Follow the steps below to get started with OLake:
         {
             "selected_streams": {
                 "namespace": [
-                    "orders",
-                    "customers"
+                    "table1",
+                    "table2"
                 ]
             },
             "streams": [
                 {
                     "stream": {
-                        "name": "orders",
+                        "name": "table1",
                         "namespace": "namespace",
                         "type_schema": {
-                            "properties": {
-                                "_id": { "type": ["string"] },
-                                "order_id": { "type": ["string"] },
-                                "order_date": { "type": ["string"] },
-                                "customer_id": { "type": ["string"] },
-                                "total_amount": { "type": ["number"] }
-                            }
+                            "properties": {...}
                         },
-                        "supported_sync_modes": ["full_refresh", "cdc"],
-                        "source_defined_primary_key": ["_id"],
-                        "available_cursor_fields": [],
                         "sync_mode": "cdc"
                     }
                 },
                 {
                     "stream": {
-                        "name": "customers",
+                        "name": "table2",
                         "namespace": "namespace",
                         "type_schema": {
-                            "properties": {
-                                "_id": { "type": ["string"] },
-                                "customer_id": { "type": ["string"] },
-                                "name": { "type": ["string"] },
-                                "email": { "type": ["string"] }
-                            }
+                             "properties": {...}
                         },
-                        "supported_sync_modes": ["full_refresh", "cdc"],
-                        "source_defined_primary_key": ["_id"],
-                        "available_cursor_fields": [],
                         "sync_mode": "cdc"
                     }
                 }
@@ -127,23 +110,23 @@ Follow the steps below to get started with OLake:
 
     #### Optional: Exclude Unwanted Streams
 
-    If you don’t need certain streams, edit `catalog.json` to remove them from the `selected_streams` list.
+    To exclude streams, edit catalog.json and remove them from selected_streams
 
     **Before:**
     ```json
      "selected_streams": {
         "namespace": [
-            "orders",
-            "customers"
+            "table1",
+            "table2"
         ]
      }
     ```
 
-    **After: (to exclude customers)**
+    **After: (to exclude table2)**
     ```json
     "selected_streams": {
         "namespace": [
-            "orders"
+            "table1"
         ]
      }
     ```
