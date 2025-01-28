@@ -34,17 +34,16 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 
 Follow the steps below to get started with OLake:
 
-1. Set Up Your Folder and Configuration Files
+1. ### Prepare Your Folder
 
-    First, create a folder on your system where you'll store the necessary configuration files. We'll refer to this folder as `olake_folder_path`.
-
-    Inside `olake_folder_path`, create the following files:
-
-    - `config.json`: This file contains the configuration settings for OLake. You can find the file format and detailed information [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
-  
-    - `write.json`: This file is used to specify the destination and write settings. Ensure that the `local_path` field is set to `/mnt/config` for local writer only. To enable Level 1 flattening, set the `normalization` key to `true` in the `write.json` configuration file.
+    1. Create a folder on your computer. Let’s call it `olake_folder_path`.
+    2. Inside this folder, create two files:
+       - config.json: This file contains your connection details. You can find examples and instructions [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
+       - write.json: This file specifies where to save your data (local machine or S3).
+    
     ### Example Structure of `write.json`:
-    Example (For Local):
+    Example (For Local): 
+    The `local_path` is the folder on your system where files are stored. Set it to `/mnt/config` for the local writer. 
     ```json
     {
       "type": "PARQUET",
@@ -68,94 +67,96 @@ Follow the steps below to get started with OLake:
        }
     }
     ```
-3. Run the discovery process to generate the catalog:  
+    (Optional) To enable Level 1 flattening, set the normalization key to true in the write.json configuration file.
+2. ### Generate a Catalog File
+
+   Run the discovery process to identify your MongoDB data:  
     ```bash
    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest discover --config /mnt/config/config.json
     ```
-    Once the discovery process completes, a catalog.json file will be generated. This file contains the streams that were discovered in your MongoDB source, and the structure looks similar to the example below:
+    This will create a catalog.json file in your folder. The file lists the data streams from your MongoDB
     ```json
-    {
-    "selected_streams": {
-        "incr": [
-            "incr1",
-            "incr2"
-        ]
-    },
-    "streams": [
         {
-            "stream": {
-                "name": "incr1",
-                "namespace": "incr",
-                "type_schema": {
-                    "properties": {
-                        "_id": { "type": ["string"] },
-                        "address": { "type": ["string"] },
-                        "age": { "type": ["string"] },
-                        "favo": { "type": ["string"] },
-                        "height": { "type": ["integer", "string", "number", "boolean"] },
-                        "name": { "type": ["string"] },
-                        "town": { "type": ["string"] }
+            "selected_streams": {
+                "namespace": [
+                    "orders",
+                    "customers"
+                ]
+            },
+            "streams": [
+                {
+                    "stream": {
+                        "name": "orders",
+                        "namespace": "namespace",
+                        "type_schema": {
+                            "properties": {
+                                "_id": { "type": ["string"] },
+                                "order_id": { "type": ["string"] },
+                                "order_date": { "type": ["string"] },
+                                "customer_id": { "type": ["string"] },
+                                "total_amount": { "type": ["number"] }
+                            }
+                        },
+                        "supported_sync_modes": ["full_refresh", "cdc"],
+                        "source_defined_primary_key": ["_id"],
+                        "available_cursor_fields": [],
+                        "sync_mode": "cdc"
                     }
                 },
-                "supported_sync_modes": ["full_refresh", "cdc"],
-                "source_defined_primary_key": ["_id"],
-                "available_cursor_fields": [],
-                "sync_mode": "cdc"
-            }
-        },
-        {
-            "stream": {
-                "name": "incr2",
-                "namespace": "incr",
-                "type_schema": {
-                    "properties": {
-                        "_id": { "type": ["string"] },
-                        "address": { "type": ["string"] },
-                        "age": { "type": ["integer"] },
-                        "height": { "type": ["number"] },
-                        "name": { "type": ["string"] }
+                {
+                    "stream": {
+                        "name": "customers",
+                        "namespace": "namespace",
+                        "type_schema": {
+                            "properties": {
+                                "_id": { "type": ["string"] },
+                                "customer_id": { "type": ["string"] },
+                                "name": { "type": ["string"] },
+                                "email": { "type": ["string"] }
+                            }
+                        },
+                        "supported_sync_modes": ["full_refresh", "cdc"],
+                        "source_defined_primary_key": ["_id"],
+                        "available_cursor_fields": [],
+                        "sync_mode": "cdc"
                     }
-                },
-                "supported_sync_modes": ["full_refresh", "cdc"],
-                "source_defined_primary_key": ["_id"],
-                "available_cursor_fields": [],
-                "sync_mode": "cdc"
-            }
+                }
+            ]
         }
-      ]
-    }
     ```
-    #### Removing Unwanted Streams (Optional)
 
-   If you do not want to sync certain streams (for example, you don't want to sync `incr2`), you can easily remove those streams by editing the `catalog.json` file:
+    #### Optional: Exclude Unwanted Streams
 
-   **Locate the `selected_streams` section** in the JSON. This section lists the streams you have selected to sync. Simply remove any stream names you don't wish to sync. For example, if you don't want to sync `incr2`, you can delete `"incr2"` from the array under `"selected_streams"`.
-    
+    If you don’t need certain streams, edit `catalog.json` to remove them from the `selected_streams` list.
+
     **Before:**
     ```json
-    "selected_streams": {
-        "incr": [
-            "incr1",
-            "incr2"
+     "selected_streams": {
+        "namespace": [
+            "orders",
+            "customers"
         ]
-    }
+     }
     ```
 
-    **After (removing `incr2`):**
+    **After: (to exclude customers)**
     ```json
     "selected_streams": {
-        "incr": [
-            "incr1"
+        "namespace": [
+            "orders"
         ]
-    }
+     }
     ```
-4. The Sync command fetches data from MongoDB and ingests it into the destination:  
+3. ### Sync Your Data
+   Run the following command to sync data from MongoDB to your destination:
+    
     ```bash
    docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json
 
     ```
 
-5. To run sync with state: 
+4. ### sync with state: 
+   If you’ve previously synced data and want to continue from where you left off, use the state file:
     ```bash
     docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/write.json --state /mnt/config/state.json
 
