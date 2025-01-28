@@ -67,7 +67,7 @@ Follow the steps below to get started with OLake:
        }
     }
     ```
-    (Optional) To enable Level 1 flattening, set the normalization key to true in the write.json configuration file.
+    (Optional) To enable Level 1 flattening, set the `normalization` key to true in the above `write.json` configuration file.
 2. ### Generate a Catalog File
 
    Run the discovery process to identify your MongoDB data:  
@@ -77,7 +77,7 @@ Follow the steps below to get started with OLake:
     This will create a catalog.json file in your folder. The file lists the data streams from your MongoDB
     ```json
         {
-            "selected_streams": {
+         "selected_streams": {
                 "namespace": [
                     "table1",
                     "table2"
@@ -98,7 +98,7 @@ Follow the steps below to get started with OLake:
                     "stream": {
                         "name": "table2",
                         "namespace": "namespace",
-                        
+
                         ...
 
                         "sync_mode": "cdc"
