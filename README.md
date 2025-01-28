@@ -53,7 +53,7 @@ Follow the steps below to get started with OLake:
       "type": "PARQUET",
          "writer": {
            "normalization":false, // to enable/disable level one flattening
-           "local_path": "/mnt/config/{olake_reader}" // replace {olake_folder} with desired name
+           "local_path": "/mnt/config/{olake_reader}" // replace olake_reader with desired folder name
       }
     }
     ```
