@@ -21,6 +21,7 @@ type Config struct {
 	MaxThreads     int            `json:"max_threads"`
 	Database       string         `json:"database"`
 	DefaultMode    types.SyncMode `json:"default_mode"`
+	RetryCount     int            `json:"backoff_retry_count"`
 }
 
 func (c *Config) URI() string {
