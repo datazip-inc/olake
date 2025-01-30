@@ -10,16 +10,16 @@ import (
 )
 
 type Config struct {
-	Hosts          []string       `json:"hosts"`
-	Username       string         `json:"username"`
-	Password       string         `json:"password"`
-	AuthDB         string         `json:"authdb"`
+	Hosts          []string       `json:"hosts" validate:"required" min:"1"`
+	Username       string         `json:"username" validate:"required"`
+	Password       string         `json:"password" validate:"required"`
+	AuthDB         string         `json:"authdb" validate:"required"`
 	ReplicaSet     string         `json:"replica_set"`
 	ReadPreference string         `json:"read_preference"`
 	Srv            bool           `json:"srv"`
-	ServerRAM      uint           `json:"server_ram"`
-	MaxThreads     int            `json:"max_threads"`
-	Database       string         `json:"database"`
+	ServerRAM      uint           `json:"server_ram" validate:"required" gt:"0"`
+	MaxThreads     int            `json:"max_threads" validate:"required" gt:"0"`
+	Database       string         `json:"database" validate:"required"`
 	DefaultMode    types.SyncMode `json:"default_mode"`
 }
 
@@ -50,7 +50,6 @@ func (c *Config) URI() string {
 	)
 }
 
-// TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
 	return utils.Validate(c)
 }
