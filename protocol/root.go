@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/datazip-inc/olake/logger/console"
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -50,7 +49,7 @@ var RootCmd = &cobra.Command{
 
 		// set global variables
 		if !noSave {
-			viper.Set("configFolder", filepath.Dir(configPath))
+			viper.Set("CONFIG_FOLDER", filepath.Dir(configPath))
 		}
 
 		return nil
@@ -77,10 +76,7 @@ func init() {
 	RootCmd.SilenceErrors = true
 
 	if err := RootCmd.Execute(); err != nil {
-		logrus.Fatal(err)
+		logger.Fatal(err)
 	}
-	// Disable logging
-	logrus.SetOutput(nil)
-
-	console.SetupWriter(RootCmd.OutOrStdout(), RootCmd.ErrOrStderr())
+	logger.Init()
 }

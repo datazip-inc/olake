@@ -1,68 +1,75 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"path/filepath"
 
-	"github.com/datazip-inc/olake/logger/console"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
+	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+var logger zerolog.Logger
 
 // Info writes record into os.stdout with log level INFO
 func Info(v ...interface{}) {
-	_ = console.Log("", console.INFO, v...)
+	if len(v) == 1 {
+		logger.Info().Interface("message", v[0]).Send()
+	} else {
+		logger.Info().Msgf("%v", v...)
+	}
 }
 
 // Info writes record into os.stdout with log level INFO
 func Infof(format string, v ...interface{}) {
-	_ = console.Log(format, console.INFO, v...)
+	logger.Info().Msgf(format, v...)
 }
 
 // Debug writes record into os.stdout with log level DEBUG
 func Debug(v ...interface{}) {
-	_ = console.Log("", console.DEBUG, v...)
+	logger.Debug().Msgf("%v", v...)
 }
 
 // Debugf writes record into os.stdout with log level DEBUG
 func Debugf(format string, v ...interface{}) {
-	_ = console.Log(format, console.DEBUG, v...)
+	logger.Debug().Msgf(format, v...)
 }
 
 // Error writes record into os.stdout with log level ERROR
 func Error(v ...interface{}) {
-	_ = console.Log("", console.ERROR, v...)
+	logger.Error().Msgf("%v", v...)
 }
 
 // Fatal writes record into os.stdout with log level ERROR and exits
 func Fatal(v ...interface{}) {
-	_ = console.Log("", console.ERROR, v...)
+	logger.Fatal().Msgf("%v", v...)
 	os.Exit(1)
 }
 
 // Fatal writes record into os.stdout with log level ERROR
 func Fatalf(format string, v ...interface{}) {
-	_ = console.Log(format, console.ERROR, v...)
+	logger.Fatal().Msgf(format, v...)
 	os.Exit(1)
 }
 
 // Error writes record into os.stdout with log level ERROR
 func Errorf(format string, v ...interface{}) {
-	_ = console.Log(format, console.ERROR, v...)
+	logger.Error().Msgf(format, v...)
 }
 
 // Warn writes record into os.stdout with log level WARN
 func Warn(v ...interface{}) {
-	_ = console.Log("", console.WARN, v...)
+	logger.Warn().Msgf("%v", v...)
 }
 
 // Warn writes record into os.stdout with log level WARN
 func Warnf(format string, v ...interface{}) {
-	_ = console.Log(format, console.WARN, v...)
+	logger.Warn().Msgf(format, v...)
 }
 
 func LogSpec(spec map[string]interface{}) {
@@ -71,9 +78,12 @@ func LogSpec(spec map[string]interface{}) {
 	message.Type = types.SpecMessage
 
 	Info("logging spec")
-	err := console.Print(console.INFO, message)
-	if err != nil {
-		Fatalf("failed to encode spec %v: %s", spec, err)
+	Info(message)
+	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
+		err := FileLogger(message.Spec, configFolder, "config", ".json")
+		if err != nil {
+			Fatalf("failed to create catalog file: %v", err)
+		}
 	}
 }
 
@@ -82,14 +92,11 @@ func LogCatalog(streams []*types.Stream) {
 	message.Type = types.CatalogMessage
 	message.Catalog = types.GetWrappedCatalog(streams)
 	Info("logging catalog")
-	err := console.Print(console.INFO, message)
-	if err != nil {
-		Fatalf("failed to encode catalog %v: %s", streams, err)
-	}
 
+	Info(message)
 	// write catalog to the specified file
-	if configFolder := viper.GetString("configFolder"); configFolder != "" {
-		err = utils.CreateFile(message.Catalog, configFolder, "catalog", ".json")
+	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
+		err := FileLogger(message.Catalog, configFolder, "catalog", ".json")
 		if err != nil {
 			Fatalf("failed to create catalog file: %v", err)
 		}
@@ -105,17 +112,13 @@ func LogConnectionStatus(err error) {
 	} else {
 		message.ConnectionStatus.Status = types.ConnectionSucceed
 	}
-
-	err = console.Print(console.INFO, message)
-	if err != nil {
-		Fatalf("failed to encode connection status: %s", err)
-	}
+	Info(message)
 }
 
 func LogResponse(response *http.Response) {
 	respDump, err := httputil.DumpResponse(response, true)
 	if err != nil {
-		log.Fatal(err)
+		Fatal(err)
 	}
 
 	fmt.Println(string(respDump))
@@ -124,7 +127,7 @@ func LogResponse(response *http.Response) {
 func LogRequest(req *http.Request) {
 	requestDump, err := httputil.DumpRequest(req, true)
 	if err != nil {
-		log.Fatal(err)
+		Fatal(err)
 	}
 
 	fmt.Println(string(requestDump))
@@ -137,15 +140,52 @@ func LogState(state *types.State) {
 	message := types.Message{}
 	message.Type = types.StateMessage
 	message.State = state
-
-	err := console.Print(console.INFO, message)
-	if err != nil {
-		Fatalf("failed to encode connection status: %s", err)
-	}
-	if configFolder := viper.GetString("configFolder"); configFolder != "" {
-		err = utils.CreateFile(state, configFolder, "state", ".json")
+	Info(message)
+	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
+		err := FileLogger(state, configFolder, "state", ".json")
 		if err != nil {
 			Fatalf("failed to create state file: %v", err)
 		}
 	}
+}
+
+// CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
+func FileLogger(content any, filePath string, fileName, fileExtension string) error {
+	// Construct the full file path
+	contentBytes, err := json.Marshal(content)
+	if err != nil {
+		return fmt.Errorf("failed to marshal content: %v", err)
+	}
+
+	fullPath := filepath.Join(filePath, fileName+fileExtension)
+
+	// Create or truncate the file
+	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create or open file: %v", err)
+	}
+	defer file.Close()
+
+	// Write data to the file
+	_, err = file.Write(contentBytes)
+	if err != nil {
+		return fmt.Errorf("failed to write data to file: %v", err)
+	}
+
+	return nil
+}
+func Init() {
+	// Configure lumberjack for log rotation
+	rotatingFile := &lumberjack.Logger{
+		Filename:   fmt.Sprintf("%s/logs/olake.log", viper.GetString("CONFIG_FOLDER")),
+		MaxSize:    10,
+		MaxBackups: 5,
+		MaxAge:     30,
+		Compress:   true,
+	}
+	// Create a multiwriter to log both console and file
+
+	multiwriter := zerolog.MultiLevelWriter(os.Stdout, rotatingFile)
+
+	logger = zerolog.New(multiwriter).With().Timestamp().Logger()
 }
