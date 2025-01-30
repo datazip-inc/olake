@@ -181,7 +181,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				for {
 					select {
 					case <-parent.Done():
-						return parent.Err()
+						return nil
 					default:
 						record, ok := <-recordChan
 						if !ok {

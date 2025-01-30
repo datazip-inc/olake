@@ -218,3 +218,27 @@ You can save the state in a `state.json` file using the following format:
     ]
 }
 ```
+
+### How to Run MongoDB Unit Tests 
+To run Mongo Unit tests, start the docker compose and initiate it:
+
+Create Network `olake-test`:
+```bash
+docker network create olake-test    
+```
+
+Run docker container:
+```bash
+docker compose -f ./drivers/mongodb/docker-compose.yaml up -d  
+bash ./drivers/mongodb/docker-compose-init.sh  
+```
+
+Then you can run mongo tests:
+```bash
+go test -tags -v ./drivers/mongodb/internal                  
+```
+
+Stop the mongodb instance:
+```bash
+docker compose -f ./drivers/mongodb/docker-compose.yaml down
+```
