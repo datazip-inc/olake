@@ -19,33 +19,23 @@ import (
 type CDCDocument struct {
 	OperationType string         `json:"operationType"`
 	FullDocument  map[string]any `json:"fullDocument"`
-	DocumentKey   map[string]any `json:"documentKey"`
-	ClusterTime   bson.Raw       `json:"clusterTime"`
-	NS            struct {
+	DocumentKey   map[string]any `json:"documentKey"` // Added for delete operations
+	NS            struct {       // Added for namespace info
 		DB         string `json:"db"`
 		Collection string `json:"coll"`
 	} `json:"ns"`
 }
 
-// getCurrentResumeToken gets the current resume token for the change stream
-func (m *Mongo) getCurrentResumeToken(ctx context.Context, collection *mongo.Collection, pipeline mongo.Pipeline) (*bson.Raw, error) {
-	cursor, err := collection.Watch(ctx, pipeline, options.ChangeStream())
-	if err != nil {
-		return nil, fmt.Errorf("failed to open change stream: %v", err)
-	}
-	defer cursor.Close(ctx)
-
-	resumeToken := cursor.ResumeToken()
-	return &resumeToken, nil
-}
-
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
+	// TODO: concurrency based on configuration
 	return utils.Concurrent(context.TODO(), streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
 		return m.changeStreamSync(stream, pool)
 	})
 }
 
 func (m *Mongo) SetupGlobalState(state *types.State) error {
+	// mongo db does not support any global state
+	// stream level states can be used
 	return nil
 }
 
@@ -53,6 +43,7 @@ func (m *Mongo) StateType() types.StateType {
 	return types.StreamType
 }
 
+// does full load on empty state
 func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPool) error {
 	cdcCtx := context.TODO()
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
@@ -65,6 +56,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 
 	prevResumeToken := stream.GetStateKey(cdcCursorField)
 	if prevResumeToken == nil {
+		// get current resume token and do full load for stream
 		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
 		if err != nil {
 			return err
@@ -79,6 +71,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
+	// resume cdc sync from prev resume token
 	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
@@ -92,7 +85,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		return err
 	}
 	defer insert.Close()
-
+	// Iterates over the cursor to print the change stream events
 	for cursor.TryNext(cdcCtx) {
 		var record CDCDocument
 		if err := cursor.Decode(&record); err != nil {
@@ -100,10 +93,8 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}
 
 		var documentToProcess map[string]any
-
 		switch record.OperationType {
 		case "delete":
-			// Handle deleted documents by creating a special document
 			documentToProcess = map[string]any{
 				"_id":            record.DocumentKey["_id"],
 				"cdc_type":       record.OperationType,
@@ -112,7 +103,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 				"namespace_db":   record.NS.DB,
 				"namespace_coll": record.NS.Collection,
 			}
-		case "insert", "update":
+		default:
 			if record.FullDocument != nil {
 				documentToProcess = record.FullDocument
 				documentToProcess["cdc_type"] = record.OperationType
@@ -121,12 +112,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 
 		if documentToProcess != nil {
 			handleObjectID(documentToProcess)
-			rawRecord := types.CreateRawRecord(
-				utils.GetKeysHash(documentToProcess, constants.MongoPrimaryID),
-				documentToProcess,
-				0,
-			)
-
+			rawRecord := types.CreateRawRecord(utils.GetKeysHash(documentToProcess, constants.MongoPrimaryID), documentToProcess, 0)
 			exit, err := insert.Insert(rawRecord)
 			if err != nil {
 				return err
@@ -138,11 +124,22 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 
 		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
 	}
-
 	if err := cursor.Err(); err != nil {
 		return fmt.Errorf("failed to iterate change streams cursor: %s", err)
 	}
 
+	// save state for the current stream
 	stream.SetStateKey(cdcCursorField, prevResumeToken)
 	return nil
+}
+
+func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
+	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream())
+	if err != nil {
+		return nil, fmt.Errorf("failed to open change stream: %v", err)
+	}
+	defer cursor.Close(cdcCtx)
+
+	resumeToken := cursor.ResumeToken()
+	return &resumeToken, nil
 }
