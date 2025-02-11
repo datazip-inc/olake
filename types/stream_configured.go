@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/datazip-inc/olake/utils"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Input/Processed object for Stream
@@ -112,16 +113,27 @@ func (s *ConfiguredStream) GetStateKey(key string) any {
 
 // AppendChunksToStreamState appends new chunks to the Chunks slice in the state.
 func (s *ConfiguredStream) AppendChunksToStreamState(newChunk Chunk) {
-	s.streamState.State.Chunks = append(s.streamState.State.Chunks, newChunk)
+	s.streamState.State.Chunks.Store(newChunk.Min, newChunk)
 }
 
 // GetChunksFromStreamState retrieves all chunks from the state.
 func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
-	return s.streamState.State.Chunks
+	var chunks []Chunk
+	s.streamState.State.Chunks.Range(func(key, value any) bool {
+		if chunk, ok := value.(Chunk); ok {
+			chunks = append(chunks, chunk)
+		}
+		return true
+	})
+	return chunks
 }
-
-func (s *ConfiguredStream) SetChunksFromStreamState(chunks []Chunk) {
-	s.streamState.State.Chunks = chunks
+func (s *ConfiguredStream) UpdateChunkStatusInStreamState(min primitive.ObjectID, newStatus string) {
+	if value, exists := s.streamState.State.Chunks.Load(min); exists {
+		if chunk, ok := value.(Chunk); ok {
+			chunk.Status = newStatus
+			s.streamState.State.Chunks.Store(min, chunk)
+		}
+	}
 }
 
 // Delete keys from Stream State

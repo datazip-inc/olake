@@ -19,87 +19,75 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-type Boundry struct {
-	StartID primitive.ObjectID  `json:"start"`
-	EndID   *primitive.ObjectID `json:"end"`
-	end     time.Time
-}
-
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
-	logger.Infof("starting full load for stream [%s]", stream.ID())
-
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	totalCount, err := m.totalCountInCollection(collection)
-	if err != nil {
-		return err
-	}
-
-	first, last, err := m.fetchExtremes(collection)
-	if err != nil {
-		return err
-	}
-
-	logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
-	logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
-
-	//process failed chunks
+	var chunks []types.Chunk
 	failedChunks := stream.GetChunksFromStreamState()
-	logger.Infof("Processing %d failed chunks for stream [%s]", len(failedChunks), stream.ID())
+	if len(failedChunks) > 0 {
+		//process failed chunks
+		logger.Infof("Processing %d failed chunks for stream [%s]", len(failedChunks), stream.ID())
+		chunks = append(chunks, failedChunks...)
+	}
+	if len(chunks) == 0 {
+		logger.Infof("starting full load for stream [%s]", stream.ID())
 
-	err = utils.ConcurrentC(context.TODO(), utils.Yield(func(_ *types.Chunk) (bool, *types.Chunk, error) {
-		if len(failedChunks) == 0 {
+		totalCount, err := m.totalCountInCollection(collection)
+		if err != nil {
+			return err
+		}
+
+		first, last, err := m.fetchExtremes(collection)
+		if err != nil {
+			return err
+		}
+
+		logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
+		logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
+
+		timeDiff := last.Sub(first).Hours() / 6
+		if timeDiff < 1 {
+			timeDiff = 1
+		}
+		// for every 6hr difference ideal density is 10 Seconds
+		density := time.Duration(timeDiff) * (10 * time.Second)
+		start := first
+		for start.Before(last) {
+			end := start.Add(density)
+			var boundry types.Chunk
+			if end.After(last) {
+				boundry = types.Chunk{
+					Min: *generateMinObjectID(start),
+					Max: nil,
+				}
+				logger.Info("scheduling last full load chunk query!")
+				logger.Info("total chunks are :", len(chunks))
+			} else {
+				boundry = types.Chunk{
+					Min: *generateMinObjectID(start),
+					Max: generateMinObjectID(end),
+				}
+			}
+			chunks = append(chunks, boundry)
+			chunk := types.Chunk{
+				Status: "scheduled",
+				Min:    boundry.Min,
+				Max:    boundry.Max,
+			}
+			stream.AppendChunksToStreamState(chunk)
+			start = end
+		}
+
+	}
+
+	return utils.ConcurrentC(context.TODO(), utils.Yield(func(prev *types.Chunk) (bool, *types.Chunk, error) {
+		if len(chunks) == 0 {
 			return true, nil, nil
 		}
-		chunk := failedChunks[0]
-		failedChunks = failedChunks[1:]
-		//stream.SetChunksFromStreamState(failedChunks)
-		return false, &chunk, nil
-	}), m.config.MaxThreads, func(ctx context.Context, chunk *types.Chunk, number int64) error {
-
-		minId, err := primitive.ObjectIDFromHex(chunk.Min)
-		if err != nil {
-			return err
-		}
-		maxId, err := primitive.ObjectIDFromHex(chunk.Max)
-		if err != nil {
-			return err
-		}
-
-		return m.processChunk(ctx, pool, stream, collection, minId, &maxId)
-	})
-	if err != nil {
-		logger.Errorf("Failed to process one or more failed chunks: %v", err)
-		return err
-	}
-
-	timeDiff := last.Sub(first).Hours() / 6
-	if timeDiff < 1 {
-		timeDiff = 1
-	}
-	// for every 6hr difference ideal density is 10 Seconds
-	density := time.Duration(timeDiff) * (10 * time.Second)
-	return utils.ConcurrentC(context.TODO(), utils.Yield(func(prev *Boundry) (bool, *Boundry, error) {
-		start := first
-		if prev != nil {
-			start = prev.end
-		}
-		boundry := &Boundry{
-			StartID: *generateMinObjectID(start),
-		}
-
-		end := start.Add(density)
-		exit := true
-		if !end.After(last) {
-			exit = false
-			boundry.EndID = generateMinObjectID(end)
-			boundry.end = end
-		} else {
-			logger.Info("Scheduling last full load chunk query!")
-		}
-
-		return exit, boundry, nil
-	}), m.config.MaxThreads, func(ctx context.Context, one *Boundry, number int64) error {
-		return m.processChunk(ctx, pool, stream, collection, one.StartID, one.EndID)
+		nextChunk := chunks[0]
+		chunks = chunks[1:]
+		return false, &nextChunk, nil
+	}), m.config.MaxThreads, func(ctx context.Context, one *types.Chunk, number int64) error {
+		return m.processChunk(ctx, pool, stream, collection, one.Min, one.Max)
 	})
 
 }
@@ -141,17 +129,8 @@ func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, str
 		handleObjectID(doc)
 		exit, err := insert.Insert(types.Record(doc))
 		if err != nil {
-			// Append chunks to stream state with the original min and max
-			chunk := types.Chunk{
-				Min: start.Hex(),
-				Max: func() string {
-					if end != nil {
-						return end.Hex()
-					}
-					return ""
-				}(),
-			}
-			stream.AppendChunksToStreamState(chunk)
+			//Append chunks to stream state with the original min and max
+			stream.UpdateChunkStatusInStreamState(start, "failed")
 
 			return fmt.Errorf("failed to finish backfill chunk: %s", err)
 		}
@@ -159,7 +138,14 @@ func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, str
 			return nil
 		}
 	}
-	return cursor.Err()
+
+	if err := cursor.Err(); err != nil {
+		stream.UpdateChunkStatusInStreamState(start, "failed")
+		return err
+	}
+
+	stream.UpdateChunkStatusInStreamState(start, "succeed")
+	return nil
 }
 
 func (m *Mongo) totalCountInCollection(collection *mongo.Collection) (int64, error) {

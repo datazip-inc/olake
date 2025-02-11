@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/datazip-inc/olake/types"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type Config interface {
@@ -86,7 +87,7 @@ type Stream interface {
 	Validate(source *types.Stream) error
 	AppendChunksToStreamState(newChunk types.Chunk)
 	GetChunksFromStreamState() []types.Chunk
-	SetChunksFromStreamState(chunks []types.Chunk)
+	UpdateChunkStatusInStreamState(primitive.ObjectID, string)
 }
 
 type State interface {

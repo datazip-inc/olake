@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/goccy/go-json"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type StateType string
@@ -84,13 +85,14 @@ func (s *State) MarshalJSON() ([]byte, error) {
 // DualSyncMap struct to hold Cursor and Chunks
 type DualSyncMap struct {
 	Cursor sync.Map `json:"_data"`  // Represents a map of arbitrary data (not directly serialized as-is)
-	Chunks []Chunk  `json:"chunks"` // Represents a flat slice of chunks
+	Chunks sync.Map `json:"chunks"` // Represents a flat slice of chunks
 }
 
 // Chunk struct that holds status, min, and max values
 type Chunk struct {
-	Min string `json:"min"`
-	Max string `json:"max"`
+	Status string              `json:"status"`
+	Min    primitive.ObjectID  `json:"min"`
+	Max    *primitive.ObjectID `json:"max"`
 }
 
 type StreamState struct {
@@ -116,6 +118,17 @@ func (s *StreamState) MarshalJSON() ([]byte, error) {
 		cursorMap[strKey] = value
 		return true
 	})
+	// serlize the Chunks sync.Map (map it to "chunks")
+	var chunks []Chunk
+	s.State.Chunks.Range(func(_, value interface{}) bool {
+		if chunk, ok := value.(Chunk); ok {
+			if chunk.Status != "succeed" {
+				chunks = append(chunks, chunk)
+			}
+		}
+		return true
+	})
+
 	type customState struct {
 		Cursor map[string]interface{} `json:"cdc_cursor"`
 		Chunks []Chunk                `json:"chunks"`
@@ -130,7 +143,7 @@ func (s *StreamState) MarshalJSON() ([]byte, error) {
 		Alias: (*Alias)(s),
 		State: customState{
 			Cursor: cursorMap,
-			Chunks: s.State.Chunks,
+			Chunks: chunks,
 		},
 	})
 }
@@ -159,8 +172,9 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 	}
 
 	// Populate the Chunks slice
-	s.State.Chunks = aux.State.Chunks
-
+	for _, chunk := range aux.State.Chunks {
+		s.State.Chunks.Store(chunk.Min, chunk)
+	}
 	return nil
 }
 
