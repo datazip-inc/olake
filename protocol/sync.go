@@ -53,8 +53,8 @@ var syncCmd = &cobra.Command{
 		}
 
 		state.Mutex = &sync.Mutex{}
-		logger.Info("Running sync with state: ")
-		logger.LogState(state)
+		stateBytes, _ := state.MarshalJSON()
+		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {

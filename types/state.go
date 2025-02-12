@@ -134,6 +134,10 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 		s.State.Store(key, value)
 	}
 
+	if len(aux.State) > 0 {
+		s.HoldsValue.Store(true)
+	}
+
 	return nil
 }
 
