@@ -119,7 +119,7 @@ func (s *ConfiguredStream) AppendChunksToStreamState(newChunk Chunk) {
 // GetChunksFromStreamState retrieves all chunks from the state.
 func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
 	var chunks []Chunk
-	s.streamState.State.Chunks.Range(func(key, value any) bool {
+	s.streamState.State.Chunks.Range(func(_, value any) bool {
 		if chunk, ok := value.(Chunk); ok {
 			chunks = append(chunks, chunk)
 		}
@@ -127,11 +127,11 @@ func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
 	})
 	return chunks
 }
-func (s *ConfiguredStream) UpdateChunkStatusInStreamState(min primitive.ObjectID, newStatus string) {
-	if value, exists := s.streamState.State.Chunks.Load(min); exists {
+func (s *ConfiguredStream) UpdateChunkStatusInStreamState(chunkID primitive.ObjectID, newStatus string) {
+	if value, exists := s.streamState.State.Chunks.Load(chunkID); exists {
 		if chunk, ok := value.(Chunk); ok {
 			chunk.Status = newStatus
-			s.streamState.State.Chunks.Store(min, chunk)
+			s.streamState.State.Chunks.Store(chunkID, chunk)
 		}
 	}
 }

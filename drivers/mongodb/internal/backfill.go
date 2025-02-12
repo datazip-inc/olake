@@ -61,7 +61,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 					Max: nil,
 				}
 				logger.Info("scheduling last full load chunk query!")
-				logger.Info("total chunks are :", len(chunks))
 			} else {
 				boundry = types.Chunk{
 					Min: *generateMinObjectID(start),
@@ -127,18 +126,26 @@ func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, str
 			return fmt.Errorf("backfill decoding document: %s", err)
 		}
 
-			handleObjectID(doc)
-			exit, err := insert.Insert(types.Record(doc))
-			if err != nil {
-				return fmt.Errorf("failed to finish backfill chunk %d: %s", number, err)
-			}
-			if exit {
-				return nil
-			}
-		}
-		return cursor.Err()
-	})
+		handleObjectID(doc)
+		exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
+		if err != nil {
+			//Append chunks to stream state with the original min and max
+			stream.UpdateChunkStatusInStreamState(start, "failed")
 
+			return fmt.Errorf("failed to finish backfill chunk: %s", err)
+		}
+		if exit {
+			return nil
+		}
+	}
+
+	if err := cursor.Err(); err != nil {
+		stream.UpdateChunkStatusInStreamState(start, "failed")
+		return err
+	}
+
+	stream.UpdateChunkStatusInStreamState(start, "succeed")
+	return nil
 }
 
 func (m *Mongo) totalCountInCollection(collection *mongo.Collection) (int64, error) {
