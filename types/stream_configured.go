@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/datazip-inc/olake/utils"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Input/Processed object for Stream
@@ -77,7 +76,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 	ss := &StreamState{
 		Stream:    s.Name(),
 		Namespace: s.Namespace(),
-		State: DualSyncMap{
+		State: StateElements{
 			Cursor: sync.Map{},
 		},
 	}
@@ -127,7 +126,7 @@ func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
 	})
 	return chunks
 }
-func (s *ConfiguredStream) UpdateChunkStatusInStreamState(chunkID primitive.ObjectID, newStatus string) {
+func (s *ConfiguredStream) UpdateChunkStatusInStreamState(chunkID string, newStatus string) {
 	if value, exists := s.streamState.State.Chunks.Load(chunkID); exists {
 		if chunk, ok := value.(Chunk); ok {
 			chunk.Status = newStatus

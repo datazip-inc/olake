@@ -28,8 +28,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		//process failed chunks
 		logger.Infof("Processing %d failed chunks for stream [%s]", len(failedChunks), stream.ID())
 		chunks = append(chunks, failedChunks...)
-	}
-	if len(chunks) == 0 {
+	} else {
 		logger.Infof("starting full load for stream [%s]", stream.ID())
 
 		totalCount, err := m.totalCountInCollection(collection)
@@ -57,13 +56,13 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			var boundry types.Chunk
 			if end.After(last) {
 				boundry = types.Chunk{
-					Min: *generateMinObjectID(start),
-					Max: nil,
+					Min: generateMinObjectID(start),
+					Max: "",
 				}
 				logger.Info("scheduling last full load chunk query!")
 			} else {
 				boundry = types.Chunk{
-					Min: *generateMinObjectID(start),
+					Min: generateMinObjectID(start),
 					Max: generateMinObjectID(end),
 				}
 			}
@@ -87,14 +86,27 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		chunks = chunks[1:]
 		return false, &nextChunk, nil
 	}), m.config.MaxThreads, func(ctx context.Context, one *types.Chunk, number int64) error {
-		return m.processChunk(ctx, pool, stream, collection, one.Min, one.Max)
+		return m.processChunk(ctx, pool, stream, collection, one.Min, &one.Max)
 	})
 
 }
 
-func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, start primitive.ObjectID, end *primitive.ObjectID) error {
+func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, minStr string, maxStr *string) error {
 	threadContext, cancelThread := context.WithCancel(ctx)
 	defer cancelThread()
+	start, err := primitive.ObjectIDFromHex(minStr)
+	if err != nil {
+		return fmt.Errorf("invalid min ObjectID: %s", err)
+	}
+
+	var end *primitive.ObjectID
+	if maxStr != nil {
+		max, err := primitive.ObjectIDFromHex(*maxStr)
+		if err != nil {
+			return fmt.Errorf("invalid max ObjectID: %s", err)
+		}
+		end = &max
+	}
 
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	cursor, err := collection.Aggregate(ctx, generatepipeline(start, end), opts)
@@ -130,7 +142,7 @@ func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, str
 		exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
 		if err != nil {
 			//Append chunks to stream state with the original min and max
-			stream.UpdateChunkStatusInStreamState(start, "failed")
+			stream.UpdateChunkStatusInStreamState(minStr, "failed")
 
 			return fmt.Errorf("failed to finish backfill chunk: %s", err)
 		}
@@ -140,11 +152,11 @@ func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, str
 	}
 
 	if err := cursor.Err(); err != nil {
-		stream.UpdateChunkStatusInStreamState(start, "failed")
+		stream.UpdateChunkStatusInStreamState(minStr, "failed")
 		return err
 	}
 
-	stream.UpdateChunkStatusInStreamState(start, "succeed")
+	stream.UpdateChunkStatusInStreamState(minStr, "succeed")
 	return nil
 }
 
@@ -252,14 +264,14 @@ func generatepipeline(start primitive.ObjectID, end *primitive.ObjectID) mongo.P
 }
 
 // function to generate ObjectID with the minimum value for a given time
-func generateMinObjectID(t time.Time) *primitive.ObjectID {
+func generateMinObjectID(t time.Time) string {
 	// Create the ObjectID with the first 4 bytes as the timestamp and the rest 8 bytes as 0x00
 	objectID := primitive.NewObjectIDFromTimestamp(t)
 	for i := 4; i < 12; i++ {
 		objectID[i] = 0x00
 	}
 
-	return &objectID
+	return objectID.Hex()
 }
 
 func handleObjectID(doc bson.M) {

@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 
 	"github.com/goccy/go-json"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type StateType string
@@ -83,25 +82,25 @@ func (s *State) MarshalJSON() ([]byte, error) {
 }
 
 // DualSyncMap struct to hold Cursor and Chunks
-type DualSyncMap struct {
+type StateElements struct {
 	Cursor sync.Map `json:"_data"`  // Represents a map of arbitrary data (not directly serialized as-is)
 	Chunks sync.Map `json:"chunks"` // Represents a flat slice of chunks
 }
 
 // Chunk struct that holds status, min, and max values
 type Chunk struct {
-	Status string              `json:"status"`
-	Min    primitive.ObjectID  `json:"min"`
-	Max    *primitive.ObjectID `json:"max"`
+	Status string `json:"status"`
+	Min    string `json:"min"`
+	Max    string `json:"max"`
 }
 
 type StreamState struct {
 	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
-	Stream    string      `json:"stream"`
-	Namespace string      `json:"namespace"`
-	SyncMode  string      `json:"sync_mode"`
-	State     DualSyncMap `json:"state"`
+	Stream    string        `json:"stream"`
+	Namespace string        `json:"namespace"`
+	SyncMode  string        `json:"sync_mode"`
+	State     StateElements `json:"state"`
 }
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
@@ -171,8 +170,9 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 		s.State.Cursor.Store(key, value)
 	}
 
-	// Populate the Chunks slice
-	for _, chunk := range aux.State.Chunks {
+	// Populate the Chunks slice in reverse order (newest first)
+	for i := len(aux.State.Chunks) - 1; i >= 0; i-- {
+		chunk := aux.State.Chunks[i]
 		s.State.Chunks.Store(chunk.Min, chunk)
 	}
 	return nil
