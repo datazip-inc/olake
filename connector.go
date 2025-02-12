@@ -6,7 +6,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	protocol "github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/safego"
-	_ "github.com/datazip-inc/olake/writers/local" // registering local writer
+	_ "github.com/datazip-inc/olake/writers/parquet" // registering local parquet writer
 )
 
 func RegisterDriver(driver protocol.Driver) {

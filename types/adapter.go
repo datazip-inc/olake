@@ -3,8 +3,7 @@ package types
 type AdapterType string
 
 const (
-	Local     AdapterType = "LOCAL"
-	S3        AdapterType = "S3"
+	Parquet   AdapterType = "PARQUET"
 	S3Iceberg AdapterType = "S3_ICEBERG"
 )
 

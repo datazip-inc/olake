@@ -1,0 +1,11 @@
+services:
+  mongodb_sync:
+    image: olakego/source-mongodb:latest
+    command: >
+      sync
+      --config /mnt/config/config.json
+      --catalog /mnt/config/catalog.json
+      --destination /mnt/config/writer.json
+      --state /mnt/config/state.json
+    volumes:
+      - ./drivers/mongodb/examples:/mnt/config
