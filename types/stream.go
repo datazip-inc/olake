@@ -26,6 +26,7 @@ type Stream struct {
 	AdditionalProperties string `json:"additional_properties,omitempty"`
 	// Renderable JSON Schema for additional properties supported by respective driver for individual stream
 	AdditionalPropertiesSchema schema.JSONSchema `json:"additional_properties_schema,omitempty"`
+	SyncMode                   SyncMode          `json:"sync_mode,omitempty"` // Mode being used for syncing data
 }
 
 func NewStream(name, namespace string) *Stream {
@@ -84,8 +85,7 @@ func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
 
 func (s *Stream) Wrap(_ int) *ConfiguredStream {
 	return &ConfiguredStream{
-		Stream:   s,
-		SyncMode: FULLREFRESH,
+		Stream: s,
 	}
 }
 

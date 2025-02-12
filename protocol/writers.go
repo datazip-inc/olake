@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
@@ -14,7 +16,7 @@ import (
 )
 
 type NewFunc func() Writer
-type InsertFunction func(record types.Record) (exit bool, err error)
+type InsertFunction func(record types.RawRecord) (exit bool, err error)
 type CloseFunction func()
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
@@ -96,99 +98,128 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	for _, one := range options {
 		one(opts)
 	}
-
 	var thread Writer
-	recordChan := make(chan types.Record)
+	recordChan := make(chan types.RawRecord)
 	child, childCancel := context.WithCancel(parent)
 
-	w.group.Go(func() error {
-		w.threadCounter.Add(1)
-		defer func() {
-			childCancel()  // no more inserts
-			thread.Close() // close it after closing inserts
-			// if wait channel is provided, close it
-			if opts.WaitChannel != nil {
-				close(opts.WaitChannel)
-			}
-			w.threadCounter.Add(-1)
-		}()
+	// fields to make sure schema evolution remain specifc to one thread
+	fields := make(typeutils.Fields)
+	fields.FromSchema(stream.Schema())
 
-		initNewWriter := func() error {
-			thread = w.init() // set the thread variable
-			err := func() error {
-				w.tmu.Lock() // lock for concurrent access of w.config
-				defer w.tmu.Unlock()
-				if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
-					return err
-				}
-				return nil
-			}()
-			if err != nil {
+	initNewWriter := func() error {
+		thread = w.init() // set the thread variable
+		err := func() error {
+			w.tmu.Lock() // lock for concurrent access of w.config
+			defer w.tmu.Unlock()
+			if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
 				return err
 			}
-			return thread.Setup(stream, opts)
-		}
-
-		if err := initNewWriter(); err != nil {
+			return nil
+		}()
+		if err != nil {
 			return err
 		}
-		// fields to be used for flattening and schema evolution
-		fields := make(typeutils.Fields)
-		fields.FromSchema(stream.Schema())
-		flatten := thread.Flattener()
+		return thread.Setup(stream, opts)
+	}
 
-		return func() error {
-			for {
-				select {
-				case <-parent.Done():
-					return parent.Err()
-				default:
-					record, ok := <-recordChan
-					if !ok {
-						return nil
-					}
-					record, err := flatten(record) // flatten the record first
-					if err != nil {
-						return err
-					}
-					change, typeChange, mutations := fields.Process(record)
-					if change || typeChange {
-						w.tmu.Lock()
-						stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
-						w.tmu.Unlock()
-						if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
-							thread.Close()
-							if err := initNewWriter(); err != nil { // init new writer
+	normalizeFunc := func(rawRecord types.RawRecord) (types.Record, error) {
+		flattenedData, err := thread.Flattener()(rawRecord.Data) // flatten the record first
+		if err != nil {
+			return nil, err
+		}
+
+		// add constants key fields
+		flattenedData[constants.OlakeID] = rawRecord.OlakeID
+		flattenedData[constants.OlakeTimestamp] = rawRecord.OlakeTimestamp
+		if rawRecord.DeleteTime != 0 {
+			flattenedData[constants.CDCDeletedAt] = rawRecord.DeleteTime
+		}
+
+		// schema evolution
+		change, typeChange, mutations := fields.Process(flattenedData)
+		if change || typeChange {
+			w.tmu.Lock()
+			stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
+			w.tmu.Unlock()
+			if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
+				thread.Close()
+				if err := initNewWriter(); err != nil { // init new writer
+					return nil, err
+				}
+			} else {
+				err := thread.EvolveSchema(mutations.ToProperties())
+				if err != nil {
+					return nil, fmt.Errorf("failed to evolve schema: %s", err)
+				}
+			}
+		}
+		err = typeutils.ReformatRecord(fields, flattenedData)
+		if err != nil {
+			return nil, err
+		}
+		return flattenedData, nil
+	}
+
+	w.group.Go(func() error {
+		err := func() error {
+			w.threadCounter.Add(1)
+			defer func() {
+				childCancel()  // no more inserts
+				thread.Close() // close it after closing inserts
+				// if wait channel is provided, close it
+				if opts.WaitChannel != nil {
+					close(opts.WaitChannel)
+				}
+				w.threadCounter.Add(-1)
+			}()
+			// init writer first
+			if err := initNewWriter(); err != nil {
+				return err
+			}
+
+			return func() error {
+				for {
+					select {
+					case <-parent.Done():
+						return parent.Err()
+					default:
+						record, ok := <-recordChan
+						if !ok {
+							return nil
+						}
+						// add insert time
+						record.OlakeTimestamp = time.Now().UTC().UnixMilli()
+						// check for normalization
+						if thread.Normalization() {
+							normalizedData, err := normalizeFunc(record)
+							if err != nil {
 								return err
 							}
-						} else {
-							err := thread.EvolveSchema(mutations.ToProperties())
-							if err != nil {
-								return fmt.Errorf("failed to evolve schema: %s", err)
-							}
+							record.Data = normalizedData
 						}
-					}
-					err = typeutils.ReformatRecord(fields, record)
-					if err != nil {
-						return err
-					}
-					if err := thread.Write(child, record); err != nil {
-						return err
-					}
-					w.recordCount.Add(1) // increase the record count
+						// insert record
+						if err := thread.Write(child, record); err != nil {
+							return err
+						}
+						w.recordCount.Add(1) // increase the record count
 
-					if w.TotalRecords()%batchSize == 0 {
-						if !state.IsZero() {
-							logger.LogState(state)
+						if w.TotalRecords()%batchSize == 0 {
+							if !state.IsZero() {
+								logger.LogState(state)
+							}
 						}
 					}
 				}
-			}
+			}()
 		}()
+		if err != nil {
+			logger.Errorf("main writer closed, with error: %s", err)
+		}
+		return err
 	})
 
 	return &ThreadEvent{
-		Insert: func(record types.Record) (bool, error) {
+		Insert: func(record types.RawRecord) (bool, error) {
 			select {
 			case <-child.Done():
 				return false, fmt.Errorf("main writer closed")

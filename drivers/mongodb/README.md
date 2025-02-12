@@ -41,7 +41,8 @@ Add MongoDB credentials in following format in config.json file
       "srv": false,
       "server-ram": 16,
       "database": "database",
-      "max_threads": 50
+      "max_threads": 50,
+      "default_mode" :"cdc"
    }
 ```
 
@@ -95,7 +96,8 @@ After executing the Discover command, a formatted response will look like this:
           "source_defined_primary_key": [
             "_id"
           ],
-          "available_cursor_fields": []
+          "available_cursor_fields": [],
+           "sync_mode": "cdc"
         }
       }
     ]
@@ -123,23 +125,23 @@ Before running the Sync command, the generated `catalog.json` file must be confi
    {
       "streams": [
          {
-         "stream": {
-            "name": "incr2",
-            "namespace": "incr",
-            "type_schema": {
-               "properties": {
-               "_id": { "type": ["string"] },
-               "address": { "type": ["string"] },
-               "age": { "type": ["integer"] },
-               "height": { "type": ["number"] },
-               "name": { "type": ["string"] }
-               }
-            },
-            "supported_sync_modes": ["full_refresh", "cdc"],
-            "source_defined_primary_key": ["_id"],
-            "available_cursor_fields": []
-         },
-         "sync_mode": "cdc"
+            "stream": {
+               "name": "incr2",
+               "namespace": "incr",
+               "type_schema": {
+                  "properties": {
+                  "_id": { "type": ["string"] },
+                  "address": { "type": ["string"] },
+                  "age": { "type": ["integer"] },
+                  "height": { "type": ["number"] },
+                  "name": { "type": ["string"] }
+                  }
+               },
+               "supported_sync_modes": ["full_refresh", "cdc"],
+               "source_defined_primary_key": ["_id"],
+               "available_cursor_fields": [],
+               "sync_mode": "cdc"
+            }
          }
       ]
    }
@@ -150,11 +152,13 @@ Before running the Sync command, the generated `catalog.json` file must be confi
 
 ### Writer File 
 The Writer file defines the configuration for the destination where data needs to be added.<br>
+`normalization` determine that Level 1 flattening is required. <br>
 Example (For Local):
    ```
    {
       "type": "PARQUET",
       "writer": {
+         "normalization":true,
          "local_path": "./examples/reader"
       }
    }
@@ -164,6 +168,7 @@ Example (For S3):
    {
       "type": "PARQUET",
       "writer": {
+         "normalization":false,
          "s3_bucket": "olake",  
          "s3_region": "",
          "s3_access_key": "", 
