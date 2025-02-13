@@ -81,7 +81,7 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
-// DualSyncMap struct to hold Cursor and Chunks
+// StateElements struct to hold Cursor and Chunks
 type StateElements struct {
 	Cursor sync.Map `json:"_data"`  // Represents a map of arbitrary data (not directly serialized as-is)
 	Chunks sync.Map `json:"chunks"` // Represents a flat slice of chunks

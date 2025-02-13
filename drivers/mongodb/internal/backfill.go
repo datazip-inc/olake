@@ -54,25 +54,16 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		for start.Before(last) {
 			end := start.Add(density)
 			var boundry types.Chunk
+			boundry.Status = "scheduled"
+			boundry.Min = generateMinObjectID(start)
 			if end.After(last) {
-				boundry = types.Chunk{
-					Min: generateMinObjectID(start),
-					Max: "",
-				}
+				boundry.Max = generateMinObjectID(last.Add(time.Second))
 				logger.Info("scheduling last full load chunk query!")
 			} else {
-				boundry = types.Chunk{
-					Min: generateMinObjectID(start),
-					Max: generateMinObjectID(end),
-				}
+				boundry.Max = generateMinObjectID(end)
 			}
 			chunks = append(chunks, boundry)
-			chunk := types.Chunk{
-				Status: "scheduled",
-				Min:    boundry.Min,
-				Max:    boundry.Max,
-			}
-			stream.AppendChunksToStreamState(chunk)
+			stream.AppendChunksToStreamState(boundry)
 			start = end
 		}
 
@@ -86,7 +77,11 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		chunks = chunks[1:]
 		return false, &nextChunk, nil
 	}), m.config.MaxThreads, func(ctx context.Context, one *types.Chunk, number int64) error {
-		return m.processChunk(ctx, pool, stream, collection, one.Min, &one.Max)
+		err := m.processChunk(ctx, pool, stream, collection, one.Min, &one.Max)
+		if err != nil {
+			stream.UpdateChunkStatusInStreamState(one.Min, "failed")
+		}
+		return nil
 	})
 
 }
@@ -141,9 +136,6 @@ func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, str
 		handleObjectID(doc)
 		exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
 		if err != nil {
-			//Append chunks to stream state with the original min and max
-			stream.UpdateChunkStatusInStreamState(minStr, "failed")
-
 			return fmt.Errorf("failed to finish backfill chunk: %s", err)
 		}
 		if exit {
@@ -152,10 +144,8 @@ func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, str
 	}
 
 	if err := cursor.Err(); err != nil {
-		stream.UpdateChunkStatusInStreamState(minStr, "failed")
 		return err
 	}
-
 	stream.UpdateChunkStatusInStreamState(minStr, "succeed")
 	return nil
 }
