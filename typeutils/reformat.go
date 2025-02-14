@@ -170,9 +170,8 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		case *string:
 			if v == nil || *v == "" {
 				return time.Time{}, fmt.Errorf("empty string passed")
-			} else {
-				return parseStringTimestamp(*v)
 			}
+			return parseStringTimestamp(*v)
 		case *any:
 			return ReformatDate(*v)
 		}
