@@ -80,6 +80,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		err := m.processChunk(ctx, pool, stream, collection, one.Min, &one.Max)
 		if err != nil {
 			stream.UpdateChunkStatusInStreamState(one.Min, "failed")
+			return err
 		}
 		return nil
 	})
@@ -87,6 +88,9 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 }
 
 func (m *Mongo) processChunk(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, minStr string, maxStr *string) error {
+	// if true {
+	// 	return fmt.Errorf("error he")
+	// }
 	threadContext, cancelThread := context.WithCancel(ctx)
 	defer cancelThread()
 	start, err := primitive.ObjectIDFromHex(minStr)
