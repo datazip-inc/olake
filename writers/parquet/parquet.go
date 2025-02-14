@@ -198,7 +198,7 @@ func (p *Parquet) Check() error {
 		p.config.Path = os.TempDir()
 		logger.Info("s3 writer configuration found")
 	} else if p.config.Path != "" {
-		logger.Info("local writer configuration found, writing at location[%s]", p.config.Path)
+		logger.Infof("local writer configuration found, writing at location[%s]", p.config.Path)
 	} else {
 		return fmt.Errorf("invalid configuration found")
 	}

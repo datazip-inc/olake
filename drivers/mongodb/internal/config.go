@@ -45,7 +45,7 @@ func (c *Config) URI() string {
 	}
 
 	return fmt.Sprintf(
-		"%s://%s:%s@%s/?%s", connectionPrefix,
+		"%s://%s:%s@%s/%s", connectionPrefix,
 		c.Username, c.Password, strings.Join(c.Hosts, ","), options,
 	)
 }
