@@ -67,7 +67,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 		})
 
 		if contains {
-			s.InitialCursorStateValue, _ = state.Streams[i].State.Cursor.Load(s.CursorField)
+			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
 			s.streamState = state.Streams[i]
 			return
 		}
@@ -76,9 +76,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 	ss := &StreamState{
 		Stream:    s.Name(),
 		Namespace: s.Namespace(),
-		State: StateElements{
-			Cursor: sync.Map{},
-		},
+		State:     sync.Map{},
 	}
 
 	// save references of stream state and add it to connector state
@@ -92,33 +90,33 @@ func (s *ConfiguredStream) InitialState() any {
 
 func (s *ConfiguredStream) SetStateCursor(value any) {
 	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Cursor.Store(s.Cursor(), value)
+	s.streamState.State.Store(s.Cursor(), value)
 }
 
 func (s *ConfiguredStream) SetStateKey(key string, value any) {
 	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Cursor.Store(key, value)
+	s.streamState.State.Store(key, value)
 }
 
 func (s *ConfiguredStream) GetStateCursor() any {
-	val, _ := s.streamState.State.Cursor.Load(s.Cursor())
+	val, _ := s.streamState.State.Load(s.Cursor())
 	return val
 }
 
 func (s *ConfiguredStream) GetStateKey(key string) any {
-	val, _ := s.streamState.State.Cursor.Load(key)
+	val, _ := s.streamState.State.Load(key)
 	return val
 }
 
 // AppendChunksToStreamState appends new chunks to the Chunks slice in the state.
 func (s *ConfiguredStream) AppendChunksToStreamState(newChunk Chunk) {
-	s.streamState.State.Chunks.Store(newChunk.Min, newChunk)
+	s.streamState.State.Store(newChunk.Min, newChunk)
 }
 
 // GetChunksFromStreamState retrieves all chunks from the state.
 func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
 	var chunks []Chunk
-	s.streamState.State.Chunks.Range(func(_, value any) bool {
+	s.streamState.State.Range(func(_, value any) bool {
 		if chunk, ok := value.(Chunk); ok {
 			chunks = append(chunks, chunk)
 		}
@@ -127,10 +125,10 @@ func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
 	return chunks
 }
 func (s *ConfiguredStream) UpdateChunkStatusInStreamState(chunkID string, newStatus string) {
-	if value, exists := s.streamState.State.Chunks.Load(chunkID); exists {
+	if value, exists := s.streamState.State.Load(chunkID); exists {
 		if chunk, ok := value.(Chunk); ok {
 			chunk.Status = newStatus
-			s.streamState.State.Chunks.Store(chunkID, chunk)
+			s.streamState.State.Store(chunkID, chunk)
 		}
 	}
 }
@@ -139,10 +137,10 @@ func (s *ConfiguredStream) UpdateChunkStatusInStreamState(chunkID string, newSta
 func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
 	values := []any{}
 	for _, key := range keys {
-		val, _ := s.streamState.State.Cursor.Load(key)
+		val, _ := s.streamState.State.Load(key)
 		values = append(values, val) // cache
 
-		s.streamState.State.Cursor.Delete(key) // delete
+		s.streamState.State.Delete(key) // delete
 	}
 
 	return values

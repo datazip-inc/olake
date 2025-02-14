@@ -81,12 +81,6 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
-// StateElements struct to hold Cursor and Chunks
-type StateElements struct {
-	Cursor sync.Map `json:"_data"`  // Represents a map of arbitrary data (not directly serialized as-is)
-	Chunks sync.Map `json:"chunks"` // Represents a flat slice of chunks
-}
-
 // Chunk struct that holds status, min, and max values
 type Chunk struct {
 	Status string `json:"status"`
@@ -97,37 +91,32 @@ type Chunk struct {
 type StreamState struct {
 	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
-	Stream    string        `json:"stream"`
-	Namespace string        `json:"namespace"`
-	SyncMode  string        `json:"sync_mode"`
-	State     StateElements `json:"state"`
+	Stream    string   `json:"stream"`
+	Namespace string   `json:"namespace"`
+	SyncMode  string   `json:"sync_mode"`
+	State     sync.Map `json:"state"`
 }
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
 func (s *StreamState) MarshalJSON() ([]byte, error) {
 	// Create a map for cursor data
 	cursorMap := make(map[string]interface{})
-
+	chunks := []Chunk{}
 	// Serialize the Cursor sync.Map (map it to "cursor")
-	s.State.Cursor.Range(func(key, value interface{}) bool {
+	s.State.Range(func(key, value interface{}) bool {
 		strKey, ok := key.(string)
 		if !ok {
 			return false
 		}
-		cursorMap[strKey] = value
-		return true
-	})
-	// serlize the Chunks sync.Map (map it to "chunks")
-	var chunks []Chunk
-	s.State.Chunks.Range(func(_, value interface{}) bool {
 		if chunk, ok := value.(Chunk); ok {
 			if chunk.Status != "succeed" {
 				chunks = append(chunks, chunk)
 			}
+		} else {
+			cursorMap[strKey] = value
 		}
 		return true
 	})
-
 	type customState struct {
 		Cursor map[string]interface{} `json:"cdc_cursor"`
 		Chunks []Chunk                `json:"chunks"`
@@ -167,13 +156,13 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 
 	// Populate Cursor sync.Map with the data from the "cursor" field
 	for key, value := range aux.State.Cursor {
-		s.State.Cursor.Store(key, value)
+		s.State.Store(key, value)
 	}
 
 	// Populate the Chunks slice in reverse order (newest first)
 	for i := len(aux.State.Chunks) - 1; i >= 0; i-- {
 		chunk := aux.State.Chunks[i]
-		s.State.Chunks.Store(chunk.Min, chunk)
+		s.State.Store(chunk.Min, chunk)
 	}
 	return nil
 }
