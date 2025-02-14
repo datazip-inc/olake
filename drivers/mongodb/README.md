@@ -64,43 +64,23 @@ After executing the Discover command, a formatted response will look like this:
 {
   "type": "CATALOG",
   "catalog": {
-    "streams": [
-      {
-        "stream": {
-          "name": "tweets",
-          "namespace": "twitter_data",
-          "json_schema": {
-            "Properties": {},
-            "properties": {
-              "_id": {
-                "type": [
-                  "array"
-                ]
-              },
-              "user": {
-                "type": [
-                  "object"
-                ]
-              },
-              "withheld_in_countries": {
-                "type": [
-                  "array"
-                ]
-              }
-            }
-          },
-          "supported_sync_modes": [
-            "full_refresh",
-            "cdc"
-          ],
-          "source_defined_primary_key": [
-            "_id"
-          ],
-          "available_cursor_fields": [],
-           "sync_mode": "cdc"
-        }
-      }
-    ]
+      "selected_streams": {
+         "namespace": [
+               {
+                  "partition_regex": "",
+                  "stream_name": "incr"
+               }
+         ]
+      },
+      "streams": [
+         {
+         "stream": {
+            "name": "tweets",
+            "namespace": "twitter_data",
+            ...
+         }
+         }
+      ]
   }
 }
 ```
@@ -108,7 +88,9 @@ After executing the Discover command, a formatted response will look like this:
 #### Configure Catalog
 Before running the Sync command, the generated `catalog.json` file must be configured. Follow these steps:
 - Remove Unnecessary Streams:<br>
-   Delete any streams you do not want to sync.
+   Remove streams from selected streams.
+- Add Partition based on Column Value
+   Modify partition_regex field to partition destination data based on column value
 
 - Modify Each Stream:<br>
    For each stream you want to sync:<br>
@@ -123,23 +105,20 @@ Before running the Sync command, the generated `catalog.json` file must be confi
 - Final Catalog Example
    ```json
    {
+      "selected_streams": {
+         "namespace": [
+               {
+                  "partition_regex": "",
+                  "stream_name": "incr"
+               }
+         ]
+      },
       "streams": [
          {
             "stream": {
                "name": "incr2",
                "namespace": "incr",
-               "type_schema": {
-                  "properties": {
-                  "_id": { "type": ["string"] },
-                  "address": { "type": ["string"] },
-                  "age": { "type": ["integer"] },
-                  "height": { "type": ["number"] },
-                  "name": { "type": ["string"] }
-                  }
-               },
-               "supported_sync_modes": ["full_refresh", "cdc"],
-               "source_defined_primary_key": ["_id"],
-               "available_cursor_fields": [],
+               ...
                "sync_mode": "cdc"
             }
          }
