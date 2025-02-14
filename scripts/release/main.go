@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/sirupsen/logrus"
+	"github.com/datazip-inc/olake/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +17,7 @@ var releaserCMD = &cobra.Command{
 func main() {
 	err := releaserCMD.Execute()
 	if err != nil {
-		logrus.Error(err)
+		logger.Error(err)
 		os.Exit(1)
 	}
 }
