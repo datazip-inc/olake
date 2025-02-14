@@ -46,7 +46,7 @@ Follow the steps below to get started with OLake:
        - config.json: This file contains your connection details. You can find examples and instructions [here](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb#config-file).
        - writer.json: This file specifies where to save your data (local machine or S3).
     
-    ### Example Structure of `writer.json` :
+    #### Example Structure of `writer.json` :
     Example (For Local): 
     ```json
     {
@@ -82,8 +82,14 @@ Follow the steps below to get started with OLake:
         {
          "selected_streams": {
                 "namespace": [
-                    "table1",
-                    "table2"
+                    {
+                        "partition_regex": "/{col_1, default_value, granularity}",
+                        "stream_name": "table1"
+                    },
+                    {
+                        "partition_regex": "",
+                        "stream_name": "table2"
+                    }
                 ]
             },
             "streams": [
@@ -106,7 +112,14 @@ Follow the steps below to get started with OLake:
             ]
         }
     ```
-
+    #### (Optional) Partition Destination Folder based on Columns
+    Partition data based on column value read more about in olake docs. 
+    ```json
+         "partition_regex": "/{col_1, default_value, granularity}",
+    ```
+    `col_1`: Partitioning Column. Supports `now()` as value for current date.<br>
+    `default_value`: if column value is null or not parsable then default will be used.<br>
+    `granularity` (Optional): Support for time based columns. Supported Values: `HH`,`DD`,`WW`,`MM`,`YY`.
     #### (Optional) Exclude Unwanted Streams
     To exclude streams, edit catalog.json and remove them from selected_streams. <br>
     #### Example (For Exclusion of table2) 
@@ -114,20 +127,29 @@ Follow the steps below to get started with OLake:
     ```json
      "selected_streams": {
         "namespace": [
-            "table1",
-            "table2"
+            {
+                "partition_regex": "/{col_1, default_value, granularity}",
+                "stream_name": "table1"
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "table2"
+            }
         ]
-     }
+    }
     ```
     **After Exclusion of table2**
     ```json
     "selected_streams": {
         "namespace": [
-            "table1"
+            {
+                "partition_regex": "/{col_1, default_value, granularity}",
+                "stream_name": "table1"
+            }
         ]
-     }
+    }
     ```
-3. ### Sync Your Data
+3. ### Sync Data
    Run the following command to sync data from MongoDB to your destination:
     
     ```bash
@@ -135,7 +157,7 @@ Follow the steps below to get started with OLake:
 
     ```
 
-4. ### sync with state: 
+4. ### Sync with State: 
    If you’ve previously synced data and want to continue from where you left off, use the state file:
     ```bash
     docker run -v olake_folder_path:/mnt/config olakego/source-mongodb:latest sync --config /mnt/config/config.json --catalog /mnt/config/catalog.json --destination /mnt/config/writer.json --state /mnt/config/state.json

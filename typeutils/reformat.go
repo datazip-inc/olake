@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/types"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type StringInterface interface {
@@ -170,9 +171,10 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		case *string:
 			if v == nil || *v == "" {
 				return time.Time{}, fmt.Errorf("empty string passed")
-			} else {
-				return parseStringTimestamp(*v)
 			}
+			return parseStringTimestamp(*v)
+		case primitive.DateTime:
+			return v.Time(), nil
 		case *any:
 			return ReformatDate(*v)
 		}

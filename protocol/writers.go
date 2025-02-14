@@ -141,16 +141,9 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			w.tmu.Lock()
 			stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
 			w.tmu.Unlock()
-			if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
-				thread.Close()
-				if err := initNewWriter(); err != nil { // init new writer
-					return nil, err
-				}
-			} else {
-				err := thread.EvolveSchema(mutations.ToProperties())
-				if err != nil {
-					return nil, fmt.Errorf("failed to evolve schema: %s", err)
-				}
+			err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evolve schema: %s", err)
 			}
 		}
 		err = typeutils.ReformatRecord(fields, flattenedData)
@@ -181,7 +174,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				for {
 					select {
 					case <-parent.Done():
-						return parent.Err()
+						return nil
 					default:
 						record, ok := <-recordChan
 						if !ok {
