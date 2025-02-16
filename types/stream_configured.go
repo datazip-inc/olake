@@ -10,7 +10,8 @@ import (
 // Input/Processed object for Stream
 type ConfiguredStream struct {
 	streamState             *StreamState `json:"-"` // in-memory state copy for individual stream
-	InitialCursorStateValue any          `json:"-"` // Cached initial state value
+	StreamMetadata          StreamMetadata
+	InitialCursorStateValue any `json:"-"` // Cached initial state value
 
 	Stream *Stream `json:"stream,omitempty"`
 
