@@ -18,6 +18,8 @@ const (
 	// Mixed type indicates that the connector works with a mix of Globally shared and
 	// Individual stream state (Note: not being used yet but in plan)
 	MixedType StateType = "MIXED"
+	// constant key for chunks
+	ChunksKey = "chunks"
 )
 
 // TODO: Add validation tags; Write custom unmarshal that triggers validation
@@ -89,7 +91,8 @@ type Chunk struct {
 }
 
 type StreamState struct {
-	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
+	*sync.Mutex `json:"-"`
+	HoldsValue  atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
 	Stream    string   `json:"stream"`
 	Namespace string   `json:"namespace"`

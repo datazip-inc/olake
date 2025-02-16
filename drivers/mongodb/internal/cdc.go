@@ -49,9 +49,9 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 
 	prevResumeToken := stream.GetStateKey(cdcCursorField)
-	chunks := stream.GetChunksFromStreamState()
+	chunks := stream.GetStateChunks()
 
-	if prevResumeToken == nil || len(chunks) != 0 {
+	if prevResumeToken == nil || chunks.Len() != 0 {
 		// get current resume token and do full load for stream
 		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
 		if err != nil {

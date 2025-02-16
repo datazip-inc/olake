@@ -337,6 +337,10 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any) string {
 		defaultValue := strings.TrimSpace(strings.Trim(regexVarBlock[1], `'`))
 		granularity := strings.TrimSpace(strings.Trim(regexVarBlock[2], `'`))
 
+		if defaultValue == "" {
+			defaultValue = fmt.Sprintf("default_%s", colName)
+		}
+
 		granularityFunction := func(value any) string {
 			if granularity != "" {
 				timestampInterface, err := typeutils.ReformatValue(types.Timestamp, value)

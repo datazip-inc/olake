@@ -70,6 +70,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 		if contains {
 			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
 			s.streamState = state.Streams[i]
+			s.streamState.Mutex = &sync.Mutex{}
 			return
 		}
 	}
@@ -78,6 +79,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 		Stream:    s.Name(),
 		Namespace: s.Namespace(),
 		State:     sync.Map{},
+		Mutex:     &sync.Mutex{},
 	}
 
 	// save references of stream state and add it to connector state
@@ -92,11 +94,14 @@ func (s *ConfiguredStream) InitialState() any {
 func (s *ConfiguredStream) SetStateCursor(value any) {
 	s.streamState.HoldsValue.Store(true)
 	s.streamState.State.Store(s.Cursor(), value)
+	// TODO: log state
+
 }
 
 func (s *ConfiguredStream) SetStateKey(key string, value any) {
 	s.streamState.HoldsValue.Store(true)
 	s.streamState.State.Store(key, value)
+	// TODO: log state
 }
 
 func (s *ConfiguredStream) GetStateCursor() any {
@@ -109,43 +114,51 @@ func (s *ConfiguredStream) GetStateKey(key string) any {
 	return val
 }
 
-// AppendChunksToStreamState appends new chunks to the Chunks slice in the state.
-func (s *ConfiguredStream) AppendChunksToStreamState(newChunk Chunk) {
-	s.streamState.State.Store(newChunk.Min, newChunk)
-}
-
-// GetChunksFromStreamState retrieves all chunks from the state.
-func (s *ConfiguredStream) GetChunksFromStreamState() []Chunk {
-	var chunks []Chunk
-	s.streamState.State.Range(func(_, value any) bool {
-		if chunk, ok := value.(Chunk); ok {
-			chunks = append(chunks, chunk)
-		}
-		return true
-	})
-	return chunks
-}
-func (s *ConfiguredStream) UpdateChunkStatusInStreamState(chunkID string, newStatus string) {
-	if value, exists := s.streamState.State.Load(chunkID); exists {
-		if chunk, ok := value.(Chunk); ok {
-			chunk.Status = newStatus
-			s.streamState.State.Store(chunkID, chunk)
+// GetStateChunks retrieves all chunks from the state.
+func (s *ConfiguredStream) GetStateChunks() *Set[Chunk] {
+	chunks, _ := s.streamState.State.Load(ChunksKey)
+	if chunks != nil {
+		chunksArray, converted := chunks.([]Chunk)
+		if converted {
+			return NewSet[Chunk](chunksArray...)
 		}
 	}
+	return NewSet[Chunk]()
+}
+
+// set chunks
+func (s *ConfiguredStream) SetStateChunks(chunks *Set[Chunk]) {
+	s.streamState.State.Store(ChunksKey, chunks)
+	s.streamState.HoldsValue.Store(true)
+	// TODO: log state
+
+}
+
+// remove chunk
+func (s *ConfiguredStream) RemoveStateChunk(chunk Chunk) {
+	s.streamState.Lock()
+	defer s.streamState.Unlock()
+
+	stateChunks, loaded := s.streamState.State.LoadAndDelete(ChunksKey)
+	if loaded {
+		stateChunks.(*Set[Chunk]).Remove(chunk)
+		s.streamState.State.Store(ChunksKey, stateChunks)
+	}
+	// TODO: log state
 }
 
 // Delete keys from Stream State
-func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
-	values := []any{}
-	for _, key := range keys {
-		val, _ := s.streamState.State.Load(key)
-		values = append(values, val) // cache
+// func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
+// 	values := []any{}
+// 	for _, key := range keys {
+// 		val, _ := s.streamState.State.Load(key)
+// 		values = append(values, val) // cache
 
-		s.streamState.State.Delete(key) // delete
-	}
+// 		s.streamState.State.Delete(key) // delete
+// 	}
 
-	return values
-}
+// 	return values
+// }
 
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {

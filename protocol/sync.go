@@ -135,11 +135,6 @@ var syncCmd = &cobra.Command{
 
 				logger.Info("Starting ChangeStream process in driver")
 
-				// Setup Global State from Connector
-				if err := driver.SetupGlobalState(state); err != nil {
-					return err
-				}
-
 				err := driver.RunChangeStream(pool, cdcStreams...)
 				if err != nil {
 					// Print state to logs
