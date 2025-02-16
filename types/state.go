@@ -162,6 +162,10 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 		s.State.Store(key, value)
 	}
 
+	if len(aux.State) > 0 {
+		s.HoldsValue.Store(true)
+	}
+
 	// Populate the Chunks slice in reverse order (newest first)
 	for i := len(aux.State.Chunks) - 1; i >= 0; i-- {
 		chunk := aux.State.Chunks[i]

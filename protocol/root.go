@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/datazip-inc/olake/logger/console"
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -40,17 +39,19 @@ var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// set global variables
+		if !noSave {
+			viper.Set("CONFIG_FOLDER", filepath.Dir(configPath))
+		}
+		// logger uses CONFIG_FOLDER
+		logger.Init()
+
 		if len(args) == 0 {
 			return cmd.Help()
 		}
 
 		if ok := utils.IsValidSubcommand(commands, args[0]); !ok {
 			return fmt.Errorf("'%s' is an invalid command. Use 'olake --help' to display usage guide", args[0])
-		}
-
-		// set global variables
-		if !noSave {
-			viper.Set("configFolder", filepath.Dir(configPath))
 		}
 
 		return nil
@@ -75,12 +76,8 @@ func init() {
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
-
-	if err := RootCmd.Execute(); err != nil {
-		logrus.Fatal(err)
+	err := RootCmd.Execute()
+	if err != nil {
+		logger.Fatal(err)
 	}
-	// Disable logging
-	logrus.SetOutput(nil)
-
-	console.SetupWriter(RootCmd.OutOrStdout(), RootCmd.ErrOrStderr())
 }
