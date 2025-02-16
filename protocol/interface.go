@@ -90,5 +90,4 @@ type Stream interface {
 
 type State interface {
 	SetType(typ types.StateType)
-	IsZero() bool
 }

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/types"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -74,49 +73,6 @@ func Warnf(format string, v ...interface{}) {
 	logger.Warn().Msgf(format, v...)
 }
 
-func LogSpec(spec map[string]interface{}) {
-	message := types.Message{}
-	message.Spec = spec
-	message.Type = types.SpecMessage
-
-	Debug("logging spec")
-	Info(message)
-	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
-		err := FileLogger(message.Spec, configFolder, "config", ".json")
-		if err != nil {
-			Fatalf("failed to create spec file: %s", err)
-		}
-	}
-}
-
-func LogCatalog(streams []*types.Stream) {
-	message := types.Message{}
-	message.Type = types.CatalogMessage
-	message.Catalog = types.GetWrappedCatalog(streams)
-	Debug("logging catalog")
-
-	Info(message)
-	// write catalog to the specified file
-	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
-		err := FileLogger(message.Catalog, configFolder, "catalog", ".json")
-		if err != nil {
-			Fatalf("failed to create catalog file: %s", err)
-		}
-	}
-}
-func LogConnectionStatus(err error) {
-	message := types.Message{}
-	message.Type = types.ConnectionStatusMessage
-	message.ConnectionStatus = &types.StatusRow{}
-	if err != nil {
-		message.ConnectionStatus.Message = err.Error()
-		message.ConnectionStatus.Status = types.ConnectionFailed
-	} else {
-		message.ConnectionStatus.Status = types.ConnectionSucceed
-	}
-	Info(message)
-}
-
 func LogResponse(response *http.Response) {
 	respDump, err := httputil.DumpResponse(response, true)
 	if err != nil {
@@ -133,23 +89,6 @@ func LogRequest(req *http.Request) {
 	}
 
 	fmt.Println(string(requestDump))
-}
-
-func LogState(state *types.State) {
-	state.Lock()
-	defer state.Unlock()
-
-	message := types.Message{}
-	message.Type = types.StateMessage
-	message.State = state
-	Debug("logging state")
-	Info(message)
-	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
-		err := FileLogger(state, configFolder, "state", ".json")
-		if err != nil {
-			Fatalf("failed to create state file: %s", err)
-		}
-	}
 }
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,

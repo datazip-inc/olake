@@ -141,7 +141,7 @@ var syncCmd = &cobra.Command{
 					for _, streamState := range state.Streams {
 						streamState.HoldsValue.Store(true)
 					}
-					logger.LogState(state)
+					state.LogState()
 					return fmt.Errorf("error occurred while reading records: %s", err)
 				}
 			}
@@ -175,9 +175,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())
-		if !state.IsZero() {
-			logger.LogState(state)
-		}
+		state.LogState()
 
 		return nil
 	},

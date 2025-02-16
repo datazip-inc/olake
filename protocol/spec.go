@@ -9,9 +9,11 @@ import (
 
 	"github.com/datazip-inc/olake/jsonschema"
 	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -71,7 +73,21 @@ var specCmd = &cobra.Command{
 			}
 		}
 
-		logger.LogSpec(spec)
+		LogSpec := func(spec map[string]interface{}) {
+			message := types.Message{}
+			message.Spec = spec
+			message.Type = types.SpecMessage
+
+			logger.Debug("logging spec")
+			logger.Info(message)
+			if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
+				err := logger.FileLogger(message.Spec, configFolder, "config", ".json")
+				if err != nil {
+					logger.Fatalf("failed to create spec file: %s", err)
+				}
+			}
+		}
+		LogSpec(spec)
 
 		return nil
 	},

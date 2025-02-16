@@ -5,7 +5,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
+	"github.com/spf13/viper"
 )
 
 type StateType string
@@ -60,12 +62,12 @@ func (s *State) SetType(typ StateType) {
 // 	return nil
 // }
 
-func (s *State) IsZero() bool {
+func (s *State) isZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {
-	if s.IsZero() {
+	if s.isZero() {
 		return json.Marshal(nil)
 	}
 
@@ -83,11 +85,33 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
+func (s *State) LogState() {
+	if s.isZero() {
+		logger.Info("state is empty")
+		return
+	}
+	s.Lock()
+	defer s.Unlock()
+
+	message := Message{}
+	message.Type = StateMessage
+	message.State = s
+	logger.Debug("logging state")
+	logger.Info(message)
+
+	// log to file
+	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
+		err := logger.FileLogger(s, configFolder, "state", ".json")
+		if err != nil {
+			logger.Fatalf("failed to create state file: %s", err)
+		}
+	}
+}
+
 // Chunk struct that holds status, min, and max values
 type Chunk struct {
-	Status string `json:"status"`
-	Min    string `json:"min"`
-	Max    string `json:"max"`
+	Min string `json:"min"`
+	Max string `json:"max"`
 }
 
 type StreamState struct {
@@ -102,40 +126,25 @@ type StreamState struct {
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
 func (s *StreamState) MarshalJSON() ([]byte, error) {
-	// Create a map for cursor data
-	cursorMap := make(map[string]interface{})
-	chunks := []Chunk{}
-	// Serialize the Cursor sync.Map (map it to "cursor")
+	// Create a map to temporarily store data for JSON marshaling
+	stateMap := make(map[string]interface{})
 	s.State.Range(func(key, value interface{}) bool {
 		strKey, ok := key.(string)
 		if !ok {
 			return false
 		}
-		if chunk, ok := value.(Chunk); ok {
-			if chunk.Status != "succeed" {
-				chunks = append(chunks, chunk)
-			}
-		} else {
-			cursorMap[strKey] = value
-		}
+		stateMap[strKey] = value
 		return true
 	})
-	type customState struct {
-		Cursor map[string]interface{} `json:"cdc_cursor"`
-		Chunks []Chunk                `json:"chunks"`
-	}
 
 	// Create an alias to avoid infinite recursion
 	type Alias StreamState
 	return json.Marshal(&struct {
 		*Alias
-		State customState `json:"state"`
+		State map[string]interface{} `json:"state"`
 	}{
 		Alias: (*Alias)(s),
-		State: customState{
-			Cursor: cursorMap,
-			Chunks: chunks,
-		},
+		State: stateMap,
 	})
 }
 
@@ -145,10 +154,7 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 	type Alias StreamState
 	aux := &struct {
 		*Alias
-		State struct {
-			Cursor map[string]interface{} `json:"cdc_cursor"`
-			Chunks []Chunk                `json:"chunks"`
-		} `json:"state"`
+		State map[string]interface{} `json:"state"`
 	}{
 		Alias: (*Alias)(s),
 	}
@@ -157,19 +163,31 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Populate Cursor sync.Map with the data from the "cursor" field
-	for key, value := range aux.State.Cursor {
+	// Populate sync.Map with the data from temporary map
+	for key, value := range aux.State {
 		s.State.Store(key, value)
 	}
 
 	if len(aux.State) > 0 {
 		s.HoldsValue.Store(true)
 	}
+	if rawChunks, exists := aux.State[ChunksKey]; exists {
+		if chunkList, ok := rawChunks.([]interface{}); ok {
+			chunksJSON, err := json.Marshal(chunkList)
+			if err != nil {
+				return err
+			}
 
-	// Populate the Chunks slice in reverse order (newest first)
-	for i := len(aux.State.Chunks) - 1; i >= 0; i-- {
-		chunk := aux.State.Chunks[i]
-		s.State.Store(chunk.Min, chunk)
+			var chunks []Chunk
+			if err := json.Unmarshal(chunksJSON, &chunks); err != nil {
+				return err
+			}
+
+			// Create a new Set[Chunk] and add chunks to it
+			chunkSet := NewSet[Chunk](chunks...) // Assuming you have a NewSet function
+			// Store the *Set[Chunk] in State
+			s.State.Store(ChunksKey, chunkSet)
+		}
 	}
 	return nil
 }
