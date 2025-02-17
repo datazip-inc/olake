@@ -124,7 +124,8 @@ func FileLogger(content any, fileName, fileExtension string) error {
 
 func Init() {
 	// Configure lumberjack for log rotation
-	timestamp := fmt.Sprintf("%d-%d-%d_%d-%d-%d", time.Now().Year(), time.Now().Month(), time.Now().Day(), time.Now().Hour(), time.Now().Minute(), time.Now().Second())
+	timeStamp := time.Now().UTC()
+	timestamp := fmt.Sprintf("%d-%d-%d_%d-%d-%d", timeStamp.Year(), timeStamp.Month(), timeStamp.Day(), timeStamp.Hour(), timeStamp.Minute(), timeStamp.Second())
 	rotatingFile := &lumberjack.Logger{
 		Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString("CONFIG_FOLDER"), timestamp), // Log file path
 		MaxSize:    100,                                                                                   // Max size in MB before log rotation

@@ -24,7 +24,7 @@ var RegisteredWriters = map[types.AdapterType]NewFunc{}
 type Options struct {
 	Identifier  string
 	Number      int64
-	WaitChannel chan struct{}
+	WaitChannel chan error
 }
 
 type ThreadOptions func(opt *Options)
@@ -41,7 +41,7 @@ func WithNumber(number int64) ThreadOptions {
 	}
 }
 
-func WithWaitChannel(waitChannel chan struct{}) ThreadOptions {
+func WithWaitChannel(waitChannel chan error) ThreadOptions {
 	return func(opt *Options) {
 		opt.WaitChannel = waitChannel
 	}

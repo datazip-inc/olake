@@ -65,7 +65,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 	}
 	logger.Infof("Running backfill for %d chunks", chunks.Len())
-	processChunk := func(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, minStr string, maxStr *string) error {
+	// notice: err is declared in return, reason: defer call can access it
+	processChunk := func(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, minStr string, maxStr *string) (err error) {
 		threadContext, cancelThread := context.WithCancel(ctx)
 		defer cancelThread()
 		start, err := primitive.ObjectIDFromHex(minStr)
@@ -89,20 +90,16 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 		defer cursor.Close(ctx)
 
-		waitChannel := make(chan struct{})
-		defer func() {
-			if stream.GetSyncMode() == types.CDC {
-				// only wait in cdc mode
-				// make sure it get called after insert.Close()
-				<-waitChannel
-			}
-		}()
-
+		waitChannel := make(chan error, 1)
 		insert, err := pool.NewThread(threadContext, stream, protocol.WithWaitChannel(waitChannel))
 		if err != nil {
 			return err
 		}
-		defer insert.Close()
+		defer func() {
+			insert.Close()
+			// wait for chunk completion
+			err = <-waitChannel
+		}()
 
 		for cursor.Next(ctx) {
 			var doc bson.M

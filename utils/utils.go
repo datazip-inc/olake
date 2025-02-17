@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
 
@@ -141,7 +142,7 @@ func UnmarshalFile(file string, dest any) error {
 
 	err = json.Unmarshal(data, dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
 	}
 
 	return nil
@@ -199,7 +200,10 @@ func genULID(t time.Time) string {
 	ulidMutex.Lock()
 	defer ulidMutex.Unlock()
 	// TODO: Handle Error (Need to remove state and catalog print from logger)
-	newUlid, _ := ulid.New(ulid.Timestamp(t), entropy)
+	newUlid, err := ulid.New(ulid.Timestamp(t), entropy)
+	if err != nil {
+		logger.Fatalf("failed to generate ulid: %s", err)
+	}
 	return newUlid.String()
 }
 
