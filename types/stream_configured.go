@@ -125,7 +125,7 @@ func (s *ConfiguredStream) GetStateChunks() *Set[Chunk] {
 			return chunksSet
 		}
 	}
-	return NewSet[Chunk]()
+	return nil
 }
 
 // set chunks
