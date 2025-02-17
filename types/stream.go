@@ -2,7 +2,6 @@ package types
 
 import (
 	"github.com/goccy/go-json"
-	"github.com/spf13/viper"
 
 	"github.com/datazip-inc/olake/jsonschema/schema"
 	"github.com/datazip-inc/olake/logger"
@@ -121,17 +120,14 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 }
 
 func LogCatalog(streams []*Stream) {
-	message := Message{}
-	message.Type = CatalogMessage
-	message.Catalog = GetWrappedCatalog(streams)
-	logger.Debug("logging catalog")
-
+	message := Message{
+		Type:    CatalogMessage,
+		Catalog: GetWrappedCatalog(streams),
+	}
 	logger.Info(message)
 	// write catalog to the specified file
-	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
-		err := logger.FileLogger(message.Catalog, configFolder, "catalog", ".json")
-		if err != nil {
-			logger.Fatalf("failed to create catalog file: %s", err)
-		}
+	err := logger.FileLogger(message.Catalog, "catalog", ".json")
+	if err != nil {
+		logger.Fatalf("failed to create catalog file: %s", err)
 	}
 }

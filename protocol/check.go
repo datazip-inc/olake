@@ -81,14 +81,15 @@ var checkCmd = &cobra.Command{
 		}()
 
 		// log success
-		message := types.Message{}
-		message.Type = types.ConnectionStatusMessage
-		message.ConnectionStatus = &types.StatusRow{}
+		message := types.Message{
+			Type: types.ConnectionStatusMessage,
+			ConnectionStatus: &types.StatusRow{
+				Status: types.ConnectionSucceed,
+			},
+		}
 		if err != nil {
 			message.ConnectionStatus.Message = err.Error()
 			message.ConnectionStatus.Status = types.ConnectionFailed
-		} else {
-			message.ConnectionStatus.Status = types.ConnectionSucceed
 		}
 		logger.Info(message)
 	},

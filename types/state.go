@@ -7,7 +7,6 @@ import (
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
-	"github.com/spf13/viper"
 )
 
 type StateType string
@@ -93,18 +92,16 @@ func (s *State) LogState() {
 	s.Lock()
 	defer s.Unlock()
 
-	message := Message{}
-	message.Type = StateMessage
-	message.State = s
-	logger.Debug("logging state")
+	message := Message{
+		Type:  StateMessage,
+		State: s,
+	}
 	logger.Info(message)
 
 	// log to file
-	if configFolder := viper.GetString("CONFIG_FOLDER"); configFolder != "" {
-		err := logger.FileLogger(s, configFolder, "state", ".json")
-		if err != nil {
-			logger.Fatalf("failed to create state file: %s", err)
-		}
+	err := logger.FileLogger(message.State, "state", ".json")
+	if err != nil {
+		logger.Fatalf("failed to create state file: %s", err)
 	}
 }
 

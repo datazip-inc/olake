@@ -135,13 +135,6 @@ var syncCmd = &cobra.Command{
 
 				err := driver.RunChangeStream(pool, cdcStreams...)
 				if err != nil {
-					// Print state to logs
-					logger.Errorf("Error in RunChangeStream. Current state:")
-					// Ensure HoldsValue is set for stream states
-					for _, streamState := range state.Streams {
-						streamState.HoldsValue.Store(true)
-					}
-					state.LogState()
 					return fmt.Errorf("error occurred while reading records: %s", err)
 				}
 			}

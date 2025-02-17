@@ -60,6 +60,10 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if resumeToken != nil {
 			prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
 		}
+
+		// save resume token
+		stream.SetStateKey(cdcCursorField, prevResumeToken)
+
 		if err := m.backfill(stream, pool); err != nil {
 			return err
 		}

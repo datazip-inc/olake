@@ -92,7 +92,12 @@ func LogRequest(req *http.Request) {
 }
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
-func FileLogger(content any, filePath string, fileName, fileExtension string) error {
+func FileLogger(content any, fileName, fileExtension string) error {
+	// get config folder
+	filePath := viper.GetString("CONFIG_FOLDER")
+	if filePath == "" {
+		return fmt.Errorf("config folder is not set")
+	}
 	// Construct the full file path
 	contentBytes, err := json.Marshal(content)
 	if err != nil {

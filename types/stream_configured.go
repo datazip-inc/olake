@@ -98,7 +98,6 @@ func (s *ConfiguredStream) SetStateCursor(value any) {
 	s.streamState.HoldsValue.Store(true)
 	s.streamState.State.Store(s.Cursor(), value)
 	s.globalState.LogState()
-
 }
 
 func (s *ConfiguredStream) SetStateKey(key string, value any) {

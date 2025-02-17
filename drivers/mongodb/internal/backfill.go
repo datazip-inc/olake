@@ -55,18 +55,16 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				maxObjecID = generateMinObjectID(last.Add(time.Second))
 			}
 			start = end
-
-			chunk := types.Chunk{
+			chunks.Insert(types.Chunk{
 				Min: minObjectID,
 				Max: maxObjecID,
-			}
-			chunks.Insert(chunk)
+			})
 		}
 		// save the chunks state
 		stream.SetStateChunks(chunks)
 
 	}
-	logger.Infof("Running backfill for %d chunks: %s", chunks.Len(), chunks)
+	logger.Infof("Running backfill for %d chunks", chunks.Len())
 	processChunk := func(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, minStr string, maxStr *string) error {
 		threadContext, cancelThread := context.WithCancel(ctx)
 		defer cancelThread()
