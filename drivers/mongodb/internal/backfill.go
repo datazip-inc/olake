@@ -24,7 +24,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	chunks := stream.GetStateChunks()
 	if chunks == nil || chunks.Len() == 0 {
-		chunks := types.NewSet[types.Chunk]()
+		chunks = types.NewSet[types.Chunk]()
 		// chunks state not present means full load
 		logger.Infof("starting full load for stream [%s]", stream.ID())
 
