@@ -9,6 +9,7 @@ import (
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
+	globalState             *State       `json:"-"` // global state
 	streamState             *StreamState `json:"-"` // in-memory state copy for individual stream
 	StreamMetadata          StreamMetadata
 	InitialCursorStateValue any `json:"-"` // Cached initial state value
@@ -61,8 +62,10 @@ func (s *ConfiguredStream) Cursor() string {
 
 // Returns empty and missing
 func (s *ConfiguredStream) SetupState(state *State) {
+	// set global state (stream must know parent state as well)
+	s.globalState = state
 	// Initialize a state or map the already present state
-	if !state.IsZero() {
+	if !state.isZero() {
 		i, contains := utils.ArrayContains(state.Streams, func(elem *StreamState) bool {
 			return elem.Namespace == s.Namespace() && elem.Stream == s.Name()
 		})
@@ -70,6 +73,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 		if contains {
 			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
 			s.streamState = state.Streams[i]
+			s.streamState.Mutex = &sync.Mutex{}
 			return
 		}
 	}
@@ -78,6 +82,7 @@ func (s *ConfiguredStream) SetupState(state *State) {
 		Stream:    s.Name(),
 		Namespace: s.Namespace(),
 		State:     sync.Map{},
+		Mutex:     &sync.Mutex{},
 	}
 
 	// save references of stream state and add it to connector state
@@ -92,11 +97,13 @@ func (s *ConfiguredStream) InitialState() any {
 func (s *ConfiguredStream) SetStateCursor(value any) {
 	s.streamState.HoldsValue.Store(true)
 	s.streamState.State.Store(s.Cursor(), value)
+	s.globalState.LogState()
 }
 
 func (s *ConfiguredStream) SetStateKey(key string, value any) {
 	s.streamState.HoldsValue.Store(true)
 	s.streamState.State.Store(key, value)
+	s.globalState.LogState()
 }
 
 func (s *ConfiguredStream) GetStateCursor() any {
@@ -109,18 +116,50 @@ func (s *ConfiguredStream) GetStateKey(key string) any {
 	return val
 }
 
-// Delete keys from Stream State
-func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
-	values := []any{}
-	for _, key := range keys {
-		val, _ := s.streamState.State.Load(key)
-		values = append(values, val) // cache
-
-		s.streamState.State.Delete(key) // delete
+// GetStateChunks retrieves all chunks from the state.
+func (s *ConfiguredStream) GetStateChunks() *Set[Chunk] {
+	chunks, _ := s.streamState.State.Load(ChunksKey)
+	if chunks != nil {
+		chunksSet, converted := chunks.(*Set[Chunk])
+		if converted {
+			return chunksSet
+		}
 	}
-
-	return values
+	return nil
 }
+
+// set chunks
+func (s *ConfiguredStream) SetStateChunks(chunks *Set[Chunk]) {
+	s.streamState.State.Store(ChunksKey, chunks)
+	s.streamState.HoldsValue.Store(true)
+	s.globalState.LogState()
+}
+
+// remove chunk
+func (s *ConfiguredStream) RemoveStateChunk(chunk Chunk) {
+	s.streamState.Lock()
+	defer s.streamState.Unlock()
+
+	stateChunks, loaded := s.streamState.State.LoadAndDelete(ChunksKey)
+	if loaded {
+		stateChunks.(*Set[Chunk]).Remove(chunk)
+		s.streamState.State.Store(ChunksKey, stateChunks)
+	}
+	s.globalState.LogState()
+}
+
+// Delete keys from Stream State
+// func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
+// 	values := []any{}
+// 	for _, key := range keys {
+// 		val, _ := s.streamState.State.Load(key)
+// 		values = append(values, val) // cache
+
+// 		s.streamState.State.Delete(key) // delete
+// 	}
+
+// 	return values
+// }
 
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {

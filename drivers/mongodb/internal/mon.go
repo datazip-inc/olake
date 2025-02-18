@@ -54,6 +54,7 @@ func (m *Mongo) Setup() error {
 	m.client = conn
 	// no need to check from discover if it have cdc support or not
 	m.CDCSupport = true
+	// set state
 	return nil
 }
 
