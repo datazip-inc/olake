@@ -83,9 +83,11 @@ type Stream interface {
 	SetStateCursor(value any)
 	SetStateKey(key string, value any)
 	Validate(source *types.Stream) error
+	SetStateChunks(chunks *types.Set[types.Chunk])
+	GetStateChunks() *types.Set[types.Chunk]
+	RemoveStateChunk(chunk types.Chunk)
 }
 
 type State interface {
 	SetType(typ types.StateType)
-	IsZero() bool
 }

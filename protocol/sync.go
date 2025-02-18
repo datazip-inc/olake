@@ -133,11 +133,6 @@ var syncCmd = &cobra.Command{
 
 				logger.Info("Starting ChangeStream process in driver")
 
-				// Setup Global State from Connector
-				if err := driver.SetupGlobalState(state); err != nil {
-					return err
-				}
-
 				err := driver.RunChangeStream(pool, cdcStreams...)
 				if err != nil {
 					return fmt.Errorf("error occurred while reading records: %s", err)
@@ -173,9 +168,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		logger.Infof("Total records read: %d", pool.TotalRecords())
-		if !state.IsZero() {
-			logger.LogState(state)
-		}
+		state.LogState()
 
 		return nil
 	},

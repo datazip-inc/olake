@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/jsonschema"
 	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 
 	"github.com/spf13/cobra"
@@ -71,7 +72,16 @@ var specCmd = &cobra.Command{
 			}
 		}
 
-		logger.LogSpec(spec)
+		// log spec
+		message := types.Message{
+			Spec: spec,
+			Type: types.SpecMessage,
+		}
+		logger.Info(message)
+		err := logger.FileLogger(message.Spec, "config", ".json")
+		if err != nil {
+			logger.Fatalf("failed to create spec file: %s", err)
+		}
 
 		return nil
 	},

@@ -24,7 +24,7 @@ var RegisteredWriters = map[types.AdapterType]NewFunc{}
 type Options struct {
 	Identifier  string
 	Number      int64
-	WaitChannel chan struct{}
+	WaitChannel chan error
 }
 
 type ThreadOptions func(opt *Options)
@@ -41,7 +41,7 @@ func WithNumber(number int64) ThreadOptions {
 	}
 }
 
-func WithWaitChannel(waitChannel chan struct{}) ThreadOptions {
+func WithWaitChannel(waitChannel chan error) ThreadOptions {
 	return func(opt *Options) {
 		opt.WaitChannel = waitChannel
 	}
@@ -197,9 +197,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						w.recordCount.Add(1) // increase the record count
 
 						if w.TotalRecords()%batchSize == 0 {
-							if !state.IsZero() {
-								logger.LogState(state)
-							}
+							state.LogState()
 						}
 					}
 				}
