@@ -107,11 +107,9 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 			for cursor.Next(ctx) {
 				var doc bson.M
-				if _, err := cursor.Current.LookupErr("_id"); err != nil {
+				if _, err = cursor.Current.LookupErr("_id"); err != nil {
 					return fmt.Errorf("looking up idProperty: %s", err)
-				}
-
-				if err = cursor.Decode(&doc); err != nil {
+				} else if err = cursor.Decode(&doc); err != nil {
 					return fmt.Errorf("backfill decoding document: %s", err)
 				}
 
