@@ -86,6 +86,14 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			end = &max
 		}
 
+		minId := stream.GetStream().MinThresholdId
+
+		shouldSkip := minId != "" && *maxStr < minId
+		if shouldSkip {
+			logger.Info("skipping chunk as max id doesnt exceed threshold %s", maxStr)
+			return
+		}
+
 		waitChannel := make(chan error, 1)
 		insert, err := pool.NewThread(threadContext, stream, protocol.WithWaitChannel(waitChannel))
 		if err != nil {
@@ -111,16 +119,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 					return fmt.Errorf("looking up idProperty: %s", err)
 				} else if err = cursor.Decode(&doc); err != nil {
 					return fmt.Errorf("backfill decoding document: %s", err)
-				}
-
-				docId := doc[constants.MongoPrimaryID].(primitive.ObjectID)
-				creationTime := docId.Timestamp().Unix()
-				minTimeStamp := stream.GetStream().MinTimestamp
-
-				shouldSkip := minTimeStamp != 0 && creationTime < minTimeStamp
-				if shouldSkip {
-					logger.Infof("skipping loading: document ID %s has expired", docId.String())
-					continue
 				}
 
 				handleObjectID(doc)
