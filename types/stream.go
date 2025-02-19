@@ -27,7 +27,8 @@ type Stream struct {
 	AdditionalProperties string `json:"additional_properties,omitempty"`
 	// Renderable JSON Schema for additional properties supported by respective driver for individual stream
 	AdditionalPropertiesSchema schema.JSONSchema `json:"additional_properties_schema,omitempty"`
-	SyncMode                   SyncMode          `json:"sync_mode,omitempty"` // Mode being used for syncing data
+	SyncMode                   SyncMode          `json:"sync_mode,omitempty"`     // Mode being used for syncing data
+	MinTimestamp               int64             `json:"min_timestamp,omitempty"` // Minimum unix timestamp in seconds required for processing an entry
 }
 
 func NewStream(name, namespace string) *Stream {
