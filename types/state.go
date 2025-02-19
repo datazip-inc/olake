@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
 )
 
@@ -18,6 +19,8 @@ const (
 	// Mixed type indicates that the connector works with a mix of Globally shared and
 	// Individual stream state (Note: not being used yet but in plan)
 	MixedType StateType = "MIXED"
+	// constant key for chunks
+	ChunksKey = "chunks"
 )
 
 // TODO: Add validation tags; Write custom unmarshal that triggers validation
@@ -58,12 +61,12 @@ func (s *State) SetType(typ StateType) {
 // 	return nil
 // }
 
-func (s *State) IsZero() bool {
+func (s *State) isZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {
-	if s.IsZero() {
+	if s.isZero() {
 		return json.Marshal(nil)
 	}
 
@@ -81,13 +84,41 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
+func (s *State) LogState() {
+	if s.isZero() {
+		logger.Info("state is empty")
+		return
+	}
+	s.Lock()
+	defer s.Unlock()
+
+	message := Message{
+		Type:  StateMessage,
+		State: s,
+	}
+	logger.Info(message)
+
+	// log to file
+	err := logger.FileLogger(message.State, "state", ".json")
+	if err != nil {
+		logger.Fatalf("failed to create state file: %s", err)
+	}
+}
+
+// Chunk struct that holds status, min, and max values
+type Chunk struct {
+	Min string `json:"min"`
+	Max string `json:"max"`
+}
+
 type StreamState struct {
-	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
+	*sync.Mutex `json:"-"`
+	HoldsValue  atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
 	Stream    string   `json:"stream"`
 	Namespace string   `json:"namespace"`
 	SyncMode  string   `json:"sync_mode"`
-	State     sync.Map `json:"-"`
+	State     sync.Map `json:"state"`
 }
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
@@ -137,7 +168,24 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 	if len(aux.State) > 0 {
 		s.HoldsValue.Store(true)
 	}
+	if rawChunks, exists := aux.State[ChunksKey]; exists {
+		if chunkList, ok := rawChunks.([]interface{}); ok {
+			chunksJSON, err := json.Marshal(chunkList)
+			if err != nil {
+				return err
+			}
 
+			var chunks []Chunk
+			if err := json.Unmarshal(chunksJSON, &chunks); err != nil {
+				return err
+			}
+
+			// Create a new Set[Chunk] and add chunks to it
+			chunkSet := NewSet[Chunk](chunks...) // Assuming you have a NewSet function
+			// Store the *Set[Chunk] in State
+			s.State.Store(ChunksKey, chunkSet)
+		}
+	}
 	return nil
 }
 
