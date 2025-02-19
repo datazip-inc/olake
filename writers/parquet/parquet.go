@@ -289,7 +289,7 @@ func (p *Parquet) Close() error {
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("failed to close writers and files:%s", err)
+			return fmt.Errorf("failed to close writers and files: %s", err)
 		}
 	}
 	return nil
