@@ -37,6 +37,7 @@ type FileMetadata struct {
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
 type Parquet struct {
+	threadStart      time.Time
 	options          *protocol.Options
 	config           *Config
 	stream           protocol.Stream
@@ -119,6 +120,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error {
 	p.options = options
 	p.stream = stream
+	p.threadStart = time.Now()
 	p.partitionedFiles = make(map[string][]FileMetadata)
 
 	// for s3 p.config.path may not be provided
@@ -227,13 +229,14 @@ func (p *Parquet) Close() error {
 		}
 		logger.Debugf("Deleted file [%s] with %d records (%s).", filePath, recordCount, reason)
 	}
-
+	totalRecordCound := 0
 	for basePath, parquetFiles := range p.partitionedFiles {
 		for _, fileMetadata := range parquetFiles {
 			// TODO: Async file close and S3 upload (Good First Issue)
 			// construct full file path
 			filePath := filepath.Join(p.config.Path, basePath, fileMetadata.fileName)
 
+			totalRecordCound += fileMetadata.recordCount
 			// Remove empty files
 			if fileMetadata.recordCount == 0 {
 				removeLocalFile(filePath, "no records written", fileMetadata.recordCount)
@@ -288,6 +291,7 @@ func (p *Parquet) Close() error {
 			}
 		}
 	}
+	logger.Infof("finished writer[%s] with speed %0.2f records/second", p.options.Identifier, float64(totalRecordCound)/time.Since(p.threadStart).Seconds())
 	return nil
 }
 
