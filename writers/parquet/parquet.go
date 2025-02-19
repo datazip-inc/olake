@@ -230,8 +230,7 @@ func (p *Parquet) Close() error {
 
 	for basePath, parquetFiles := range p.partitionedFiles {
 		ctx := context.Background()
-		utils.Concurrent(ctx, parquetFiles, len(parquetFiles), func(ctx context.Context, fileMetadata FileMetadata, _ int) error {
-
+		err := utils.Concurrent(ctx, parquetFiles, len(parquetFiles), func(_ context.Context, fileMetadata FileMetadata, _ int) error {
 			// construct full file path
 			filePath := filepath.Join(p.config.Path, basePath, fileMetadata.fileName)
 
@@ -289,6 +288,9 @@ func (p *Parquet) Close() error {
 			}
 			return nil
 		})
+		if err != nil {
+			return fmt.Errorf("failed to close writers and files:%s", err)
+		}
 	}
 	return nil
 }
