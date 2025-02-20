@@ -53,14 +53,22 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		for start.Before(last) {
 			end := start.Add(density)
 			minObjectID := generateMinObjectID(start)
-			maxObjecID := generateMinObjectID(end)
+			maxObjectID := generateMinObjectID(end)
 			if end.After(last) {
-				maxObjecID = generateMinObjectID(last.Add(time.Second))
+				maxObjectID = generateMinObjectID(last.Add(time.Second))
 			}
 			start = end
+			minThresholdId := stream.GetStream().MinThresholdId
+			shouldSkip := minThresholdId != "" && maxObjectID < minThresholdId
+
+			if shouldSkip {
+				logger.Infof("skipping chunk as max obj id [%s] doesnt exceed threshold stream [%s]", maxObjectID, stream.GetStream().Name)
+				continue
+			}
+
 			chunks.Insert(types.Chunk{
 				Min: minObjectID,
-				Max: maxObjecID,
+				Max: maxObjectID,
 			})
 		}
 		// save the chunks state
@@ -84,14 +92,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				return fmt.Errorf("invalid max ObjectID: %s", err)
 			}
 			end = &max
-		}
-
-		minId := stream.GetStream().MinThresholdId
-
-		shouldSkip := minId != "" && *maxStr < minId
-		if shouldSkip {
-			logger.Info("skipping chunk as max id doesnt exceed threshold %s", maxStr)
-			return
 		}
 
 		waitChannel := make(chan error, 1)
