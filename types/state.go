@@ -107,8 +107,8 @@ func (s *State) LogState() {
 
 // Chunk struct that holds status, min, and max values
 type Chunk struct {
-	Min string `json:"min"`
-	Max string `json:"max"`
+	Min any `json:"min"`
+	Max any `json:"max"`
 }
 
 type StreamState struct {

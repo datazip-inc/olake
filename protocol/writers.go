@@ -157,12 +157,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		err := func() error {
 			w.threadCounter.Add(1)
 			defer func() {
-				childCancel()  // no more inserts
-				thread.Close() // close it after closing inserts
+				childCancel() // no more inserts
 				// if wait channel is provided, close it
 				if opts.errorChannel != nil {
 					close(opts.errorChannel)
 				}
+				thread.Close() // close it after closing inserts
 				w.threadCounter.Add(-1)
 			}()
 			// init writer first
