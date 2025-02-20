@@ -236,14 +236,14 @@ func generatepipeline(start, end any) mongo.Pipeline {
 }
 
 // function to generate ObjectID with the minimum value for a given time
-func generateMinObjectID(t time.Time) string {
+func generateMinObjectID(t time.Time) *primitive.ObjectID {
 	// Create the ObjectID with the first 4 bytes as the timestamp and the rest 8 bytes as 0x00
 	objectID := primitive.NewObjectIDFromTimestamp(t)
 	for i := 4; i < 12; i++ {
 		objectID[i] = 0x00
 	}
 
-	return objectID.Hex()
+	return &objectID
 }
 
 func handleObjectID(doc bson.M) {
