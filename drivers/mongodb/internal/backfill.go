@@ -58,7 +58,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				maxObjectID = generateMinObjectID(last.Add(time.Second))
 			}
 			start = end
-			minThresholdId := stream.GetStream().MinThresholdId
+			minThresholdId := stream.GetStream().MinThresholdID
 			shouldSkip := minThresholdId != "" && maxObjectID < minThresholdId
 
 			if shouldSkip {
