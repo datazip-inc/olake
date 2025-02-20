@@ -22,9 +22,9 @@ type CloseFunction func()
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
 
 type Options struct {
-	Identifier  string
-	Number      int64
-	WaitChannel chan error
+	Identifier   string
+	Number       int64
+	errorChannel chan error
 }
 
 type ThreadOptions func(opt *Options)
@@ -41,9 +41,9 @@ func WithNumber(number int64) ThreadOptions {
 	}
 }
 
-func WithWaitChannel(waitChannel chan error) ThreadOptions {
+func WithWaitChannel(errChan chan error) ThreadOptions {
 	return func(opt *Options) {
-		opt.WaitChannel = waitChannel
+		opt.errorChannel = errChan
 	}
 }
 
@@ -160,8 +160,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				childCancel()  // no more inserts
 				thread.Close() // close it after closing inserts
 				// if wait channel is provided, close it
-				if opts.WaitChannel != nil {
-					close(opts.WaitChannel)
+				if opts.errorChannel != nil {
+					close(opts.errorChannel)
 				}
 				w.threadCounter.Add(-1)
 			}()
