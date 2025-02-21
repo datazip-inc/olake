@@ -69,6 +69,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		stream.SetStateChunks(chunks)
 		chunksArray = chunks.Array()
 	} else {
+		// TODO: Add Records to Sync (Good First Issue) (can be done via storing prev records synced)
 		rawChunkArray := chunks.Array()
 		// convert to premitive.ObjectID
 		for _, chunk := range rawChunkArray {
