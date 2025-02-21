@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"time"
@@ -25,6 +26,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	chunks := stream.GetStateChunks()
 	backfillCtx := context.TODO()
+	var chunksArray []types.Chunk
 	if chunks == nil || chunks.Len() == 0 {
 		chunks = types.NewSet[types.Chunk]()
 		// chunks state not present means full load
@@ -42,7 +44,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
 		logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
-
+		pool.AddRecordsToSync(totalCount)
 		timeDiff := last.Sub(first).Hours() / 6
 		if timeDiff < 1 {
 			timeDiff = 1
@@ -65,26 +67,25 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 		// save the chunks state
 		stream.SetStateChunks(chunks)
-
+		chunksArray = chunks.Array()
+	} else {
+		rawChunkArray := chunks.Array()
+		// convert to premitive.ObjectID
+		for _, chunk := range rawChunkArray {
+			premitiveMinID, _ := primitive.ObjectIDFromHex(chunk.Min.(string))
+			premitiveMaxID, _ := primitive.ObjectIDFromHex(chunk.Max.(string))
+			chunksArray = append(chunksArray, types.Chunk{
+				Min: &premitiveMinID,
+				Max: &premitiveMaxID,
+			})
+		}
 	}
+
 	logger.Infof("Running backfill for %d chunks", chunks.Len())
 	// notice: err is declared in return, reason: defer call can access it
-	processChunk := func(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream, collection *mongo.Collection, minStr string, maxStr *string) (err error) {
+	processChunk := func(ctx context.Context, chunk types.Chunk, _ int) (err error) {
 		threadContext, cancelThread := context.WithCancel(ctx)
 		defer cancelThread()
-		start, err := primitive.ObjectIDFromHex(minStr)
-		if err != nil {
-			return fmt.Errorf("invalid min ObjectID: %s", err)
-		}
-
-		var end *primitive.ObjectID
-		if maxStr != nil {
-			max, err := primitive.ObjectIDFromHex(*maxStr)
-			if err != nil {
-				return fmt.Errorf("invalid max ObjectID: %s", err)
-			}
-			end = &max
-		}
 
 		waitChannel := make(chan error, 1)
 		insert, err := pool.NewThread(threadContext, stream, protocol.WithWaitChannel(waitChannel))
@@ -99,7 +100,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursorIterationFunc := func() error {
-			cursor, err := collection.Aggregate(ctx, generatepipeline(start, end), opts)
+			cursor, err := collection.Aggregate(ctx, generatepipeline(chunk.Min, chunk.Max), opts)
 			if err != nil {
 				return fmt.Errorf("collection.Find: %s", err)
 			}
@@ -126,14 +127,19 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
-
-	return utils.Concurrent(backfillCtx, chunks.Array(), m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
-		err := processChunk(backfillCtx, pool, stream, collection, one.Min, &one.Max)
+	// note: there are performance issues with mongodb if chunks are not sorted
+	sort.Slice(chunksArray, func(i, j int) bool {
+		return chunksArray[i].Min.(*primitive.ObjectID).Hex() < chunksArray[j].Min.(*primitive.ObjectID).Hex()
+	})
+	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
+		batchStartTime := time.Now()
+		err := processChunk(backfillCtx, one, number)
 		if err != nil {
 			return err
 		}
 		// remove success chunk from state
 		stream.RemoveStateChunk(one)
+		logger.Debugf("finished %d chunk[%s-%s] in %0.2f seconds", number, one.Min, one.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})
 }
@@ -189,7 +195,7 @@ func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Tim
 	return start, end, nil
 }
 
-func generatepipeline(start primitive.ObjectID, end *primitive.ObjectID) mongo.Pipeline {
+func generatepipeline(start, end any) mongo.Pipeline {
 	andOperation := bson.A{
 		bson.D{
 			{
@@ -217,7 +223,7 @@ func generatepipeline(start primitive.ObjectID, end *primitive.ObjectID) mongo.P
 			Key: "_id",
 			Value: bson.D{{
 				Key:   "$lt",
-				Value: *end,
+				Value: end,
 			}},
 		}})
 	}
@@ -242,14 +248,14 @@ func generatepipeline(start primitive.ObjectID, end *primitive.ObjectID) mongo.P
 }
 
 // function to generate ObjectID with the minimum value for a given time
-func generateMinObjectID(t time.Time) string {
+func generateMinObjectID(t time.Time) *primitive.ObjectID {
 	// Create the ObjectID with the first 4 bytes as the timestamp and the rest 8 bytes as 0x00
 	objectID := primitive.NewObjectIDFromTimestamp(t)
 	for i := 4; i < 12; i++ {
 		objectID[i] = 0x00
 	}
 
-	return objectID.Hex()
+	return &objectID
 }
 
 func handleObjectID(doc bson.M) {
