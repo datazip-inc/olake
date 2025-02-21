@@ -120,8 +120,12 @@ var syncCmd = &cobra.Command{
 
 			return false
 		})
-
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
+
+		// start monitoring stats
+		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
+			return pool.SyncedRecords(), pool.threadCounter.Load(), pool.GetRecordsToSync()
+		})
 
 		// Execute driver ChangeStreams mode
 		GlobalCxGroup.Add(func(_ context.Context) error { // context is not used to keep processes mutually exclusive
@@ -167,7 +171,7 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("error occurred in writer pool: %s", err)
 		}
 
-		logger.Infof("Total records read: %d", pool.TotalRecords())
+		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogState()
 
 		return nil

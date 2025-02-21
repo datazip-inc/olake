@@ -1,12 +1,14 @@
 package logger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -120,6 +122,43 @@ func FileLogger(content any, fileName, fileExtension string) error {
 	}
 
 	return nil
+}
+
+func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
+	startTime := time.Now()
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				Info("Monitoring stopped")
+				return
+			case <-ticker.C:
+				syncedRecords, runningThreads, recordsToSync := statsFunc()
+				memStats := new(runtime.MemStats)
+				runtime.ReadMemStats(memStats)
+				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
+				timeElapsed := time.Since(startTime).Seconds()
+				remainingRecords := recordsToSync - syncedRecords
+				estimatedSeconds := "Not Determined"
+				if speed > 0 && remainingRecords >= 0 {
+					estimatedSeconds = fmt.Sprintf("%.2f s", float64(remainingRecords)/speed)
+				}
+				stats := map[string]interface{}{
+					"Running Threads":          runningThreads,
+					"Synced Records":           syncedRecords,
+					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
+					"Speed":                    fmt.Sprintf("%.2f rps", speed),
+					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
+					"Estimated Remaining Time": estimatedSeconds,
+				}
+				if err := FileLogger(stats, "stats", ".json"); err != nil {
+					Fatalf("failed to write stats in file: %s", err)
+				}
+			}
+		}
+	}()
 }
 
 func Init() {

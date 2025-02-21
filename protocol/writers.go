@@ -22,9 +22,9 @@ type CloseFunction func()
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
 
 type Options struct {
-	Identifier  string
-	Number      int64
-	WaitChannel chan error
+	Identifier   string
+	Number       int64
+	errorChannel chan error
 }
 
 type ThreadOptions func(opt *Options)
@@ -41,13 +41,14 @@ func WithNumber(number int64) ThreadOptions {
 	}
 }
 
-func WithWaitChannel(waitChannel chan error) ThreadOptions {
+func WithWaitChannel(errChan chan error) ThreadOptions {
 	return func(opt *Options) {
-		opt.WaitChannel = waitChannel
+		opt.errorChannel = errChan
 	}
 }
 
 type WriterPool struct {
+	totalRecords  atomic.Int64
 	recordCount   atomic.Int64
 	threadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
 	config        any          // respective writer config
@@ -76,6 +77,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 
 	group, ctx := errgroup.WithContext(ctx)
 	return &WriterPool{
+		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
 		threadCounter: atomic.Int64{},
 		config:        config.WriterConfig,
@@ -157,12 +159,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		err := func() error {
 			w.threadCounter.Add(1)
 			defer func() {
-				childCancel()  // no more inserts
-				thread.Close() // close it after closing inserts
+				childCancel() // no more inserts
 				// if wait channel is provided, close it
-				if opts.WaitChannel != nil {
-					close(opts.WaitChannel)
+				if opts.errorChannel != nil {
+					close(opts.errorChannel)
 				}
+				thread.Close() // close it after closing inserts
 				w.threadCounter.Add(-1)
 			}()
 			// init writer first
@@ -196,7 +198,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						}
 						w.recordCount.Add(1) // increase the record count
 
-						if w.TotalRecords()%batchSize == 0 {
+						if w.SyncedRecords()%batchSize == 0 {
 							state.LogState()
 						}
 					}
@@ -225,8 +227,16 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 }
 
 // Returns total records fetched at runtime
-func (w *WriterPool) TotalRecords() int64 {
+func (w *WriterPool) SyncedRecords() int64 {
 	return w.recordCount.Load()
+}
+
+func (w *WriterPool) AddRecordsToSync(recordCount int64) {
+	w.totalRecords.Add(recordCount)
+}
+
+func (w *WriterPool) GetRecordsToSync() int64 {
+	return w.totalRecords.Load()
 }
 
 func (w *WriterPool) Wait() error {
