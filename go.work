@@ -3,4 +3,5 @@ go 1.22
 use (
 	.
 	./drivers/mongodb
+	./drivers/postgres
 )
