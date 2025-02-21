@@ -260,3 +260,30 @@ SDKs are libraries/packages that can orchestrate the connector in two environmen
 ### Olake
 
 Olake will be built on top of SDK providing persistent storage and a user interface that enables orchestration directly from your machine with default writer mode as `S3 Iceberg Parquet`
+
+
+
+## Contributing
+
+We ❤️ contributions big or small. Please read [CONTRIBUTING.md](CONTRIBUTING.md) to get started with making contributions to OLake.
+
+Not sure how to get started? Just ping us on `#contributing-to-olake` in our [slack community](https://olake.io/slack)
+
+<br /><br />
+
+## Documentation
+
+You can find docs at https://olake.io/docs. If you need any clarification or find something missing, feel free to raise a GitHub issue with the label `documentation` at [olake-docs](https://github.com/datazip-inc/olake-docs/) repo or reach out to us at the community slack channel.
+
+<br /><br />
+
+
+## Community
+
+Join the [slack community](https://olake.io/slack) to know more about OLake, future roadmaps and community meetups, about Data Lakes and Lakehouses, the Data Engineering Ecosystem and to connect with other users and contributors.
+
+Checkout [OLake Roadmap](https://olake.io/docs/roadmap) to track and influence the way we build it, your expert opinion is always welcomed for us to build a best class open source offering in Data space.
+
+If you have any ideas, questions, or any feedback, please share on our [Github Discussions](https://github.com/datazip-inc/olake/discussions) or raise an issue.
+
+As always, thanks to our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors)
