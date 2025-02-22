@@ -125,7 +125,7 @@ func (s *ConfiguredStream) GetStateChunks() *Set[Chunk] {
 			return chunksSet
 		}
 	}
-	return NewSet[Chunk]()
+	return nil
 }
 
 // set chunks
@@ -137,15 +137,21 @@ func (s *ConfiguredStream) SetStateChunks(chunks *Set[Chunk]) {
 
 // remove chunk
 func (s *ConfiguredStream) RemoveStateChunk(chunk Chunk) {
+	// locking global state so that marshaling call not happen on streamState while writing
+	// example: logState can be called from anywhere which marshal the streamState
+	s.globalState.Lock()
 	s.streamState.Lock()
-	defer s.streamState.Unlock()
+	defer func() {
+		s.streamState.Unlock()
+		s.globalState.Unlock()
+		s.globalState.LogState()
+	}()
 
 	stateChunks, loaded := s.streamState.State.LoadAndDelete(ChunksKey)
 	if loaded {
 		stateChunks.(*Set[Chunk]).Remove(chunk)
 		s.streamState.State.Store(ChunksKey, stateChunks)
 	}
-	s.globalState.LogState()
 }
 
 // Delete keys from Stream State

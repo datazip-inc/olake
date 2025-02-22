@@ -113,13 +113,13 @@ Follow the steps below to get started with OLake:
         }
     ```
     #### (Optional) Partition Destination Folder based on Columns
-    Partition data based on column value read more about in olake docs. 
+    Partition data based on column value. Read more in the documentation about [S3 partitioning](https://olake.io/docs/writers/s3#s3-data-partitioning).
     ```json
          "partition_regex": "/{col_1, default_value, granularity}",
     ```
-    `col_1`: Partitioning Column. Supports `now()` as value for current date.<br>
-    `default_value`: if column value is null or not parsable then default will be used.<br>
-    `granularity` (Optional): Support for time based columns. Supported Values: `HH`,`DD`,`WW`,`MM`,`YY`.
+    `col_1`: Partitioning Column. Supports `now()` as a value for the current date.<br>
+    `default_value`: if the column value is null or not parsable then the default will be used.<br>
+    `granularity` (Optional): Support for time-based columns. Supported Values: `HH`,`DD`,`WW`,`MM`,`YY`.
     #### (Optional) Exclude Unwanted Streams
     To exclude streams, edit catalog.json and remove them from selected_streams. <br>
     #### Example (For Exclusion of table2) 
@@ -168,7 +168,7 @@ For more details, refer to the [documentation](https://olake.io/docs).
 
 
 
-## Benchmark Results: Refer this doc for complete information
+## Benchmark Results: Refer to this doc for complete information
 
 ### Speed Comparison: Full Load Performance
 
@@ -217,9 +217,10 @@ Find more [here](https://olake.io/docs/connectors/mongodb/benchmarks).
 
 Drivers aka Connectors/Source that includes the logic for interacting with database. Upcoming drivers being planned are
 - [x] MongoDB ([Documentation](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb))
-- [ ] Kafka
-- [ ] Postgres
+- [ ] MySQL (Coming Soon!)
+- [ ] Postgres (Coming Soon!)
 - [ ] DynamoDB
+- [ ] Kafka
 
 
 
@@ -229,7 +230,7 @@ Writers are directly integrated into drivers to avoid blockage of writing/readin
 
 Writers are being planned in this order
 - [x] Parquet Writer (Writes Parquet files on Local/S3)
-- [ ] S3 Iceberg Parquet
+- [ ] S3 Iceberg Parquet (Coming Soon!)
 - [ ] Snowflake
 - [ ] BigQuery
 - [ ] RedShift
@@ -259,3 +260,30 @@ SDKs are libraries/packages that can orchestrate the connector in two environmen
 ### Olake
 
 Olake will be built on top of SDK providing persistent storage and a user interface that enables orchestration directly from your machine with default writer mode as `S3 Iceberg Parquet`
+
+
+
+## Contributing
+
+We ❤️ contributions big or small. Please read [CONTRIBUTING.md](CONTRIBUTING.md) to get started with making contributions to OLake.
+
+Not sure how to get started? Just ping us on `#contributing-to-olake` in our [slack community](https://olake.io/slack)
+
+<br /><br />
+
+## Documentation
+
+You can find docs at https://olake.io/docs. If you need any clarification or find something missing, feel free to raise a GitHub issue with the label `documentation` at [olake-docs](https://github.com/datazip-inc/olake-docs/) repo or reach out to us at the community slack channel.
+
+<br /><br />
+
+
+## Community
+
+Join the [slack community](https://olake.io/slack) to know more about OLake, future roadmaps and community meetups, about Data Lakes and Lakehouses, the Data Engineering Ecosystem and to connect with other users and contributors.
+
+Checkout [OLake Roadmap](https://olake.io/docs/roadmap) to track and influence the way we build it, your expert opinion is always welcomed for us to build a best class open source offering in Data space.
+
+If you have any ideas, questions, or any feedback, please share on our [Github Discussions](https://github.com/datazip-inc/olake/discussions) or raise an issue.
+
+As always, thanks to our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors)

@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	discoverTime   = 5 * time.Minute // maximum time allowed to discover all the streams
-	cdcCursorField = "_data"
+	discoverTime        = 5 * time.Minute // maximum time allowed to discover all the streams
+	cdcCursorField      = "_data"
+	defaultBackoffCount = 3
 )
 
 type Mongo struct {
@@ -54,7 +55,14 @@ func (m *Mongo) Setup() error {
 	m.client = conn
 	// no need to check from discover if it have cdc support or not
 	m.CDCSupport = true
-	// set state
+	// check for default backoff count
+	if m.config.RetryCount < 0 {
+		logger.Info("setting backoff retry count to default value %d", defaultBackoffCount)
+		m.config.RetryCount = defaultBackoffCount
+	} else {
+		// add 1 for first run
+		m.config.RetryCount += 1
+	}
 	return nil
 }
 
