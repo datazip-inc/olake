@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
-
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -32,37 +30,27 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		// chunks state not present means full load
 		logger.Infof("starting full load for stream [%s]", stream.ID())
 
+		boundaries, err := m.getChunkBoundaries(collection)
+		if err != nil {
+			return fmt.Errorf("failed to get chunk boundaries: %s", err)
+		}
+		if len(boundaries) == 0 {
+			logger.Infof("collection is empty, nothing to backfill")
+			return nil
+		}
 		totalCount, err := m.totalCountInCollection(backfillCtx, collection)
 		if err != nil {
 			return err
 		}
 
-		first, last, err := m.fetchExtremes(collection)
-		if err != nil {
-			return err
-		}
-
-		logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
 		logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
+		logger.Infof("Total documents to sync: %d", totalCount)
 		pool.AddRecordsToSync(totalCount)
-		timeDiff := last.Sub(first).Hours() / 6
-		if timeDiff < 1 {
-			timeDiff = 1
-		}
-		// for every 6hr difference ideal density is 10 Seconds
-		density := time.Duration(timeDiff) * (10 * time.Second)
-		start := first
-		for start.Before(last) {
-			end := start.Add(density)
-			minObjectID := generateMinObjectID(start)
-			maxObjecID := generateMinObjectID(end)
-			if end.After(last) {
-				maxObjecID = generateMinObjectID(last.Add(time.Second))
-			}
-			start = end
+
+		for i := 0; i < len(boundaries)-1; i += 1 {
 			chunks.Insert(types.Chunk{
-				Min: minObjectID,
-				Max: maxObjecID,
+				Min: boundaries[i],
+				Max: boundaries[i+1],
 			})
 		}
 		// save the chunks state
@@ -81,9 +69,9 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			})
 		}
 	}
-
 	logger.Infof("Running backfill for %d chunks", chunks.Len())
-	// notice: err is declared in return, reason: defer call can access it
+
+	// processChunk handles a single chunk of data
 	processChunk := func(ctx context.Context, chunk types.Chunk, _ int) (err error) {
 		threadContext, cancelThread := context.WithCancel(ctx)
 		defer cancelThread()
@@ -99,19 +87,31 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			err = <-waitChannel
 		}()
 
-		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
-		cursorIterationFunc := func() error {
-			cursor, err := collection.Aggregate(ctx, generatepipeline(chunk.Min, chunk.Max), opts)
+		start, err := primitive.ObjectIDFromHex(chunk.Min.(string))
+		if err != nil {
+			return fmt.Errorf("invalid min ObjectID: %s", err)
+		}
+
+		var end *primitive.ObjectID
+		if chunk.Max != "" {
+			max, err := primitive.ObjectIDFromHex(chunk.Max.(string))
 			if err != nil {
-				return fmt.Errorf("collection.Find: %s", err)
+				return fmt.Errorf("invalid max ObjectID: %s", err)
+			}
+			end = &max
+		}
+
+		cursorIterationFunc := func() error {
+			opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
+			cursor, err := collection.Aggregate(ctx, generatepipeline(start, end), opts)
+			if err != nil {
+				return fmt.Errorf("collection.Aggregate: %s", err)
 			}
 			defer cursor.Close(ctx)
 
 			for cursor.Next(ctx) {
 				var doc bson.M
-				if _, err = cursor.Current.LookupErr("_id"); err != nil {
-					return fmt.Errorf("looking up idProperty: %s", err)
-				} else if err = cursor.Decode(&doc); err != nil {
+				if err = cursor.Decode(&doc); err != nil {
 					return fmt.Errorf("backfill decoding document: %s", err)
 				}
 
@@ -126,12 +126,10 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			}
 			return cursor.Err()
 		}
+
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
-	// note: there are performance issues with mongodb if chunks are not sorted
-	sort.Slice(chunksArray, func(i, j int) bool {
-		return chunksArray[i].Min.(*primitive.ObjectID).Hex() < chunksArray[j].Min.(*primitive.ObjectID).Hex()
-	})
+
 	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
 		batchStartTime := time.Now()
 		err := processChunk(backfillCtx, one, number)
@@ -144,7 +142,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		return nil
 	})
 }
-
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
 	command := bson.D{{
@@ -160,43 +157,64 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 	return int64(countResult["count"].(int32)), nil
 }
 
-func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Time, error) {
-	extreme := func(sortby int) (time.Time, error) {
-		// Find the first document
-		var result bson.M
-		// Sort by _id ascending to get the first document
-		err := collection.FindOne(context.Background(), bson.D{}, options.FindOne().SetSort(bson.D{{
-			Key: "_id", Value: sortby}})).Decode(&result)
-		if err != nil {
-			return time.Time{}, err
-		}
-
-		// Extract the _id from the result
-		objectID, ok := result["_id"].(primitive.ObjectID)
-		if !ok {
-			return time.Time{}, fmt.Errorf("failed to cast _id[%v] to ObjectID", objectID)
-		}
-
-		return objectID.Timestamp(), nil
-	}
-
-	start, err := extreme(1)
+func (m *Mongo) getChunkBoundaries(collection *mongo.Collection) ([]string, error) {
+	// Get min and max _id to ensure complete coverage
+	minDoc := bson.M{}
+	err := collection.FindOne(
+		context.TODO(),
+		bson.D{},
+		options.FindOne().SetSort(bson.D{{Key: "_id", Value: 1}}),
+	).Decode(&minDoc)
 	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("failed to find start: %s", err)
+		if err == mongo.ErrNoDocuments {
+			return nil, nil // Empty collection
+		}
+		return nil, fmt.Errorf("failed to get minimum _id: %s", err)
 	}
 
-	end, err := extreme(-1)
+	maxDoc := bson.M{}
+	err = collection.FindOne(
+		context.TODO(),
+		bson.D{},
+		options.FindOne().SetSort(bson.D{{Key: "_id", Value: -1}}),
+	).Decode(&maxDoc)
 	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("failed to find start: %s", err)
+		return nil, fmt.Errorf("failed to get maximum _id: %s", err)
 	}
 
-	// provide gap of 10 minutes
-	start = start.Add(-time.Minute * 10)
-	end = end.Add(time.Minute * 10)
-	return start, end, nil
+	minID := minDoc["_id"].(primitive.ObjectID)
+	maxID := maxDoc["_id"].(primitive.ObjectID)
+
+	// Execute splitVector with maxChunkSize parameter
+	command := bson.D{
+		{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
+		{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
+		{Key: "maxChunkSize", Value: 1024}, // Define chunk size in MB
+	}
+
+	var result bson.M
+	err = collection.Database().RunCommand(context.TODO(), command).Decode(&result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute splitVector: %s", err)
+	}
+
+	boundaries := []string{minID.Hex()}
+
+	if splitKeys, ok := result["splitKeys"].(bson.A); ok {
+		for _, key := range splitKeys {
+			if objID, ok := key.(bson.M); ok {
+				if id, ok := objID["_id"].(primitive.ObjectID); ok {
+					boundaries = append(boundaries, id.Hex())
+				}
+			}
+		}
+	}
+
+	boundaries = append(boundaries, maxID.Hex())
+	return boundaries, nil
 }
 
-func generatepipeline(start, end any) mongo.Pipeline {
+func generatepipeline(start primitive.ObjectID, end *primitive.ObjectID) mongo.Pipeline {
 	andOperation := bson.A{
 		bson.D{
 			{
@@ -224,7 +242,7 @@ func generatepipeline(start, end any) mongo.Pipeline {
 			Key: "_id",
 			Value: bson.D{{
 				Key:   "$lt",
-				Value: end,
+				Value: *end,
 			}},
 		}})
 	}
@@ -246,17 +264,6 @@ func generatepipeline(start, end any) mongo.Pipeline {
 				Value: bson.D{{Key: "_id", Value: 1}}},
 		},
 	}
-}
-
-// function to generate ObjectID with the minimum value for a given time
-func generateMinObjectID(t time.Time) *primitive.ObjectID {
-	// Create the ObjectID with the first 4 bytes as the timestamp and the rest 8 bytes as 0x00
-	objectID := primitive.NewObjectIDFromTimestamp(t)
-	for i := 4; i < 12; i++ {
-		objectID[i] = 0x00
-	}
-
-	return &objectID
 }
 
 func handleObjectID(doc bson.M) {
