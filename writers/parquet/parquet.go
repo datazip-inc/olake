@@ -20,10 +20,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/fraugster/parquet-go/parquet"
 	pqgo "github.com/parquet-go/parquet-go"
-
-	goparquet "github.com/fraugster/parquet-go"
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/source"
 )
@@ -96,12 +93,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.config.Normalization {
-			return goparquet.NewFileWriter(pqFile,
-				goparquet.WithSchemaDefinition(p.stream.Schema().ToParquet()),
-				goparquet.WithMaxRowGroupSize(100),
-				goparquet.WithMaxPageSize(10),
-				goparquet.WithCompressionCodec(parquet.CompressionCodec_SNAPPY),
-			)
+			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
 		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
@@ -158,19 +150,14 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 
 	// get last written file
 	fileMetadata := &partitionFolder[len(partitionFolder)-1]
-
+	var err error
 	if p.config.Normalization {
-		// TODO: Need to check if we can remove locking to fasten sync (Good First Issue)
-		p.pqSchemaMutex.Lock()
-		defer p.pqSchemaMutex.Unlock()
-		if err := fileMetadata.writer.(*goparquet.FileWriter).AddData(record.Data); err != nil {
-			return fmt.Errorf("parquet write error: %s", err)
-		}
+		_, err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 	} else {
-		// locking not required as schema is fixed for base writer
-		if _, err := fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record}); err != nil {
-			return fmt.Errorf("parquet write error: %s", err)
-		}
+		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+	}
+	if err != nil {
+		return fmt.Errorf("failed to write in parquet file: %s", err)
 	}
 	fileMetadata.recordCount++
 	return nil
@@ -241,16 +228,15 @@ func (p *Parquet) Close() error {
 			}
 
 			// Close writers
+			var err error
 			if p.config.Normalization {
-				if err := fileMetadata.writer.(*goparquet.FileWriter).Close(); err != nil {
-					return fmt.Errorf("failed to close normalized writer: %s", err)
-				}
+				err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Close()
 			} else {
-				if err := fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close(); err != nil {
-					return fmt.Errorf("failed to close base writer: %s", err)
-				}
+				err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
 			}
-
+			if err != nil {
+				return fmt.Errorf("failed to close writer: %s", err)
+			}
 			// Close file
 			if err := fileMetadata.parquetFile.Close(); err != nil {
 				return fmt.Errorf("failed to close file: %s", err)
