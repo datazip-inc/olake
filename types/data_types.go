@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/fraugster/parquet-go/parquet"
+	"github.com/parquet-go/parquet-go"
 )
 
 type DataType string
@@ -37,62 +37,28 @@ func CreateRawRecord(olakeID string, data map[string]any, deleteAt int64) RawRec
 		DeleteTime: deleteAt,
 	}
 }
+func (d DataType) ToNewParquet() parquet.Node {
+	var n parquet.Node
 
-// returns parquet equivalent type & convertedType for the datatype
-func (d DataType) ToParquet() *parquet.SchemaElement {
 	switch d {
 	case Int64:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_INT64),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
+		n = parquet.Leaf(parquet.Int64Type)
 	case Float64:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_DOUBLE),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
+		n = parquet.Leaf(parquet.DoubleType)
 	case String:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
-			ConvertedType:  ToPointer(parquet.ConvertedType_UTF8),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
+		n = parquet.String()
 	case Bool:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_BOOLEAN),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
-	//TODO: Not able to generate correctly in parquet, handle later
-	case Timestamp:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_INT64),
-			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
-	case TimestampMilli:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_INT64),
-			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
-	//TODO: Not able to generate correctly in parquet, handle later
-	case TimestampNano:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_INT64),
-			ConvertedType:  ToPointer(parquet.ConvertedType_TIMESTAMP_MILLIS),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
-	case Object, Array: // Objects/Arrays are turned into String in parquet
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
-			ConvertedType:  ToPointer(parquet.ConvertedType_UTF8),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
+		n = parquet.Leaf(parquet.BooleanType)
+	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
+		n = parquet.Leaf(parquet.Int64Type)
+		n = parquet.Encoded(n, &parquet.Plain)
+	case Object, Array:
+		// Ensure proper handling of nested structures
+		n = parquet.String()
 	default:
-		return &parquet.SchemaElement{
-			Type:           ToPointer(parquet.Type_BYTE_ARRAY),
-			ConvertedType:  ToPointer(parquet.ConvertedType_JSON),
-			RepetitionType: ToPointer(parquet.FieldRepetitionType_OPTIONAL),
-		}
+		n = parquet.Leaf(parquet.ByteArrayType)
 	}
+
+	n = parquet.Optional(n) // Ensure the field is nullable
+	return n
 }
