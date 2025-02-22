@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -39,7 +38,6 @@ type Parquet struct {
 	stream           protocol.Stream
 	basePath         string                    // construct with streamNamespace/streamName
 	partitionedFiles map[string][]FileMetadata // mapping of basePath/{regex} -> pqFiles
-	pqSchemaMutex    sync.Mutex                // To prevent concurrent map access from fraugster library
 	s3Client         *s3.S3
 }
 
