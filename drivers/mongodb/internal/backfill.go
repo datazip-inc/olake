@@ -45,7 +45,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 
 		logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
-		logger.Infof("Total documents to sync: %d", totalCount)
 		pool.AddRecordsToSync(totalCount)
 
 		for i := 0; i < len(boundaries)-1; i++ {
