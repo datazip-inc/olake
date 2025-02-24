@@ -116,7 +116,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	}
 	// note: there are performance issues with mongodb if chunks are not sorted
 	sort.Slice(chunksArray, func(i, j int) bool {
-		return chunksArray[i].Min.(string) < chunksArray[j].Min.(string)
+		return chunksArray[i].Min.(*primitive.ObjectID).Hex() < chunksArray[j].Min.(*primitive.ObjectID).Hex()
 	})
 
 	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
@@ -225,10 +225,11 @@ func generatepipeline(start, end any) mongo.Pipeline {
 	}
 
 	if end != nil {
+		// Changed from $lt to $lte to include boundary documents
 		andOperation = append(andOperation, bson.D{{
 			Key: "_id",
 			Value: bson.D{{
-				Key:   "$lt",
+				Key:   "$lte",
 				Value: end,
 			}},
 		}})
