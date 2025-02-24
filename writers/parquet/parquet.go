@@ -349,14 +349,15 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any) string {
 					if converted {
 						switch granularity {
 						case "HH":
-							value = timestamp.UTC().Hour()
+							value = fmt.Sprintf("%02d", timestamp.UTC().Hour())
 						case "DD":
-							value = timestamp.UTC().Day()
+							value = fmt.Sprintf("%02d", timestamp.UTC().Day())
 						case "WW":
-							_, value = timestamp.UTC().ISOWeek()
+							_, week := timestamp.UTC().ISOWeek()
+							value = fmt.Sprintf("%02d", week)
 						case "MM":
-							value = int(timestamp.UTC().Month())
-						case "YY":
+							value = fmt.Sprintf("%02d", int(timestamp.UTC().Month()))
+						case "YYYY":
 							value = timestamp.UTC().Year()
 						}
 					}
@@ -366,6 +367,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any) string {
 			}
 			return fmt.Sprintf("%v", value)
 		}
+
 		if colName == "now()" {
 			return granularityFunction(time.Now().UTC())
 		}
