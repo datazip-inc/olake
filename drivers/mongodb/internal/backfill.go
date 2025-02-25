@@ -31,27 +31,57 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		// chunks state not present means full load
 		logger.Infof("starting full load for stream [%s]", stream.ID())
 
-		boundaries, err := m.getChunkBoundaries(collection)
-		if err != nil {
-			return fmt.Errorf("failed to get chunk boundaries: %s", err)
-		}
-		if len(boundaries) == 0 {
-			logger.Infof("collection is empty, nothing to backfill")
-			return nil
-		}
 		totalCount, err := m.totalCountInCollection(backfillCtx, collection)
 		if err != nil {
 			return err
 		}
-
 		logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
 		pool.AddRecordsToSync(totalCount)
+		switch m.config.PartitionStrategy {
+		case "split-vector":
+			// get chunk boundaries
+			boundaries, err := m.getChunkBoundaries(collection)
+			if err != nil {
+				return fmt.Errorf("failed to get chunk boundaries: %s", err)
+			}
+			if len(boundaries) == 0 {
+				logger.Infof("collection is empty, nothing to backfill")
+				return nil
+			}
+			for i := 0; i < len(boundaries)-1; i++ {
+				chunks.Insert(types.Chunk{
+					Min: boundaries[i],
+					Max: &boundaries[i+1],
+				})
+			}
+		default:
+			first, last, err := m.fetchExtremes(collection)
+			if err != nil {
+				return err
+			}
 
-		for i := 0; i < len(boundaries)-1; i++ {
-			chunks.Insert(types.Chunk{
-				Min: boundaries[i],
-				Max: boundaries[i+1],
-			})
+			logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
+			timeDiff := last.Sub(first).Hours() / 6
+			if timeDiff < 1 {
+				timeDiff = 1
+			}
+			// for every 6hr difference ideal density is 10 Seconds
+			density := time.Duration(timeDiff) * (10 * time.Second)
+			start := first
+			for start.Before(last) {
+				end := start.Add(density)
+				minObjectID := generateMinObjectID(start)
+				maxObjecID := generateMinObjectID(end)
+				if end.After(last) {
+					maxObjecID = generateMinObjectID(last.Add(time.Second))
+				}
+				start = end
+				chunks.Insert(types.Chunk{
+					Min: minObjectID,
+					Max: maxObjecID,
+				})
+			}
+
 		}
 		stream.SetStateChunks(chunks)
 		chunksArray = chunks.Array()
@@ -144,6 +174,41 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 	}
 
 	return int64(countResult["count"].(int32)), nil
+}
+func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Time, error) {
+	extreme := func(sortby int) (time.Time, error) {
+		// Find the first document
+		var result bson.M
+		// Sort by _id ascending to get the first document
+		err := collection.FindOne(context.Background(), bson.D{}, options.FindOne().SetSort(bson.D{{
+			Key: "_id", Value: sortby}})).Decode(&result)
+		if err != nil {
+			return time.Time{}, err
+		}
+
+		// Extract the _id from the result
+		objectID, ok := result["_id"].(primitive.ObjectID)
+		if !ok {
+			return time.Time{}, fmt.Errorf("failed to cast _id[%v] to ObjectID", objectID)
+		}
+
+		return objectID.Timestamp(), nil
+	}
+
+	start, err := extreme(1)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to find start: %s", err)
+	}
+
+	end, err := extreme(-1)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to find start: %s", err)
+	}
+
+	// provide gap of 10 minutes
+	start = start.Add(-time.Minute * 10)
+	end = end.Add(time.Minute * 10)
+	return start, end, nil
 }
 
 func (m *Mongo) getChunkBoundaries(collection *mongo.Collection) ([]primitive.ObjectID, error) {
@@ -252,6 +317,17 @@ func generatepipeline(start, end any) mongo.Pipeline {
 				Value: bson.D{{Key: "_id", Value: 1}}},
 		},
 	}
+}
+
+// function to generate ObjectID with the minimum value for a given time
+func generateMinObjectID(t time.Time) *primitive.ObjectID {
+	// Create the ObjectID with the first 4 bytes as the timestamp and the rest 8 bytes as 0x00
+	objectID := primitive.NewObjectIDFromTimestamp(t)
+	for i := 4; i < 12; i++ {
+		objectID[i] = 0x00
+	}
+
+	return &objectID
 }
 
 func handleObjectID(doc bson.M) {
