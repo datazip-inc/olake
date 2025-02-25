@@ -27,44 +27,40 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
 	if chunks == nil || chunks.Len() == 0 {
-		// Initialize chunks set
-		chunks = types.NewSet[types.Chunk]()
-		// chunks state not present means full load
-		logger.Infof("starting full load for stream [%s]", stream.ID())
+		// Full load case
+		logger.Infof("Starting full load for stream [%s]", stream.ID())
+
 		recordCount, err := m.totalCountInCollection(backfillCtx, collection)
 		if err != nil {
 			return err
 		}
-		// Check if collection is empty first to avoid unnecessary work
 		if recordCount == 0 {
-			logger.Infof("collection is empty, nothing to backfill")
+			logger.Infof("Collection is empty, nothing to backfill")
 			return nil
 		}
-		// chunks state not present means full load
-		logger.Infof("starting full load for stream [%s]", stream.ID())
-		logger.Infof("Total expected count for stream %s are %d", stream.ID(), recordCount)
+
+		logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
 		pool.AddRecordsToSync(recordCount)
-		// Generate chunks and directly insert into the set
-		err = m.splitChunks(collection, stream, *chunks)
+
+		// Generate and update chunks
+		chunksArray, err = m.splitChunks(backfillCtx, collection, stream)
 		if err != nil {
 			return err
 		}
-
-		// Update stream state
-		stream.SetStateChunks(chunks)
-		chunksArray = chunks.Array()
+		stream.SetStateChunks(types.NewSet(chunksArray...))
 	} else {
 		// TODO: to get estimated time need to update pool.AddRecordsToSync(totalCount) (Can be done via storing some vars in state)
 		rawChunkArray := chunks.Array()
-		// convert to premitive.ObjectID
 		for _, chunk := range rawChunkArray {
-			premitiveMinID, _ := primitive.ObjectIDFromHex(chunk.Min.(string))
-			premitiveMaxID, _ := primitive.ObjectIDFromHex(chunk.Max.(string))
-			chunksArray = append(chunksArray, types.Chunk{
-				Min: &premitiveMinID,
-				Max: &premitiveMaxID,
-			})
+			minID, _ := primitive.ObjectIDFromHex(chunk.Min.(string))
+			maxID, _ := primitive.ObjectIDFromHex(chunk.Max.(string))
+			chunksArray = append(chunksArray, types.Chunk{Min: &minID, Max: &maxID})
 		}
+
+		// Ensure chunks are sorted for MongoDB performance
+		sort.Slice(chunksArray, func(i, j int) bool {
+			return chunksArray[i].Min.(*primitive.ObjectID).Hex() < chunksArray[j].Min.(*primitive.ObjectID).Hex()
+		})
 	}
 
 	logger.Infof("Running backfill for %d chunks", len(chunksArray))
@@ -113,10 +109,6 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
-	// note: there are performance issues with mongodb if chunks are not sorted
-	sort.Slice(chunksArray, func(i, j int) bool {
-		return chunksArray[i].Min.(*primitive.ObjectID).Hex() < chunksArray[j].Min.(*primitive.ObjectID).Hex()
-	})
 
 	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
 		batchStartTime := time.Now()
@@ -131,32 +123,65 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	})
 }
 
-func (m *Mongo) splitChunks(collection *mongo.Collection, stream protocol.Stream, chunks types.Set[types.Chunk]) error {
-	splitVectorStrategy := func() error {
-		// Split-vector strategy implementation
-		// get chunk boundaries
-		boundaries, err := m.getChunkBoundaries(collection)
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
+	splitVectorStrategy := func() ([]types.Chunk, error) {
+		getChunkBoundaries := func() ([]*primitive.ObjectID, error) {
+			getID := func(order int) (primitive.ObjectID, error) {
+				var doc bson.M
+				err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+				if err == mongo.ErrNoDocuments {
+					return primitive.NilObjectID, nil
+				}
+				return doc["_id"].(primitive.ObjectID), err
+			}
+
+			minID, err := getID(1)
+			if err != nil || minID == primitive.NilObjectID {
+				return nil, err
+			}
+			maxID, err := getID(-1)
+			if err != nil {
+				return nil, err
+			}
+
+			var result bson.M
+			cmd := bson.D{
+				{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
+				{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
+				{Key: "maxChunkSize", Value: 1024},
+			}
+			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
+				return nil, fmt.Errorf("splitVector failed: %w", err)
+			}
+
+			boundaries := []*primitive.ObjectID{&minID}
+			for _, key := range result["splitKeys"].(bson.A) {
+				if id, ok := key.(bson.M)["_id"].(primitive.ObjectID); ok {
+					boundaries = append(boundaries, &id)
+				}
+			}
+			return append(boundaries, &maxID), nil
+		}
+
+		boundaries, err := getChunkBoundaries()
 		if err != nil {
-			return fmt.Errorf("failed to get chunk boundaries: %s", err)
+			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
 		}
-		if len(boundaries) == 0 {
-			logger.Infof("collection is empty, nothing to backfill")
-			return nil
-		}
+		var chunks []types.Chunk
 		for i := 0; i < len(boundaries)-1; i++ {
-			chunks.Insert(types.Chunk{
+			chunks = append(chunks, types.Chunk{
 				Min: &boundaries[i],
 				Max: &boundaries[i+1],
 			})
 		}
-		return nil
+		return chunks, nil
 	}
 
-	timestampStrategy := func() error {
+	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
 		first, last, err := m.fetchExtremes(collection)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
@@ -167,6 +192,7 @@ func (m *Mongo) splitChunks(collection *mongo.Collection, stream protocol.Stream
 		// for every 6hr difference ideal density is 10 Seconds
 		density := time.Duration(timeDiff) * (10 * time.Second)
 		start := first
+		var chunks []types.Chunk
 		for start.Before(last) {
 			end := start.Add(density)
 			minObjectID := generateMinObjectID(start)
@@ -175,12 +201,12 @@ func (m *Mongo) splitChunks(collection *mongo.Collection, stream protocol.Stream
 				maxObjectID = generateMinObjectID(last.Add(time.Second))
 			}
 			start = end
-			chunks.Insert(types.Chunk{
+			chunks = append(chunks, types.Chunk{
 				Min: minObjectID,
 				Max: maxObjectID,
 			})
 		}
-		return nil
+		return chunks, nil
 	}
 
 	switch m.config.PartitionStrategy {
@@ -238,61 +264,6 @@ func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Tim
 	start = start.Add(-time.Minute * 10)
 	end = end.Add(time.Minute * 10)
 	return start, end, nil
-}
-
-func (m *Mongo) getChunkBoundaries(collection *mongo.Collection) ([]*primitive.ObjectID, error) {
-	minDoc := bson.M{}
-	err := collection.FindOne(
-		context.TODO(),
-		bson.D{},
-		options.FindOne().SetSort(bson.D{{Key: "_id", Value: 1}}),
-	).Decode(&minDoc)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get minimum _id: %s", err)
-	}
-
-	maxDoc := bson.M{}
-	err = collection.FindOne(
-		context.TODO(),
-		bson.D{},
-		options.FindOne().SetSort(bson.D{{Key: "_id", Value: -1}}),
-	).Decode(&maxDoc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get maximum _id: %s", err)
-	}
-
-	minID := minDoc["_id"].(primitive.ObjectID)
-	maxID := maxDoc["_id"].(primitive.ObjectID)
-
-	command := bson.D{
-		{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
-		{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
-		{Key: "maxChunkSize", Value: 1024},
-	}
-
-	var result bson.M
-	err = collection.Database().RunCommand(context.TODO(), command).Decode(&result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute splitVector: %s", err)
-	}
-
-	boundaries := []*primitive.ObjectID{&minID}
-
-	if splitKeys, ok := result["splitKeys"].(bson.A); ok {
-		for _, key := range splitKeys {
-			if objID, ok := key.(bson.M); ok {
-				if id, ok := objID["_id"].(primitive.ObjectID); ok {
-					boundaries = append(boundaries, &id)
-				}
-			}
-		}
-	}
-
-	boundaries = append(boundaries, &maxID)
-	return boundaries, nil
 }
 
 func generatePipeline(start, end any) mongo.Pipeline {
