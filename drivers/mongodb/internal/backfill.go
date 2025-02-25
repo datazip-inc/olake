@@ -32,6 +32,10 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		logger.Infof("starting full load for stream [%s]", stream.ID())
 
 		totalCount, err := m.totalCountInCollection(backfillCtx, collection)
+		if totalCount == 0 {
+			logger.Infof("collection is empty, nothing to backfill")
+			return nil
+		}
 		if err != nil {
 			return err
 		}
