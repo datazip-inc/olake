@@ -63,6 +63,10 @@ func (m *Mongo) Setup() error {
 		// add 1 for first run
 		m.config.RetryCount += 1
 	}
+
+	// Initialize the global reader pool with the configured max threads
+	utils.InitReaderPool(m.config.MaxThreads)
+
 	return nil
 }
 

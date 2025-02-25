@@ -6,3 +6,4 @@ __debug_bin*
 go.sum
 go.work.sum
 **/examples
+.cursorrules

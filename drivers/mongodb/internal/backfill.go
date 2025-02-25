@@ -132,7 +132,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	sort.Slice(chunksArray, func(i, j int) bool {
 		return chunksArray[i].Min.(*primitive.ObjectID).Hex() < chunksArray[j].Min.(*primitive.ObjectID).Hex()
 	})
-	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
+	return utils.ConcurrentReader(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
 		batchStartTime := time.Now()
 		err := processChunk(backfillCtx, one, number)
 		if err != nil {
