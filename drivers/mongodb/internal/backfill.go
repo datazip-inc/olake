@@ -27,66 +27,30 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
 	if chunks == nil || chunks.Len() == 0 {
+		// Initialize chunks set
 		chunks = types.NewSet[types.Chunk]()
 		// chunks state not present means full load
 		logger.Infof("starting full load for stream [%s]", stream.ID())
-
-		totalCount, err := m.totalCountInCollection(backfillCtx, collection)
-		if totalCount == 0 {
-			logger.Infof("collection is empty, nothing to backfill")
-			return nil
-		}
+		recordCount, err := m.totalCountInCollection(backfillCtx, collection)
 		if err != nil {
 			return err
 		}
-		logger.Infof("Total expected count for stream %s are %d", stream.ID(), totalCount)
-		pool.AddRecordsToSync(totalCount)
-		switch m.config.PartitionStrategy {
-		case "split-vector":
-			// get chunk boundaries
-			boundaries, err := m.getChunkBoundaries(collection)
-			if err != nil {
-				return fmt.Errorf("failed to get chunk boundaries: %s", err)
-			}
-			if len(boundaries) == 0 {
-				logger.Infof("collection is empty, nothing to backfill")
-				return nil
-			}
-			for i := 0; i < len(boundaries)-1; i++ {
-				chunks.Insert(types.Chunk{
-					Min: boundaries[i],
-					Max: &boundaries[i+1],
-				})
-			}
-		default:
-			first, last, err := m.fetchExtremes(collection)
-			if err != nil {
-				return err
-			}
-
-			logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
-			timeDiff := last.Sub(first).Hours() / 6
-			if timeDiff < 1 {
-				timeDiff = 1
-			}
-			// for every 6hr difference ideal density is 10 Seconds
-			density := time.Duration(timeDiff) * (10 * time.Second)
-			start := first
-			for start.Before(last) {
-				end := start.Add(density)
-				minObjectID := generateMinObjectID(start)
-				maxObjecID := generateMinObjectID(end)
-				if end.After(last) {
-					maxObjecID = generateMinObjectID(last.Add(time.Second))
-				}
-				start = end
-				chunks.Insert(types.Chunk{
-					Min: minObjectID,
-					Max: maxObjecID,
-				})
-			}
-
+		// Check if collection is empty first to avoid unnecessary work
+		if recordCount == 0 {
+			logger.Infof("collection is empty, nothing to backfill")
+			return nil
 		}
+		// chunks state not present means full load
+		logger.Infof("starting full load for stream [%s]", stream.ID())
+		logger.Infof("Total expected count for stream %s are %d", stream.ID(), recordCount)
+		pool.AddRecordsToSync(recordCount)
+		// Generate chunks and directly insert into the set
+		err = m.splitChunks(collection, stream, *chunks)
+		if err != nil {
+			return err
+		}
+
+		// Update stream state
 		stream.SetStateChunks(chunks)
 		chunksArray = chunks.Array()
 	} else {
@@ -102,7 +66,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			})
 		}
 	}
-	logger.Infof("Running backfill for %d chunks", chunks.Len())
+
+	logger.Infof("Running backfill for %d chunks", len(chunksArray))
 	// notice: err is declared in return, reason: defer call can access it
 	processChunk := func(ctx context.Context, chunk types.Chunk, _ int) (err error) {
 		threadContext, cancelThread := context.WithCancel(ctx)
@@ -121,7 +86,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursorIterationFunc := func() error {
-			cursor, err := collection.Aggregate(ctx, generatepipeline(chunk.Min, chunk.Max), opts)
+			cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
 			if err != nil {
 				return fmt.Errorf("collection.Find: %s", err)
 			}
@@ -164,6 +129,66 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		logger.Debugf("finished %d chunk[%s-%s] in %0.2f seconds", number, one.Min, one.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})
+}
+
+func (m *Mongo) splitChunks(collection *mongo.Collection, stream protocol.Stream, chunks types.Set[types.Chunk]) error {
+	splitVectorStrategy := func() error {
+		// Split-vector strategy implementation
+		// get chunk boundaries
+		boundaries, err := m.getChunkBoundaries(collection)
+		if err != nil {
+			return fmt.Errorf("failed to get chunk boundaries: %s", err)
+		}
+		if len(boundaries) == 0 {
+			logger.Infof("collection is empty, nothing to backfill")
+			return nil
+		}
+		for i := 0; i < len(boundaries)-1; i++ {
+			chunks.Insert(types.Chunk{
+				Min: &boundaries[i],
+				Max: &boundaries[i+1],
+			})
+		}
+		return nil
+	}
+
+	timestampStrategy := func() error {
+		// Time-based strategy implementation
+		first, last, err := m.fetchExtremes(collection)
+		if err != nil {
+			return err
+		}
+
+		logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
+		timeDiff := last.Sub(first).Hours() / 6
+		if timeDiff < 1 {
+			timeDiff = 1
+		}
+		// for every 6hr difference ideal density is 10 Seconds
+		density := time.Duration(timeDiff) * (10 * time.Second)
+		start := first
+		for start.Before(last) {
+			end := start.Add(density)
+			minObjectID := generateMinObjectID(start)
+			maxObjectID := generateMinObjectID(end)
+			if end.After(last) {
+				maxObjectID = generateMinObjectID(last.Add(time.Second))
+			}
+			start = end
+			chunks.Insert(types.Chunk{
+				Min: minObjectID,
+				Max: maxObjectID,
+			})
+		}
+		return nil
+	}
+
+	switch m.config.PartitionStrategy {
+	case "timestamp":
+		return timestampStrategy()
+	default:
+		return splitVectorStrategy()
+	}
 }
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
@@ -215,7 +240,7 @@ func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Tim
 	return start, end, nil
 }
 
-func (m *Mongo) getChunkBoundaries(collection *mongo.Collection) ([]primitive.ObjectID, error) {
+func (m *Mongo) getChunkBoundaries(collection *mongo.Collection) ([]*primitive.ObjectID, error) {
 	minDoc := bson.M{}
 	err := collection.FindOne(
 		context.TODO(),
@@ -254,23 +279,23 @@ func (m *Mongo) getChunkBoundaries(collection *mongo.Collection) ([]primitive.Ob
 		return nil, fmt.Errorf("failed to execute splitVector: %s", err)
 	}
 
-	boundaries := []primitive.ObjectID{minID}
+	boundaries := []*primitive.ObjectID{&minID}
 
 	if splitKeys, ok := result["splitKeys"].(bson.A); ok {
 		for _, key := range splitKeys {
 			if objID, ok := key.(bson.M); ok {
 				if id, ok := objID["_id"].(primitive.ObjectID); ok {
-					boundaries = append(boundaries, id)
+					boundaries = append(boundaries, &id)
 				}
 			}
 		}
 	}
 
-	boundaries = append(boundaries, maxID)
+	boundaries = append(boundaries, &maxID)
 	return boundaries, nil
 }
 
-func generatepipeline(start, end any) mongo.Pipeline {
+func generatePipeline(start, end any) mongo.Pipeline {
 	andOperation := bson.A{
 		bson.D{
 			{
