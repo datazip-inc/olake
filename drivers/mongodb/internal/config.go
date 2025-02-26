@@ -10,18 +10,19 @@ import (
 )
 
 type Config struct {
-	Hosts          []string       `json:"hosts"`
-	Username       string         `json:"username"`
-	Password       string         `json:"password"`
-	AuthDB         string         `json:"authdb"`
-	ReplicaSet     string         `json:"replica_set"`
-	ReadPreference string         `json:"read_preference"`
-	Srv            bool           `json:"srv"`
-	ServerRAM      uint           `json:"server_ram"`
-	MaxThreads     int            `json:"max_threads"`
-	Database       string         `json:"database"`
-	DefaultMode    types.SyncMode `json:"default_mode"`
-	RetryCount     int            `json:"backoff_retry_count"`
+	Hosts             []string       `json:"hosts"`
+	Username          string         `json:"username"`
+	Password          string         `json:"password"`
+	AuthDB            string         `json:"authdb"`
+	ReplicaSet        string         `json:"replica_set"`
+	ReadPreference    string         `json:"read_preference"`
+	Srv               bool           `json:"srv"`
+	ServerRAM         uint           `json:"server_ram"`
+	MaxThreads        int            `json:"max_threads"`
+	Database          string         `json:"database"`
+	DefaultMode       types.SyncMode `json:"default_mode"`
+	RetryCount        int            `json:"backoff_retry_count"`
+	PartitionStrategy string         `json:"partition_strategy"`
 }
 
 func (c *Config) URI() string {
