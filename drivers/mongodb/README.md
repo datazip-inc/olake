@@ -43,7 +43,8 @@ Add MongoDB credentials in following format in config.json file
       "database": "database",
       "max_threads": 50,
       "default_mode" :"cdc",
-      "backoff_retry_count": 2
+      "backoff_retry_count": 2,
+      "partition_strategy":""
    }
 ```
 
