@@ -5,9 +5,8 @@ import (
 	"sync"
 
 	"github.com/datazip-inc/olake/utils"
-	"github.com/fraugster/parquet-go/parquet"
-	"github.com/fraugster/parquet-go/parquetschema"
 	"github.com/goccy/go-json"
+	"github.com/parquet-go/parquet-go"
 )
 
 type TypeSchema struct {
@@ -117,22 +116,14 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet() *parquetschema.SchemaDefinition {
-	definition := parquetschema.SchemaDefinition{
-		RootColumn: &parquetschema.ColumnDefinition{
-			SchemaElement: &parquet.SchemaElement{},
-		},
-	}
+func (t *TypeSchema) ToParquet() *parquet.Schema {
+	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
-		schemaElem := value.(*Property).DataType().ToParquet() // get parquet type
-		schemaElem.Name = key.(string)                         // attach Column name
-		definition.RootColumn.Children = append(definition.RootColumn.Children, &parquetschema.ColumnDefinition{
-			SchemaElement: schemaElem,
-		})
+		groupNode[key.(string)] = value.(*Property).DataType().ToNewParquet()
 		return true
 	})
 
-	return &definition
+	return parquet.NewSchema("olake_schema", groupNode)
 }
 
 // Property is a dto for catalog properties representation
