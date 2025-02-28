@@ -11,7 +11,6 @@ on:
 
 jobs:
   publish_drivers:
-    if: github.ref == 'refs/heads/master' # Restrict to master branch
     name: Publish driver ${{ github.event.inputs.driver }} [manual]
     environment: Publish Driver
     runs-on: ubuntu-latest
