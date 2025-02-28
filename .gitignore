@@ -6,3 +6,4 @@ __debug_bin*
 go.sum
 go.work.sum
 **/examples
+debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar

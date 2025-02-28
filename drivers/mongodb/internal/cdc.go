@@ -10,14 +10,16 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
 type CDCDocument struct {
-	OperationType string         `json:"operationType"`
-	FullDocument  map[string]any `json:"fullDocument"`
+	OperationType string              `json:"operationType"`
+	FullDocument  map[string]any      `json:"fullDocument"`
+	ClusterTime   primitive.Timestamp `json:"clusterTime"`
 }
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
@@ -91,12 +93,25 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		// TODO: Handle Deleted documents (Good First Issue)
-		if record.FullDocument != nil {
-			record.FullDocument["cdc_type"] = record.OperationType
-		}
 		handleObjectID(record.FullDocument)
-		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID), record.FullDocument, 0)
+
+		// TODO: Handle Deleted documents (Good First Issue)
+		// Map MongoDB operation types to Debezium format
+		opType := "c" // default to create
+		switch record.OperationType {
+		case "update":
+			opType = "u"
+		case "delete":
+			opType = "d"
+		}
+
+		rawRecord := types.CreateRawRecord(
+			utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
+			record.FullDocument,
+			0,
+			opType,
+			int64(record.ClusterTime.T)*1000,
+		)
 		exit, err := insert.Insert(rawRecord)
 		if err != nil {
 			return err

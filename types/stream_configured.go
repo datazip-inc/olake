@@ -20,8 +20,9 @@ type ConfiguredStream struct {
 	//
 	// Cursor field is used in Incremental and in Mixed type CDC Read where connector uses
 	// this field as recovery column incase of some inconsistencies
-	CursorField    string   `json:"cursor_field,omitempty"`
-	ExcludeColumns []string `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
+	CursorField       string   `json:"cursor_field,omitempty"`
+	ExcludeColumns    []string `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
+	BackfillInProcess bool     `json:"backfill_done,omitempty"`   // Indicates if full load is completed
 }
 
 func (s *ConfiguredStream) ID() string {
