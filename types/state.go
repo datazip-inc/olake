@@ -96,7 +96,7 @@ func (s *State) LogState() {
 		Type:  StateMessage,
 		State: s,
 	}
-	logger.Info(message)
+	// logger.Info(message)
 
 	// log to file
 	err := logger.FileLogger(message.State, "state", ".json")

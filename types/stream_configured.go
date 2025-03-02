@@ -9,10 +9,10 @@ import (
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
-	globalState             *State       `json:"-"` // global state
-	streamState             *StreamState `json:"-"` // in-memory state copy for individual stream
-	StreamMetadata          StreamMetadata
-	InitialCursorStateValue any `json:"-"` // Cached initial state value
+	globalState             *State         `json:"-"` // global state
+	streamState             *StreamState   `json:"-"` // in-memory state copy for individual stream
+	StreamMetadata          StreamMetadata `json:"-"`
+	InitialCursorStateValue any            `json:"-"` // Cached initial state value
 
 	Stream *Stream `json:"stream,omitempty"`
 
