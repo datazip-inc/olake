@@ -32,6 +32,7 @@ type StatusRow struct {
 }
 
 type StreamMetadata struct {
+	SplitColumn    string `json:"split_column"`
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
 }

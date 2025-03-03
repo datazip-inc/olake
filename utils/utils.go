@@ -209,7 +209,7 @@ func genULID(t time.Time) string {
 
 // Returns a timestamped
 func TimestampedFileName(extension string) string {
-	now := time.Now()
+	now := time.Now().UTC()
 	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
@@ -239,4 +239,44 @@ func GetHash(m map[string]interface{}) string {
 	}
 
 	return GetKeysHash(m, keys...)
+}
+
+func AddConstantToInterface(val interface{}, increment int) (interface{}, error) {
+	switch v := val.(type) {
+	case int:
+		return v + increment, nil
+	case int64:
+		return v + int64(increment), nil
+	case float64:
+		return v + float64(increment), nil
+	default:
+		return nil, fmt.Errorf("failed to add contant values to interface, unsupported type %T", val)
+	}
+}
+
+func CompareInterfaceValue(a, b interface{}) int {
+	switch av := a.(type) {
+	case int:
+		if bv, ok := b.(int); ok {
+			return av - bv
+		}
+	case int64:
+		if bv, ok := b.(int64); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+		}
+	case float64:
+		if bv, ok := b.(float64); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+		}
+	}
+	// TODO: handle for unsupported types
+	return 0
 }

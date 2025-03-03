@@ -142,7 +142,6 @@ var syncCmd = &cobra.Command{
 					return fmt.Errorf("error occurred while reading records: %s", err)
 				}
 			}
-			logger.Info("Read Process Completed")
 			return nil
 		})
 
