@@ -22,6 +22,7 @@ import (
 )
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
+	stream.Self().BackfillInProcess = true
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	chunks := stream.GetStateChunks()
 	backfillCtx := context.TODO()
@@ -97,7 +98,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				}
 
 				handleObjectID(doc)
-				exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
+				exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0, "r", time.Unix(0, 0).UnixNano()))
 				if err != nil {
 					return fmt.Errorf("failed to finish backfill chunk: %s", err)
 				}

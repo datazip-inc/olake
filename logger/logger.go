@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -221,4 +223,80 @@ func Init() {
 	multiwriter := zerolog.MultiLevelWriter(console, rotatingFile)
 
 	logger = zerolog.New(multiwriter).With().Timestamp().Logger()
+}
+
+// ProcessOutputReader is a struct that manages reading output from a process
+// and forwarding it to the logger
+type ProcessOutputReader struct {
+	Name      string // Name to identify the process in logs
+	IsError   bool   // Whether this reader handles error output
+	reader    *bufio.Scanner
+	closeFn   func() error
+	closeOnce sync.Once
+}
+
+// NewProcessOutputReader creates a new ProcessOutputReader for a given process
+// name is a prefix to identify the process in logs
+// isError determines whether to log as Error (true) or Info (false)
+// returns the reader and a write end that should be connected to the process output
+func NewProcessOutputReader(name string, isError bool) (*ProcessOutputReader, *os.File, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create pipe: %v", err)
+	}
+
+	reader := &ProcessOutputReader{
+		Name:    name,
+		IsError: isError,
+		reader:  bufio.NewScanner(r),
+		closeFn: r.Close,
+	}
+
+	return reader, w, nil
+}
+
+// StartReading starts reading from the process output in a goroutine
+// and logging each line with the appropriate log level
+func (p *ProcessOutputReader) StartReading() {
+	go func() {
+		defer p.Close()
+		for p.reader.Scan() {
+			if p.IsError {
+				Error(fmt.Sprintf("[%s] %s", p.Name, p.reader.Text()))
+			} else {
+				Info(fmt.Sprintf("[%s] %s", p.Name, p.reader.Text()))
+			}
+		}
+	}()
+}
+
+// Close closes the reader
+func (p *ProcessOutputReader) Close() {
+	p.closeOnce.Do(func() {
+		if p.closeFn != nil {
+			p.closeFn()
+		}
+	})
+}
+
+// SetupProcessOutputCapture creates stdout and stderr readers for a process
+// and returns write-ends that should be connected to the process stdout and stderr
+func SetupProcessOutputCapture(processName string) (*ProcessOutputReader, *ProcessOutputReader, *os.File, *os.File, error) {
+	// Setup stdout reader
+	stdoutReader, stdoutWriter, err := NewProcessOutputReader(processName, false)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stdout reader: %v", err)
+	}
+
+	// Setup stderr reader
+	stderrReader, stderrWriter, err := NewProcessOutputReader(processName, true)
+	if err != nil {
+		stdoutReader.Close()
+		if stdoutWriter != nil {
+			stdoutWriter.Close()
+		}
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stderr reader: %v", err)
+	}
+
+	return stdoutReader, stderrReader, stdoutWriter, stderrWriter, nil
 }
