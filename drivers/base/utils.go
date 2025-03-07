@@ -11,9 +11,11 @@ func RetryOnBackoff(attempts int, sleep time.Duration, f func() error) (err erro
 		if err = f(); err == nil {
 			return nil
 		}
-		logger.Infof("retry attempt[%d], retrying after %.2f seconds due to err: %s", cur+1, sleep.Seconds(), err)
-		time.Sleep(sleep)
-		sleep = sleep * 2
+		if cur != 0 {
+			logger.Infof("retry attempt[%d], retrying after %.2f seconds due to err: %s", cur, sleep.Seconds(), err)
+			time.Sleep(sleep)
+			sleep = sleep * 2
+		}
 	}
 
 	return err
