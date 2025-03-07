@@ -76,7 +76,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 		defer func() {
 			insert.Close()
-			if err != nil {
+			if err == nil {
 				// wait for chunk completion
 				err = <-waitChannel
 			}
