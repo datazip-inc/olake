@@ -30,20 +30,12 @@ type Driver interface {
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(pool *WriterPool, stream Stream) error
 	ChangeStreamSupported() bool
+	SetupState(state *types.State)
 }
 
 // Bulk Read Driver
 type ChangeStreamDriver interface {
 	RunChangeStream(pool *WriterPool, streams ...Stream) error
-	SetupGlobalState(state *types.State) error
-	StateType() types.StateType
-}
-
-// JDBC Driver
-type JDBCDriver interface {
-	FullLoad(stream Stream, channel chan<- types.Record) error
-	RunChangeStream(channel chan<- types.Record, streams ...Stream) error
-	SetupGlobalState(state *types.State) error
 	StateType() types.StateType
 }
 
@@ -77,17 +69,15 @@ type Stream interface {
 	GetSyncMode() types.SyncMode
 	SupportedSyncModes() *types.Set[types.SyncMode]
 	Cursor() string
-	InitialState() any
-	GetStateCursor() any
-	GetStateKey(key string) any
-	SetStateCursor(value any)
-	SetStateKey(key string, value any)
 	Validate(source *types.Stream) error
-	SetStateChunks(chunks *types.Set[types.Chunk])
-	GetStateChunks() *types.Set[types.Chunk]
-	RemoveStateChunk(chunk types.Chunk)
 }
 
 type State interface {
 	SetType(typ types.StateType)
+	GetCursor(stream *types.ConfiguredStream, key string) any
+	SetCursor(stream *types.ConfiguredStream, key, value any)
+	GetChunks(stream *types.ConfiguredStream) *types.Set[types.Chunk]
+	SetChunks(stream *types.ConfiguredStream, chunks *types.Set[types.Chunk])
+	RemoveChunk(stream *types.ConfiguredStream, chunk types.Chunk)
+	SetGlobalState(globalState any)
 }

@@ -108,7 +108,6 @@ var syncCmd = &cobra.Command{
 				return false
 			}
 
-			elem.SetupState(state)
 			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
 
@@ -127,17 +126,15 @@ var syncCmd = &cobra.Command{
 			return pool.SyncedRecords(), pool.threadCounter.Load(), pool.GetRecordsToSync()
 		})
 
+		// Setup State for Connector
+		connector.SetupState(state)
+
 		// Execute driver ChangeStreams mode
 		GlobalCxGroup.Add(func(_ context.Context) error { // context is not used to keep processes mutually exclusive
 			if connector.ChangeStreamSupported() {
 				driver, yes := connector.(ChangeStreamDriver)
 				if !yes {
 					return fmt.Errorf("%s does not implement ChangeStreamDriver", connector.Type())
-				}
-
-				// Setup Global State from Connector
-				if err := driver.SetupGlobalState(state); err != nil {
-					return err
 				}
 
 				logger.Info("Starting ChangeStream process in driver")

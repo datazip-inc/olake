@@ -5,7 +5,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	// protocol "github.com/datazip-inc/olake/jsonschema/cmd"
 	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 )
 
@@ -29,7 +31,7 @@ type State struct {
 	*sync.Mutex `json:"-"`
 	Type        StateType      `json:"type"`
 	Global      any            `json:"global,omitempty"`
-	Streams     []*StreamState `json:"streams,omitempty"`
+	Streams     []*StreamState `json:"streams,omitempty"` // TODO: make it set
 }
 
 var (
@@ -39,6 +41,114 @@ var (
 
 func (s *State) SetType(typ StateType) {
 	s.Type = typ
+}
+
+func (s *State) InitialState(stream *ConfiguredStream) *StreamState {
+	return &StreamState{
+		Stream:     stream.Name(),
+		Namespace:  stream.Namespace(),
+		State:      sync.Map{},
+		Mutex:      &sync.Mutex{},
+		HoldsValue: atomic.Bool{},
+	}
+}
+
+func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
+	s.Lock()
+	defer func() {
+		s.Unlock()
+		s.LogState()
+	}()
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Store(key, value)
+		s.Streams[index].HoldsValue.Store(true)
+	} else {
+		newStream := s.InitialState(stream)
+		newStream.State.Store(key, value)
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+}
+
+func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		val, _ := s.Streams[index].State.Load(key)
+		return val
+	}
+	return nil
+}
+
+// GetStateChunks retrieves all chunks from the state.
+func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		chunks, _ := s.Streams[index].State.Load(ChunksKey)
+		if chunks != nil {
+			chunksSet, converted := chunks.(*Set[Chunk])
+			if converted {
+				return chunksSet
+			}
+		}
+	}
+	return nil
+}
+
+// set chunks
+func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
+	s.Lock()
+	defer func() {
+		s.Unlock()
+		s.LogState()
+	}()
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Store(ChunksKey, chunks)
+		s.Streams[index].HoldsValue.Store(true)
+
+	} else {
+		newStream := s.InitialState(stream)
+		newStream.State.Store(ChunksKey, chunks)
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+}
+
+// remove chunk
+func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
+	s.Lock()
+	defer func() {
+		s.Unlock()
+		s.LogState()
+	}()
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		stateChunks, loaded := s.Streams[index].State.LoadAndDelete(ChunksKey)
+		if loaded {
+			stateChunks.(*Set[Chunk]).Remove(chunk)
+			s.Streams[index].State.Store(ChunksKey, stateChunks)
+		}
+	}
+}
+
+func (s *State) SetGlobalState(globalState any) {
+	s.Lock()
+	defer func() {
+		s.Unlock()
+		s.LogState()
+	}()
+	s.Global = globalState
 }
 
 // func (s *State) Add(stream, namespace string, field string, value any) {

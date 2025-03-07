@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -15,7 +14,7 @@ import (
 )
 
 func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config, error) {
-	if !p.Driver.CDCSupport {
+	if !p.CDCSupport {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
 	}
 
@@ -29,25 +28,16 @@ func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config
 	return config, nil
 }
 
-func (p *Postgres) StateType() types.StateType {
-	return types.GlobalType
-}
-
-// func (p *Postgres) GlobalState() any {
-// 	return p.cdcState
-// }
-
-func (p *Postgres) SetupGlobalState(state *types.State) error {
-	state.Type = p.StateType()
-	// Setup raw state
-	p.cdcState = types.NewGlobalState(&waljs.WALState{})
-
-	return base.ManageGlobalState(state, p.cdcState, p)
-}
-
 func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
 	ctx := context.TODO()
-
+	// Collect Global State
+	globalState := types.NewGlobalState(&waljs.WALState{})
+	if p.State.Global != nil {
+		err := utils.Unmarshal(p.State.Global, globalState)
+		if err != nil {
+			return err
+		}
+	}
 	// Initialize replication configuration
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
@@ -61,27 +51,31 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	}
 	defer socket.Cleanup()
 
-	fullLoad := func(ctx context.Context, pool *protocol.WriterPool, streams []protocol.Stream) error {
+	fullLoad := func(ctx context.Context, lsn string, pool *protocol.WriterPool, streams []protocol.Stream) error {
+		// reset streams for full load
+		globalState.Streams = types.NewSet[string]()
+		globalState.State.LSN = lsn
+		p.State.SetGlobalState(globalState)
 		return utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, s protocol.Stream, _ int) error {
 			if err := p.backfill(pool, s); err != nil {
 				return fmt.Errorf("backfill failed for %s: %w", s.ID(), err)
 			}
-			p.cdcState.Streams.Insert(s.ID())
+			globalState.Streams.Insert(s.ID())
+			p.State.SetGlobalState(globalState)
 			return nil
 		})
 	}
 
 	// Handle initial data load if needed
 	currentLSN := socket.RestartLSN.String()
-	if p.cdcState.State.LSN == "" {
-		p.cdcState.State.LSN = currentLSN
-		if err := fullLoad(ctx, pool, streams); err != nil {
+	if globalState.State.LSN == "" {
+		if err := fullLoad(ctx, currentLSN, pool, streams); err != nil {
 			return fmt.Errorf("initial full load failed: %w", err)
 		}
-	} else if storedLSN, parseErr := pglogrepl.ParseLSN(p.cdcState.State.LSN); parseErr != nil {
+	} else if storedLSN, parseErr := pglogrepl.ParseLSN(globalState.State.LSN); parseErr != nil {
 		return fmt.Errorf("invalid stored LSN format: %w", parseErr)
 	} else if storedLSN.String() != currentLSN {
-		if err := fullLoad(ctx, pool, streams); err != nil {
+		if err := fullLoad(ctx, currentLSN, pool, streams); err != nil {
 			return fmt.Errorf("delta load failed: %w", err)
 		}
 	}
@@ -102,16 +96,19 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 
 	// Cleanup and final error collection
 	defer func() {
-		for stream, inserter := range inserters {
-			inserter.Close()
-			if threadErr := <-errChannels[stream]; threadErr != nil && err == nil {
-				err = fmt.Errorf("inserter error for %s: %w", stream.ID(), threadErr)
-			}
-		}
-
 		if err == nil {
-			// TODO : Save Global State before lsn marked
-			err = socket.AcknowledgeLSN()
+			for stream, inserter := range inserters {
+				inserter.Close()
+				if threadErr := <-errChannels[stream]; threadErr != nil {
+					err = fmt.Errorf("inserter error for %s: %s", stream.ID(), threadErr)
+				}
+			}
+			// check if any writer error occurred
+			if err == nil {
+				globalState.State.LSN = socket.ClientXLogPos.String()
+				p.State.SetGlobalState(globalState)
+				err = socket.AcknowledgeLSN()
+			}
 		}
 	}()
 

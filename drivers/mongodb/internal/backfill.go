@@ -23,7 +23,7 @@ import (
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	chunks := stream.GetStateChunks()
+	chunks := m.State.GetChunks(stream.Self())
 	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
 	if chunks == nil || chunks.Len() == 0 {
@@ -47,7 +47,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		if err != nil {
 			return err
 		}
-		stream.SetStateChunks(types.NewSet(chunksArray...))
+		m.State.SetChunks(stream.Self(), types.NewSet(chunksArray...))
 	} else {
 		// TODO: to get estimated time need to update pool.AddRecordsToSync(totalCount) (Can be done via storing some vars in state)
 		rawChunkArray := chunks.Array()
@@ -116,7 +116,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 			return err
 		}
 		// remove success chunk from state
-		stream.RemoveStateChunk(one)
+		m.State.RemoveChunk(stream.Self(), one)
 		logger.Debugf("finished %d chunk[%s-%s] in %0.2f seconds", number, one.Min, one.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})

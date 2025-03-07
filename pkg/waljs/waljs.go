@@ -24,7 +24,7 @@ var pluginArguments = []string{
 
 type Socket struct {
 	pgConn          *pgconn.PgConn
-	clientXLogPos   pglogrepl.LSN
+	ClientXLogPos   pglogrepl.LSN
 	idleStartTime   time.Time
 	changeFilter    ChangeFilter
 	RestartLSN      pglogrepl.LSN
@@ -73,7 +73,7 @@ func NewConnection(db *sqlx.DB, config *Config) (*Socket, error) {
 		pgConn:          pgConn,
 		changeFilter:    NewChangeFilter(config.Tables.Array()...),
 		RestartLSN:      slot.LSN,
-		clientXLogPos:   slot.LSN,
+		ClientXLogPos:   slot.LSN,
 		replicationSlot: config.ReplicationSlotName,
 		initialWaitTime: config.InitialWaitTime,
 	}, nil
@@ -82,15 +82,15 @@ func NewConnection(db *sqlx.DB, config *Config) (*Socket, error) {
 // Confirm that Logs has been recorded
 func (s *Socket) AcknowledgeLSN() error {
 	err := pglogrepl.SendStandbyStatusUpdate(context.Background(), s.pgConn, pglogrepl.StandbyStatusUpdate{
-		WALWritePosition: s.clientXLogPos,
-		WALFlushPosition: s.clientXLogPos,
+		WALWritePosition: s.ClientXLogPos,
+		WALFlushPosition: s.ClientXLogPos,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send standby status message: %s", err)
 	}
 
 	// Update local pointer and state
-	logger.Debugf("sent standby status message at LSN#%s", s.clientXLogPos.String())
+	logger.Debugf("sent standby status message at LSN#%s", s.ClientXLogPos.String())
 	return nil
 }
 
@@ -152,7 +152,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 					return fmt.Errorf("failed to filter change: %w", err)
 				}
 				// Update the current LSN pointer.
-				s.clientXLogPos = newLSN
+				s.ClientXLogPos = newLSN
 
 			default:
 				logger.Debugf("Received unhandled message type: %v", copyData.Data[0])

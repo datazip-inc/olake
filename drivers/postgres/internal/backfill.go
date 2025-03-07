@@ -34,7 +34,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		return utils.CompareInterfaceValue(splitChunks[i].Min, splitChunks[j].Min) < 0
 	})
 
-	stream.SetStateChunks(types.NewSet(splitChunks...))
+	p.State.SetChunks(stream.Self(), types.NewSet(splitChunks...))
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(splitChunks))
 	processChunk := func(ctx context.Context, chunk types.Chunk, number int) error {
 		tx, err := p.client.BeginTx(backfillCtx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
@@ -88,7 +88,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 			return err
 		}
 		logger.Infof("chunk[%v-%v] number %d completed in %s", chunk.Min, chunk.Max, number, time.Since(batchStartTime))
-		stream.RemoveStateChunk(chunk)
+		p.State.RemoveChunk(stream.Self(), chunk)
 		return nil
 	}
 	return utils.Concurrent(backfillCtx, splitChunks, p.config.MaxThreads, processChunk)

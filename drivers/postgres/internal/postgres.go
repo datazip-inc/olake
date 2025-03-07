@@ -42,13 +42,13 @@ type Postgres struct {
 	cdcState  *types.Global[*waljs.WALState]
 }
 
-// ChangeStreamSupported implements protocol.Driver.
-// Subtle: this method shadows the method (*Driver).ChangeStreamSupported of Postgres.Driver.
+// ChangeStreamSupported implements protocol.
+// Subtle: this method shadows the method (*Driver).ChangeStreamSupported of Postgres.
 func (p *Postgres) ChangeStreamSupported() bool {
 	return p.CDCSupport
 }
 
-// Setup implements protocol.Driver.
+// Setup implements protocol.
 func (p *Postgres) Setup() error {
 	err := p.config.Validate()
 	if err != nil {
@@ -87,13 +87,22 @@ func (p *Postgres) Setup() error {
 			return fmt.Errorf("replication slot %s does not exist!", cdc.ReplicationSlot)
 		}
 		// no use of it if check not being called while sync run
-		p.Driver.CDCSupport = true
+		p.CDCSupport = true
 		p.cdcConfig = *cdc
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
 	p.client = db
 	return nil
+}
+
+func (p *Postgres) StateType() types.StateType {
+	return types.GlobalType
+}
+
+func (p *Postgres) SetupState(state *types.State) {
+	state.Type = p.StateType()
+	p.State = state
 }
 
 func (p *Postgres) GetConfigRef() protocol.Config {
@@ -227,14 +236,14 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 	}
 
 	// cdc additional fields
-	if p.Driver.CDCSupport {
+	if p.CDCSupport {
 		for column, typ := range base.DefaultColumns {
 			stream.UpsertField(column, typ, true)
 		}
 	}
 
 	// TODO: Populate cursor fields
-	if !p.Driver.CDCSupport {
+	if !p.CDCSupport {
 		stream.WithSyncMode(types.FULLREFRESH)
 		// source has cursor fields, hence incremental also supported
 		if stream.SourceDefinedPrimaryKey.Len() > 0 {
