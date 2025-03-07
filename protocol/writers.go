@@ -199,7 +199,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						w.recordCount.Add(1) // increase the record count
 
 						if w.SyncedRecords()%batchSize == 0 {
-							state.LogState()
+							state.LogWithLock()
 						}
 					}
 				}

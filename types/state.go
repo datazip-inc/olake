@@ -55,10 +55,8 @@ func (s *State) InitialState(stream *ConfiguredStream) *StreamState {
 
 func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
 	s.Lock()
-	defer func() {
-		s.Unlock()
-		s.LogState()
-	}()
+	defer s.Unlock()
+
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
@@ -104,10 +102,8 @@ func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
 // set chunks
 func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 	s.Lock()
-	defer func() {
-		s.Unlock()
-		s.LogState()
-	}()
+	defer s.Unlock()
+
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
@@ -126,10 +122,8 @@ func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 // remove chunk
 func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
 	s.Lock()
-	defer func() {
-		s.Unlock()
-		s.LogState()
-	}()
+	defer s.Unlock()
+
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
@@ -144,32 +138,9 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
 
 func (s *State) SetGlobalState(globalState any) {
 	s.Lock()
-	defer func() {
-		s.Unlock()
-		s.LogState()
-	}()
+	defer s.Unlock()
 	s.Global = globalState
 }
-
-// func (s *State) Add(stream, namespace string, field string, value any) {
-// 	s.Streams = append(s.Streams, &StreamState{
-// 		Stream:    stream,
-// 		Namespace: namespace,
-// 		State: map[string]any{
-// 			field: value,
-// 		},
-// 	})
-// }
-
-// func (s *State) Get(streamName, namespace string) map[string]any {
-// 	for _, stream := range s.Streams {
-// 		if stream.Stream == streamName && stream.Namespace == namespace {
-// 			return stream.State
-// 		}
-// 	}
-
-// 	return nil
-// }
 
 func (s *State) isZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
@@ -194,13 +165,18 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
+func (s *State) LogWithLock() {
+	s.Lock()
+	defer s.Unlock()
+	s.LogState()
+}
+
 func (s *State) LogState() {
+	// function need to be called after state lock
 	if s.isZero() {
 		logger.Info("state is empty")
 		return
 	}
-	s.Lock()
-	defer s.Unlock()
 
 	message := Message{
 		Type:  StateMessage,

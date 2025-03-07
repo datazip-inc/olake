@@ -173,7 +173,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		logger.Infof("Total records read: %d", pool.SyncedRecords())
-		state.LogState()
+		state.LogWithLock()
 
 		return nil
 	},
