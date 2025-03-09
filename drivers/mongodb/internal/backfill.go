@@ -215,9 +215,16 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	case "timestamp":
 		return timestampStrategy()
 	default:
-		return splitVectorStrategy()
+		var chunks []types.Chunk
+		err := base.RetryOnBackoff(m.config.RetryCount, 1*time.Second, func() error {
+			var err error
+			chunks, err = splitVectorStrategy()
+			return err
+		})
+		return chunks, err
 	}
 }
+
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
 	command := bson.D{{
