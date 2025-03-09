@@ -47,7 +47,7 @@ We prefer squash or rebase commits so that all changes from a branch are committ
 
 ## Installing and setting up Olake
 
-To contribute to this project, you may need to install Olake on your machine. You can do so by following our [**docs**](https://datazip.io/olake/docs/olake/mongodb/how-to-start-contributing-on-olake) and set up Olake in no time.
+To contribute to this project, you may need to install Olake on your machine. You can do so by following our [**docs**](https://olake.io/docs) and set up Olake in no time.
 
 ## Getting help
 
