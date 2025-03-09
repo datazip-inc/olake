@@ -8,7 +8,6 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -39,16 +38,12 @@ type Postgres struct {
 	client    *sqlx.DB
 	config    *Config // postgres driver connection config
 	cdcConfig CDC
-	cdcState  *types.Global[*waljs.WALState]
 }
 
-// ChangeStreamSupported implements protocol.
-// Subtle: this method shadows the method (*Driver).ChangeStreamSupported of Postgres.
 func (p *Postgres) ChangeStreamSupported() bool {
 	return p.CDCSupport
 }
 
-// Setup implements protocol.
 func (p *Postgres) Setup() error {
 	err := p.config.Validate()
 	if err != nil {

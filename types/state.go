@@ -5,7 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	// protocol "github.com/datazip-inc/olake/jsonschema/cmd"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
@@ -48,7 +47,6 @@ func (s *State) InitialState(stream *ConfiguredStream) *StreamState {
 		Stream:     stream.Name(),
 		Namespace:  stream.Namespace(),
 		State:      sync.Map{},
-		Mutex:      &sync.Mutex{},
 		HoldsValue: atomic.Bool{},
 	}
 }
@@ -57,6 +55,7 @@ func (s *State) ResetStreams() {
 	s.Lock()
 	defer s.Unlock()
 	s.Streams = nil
+	s.LogState()
 }
 
 func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
@@ -207,8 +206,7 @@ type Chunk struct {
 }
 
 type StreamState struct {
-	*sync.Mutex `json:"-"`
-	HoldsValue  atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
+	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
 	Stream    string   `json:"stream"`
 	Namespace string   `json:"namespace"`
