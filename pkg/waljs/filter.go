@@ -15,8 +15,6 @@ type ChangeFilter struct {
 	tables map[string]protocol.Stream
 }
 
-type Filtered func(change WalJSChange) error
-
 func NewChangeFilter(streams ...protocol.Stream) ChangeFilter {
 	filter := ChangeFilter{
 		tables: make(map[string]protocol.Stream),
@@ -29,7 +27,7 @@ func NewChangeFilter(streams ...protocol.Stream) ChangeFilter {
 	return filter
 }
 
-func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered Filtered) error {
+func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered OnMessage) error {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
 		return fmt.Errorf("cant parse change from database to filter it: %s", err)
@@ -57,7 +55,7 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 			}
 		}
 
-		err := OnFiltered(WalJSChange{
+		err := OnFiltered(CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,
 			Schema:    ch.Schema,

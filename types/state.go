@@ -53,6 +53,12 @@ func (s *State) InitialState(stream *ConfiguredStream) *StreamState {
 	}
 }
 
+func (s *State) ResetStreams() {
+	s.Lock()
+	defer s.Unlock()
+	s.Streams = nil
+}
+
 func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
 	s.Lock()
 	defer s.Unlock()
@@ -69,6 +75,7 @@ func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
 		newStream.HoldsValue.Store(true)
 		s.Streams = append(s.Streams, newStream)
 	}
+	s.LogState()
 }
 
 func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
@@ -110,13 +117,13 @@ func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 	if contains {
 		s.Streams[index].State.Store(ChunksKey, chunks)
 		s.Streams[index].HoldsValue.Store(true)
-
 	} else {
 		newStream := s.InitialState(stream)
 		newStream.State.Store(ChunksKey, chunks)
 		newStream.HoldsValue.Store(true)
 		s.Streams = append(s.Streams, newStream)
 	}
+	s.LogState()
 }
 
 // remove chunk
@@ -134,12 +141,14 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
 			s.Streams[index].State.Store(ChunksKey, stateChunks)
 		}
 	}
+	s.LogState()
 }
 
 func (s *State) SetGlobalState(globalState any) {
 	s.Lock()
 	defer s.Unlock()
 	s.Global = globalState
+	s.LogState()
 }
 
 func (s *State) isZero() bool {

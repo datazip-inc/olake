@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -27,102 +28,105 @@ func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config
 	}
 	return config, nil
 }
-
 func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
 	ctx := context.TODO()
-	// Collect Global State
-	globalState := types.NewGlobalState(&waljs.WALState{})
+	gs := types.NewGlobalState(&waljs.WALState{})
 	if p.State.Global != nil {
-		err := utils.Unmarshal(p.State.Global, globalState)
-		if err != nil {
-			return err
+		if err = utils.Unmarshal(p.State.Global, gs); err != nil {
+			return fmt.Errorf("global state unmarshal: %w", err)
 		}
 	}
-	// Initialize replication configuration
+
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
-		return fmt.Errorf("failed to prepare WAL config: %w", err)
+		return fmt.Errorf("wal config preparation: %w", err)
 	}
 
-	// Establish replication connection
 	socket, err := waljs.NewConnection(p.client, config)
 	if err != nil {
-		return fmt.Errorf("failed to create replication connection: %w", err)
+		return fmt.Errorf("replication connection: %w", err)
 	}
-	defer socket.Cleanup()
+	defer socket.Cleanup(ctx)
 
-	fullLoad := func(ctx context.Context, lsn string, pool *protocol.WriterPool, streams []protocol.Stream) error {
-		// reset streams for full load
-		globalState.Streams = types.NewSet[string]()
-		globalState.State.LSN = lsn
-		p.State.SetGlobalState(globalState)
-		return utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, s protocol.Stream, _ int) error {
-			if err := p.backfill(pool, s); err != nil {
-				return fmt.Errorf("backfill failed for %s: %w", s.ID(), err)
-			}
-			globalState.Streams.Insert(s.ID())
-			p.State.SetGlobalState(globalState)
-			return nil
-		})
-	}
-
-	// Handle initial data load if needed
-	currentLSN := socket.RestartLSN.String()
-	if globalState.State.LSN == "" {
-		if err := fullLoad(ctx, currentLSN, pool, streams); err != nil {
-			return fmt.Errorf("initial full load failed: %w", err)
+	currentLSN := socket.RestartLSN
+	if gs.State.LSN == "" {
+		gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
+		p.State.SetGlobalState(gs)
+		// reset streams for creating chunks again
+		p.State.ResetStreams()
+	} else {
+		parsed, err := pglogrepl.ParseLSN(gs.State.LSN)
+		if err != nil {
+			return fmt.Errorf("failed to parse stored lsn[%s]: %s", gs.State.LSN, err)
 		}
-	} else if storedLSN, parseErr := pglogrepl.ParseLSN(globalState.State.LSN); parseErr != nil {
-		return fmt.Errorf("invalid stored LSN format: %w", parseErr)
-	} else if storedLSN.String() != currentLSN {
-		if err := fullLoad(ctx, currentLSN, pool, streams); err != nil {
-			return fmt.Errorf("delta load failed: %w", err)
+		if parsed != currentLSN {
+			logger.Warnf("lsn mismatch, backfill will be done again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
+			gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
+			p.State.SetGlobalState(gs)
+			// reset streams for creating chunks again
+			p.State.ResetStreams()
 		}
 	}
 
-	// Create parallel inserters for each stream
+	var needsBackfill []protocol.Stream
+	for _, s := range streams {
+		if !gs.Streams.Exists(s.ID()) {
+			needsBackfill = append(needsBackfill, s)
+		}
+	}
+	if err = utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(ctx context.Context, s protocol.Stream, _ int) error {
+		if err := p.backfill(pool, s); err != nil {
+			return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
+		}
+		gs.Streams.Insert(s.ID())
+		p.State.SetGlobalState(gs)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed concurrent backfill: %s", err)
+	}
+
+	// Inserter lifecycle management
 	inserters := make(map[protocol.Stream]*protocol.ThreadEvent)
-	errChannels := make(map[protocol.Stream]chan error)
+	errChans := make(map[protocol.Stream]chan error)
 
+	// Inserter initialization
 	for _, stream := range streams {
 		errChan := make(chan error)
 		inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan))
 		if err != nil {
-			return fmt.Errorf("failed to create inserter for %s: %w", stream.ID(), err)
+			return fmt.Errorf("inserter init %q: %w", stream.ID(), err)
 		}
-		inserters[stream] = inserter
-		errChannels[stream] = errChan
+		inserters[stream], errChans[stream] = inserter, errChan
 	}
 
-	// Cleanup and final error collection
 	defer func() {
 		if err == nil {
 			for stream, inserter := range inserters {
 				inserter.Close()
-				if threadErr := <-errChannels[stream]; threadErr != nil {
-					err = fmt.Errorf("inserter error for %s: %s", stream.ID(), threadErr)
+				if threadErr := <-errChans[stream]; threadErr != nil {
+					err = fmt.Errorf("failed to write record for stream[%s]: %s", stream.ID(), threadErr)
 				}
 			}
-			// check if any writer error occurred
+			// no write error
 			if err == nil {
-				globalState.State.LSN = socket.ClientXLogPos.String()
-				p.State.SetGlobalState(globalState)
+				// first save state
+				gs.State.LSN = socket.ClientXLogPos.String()
+				p.State.SetGlobalState(gs)
+				// mark lsn for wal logs drop
 				err = socket.AcknowledgeLSN()
 			}
 		}
 	}()
 
-	// Process incoming changes
-	return socket.StreamMessages(ctx, func(msg waljs.WalJSChange) error {
+	// Message processing
+	return socket.StreamMessages(ctx, func(msg waljs.CDCChange) error {
 		pkFields := msg.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-		record := types.CreateRawRecord(
+		deleteTS := utils.Ternary(msg.Kind == "delete", msg.Timestamp.UnixMilli(), int64(0)).(int64)
+		return inserters[msg.Stream].Insert(types.CreateRawRecord(
 			utils.GetKeysHash(msg.Data, pkFields...),
 			msg.Data,
-			utils.IfThenElse(msg.Kind == "delete", msg.Timestamp.UnixMilli(), 0),
-		)
-
-		// Insert using appropriate thread
-		return inserters[msg.Stream].Insert(record)
+			deleteTS,
+		))
 	})
 }
 

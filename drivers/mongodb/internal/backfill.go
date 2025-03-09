@@ -109,15 +109,15 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
 
-	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
+	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, chunk types.Chunk, number int) error {
 		batchStartTime := time.Now()
-		err := processChunk(backfillCtx, one, number)
+		err := processChunk(backfillCtx, chunk, number)
 		if err != nil {
 			return err
 		}
 		// remove success chunk from state
-		m.State.RemoveChunk(stream.Self(), one)
-		logger.Debugf("finished %d chunk[%s-%s] in %0.2f seconds", number, one.Min, one.Max, time.Since(batchStartTime).Seconds())
+		m.State.RemoveChunk(stream.Self(), chunk)
+		logger.Infof("chunk[%d] with min[%v]-max[%v] completed in %0.2f seconds", number, chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})
 }

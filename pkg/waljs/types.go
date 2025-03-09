@@ -35,7 +35,7 @@ type ReplicationSlot struct {
 	LSN      pglogrepl.LSN `db:"confirmed_flush_lsn"`
 }
 
-type WalJSChange struct {
+type CDCChange struct {
 	Stream    protocol.Stream
 	Timestamp typeutils.Time
 	LSN       pglogrepl.LSN
@@ -63,4 +63,4 @@ type WALMessage struct {
 	} `json:"change"`
 }
 
-type OnMessage = func(message WalJSChange) error
+type OnMessage = func(message CDCChange) error

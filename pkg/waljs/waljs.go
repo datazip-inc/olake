@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"time"
+
 	"github.com/datazip-inc/olake/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jmoiron/sqlx"
-	"time"
 )
 
 const (
@@ -45,7 +46,7 @@ func NewConnection(db *sqlx.DB, config *Config) (*Socket, error) {
 	}
 
 	if config.TLSConfig != nil {
-		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	}
 
 	// Establish PostgreSQL connection
@@ -162,6 +163,6 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 }
 
 // cleanUpOnFailure drops replication slot and publication if database snapshotting was failed for any reason
-func (s *Socket) Cleanup() {
-	s.pgConn.Close(context.TODO())
+func (s *Socket) Cleanup(ctx context.Context) {
+	_ = s.pgConn.Close(ctx)
 }

@@ -73,6 +73,7 @@ type Stream interface {
 }
 
 type State interface {
+	ResetStreams()
 	SetType(typ types.StateType)
 	GetCursor(stream *types.ConfiguredStream, key string) any
 	SetCursor(stream *types.ConfiguredStream, key, value any)

@@ -60,7 +60,8 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 	return -1, false
 }
 
-func IfThenElse(cond bool, a, b int64) int64 {
+// returns cond ? a ; b
+func Ternary(cond bool, a, b any) any {
 	if cond {
 		return a
 	}
@@ -253,6 +254,8 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 		return v + increment, nil
 	case int64:
 		return v + int64(increment), nil
+	case float32:
+		return v + float32(increment), nil
 	case float64:
 		return v + float64(increment), nil
 	default:
@@ -260,6 +263,7 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 	}
 }
 
+// return 0 for equal, -1 if a < b else 1 if a>b
 func CompareInterfaceValue(a, b interface{}) int {
 	switch av := a.(type) {
 	case int:
@@ -268,6 +272,14 @@ func CompareInterfaceValue(a, b interface{}) int {
 		}
 	case int64:
 		if bv, ok := b.(int64); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+		}
+	case float32:
+		if bv, ok := b.(float32); ok {
 			if av < bv {
 				return -1
 			} else if av > bv {
@@ -283,6 +295,5 @@ func CompareInterfaceValue(a, b interface{}) int {
 			}
 		}
 	}
-	// TODO: handle for unsupported types
 	return 0
 }

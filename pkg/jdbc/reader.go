@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/datazip-inc/olake/safego"
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -14,9 +13,6 @@ type Reader[T types.Iterable] struct {
 	args      []any
 	batchSize int
 	offset    int
-	err       chan error
-	rows      chan T
-	closed    bool
 	ctx       context.Context
 
 	exec func(ctx context.Context, query string, args ...any) (T, error)
@@ -28,8 +24,6 @@ func NewReader[T types.Iterable](ctx context.Context, baseQuery string, batchSiz
 		query:     baseQuery,
 		batchSize: batchSize,
 		offset:    0,
-		err:       make(chan error),
-		rows:      make(chan T),
 		ctx:       ctx,
 		exec:      exec,
 		args:      args,
@@ -38,15 +32,7 @@ func NewReader[T types.Iterable](ctx context.Context, baseQuery string, batchSiz
 	return setter
 }
 
-func (o *Reader[T]) Close() {
-	o.closed = true
-	safego.Close(o.err)
-	safego.Close(o.rows)
-}
-
 func (o *Reader[T]) Capture(onCapture func(T) error) error {
-	defer o.Close()
-
 	if strings.HasSuffix(o.query, ";") {
 		return fmt.Errorf("base query ends with ';': %s", o.query)
 	}
