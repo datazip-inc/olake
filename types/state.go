@@ -27,10 +27,10 @@ const (
 // TODO: Add validation tags; Write custom unmarshal that triggers validation
 // State is a dto for airbyte state serialization
 type State struct {
-	*sync.Mutex `json:"-"`
-	Type        StateType      `json:"type"`
-	Global      any            `json:"global,omitempty"`
-	Streams     []*StreamState `json:"streams,omitempty"` // TODO: make it set
+	*sync.RWMutex `json:"-"`
+	Type          StateType      `json:"type"`
+	Global        any            `json:"global,omitempty"`
+	Streams       []*StreamState `json:"streams,omitempty"` // TODO: make it set
 }
 
 var (
@@ -78,6 +78,8 @@ func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
 }
 
 func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
+	s.RLock()
+	defer s.RUnlock()
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
@@ -90,6 +92,9 @@ func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
 
 // GetStateChunks retrieves all chunks from the state.
 func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
+	s.RLock()
+	defer s.RUnlock()
+
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
@@ -190,7 +195,8 @@ func (s *State) LogState() {
 		Type:  StateMessage,
 		State: s,
 	}
-	// logger.Info(message)
+	// TODO: Only Log in logs file, not in CLI
+	logger.Info(message)
 
 	// log to file
 	err := logger.FileLogger(message.State, "state", ".json")

@@ -33,18 +33,18 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	gs := types.NewGlobalState(&waljs.WALState{})
 	if p.State.Global != nil {
 		if err = utils.Unmarshal(p.State.Global, gs); err != nil {
-			return fmt.Errorf("global state unmarshal: %w", err)
+			return fmt.Errorf("failed to unmarshal global state: %s", err)
 		}
 	}
 
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
-		return fmt.Errorf("wal config preparation: %w", err)
+		return fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
 	socket, err := waljs.NewConnection(p.client, config)
 	if err != nil {
-		return fmt.Errorf("replication connection: %w", err)
+		return fmt.Errorf("failed to create wal connection: %s", err)
 	}
 	defer socket.Cleanup(ctx)
 
@@ -60,7 +60,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 			return fmt.Errorf("failed to parse stored lsn[%s]: %s", gs.State.LSN, err)
 		}
 		if parsed != currentLSN {
-			logger.Warnf("lsn mismatch, backfill will be done again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
+			logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
 			gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
 			p.State.SetGlobalState(gs)
 			// reset streams for creating chunks again
@@ -94,7 +94,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 		errChan := make(chan error)
 		inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan))
 		if err != nil {
-			return fmt.Errorf("inserter init %q: %w", stream.ID(), err)
+			return fmt.Errorf("failed to initiate writer thread for stream[%s]: %s", stream.ID(), err)
 		}
 		inserters[stream], errChans[stream] = inserter, errChan
 	}

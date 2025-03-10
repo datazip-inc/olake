@@ -150,7 +150,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				{Key: "maxChunkSize", Value: 1024},
 			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
-				return nil, fmt.Errorf("splitVector failed: %w", err)
+				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
 			}
 
 			boundaries := []*primitive.ObjectID{&minID}
