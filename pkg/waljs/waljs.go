@@ -46,7 +46,9 @@ func NewConnection(db *sqlx.DB, config *Config) (*Socket, error) {
 	}
 
 	if config.TLSConfig != nil {
-		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		// TODO: use proper TLS Configurations
+		// nolint:gosec,G115
+		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
 	// Establish PostgreSQL connection
