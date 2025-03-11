@@ -16,7 +16,7 @@ import (
 
 const (
 	discoverTime = 5 * time.Minute
-
+	// TODO: make these queries version specific
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
 		relname as table_name
@@ -24,7 +24,7 @@ const (
 		JOIN pg_namespace n ON c.relnamespace = n.oid
 		WHERE has_table_privilege(c.oid, 'SELECT')
 		AND has_schema_privilege(current_user, nspname, 'USAGE')
-		AND relkind IN ('r', 'm', 'v', 't', 'f', 'p')
+		AND relkind IN ('r', 'm', 't', 'f', 'p')
 		AND nspname NOT LIKE 'pg_%'  -- Exclude default system schemas
 		AND nspname != 'information_schema';  -- Exclude information_schema`
 	// get table schema
@@ -50,12 +50,12 @@ func (p *Postgres) Setup() error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	db, err := sqlx.Open("pgx", p.config.Connection.String())
+	sqlxDB, err := sqlx.Open("pgx", p.config.Connection.String())
 	if err != nil {
 		return fmt.Errorf("failed to connect database: %s", err)
 	}
 
-	db = db.Unsafe()
+	db := sqlxDB.Unsafe()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -79,7 +79,7 @@ func (p *Postgres) Setup() error {
 		}
 
 		if !exists {
-			return fmt.Errorf("replication slot %s does not exist!", cdc.ReplicationSlot)
+			return fmt.Errorf("replication slot %s does not exist", cdc.ReplicationSlot)
 		}
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
@@ -111,28 +111,7 @@ func (p *Postgres) Spec() any {
 }
 
 func (p *Postgres) Check() error {
-	err := p.config.Validate()
-	if err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
-	}
-
-	db, err := sqlx.Open("pgx", p.config.Connection.String())
-	if err != nil {
-		return fmt.Errorf("failed to connect database: %s", err)
-	}
-	db = db.Unsafe()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	// force a connection and test that it worked
-	err = db.PingContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
-	}
-	p.client = db
-
-	return nil
+	return p.Setup()
 }
 
 func (p *Postgres) CloseConnection() {
@@ -237,24 +216,19 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 		}
 	}
 
-	// TODO: Populate cursor fields
-	if !p.CDCSupport {
+	// TODO: Populate cursor fields for incremental purpose
+	if p.CDCSupport {
 		stream.WithSyncMode(types.FULLREFRESH)
-		// source has cursor fields, hence incremental also supported
-		if stream.SourceDefinedPrimaryKey.Len() > 0 {
-			stream.WithSyncMode(types.INCREMENTAL)
-		}
-	} else {
 		stream.WithSyncMode(types.CDC)
+
+	} else {
+		stream.WithSyncMode(types.FULLREFRESH)
 	}
 
 	// add primary keys for stream
 	for _, column := range primaryKeyOutput {
 		stream.WithPrimaryKey(column.Name)
 	}
-
-	stream.SupportedSyncModes.Insert("cdc")
-	stream.SupportedSyncModes.Insert("full_refresh")
 
 	return stream, nil
 }

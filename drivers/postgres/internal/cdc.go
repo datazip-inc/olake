@@ -19,15 +19,15 @@ func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
 	}
 
-	config := &waljs.Config{
+	return &waljs.Config{
 		Connection:          *p.config.Connection,
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet[protocol.Stream](streams...),
 		BatchSize:           p.config.BatchSize,
-	}
-	return config, nil
+	}, nil
 }
+
 func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
 	ctx := context.TODO()
 	gs := types.NewGlobalState(&waljs.WALState{})
@@ -42,14 +42,14 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 		return fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
-	socket, err := waljs.NewConnection(p.client, config)
+	socket, err := waljs.NewConnection(ctx, p.client, config)
 	if err != nil {
 		return fmt.Errorf("failed to create wal connection: %s", err)
 	}
 	defer socket.Cleanup(ctx)
 
-	currentLSN := socket.RestartLSN
-	if gs.State.LSN == "" {
+	currentLSN := socket.ConfirmedFlushLSN
+	if gs.State.IsEmpty() {
 		gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
 		p.State.SetGlobalState(gs)
 		// reset streams for creating chunks again
@@ -113,7 +113,8 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 				gs.State.LSN = socket.ClientXLogPos.String()
 				p.State.SetGlobalState(gs)
 				// mark lsn for wal logs drop
-				err = socket.AcknowledgeLSN()
+				// TODO: acknowledge message should also be send w.r.t batch size
+				err = socket.AcknowledgeLSN(ctx)
 			}
 		}
 	}()

@@ -42,6 +42,7 @@ type SSLConfig struct {
 
 // Validate returns err if the ssl configuration is invalid
 func (sc *SSLConfig) Validate() error {
+	// TODO: Add Proper validations and test
 	if sc == nil {
 		return errors.New("'ssl' config is required")
 	}

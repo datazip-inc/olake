@@ -265,34 +265,20 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 
 // return 0 for equal, -1 if a < b else 1 if a>b
 func CompareInterfaceValue(a, b interface{}) int {
-	switch av := a.(type) {
-	case int:
-		if bv, ok := b.(int); ok {
-			return av - bv
+	switch a.(type) {
+	case int, int64, float32, float64:
+		af := 0.0
+		if a != nil {
+			af = reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
 		}
-	case int64:
-		if bv, ok := b.(int64); ok {
-			if av < bv {
-				return -1
-			} else if av > bv {
-				return 1
-			}
+		bf := 0.0
+		if b != nil {
+			bf = reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
 		}
-	case float32:
-		if bv, ok := b.(float32); ok {
-			if av < bv {
-				return -1
-			} else if av > bv {
-				return 1
-			}
-		}
-	case float64:
-		if bv, ok := b.(float64); ok {
-			if av < bv {
-				return -1
-			} else if av > bv {
-				return 1
-			}
+		if af < bf {
+			return -1
+		} else if af > bf {
+			return 1
 		}
 	}
 	return 0

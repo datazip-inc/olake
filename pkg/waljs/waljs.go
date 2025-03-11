@@ -23,17 +23,25 @@ var pluginArguments = []string{
 	"\"include-timestamp\" 'on'",
 }
 
+// Socket represents a connection to PostgreSQL's logical replication stream
 type Socket struct {
-	pgConn          *pgconn.PgConn
-	ClientXLogPos   pglogrepl.LSN
-	idleStartTime   time.Time
-	changeFilter    ChangeFilter
-	RestartLSN      pglogrepl.LSN
+	// pgConn is the underlying PostgreSQL replication connection
+	pgConn *pgconn.PgConn
+	// clientXLogPos tracks the current position in the Write-Ahead Log (WAL)
+	ClientXLogPos pglogrepl.LSN
+	// idleStartTime tracks when the connection last received data
+	idleStartTime time.Time
+	// changeFilter filters WAL changes based on configured tables
+	changeFilter ChangeFilter
+	// confirmedLSN is the position from which replication should start (Prev marked lsn)
+	ConfirmedFlushLSN pglogrepl.LSN
+	// replicationSlot is the name of the PostgreSQL replication slot being used
 	replicationSlot string
+	// initialWaitTime is the duration to wait for initial data before timing out
 	initialWaitTime time.Duration
 }
 
-func NewConnection(db *sqlx.DB, config *Config) (*Socket, error) {
+func NewConnection(ctx context.Context, db *sqlx.DB, config *Config) (*Socket, error) {
 	// Build PostgreSQL connection config
 	connURL := config.Connection
 	q := connURL.Query()
@@ -51,13 +59,13 @@ func NewConnection(db *sqlx.DB, config *Config) (*Socket, error) {
 	}
 
 	// Establish PostgreSQL connection
-	pgConn, err := pgconn.ConnectConfig(context.Background(), cfg)
+	pgConn, err := pgconn.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %s", err)
 	}
 
 	// System identification
-	sysident, err := pglogrepl.IdentifySystem(context.Background(), pgConn)
+	sysident, err := pglogrepl.IdentifySystem(ctx, pgConn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to indentify system: %s", err)
 	}
@@ -72,18 +80,18 @@ func NewConnection(db *sqlx.DB, config *Config) (*Socket, error) {
 
 	// Create and return final connection object
 	return &Socket{
-		pgConn:          pgConn,
-		changeFilter:    NewChangeFilter(config.Tables.Array()...),
-		RestartLSN:      slot.LSN,
-		ClientXLogPos:   slot.LSN,
-		replicationSlot: config.ReplicationSlotName,
-		initialWaitTime: config.InitialWaitTime,
+		pgConn:            pgConn,
+		changeFilter:      NewChangeFilter(config.Tables.Array()...),
+		ConfirmedFlushLSN: slot.LSN,
+		ClientXLogPos:     slot.LSN,
+		replicationSlot:   config.ReplicationSlotName,
+		initialWaitTime:   config.InitialWaitTime,
 	}, nil
 }
 
 // Confirm that Logs has been recorded
-func (s *Socket) AcknowledgeLSN() error {
-	err := pglogrepl.SendStandbyStatusUpdate(context.Background(), s.pgConn, pglogrepl.StandbyStatusUpdate{
+func (s *Socket) AcknowledgeLSN(ctx context.Context) error {
+	err := pglogrepl.SendStandbyStatusUpdate(ctx, s.pgConn, pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: s.ClientXLogPos,
 		WALFlushPosition: s.ClientXLogPos,
 	})
@@ -98,18 +106,18 @@ func (s *Socket) AcknowledgeLSN() error {
 
 func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 	// Start logical replication with wal2json plugin arguments.
+	// TODO: need research on if we need initial wait time or not (currently we are using idle time)
 	if err := pglogrepl.StartReplication(
-		context.Background(),
+		ctx,
 		s.pgConn,
 		s.replicationSlot,
-		s.RestartLSN,
+		s.ConfirmedFlushLSN,
 		pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments},
 	); err != nil {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
 	logger.Infof("Started logical replication on slot[%s]", s.replicationSlot)
 	s.idleStartTime = time.Now()
-
 	for {
 		select {
 		case <-ctx.Done():

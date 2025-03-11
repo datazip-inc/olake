@@ -12,13 +12,12 @@ import (
 )
 
 type Config struct {
-	Tables                     *types.Set[protocol.Stream]
-	Connection                 url.URL
-	ReplicationSlotName        string
-	InitialWaitTime            time.Duration
-	SnapshotMemorySafetyFactor float64
-	TLSConfig                  *tls.Config
-	BatchSize                  int
+	Tables              *types.Set[protocol.Stream]
+	Connection          url.URL
+	ReplicationSlotName string
+	InitialWaitTime     time.Duration
+	TLSConfig           *tls.Config
+	BatchSize           int
 }
 
 type WALState struct {
@@ -26,7 +25,7 @@ type WALState struct {
 }
 
 func (s *WALState) IsEmpty() bool {
-	return s.LSN == ""
+	return s == nil || s.LSN == ""
 }
 
 type ReplicationSlot struct {

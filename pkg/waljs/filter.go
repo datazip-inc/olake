@@ -30,7 +30,7 @@ func NewChangeFilter(streams ...protocol.Stream) ChangeFilter {
 func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered OnMessage) error {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
-		return fmt.Errorf("cant parse change from database to filter it: %s", err)
+		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
 	}
 
 	if len(changes.Change) == 0 {
@@ -43,7 +43,6 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 			continue
 		}
 
-		// builder := array.NewRecordBuilder(memory.DefaultAllocator, schema)
 		changesMap := map[string]any{}
 		if ch.Kind == "delete" {
 			for i, changedValue := range ch.Oldkeys.Keyvalues {

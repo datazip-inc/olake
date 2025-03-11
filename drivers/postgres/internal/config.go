@@ -25,10 +25,6 @@ type Config struct {
 	MaxThreads       int               `json:"max_threads"`
 }
 
-// Standard Sync
-type Standard struct {
-}
-
 // Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
@@ -42,15 +38,26 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("host should not contain http or https")
 	}
 
-	if c.SSLConfiguration == nil {
-		return fmt.Errorf("ssl config not set")
+	// Validate port
+	if c.Port <= 0 || c.Port > 65535 {
+		return fmt.Errorf("invalid port number: must be between 1 and 65535")
+	}
+
+	// Set default values if not provided
+	if c.BatchSize <= 0 {
+		c.BatchSize = 10000 // default batch size
+	}
+
+	// default number of threads
+	if c.MaxThreads <= 0 {
+		c.MaxThreads = 2
 	}
 
 	// construct the connection string
 	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", c.Username, c.Password, c.Host, c.Port, c.Database)
 	parsed, err := url.Parse(connStr)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse connection string: %s", err)
 	}
 
 	query := parsed.Query()
@@ -65,29 +72,38 @@ func (c *Config) Validate() error {
 		query.Add("options", params)
 	}
 
-	// Enable SSL if SSLConfig is provided
-	if c.SSLConfiguration != nil {
-		sslmode := string(c.SSLConfiguration.Mode)
-		if sslmode != "" {
-			query.Add("sslmode", sslmode)
-		}
-
-		if c.SSLConfiguration.ServerCA != "" {
-			query.Add("sslrootcert", c.SSLConfiguration.ServerCA)
-		}
-
-		if c.SSLConfiguration.ClientCert != "" {
-			query.Add("sslcert", c.SSLConfiguration.ClientCert)
-		}
-
-		if c.SSLConfiguration.ClientKey != "" {
-			query.Add("sslkey", c.SSLConfiguration.ClientKey)
+	if c.SSLConfiguration == nil {
+		c.SSLConfiguration = &utils.SSLConfig{
+			Mode: "disable",
 		}
 	}
+
+	sslmode := string(c.SSLConfiguration.Mode)
+	if sslmode != "" {
+		query.Add("sslmode", sslmode)
+	}
+
+	err = c.SSLConfiguration.Validate()
+	if err != nil {
+		return fmt.Errorf("failed to validate ssl config: %s", err)
+	}
+
+	if c.SSLConfiguration.ServerCA != "" {
+		query.Add("sslrootcert", c.SSLConfiguration.ServerCA)
+	}
+
+	if c.SSLConfiguration.ClientCert != "" {
+		query.Add("sslcert", c.SSLConfiguration.ClientCert)
+	}
+
+	if c.SSLConfiguration.ClientKey != "" {
+		query.Add("sslkey", c.SSLConfiguration.ClientKey)
+	}
+
 	parsed.RawQuery = query.Encode()
 	c.Connection = parsed
 
-	return c.SSLConfiguration.Validate()
+	return nil
 }
 
 type Table struct {

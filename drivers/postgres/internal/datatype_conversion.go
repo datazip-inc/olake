@@ -5,7 +5,7 @@ import (
 )
 
 var pgTypeToDataTypes = map[string]types.DataType{
-	// integers
+	// TODO: add proper types (not only int64)
 	"bigint":      types.Int64,
 	"tinyint":     types.Int64,
 	"integer":     types.Int64,
