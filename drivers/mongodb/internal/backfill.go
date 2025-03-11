@@ -211,18 +211,38 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
+	var strategyFunc func() ([]types.Chunk, error)
+	var strategyName string
+
 	switch m.config.PartitionStrategy {
 	case "timestamp":
-		return timestampStrategy()
+		strategyFunc = timestampStrategy
+		strategyName = "Timestamp"
 	default:
-		var chunks []types.Chunk
-		err := base.RetryOnBackoff(m.config.RetryCount, 1*time.Second, func() error {
-			var err error
-			chunks, err = splitVectorStrategy()
-			return err
-		})
-		return chunks, err
+		strategyFunc = splitVectorStrategy
+		strategyName = "Split Vector"
 	}
+
+	var chunks []types.Chunk
+	var retryCounter int
+
+	err := base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+		var retryErr error
+		chunks, retryErr = strategyFunc()
+
+		if retryErr != nil {
+			retryCounter++
+			logger.Infof("Number of Retry of %s Strategy %d", strategyName, retryCounter)
+		}
+
+		return retryErr
+	})
+
+	if retryCounter > 0 {
+		logger.Infof("%s Strategy completed after %d retries", strategyName, retryCounter)
+	}
+
+	return chunks, err
 }
 
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
