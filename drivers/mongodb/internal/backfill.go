@@ -192,6 +192,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	}
 
 	timestampStrategy := func() ([]types.Chunk, error) {
+		// Time-based strategy implementation
 		first, last, err := m.fetchExtremes(collection)
 		if err != nil {
 			return nil, err
@@ -202,6 +203,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if timeDiff < 1 {
 			timeDiff = 1
 		}
+		// for every 6hr difference ideal density is 10 Seconds
 		density := time.Duration(timeDiff) * (10 * time.Second)
 		start := first
 		var chunks []types.Chunk
