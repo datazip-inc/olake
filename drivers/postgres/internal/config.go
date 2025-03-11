@@ -54,7 +54,7 @@ func (c *Config) Validate() error {
 	}
 
 	// construct the connection string
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", c.Username, c.Password, c.Host, c.Port, c.Database)
+	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", url.QueryEscape(c.Username), url.QueryEscape(c.Password), c.Host, c.Port, url.QueryEscape(c.Database))
 	parsed, err := url.Parse(connStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse connection string: %s", err)
