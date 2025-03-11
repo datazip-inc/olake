@@ -183,7 +183,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 			chunks = append(chunks, types.Chunk{
 				Min: &boundaries[i],
-				Max: maxObjectID,
+				Max: &maxObjectID,
 			})
 		}
 		return chunks, nil
