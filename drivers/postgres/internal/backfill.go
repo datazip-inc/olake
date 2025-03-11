@@ -30,7 +30,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 	var splitChunks []types.Chunk
 	if stateChunks == nil {
 		// check for data distribution
-		// TODO: remove chunk intersections
+		// TODO: remove chunk intersections where chunks can be {0, 100} {100, 200}. Need to {0, 99} {100, 200}
 		splitChunks, err = p.splitTableIntoChunks(stream)
 		if err != nil {
 			return fmt.Errorf("failed to start backfill: %s", err)

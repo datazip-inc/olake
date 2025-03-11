@@ -37,6 +37,7 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		return nil
 	}
 
+	// TODO: Parallel process changes
 	for _, ch := range changes.Change {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {

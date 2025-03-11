@@ -16,7 +16,7 @@ import (
 
 const (
 	discoverTime = 5 * time.Minute
-	// TODO: make these queries version specific
+	// TODO: make these queries Postgres version specific
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
 		relname as table_name
@@ -55,12 +55,12 @@ func (p *Postgres) Setup() error {
 		return fmt.Errorf("failed to connect database: %s", err)
 	}
 
-	db := sqlxDB.Unsafe()
+	pgClient := sqlxDB.Unsafe()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	// force a connection and test that it worked
-	err = db.PingContext(ctx)
+	err = pgClient.PingContext(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
@@ -73,7 +73,7 @@ func (p *Postgres) Setup() error {
 			return err
 		}
 
-		exists, err := doesReplicationSlotExists(db, cdc.ReplicationSlot)
+		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
 		if err != nil {
 			return fmt.Errorf("failed to check replication slot: %s", err)
 		}
@@ -81,13 +81,17 @@ func (p *Postgres) Setup() error {
 		if !exists {
 			return fmt.Errorf("replication slot %s does not exist", cdc.ReplicationSlot)
 		}
+		if cdc.InitialWaitTime == 0 {
+			// default set 10 sec
+			cdc.InitialWaitTime = 10
+		}
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
-	p.client = db
+	p.client = pgClient
 	return nil
 }
 

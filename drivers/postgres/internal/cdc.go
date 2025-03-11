@@ -113,7 +113,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 				gs.State.LSN = socket.ClientXLogPos.String()
 				p.State.SetGlobalState(gs)
 				// mark lsn for wal logs drop
-				// TODO: acknowledge message should also be send w.r.t batch size
+				// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
 				err = socket.AcknowledgeLSN(ctx)
 			}
 		}
