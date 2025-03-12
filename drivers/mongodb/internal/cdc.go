@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
@@ -18,6 +19,11 @@ import (
 type CDCDocument struct {
 	OperationType string         `json:"operationType"`
 	FullDocument  map[string]any `json:"fullDocument"`
+	DocumentKey   map[string]any `json:"documentKey"` // Added for delete operations
+	NS            struct {       // Added for namespace info
+		DB         string `json:"db"`
+		Collection string `json:"coll"`
+	} `json:"ns"`
 }
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
@@ -91,18 +97,35 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		// TODO: Handle Deleted documents (Good First Issue)
-		if record.FullDocument != nil {
-			record.FullDocument["cdc_type"] = record.OperationType
+
+		var documentToProcess map[string]any
+		switch record.OperationType {
+		case "delete":
+			documentToProcess = map[string]any{
+				"_id":            record.DocumentKey["_id"],
+				"cdc_type":       record.OperationType,
+				"deleted_at":     time.Now().UTC().Format(time.RFC3339),
+				"document_key":   record.DocumentKey,
+				"namespace_db":   record.NS.DB,
+				"namespace_coll": record.NS.Collection,
+			}
+		default:
+			if record.FullDocument != nil {
+				documentToProcess = record.FullDocument
+				documentToProcess["cdc_type"] = record.OperationType
+			}
 		}
-		handleObjectID(record.FullDocument)
-		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID), record.FullDocument, 0)
-		exit, err := insert.Insert(rawRecord)
-		if err != nil {
-			return err
-		}
-		if exit {
-			return nil
+
+		if documentToProcess != nil {
+			handleObjectID(documentToProcess)
+			rawRecord := types.CreateRawRecord(utils.GetKeysHash(documentToProcess, constants.MongoPrimaryID), documentToProcess, 0)
+			exit, err := insert.Insert(rawRecord)
+			if err != nil {
+				return err
+			}
+			if exit {
+				return nil
+			}
 		}
 
 		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
