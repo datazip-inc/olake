@@ -7,5 +7,5 @@ const (
 	MongoPrimaryIDSuffix = `")`
 	OlakeID              = "olake_id"
 	OlakeTimestamp       = "olake_insert_time"
-	CDCDeletedAt         = "cdc_deleted_at"
+	CDCDeletedAt         = "_cdc_deleted_at"
 )
