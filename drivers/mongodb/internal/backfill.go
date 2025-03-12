@@ -23,7 +23,7 @@ import (
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	chunks := stream.GetStateChunks()
+	chunks := m.State.GetChunks(stream.Self())
 	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
 	if chunks == nil || chunks.Len() == 0 {
@@ -47,7 +47,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		if err != nil {
 			return err
 		}
-		stream.SetStateChunks(types.NewSet(chunksArray...))
+		m.State.SetChunks(stream.Self(), types.NewSet(chunksArray...))
 	} else {
 		// TODO: to get estimated time need to update pool.AddRecordsToSync(totalCount) (Can be done via storing some vars in state)
 		rawChunkArray := chunks.Array()
@@ -70,7 +70,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		defer cancelThread()
 
 		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(threadContext, stream, protocol.WithWaitChannel(waitChannel))
+		insert, err := pool.NewThread(threadContext, stream, protocol.WithErrorChannel(waitChannel))
 		if err != nil {
 			return err
 		}
@@ -99,12 +99,9 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				}
 
 				handleObjectID(doc)
-				exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
+				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
 				if err != nil {
 					return fmt.Errorf("failed to finish backfill chunk: %s", err)
-				}
-				if exit {
-					return nil
 				}
 			}
 			return cursor.Err()
@@ -112,15 +109,15 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
 
-	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
+	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, chunk types.Chunk, number int) error {
 		batchStartTime := time.Now()
-		err := processChunk(backfillCtx, one, number)
+		err := processChunk(backfillCtx, chunk, number)
 		if err != nil {
 			return err
 		}
 		// remove success chunk from state
-		stream.RemoveStateChunk(one)
-		logger.Debugf("finished %d chunk[%s-%s] in %0.2f seconds", number, one.Min, one.Max, time.Since(batchStartTime).Seconds())
+		m.State.RemoveChunk(stream.Self(), chunk)
+		logger.Infof("chunk[%d] with min[%v]-max[%v] completed in %0.2f seconds", number, chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})
 }
@@ -153,7 +150,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				{Key: "maxChunkSize", Value: 1024},
 			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
-				return nil, fmt.Errorf("splitVector failed: %w", err)
+				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
 			}
 
 			boundaries := []*primitive.ObjectID{&minID}
