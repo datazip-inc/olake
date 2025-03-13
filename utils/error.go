@@ -18,7 +18,7 @@ func ErrExec(functions ...func() error) error {
 	for _, one := range functions {
 		group.Go(func() error {
 			select {
-			case <-ctx.Done(): // Check if the context is canceled
+			case <-ctx.Done(): // Check if the context is canceled or times out
 				return ctx.Err()
 			default:
 				return one()
@@ -131,4 +131,19 @@ func (e *CustomError) ShouldStop() bool {
 func LogExecution(functionName string, startTime time.Time) {
 	duration := time.Since(startTime)
 	log.Printf("Function '%s' executed in %v", functionName, duration)
+}
+
+// ErrExecWithLogging executes a list of functions concurrently and logs execution time for each.
+func ErrExecWithLogging(functions ...func() error) error {
+	group, ctx := errgroup.WithContext(context.Background())
+
+	for _, one := range functions {
+		group.Go(func() error {
+			startTime := time.Now()
+			defer LogExecution("Function", startTime) // Log execution after function completes
+			return one()
+		})
+	}
+
+	return group.Wait()
 }
