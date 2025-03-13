@@ -48,8 +48,8 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}}},
 	}
 
-	prevResumeToken := stream.GetStateKey(cdcCursorField)
-	chunks := stream.GetStateChunks()
+	prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
+	chunks := m.State.GetChunks(stream.Self())
 
 	if prevResumeToken == nil || chunks == nil || chunks.Len() != 0 {
 		// get current resume token and do full load for stream
@@ -62,7 +62,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}
 
 		// save resume token
-		stream.SetStateKey(cdcCursorField, prevResumeToken)
+		m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 
 		if err := m.backfill(stream, pool); err != nil {
 			return err
@@ -97,12 +97,9 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}
 		handleObjectID(record.FullDocument)
 		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID), record.FullDocument, 0)
-		exit, err := insert.Insert(rawRecord)
+		err := insert.Insert(rawRecord)
 		if err != nil {
 			return err
-		}
-		if exit {
-			return nil
 		}
 
 		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
@@ -112,7 +109,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 
 	// save state for the current stream
-	stream.SetStateKey(cdcCursorField, prevResumeToken)
+	m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 	return nil
 }
 

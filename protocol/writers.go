@@ -16,7 +16,7 @@ import (
 )
 
 type NewFunc func() Writer
-type InsertFunction func(record types.RawRecord) (exit bool, err error)
+type InsertFunction func(record types.RawRecord) (err error)
 type CloseFunction func()
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
@@ -41,7 +41,7 @@ func WithNumber(number int64) ThreadOptions {
 	}
 }
 
-func WithWaitChannel(errChan chan error) ThreadOptions {
+func WithErrorChannel(errChan chan error) ThreadOptions {
 	return func(opt *Options) {
 		opt.errorChannel = errChan
 	}
@@ -199,7 +199,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						w.recordCount.Add(1) // increase the record count
 
 						if w.SyncedRecords()%batchSize == 0 {
-							state.LogState()
+							state.LogWithLock()
 						}
 					}
 				}
@@ -212,12 +212,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	})
 
 	return &ThreadEvent{
-		Insert: func(record types.RawRecord) (bool, error) {
+		Insert: func(record types.RawRecord) error {
 			select {
 			case <-child.Done():
-				return false, fmt.Errorf("main writer closed")
+				return fmt.Errorf("main writer closed")
 			case recordChan <- record:
-				return false, nil
+				return nil
 			}
 		},
 		Close: func() {
