@@ -43,7 +43,11 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		pool.AddRecordsToSync(recordCount)
 
 		// Generate and update chunks
-		chunksArray, err = m.splitChunks(backfillCtx, collection, stream)
+		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+			var retryErr error
+			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
+			return retryErr
+		})
 		if err != nil {
 			return err
 		}
