@@ -16,10 +16,13 @@
     </a> 
 </p>
   
-  
+
 <h3 align="center">
   <a href="https://olake.io/docs"><b>Documentation</b></a> &bull;
-  <a href="https://twitter.com/_olake"><b>Twitter</b></a>
+  <a href="https://twitter.com/_olake"><b>Twitter</b></a> &bull;
+  <a href="https://www.youtube.com/@olakeio"><b>YouTube</b></a> &bull;
+  <a href="https://meetwaves.com/library/olake"><b>Slack Knowledgebase</b></a>  &bull;
+  <a href="https://olake.io/blog"><b>Blogs</b></a>
 </h3>
 
 
@@ -174,24 +177,24 @@ For more details, refer to the [documentation](https://olake.io/docs).
 
 For a collection of 230 million rows (664.81GB) from [Twitter data](https://archive.org/details/archiveteam-twitter-stream-2017-11), here's how Olake compares to other tools:
 
-| Tool              | Full Load Time    | Performance          |
-|-------------------|-------------------|----------------------|
-| **Olake**         | 46 mins           | X times faster       |
-| **Fivetran**      | 4 hours 39 mins (279 mins) | 6x slower          |
-| **Airbyte**       | 16 hours (960 mins) | 20x slower         |
-| **Debezium (Embedded)** | 11.65 hours (699 mins) | 15x slower     |
+| Tool                    | Full Load Time             | Performance    |
+| ----------------------- | -------------------------- | -------------- |
+| **Olake**               | 46 mins                    | X times faster |
+| **Fivetran**            | 4 hours 39 mins (279 mins) | 6x slower      |
+| **Airbyte**             | 16 hours (960 mins)        | 20x slower     |
+| **Debezium (Embedded)** | 11.65 hours (699 mins)     | 15x slower     |
 
 
 ### Incremental Sync Performance
 
-| Tool                 | Incremental Sync Time | Records per Second (r/s) | Performance      |
-|----------------------|------------------------|---------------------------|------------------|
-| **Olake**            | 28.3 sec              | 35,694 r/s                | X times faster   |
-| **Fivetran**         | 3 min 10 sec          | 5,260 r/s                 | 6.7x slower      |
-| **Airbyte**          | 12 min 44 sec         | 1,308 r/s                 | 27.3x slower     |
-| **Debezium (Embedded)** | 12 min 44 sec       | 1,308 r/s                 | 27.3x slower     |
+| Tool                    | Incremental Sync Time | Records per Second (r/s) | Performance    |
+| ----------------------- | --------------------- | ------------------------ | -------------- |
+| **Olake**               | 28.3 sec              | 35,694 r/s               | X times faster |
+| **Fivetran**            | 3 min 10 sec          | 5,260 r/s                | 6.7x slower    |
+| **Airbyte**             | 12 min 44 sec         | 1,308 r/s                | 27.3x slower   |
+| **Debezium (Embedded)** | 12 min 44 sec         | 1,308 r/s                | 27.3x slower   |
 
-Cost Comparison: (Considering 230 million first full load & 50 million rows incremental rows per month) as dated 30th September: Find more [here](https://olake.io/docs/connectors/mongodb/benchmarks).
+Cost Comparison: (Considering 230 million first full load & 50 million rows incremental rows per month) as dated 30th September 2025: Find more [here](https://olake.io/docs/connectors/mongodb/benchmarks).
 
 
 
@@ -212,44 +215,69 @@ Virtual Machine: `Standard_D64as_v5`
 Find more [here](https://olake.io/docs/connectors/mongodb/benchmarks).
 
 
-## Components
-### Drivers
 
-Drivers aka Connectors/Source that includes the logic for interacting with database. Upcoming drivers being planned are
-- [x] MongoDB ([Documentation](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb))
-- [ ] MySQL (Coming Soon!)
-- [ ] Postgres (Coming Soon!)
-- [ ] DynamoDB
-- [ ] Kafka
+Detailed roadmap can be found on [GitHub OLake Roadmap 2024-25](https://github.com/orgs/datazip-inc/projects/5)
+
+## Source Connector Level Functionalities Supported
+
+| Connector Functionalities | MongoDB [(docs)](https://olake.io/docs/connectors/mongodb/overview) | Postgres [(docs)](https://olake.io/docs/connectors/postgres/overview) | MySQL [(docs)](https://olake.io/docs/connectors/mysql/overview) |
+| ------------------------- | ------- | -------- | ------------------------------------------------------------ |
+| Full Refresh Sync Mode    | ✅       | ✅        | ✅                                                            |
+| Incremental Sync Mode     | ❌       | ❌        | ❌                                                            |
+| CDC Sync Mode             | ✅       | ✅        | ✅                                                            |
+| Full Parallel Processing  | ✅       | ✅        | ✅                                                            |
+| CDC Parallel Processing   | ✅       | ❌        | ❌                                                            |
+| Resumable Full Load       | ✅       | ✅        | ✅                                                            |
+| CDC Heart Beat            | ❌       | ❌        | ❌                                                            |
+
+We have additionally planned the following sources -  [AWS S3](https://github.com/datazip-inc/olake/issues/86) |  [Kafka](https://github.com/datazip-inc/olake/issues/87) 
+
+
+## Writer Level Functionalities Supported
+
+| Features/Functionality          | Local Filesystem [(docs)](https://olake.io/docs/writers/local) | AWS S3 [(docs)](https://olake.io/docs/writers/s3/overview) | Iceberg (WIP) |
+| ------------------------------- | ---------------------- | --- | ------------- |
+| Flattening & Normalization (L1) | ✅                      | ✅             |             |
+| Partitioning                    | ✅                      | ✅             |             |
+| Schema Changes                  | ✅                      | ✅             |             |
+| Schema Evolution                | ✅                      | ✅             |             |
+
+
+## Catalogue Support
+
+| Catalogues                 | Support                                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Glue Catalog               | [WIP](https://github.com/datazip-inc/olake/pull/113)                                                     |
+| Hive Meta Store            | Upcoming                                                                                                 |
+| JDBC Catalogue             | Upcoming                                                                                                 |
+| REST Catalogue - Nessie    | Upcoming                                                                                                 |
+| REST Catalogue - Polaris   | Upcoming                                                                                                 |
+| REST Catalogue - Unity     | Upcoming                                                                                                 |
+| REST Catalogue - Gravitino | Upcoming                                                                                                 |
+| Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
+| BigLake Metastore          | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 
 
 
-### Writers
+See [Roadmap](https://github.com/orgs/datazip-inc/projects/5) for more details.
 
-Writers are directly integrated into drivers to avoid blockage of writing/reading into/from os.StdOut or any other type of I/O. This enables direct insertion of records from each individual fired query to the destination.
-
-Writers are being planned in this order
-- [x] Parquet Writer (Writes Parquet files on Local/S3)
-- [ ] S3 Iceberg Parquet (Coming Soon!)
-- [ ] Snowflake
-- [ ] BigQuery
-- [ ] RedShift
 
 ### Core
 
 Core or framework is the component/logic that has been abstracted out from Connectors to follow DRY. This includes base CLI commands, State logic, Validation logic, Type detection for unstructured data, handling Config, State, Catalog, and Writer config file, logging etc.
 
-Core includes http server that directly exposes live stats about running sync such as
+Core includes http server that directly exposes live stats about running sync such as:
 - Possible finish time
 - Concurrently running processes
 - Live record count
 
-Core handles the commands to interact with a driver via these
-- spec command: Returns render-able JSON Schema that can be consumed by rjsf libraries in frontend
-- check command: performs all necessary checks on the Config, Catalog, State and Writer config
-- discover command: Returns all streams and their schema
-- sync command: Extracts data out of Source and writes into destinations
+Core handles the commands to interact with a driver via these:
+- `spec` command: Returns render-able JSON Schema that can be consumed by rjsf libraries in frontend
+- `check` command: performs all necessary checks on the Config, Catalog, State and Writer config
+- `discover` command: Returns all streams and their schema
+- `sync` command: Extracts data out of Source and writes into destinations
 
+Find more about how OLake works [here.](https://olake.io/docs/category/understanding-olake)
 
 ### SDKs
 
@@ -267,15 +295,18 @@ Olake will be built on top of SDK providing persistent storage and a user interf
 
 We ❤️ contributions big or small. Please read [CONTRIBUTING.md](CONTRIBUTING.md) to get started with making contributions to OLake.
 
+- To contribute to Frontend, go to [OLake Frontend GitHub repo](https://github.com/datazip-inc/olake-frontend/).
+
+- To contribute to OLake website and documentation (olake.io), go to [OLake Frontend GitHub repo](https://github.com/datazip-inc/olake-docs).
+
 Not sure how to get started? Just ping us on `#contributing-to-olake` in our [slack community](https://olake.io/slack)
 
-<br /><br />
+## [Documentation](olake.io/docs)
 
-## Documentation
 
-You can find docs at https://olake.io/docs. If you need any clarification or find something missing, feel free to raise a GitHub issue with the label `documentation` at [olake-docs](https://github.com/datazip-inc/olake-docs/) repo or reach out to us at the community slack channel.
+If you need any clarification or find something missing, feel free to raise a GitHub issue with the label `documentation` at [olake-docs](https://github.com/datazip-inc/olake-docs/) repo or reach out to us at the community slack channel.
 
-<br /><br />
+
 
 
 ## Community
