@@ -78,7 +78,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	directoryPath := filepath.Join(p.config.Path, basePath)
 
 	if err := os.MkdirAll(directoryPath, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directories[%s]: %w", directoryPath, err)
+		return fmt.Errorf("failed to create directories[%s]: %s", directoryPath, err)
 	}
 
 	fileName := utils.TimestampedFileName(constants.ParquetFileExt)
@@ -86,7 +86,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	pqFile, err := local.NewLocalFileWriter(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create parquet file writer: %w", err)
+		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
 
 	writer := func() any {

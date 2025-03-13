@@ -2,17 +2,12 @@ package types
 
 import (
 	"fmt"
-	"sync"
-
-	"github.com/datazip-inc/olake/utils"
 )
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
-	globalState             *State       `json:"-"` // global state
-	streamState             *StreamState `json:"-"` // in-memory state copy for individual stream
-	StreamMetadata          StreamMetadata
-	InitialCursorStateValue any `json:"-"` // Cached initial state value
+	StreamMetadata          StreamMetadata `json:"-"`
+	InitialCursorStateValue any            `json:"-"` // Cached initial state value
 
 	Stream *Stream `json:"stream,omitempty"`
 
@@ -58,100 +53,6 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 
 func (s *ConfiguredStream) Cursor() string {
 	return s.CursorField
-}
-
-// Returns empty and missing
-func (s *ConfiguredStream) SetupState(state *State) {
-	// set global state (stream must know parent state as well)
-	s.globalState = state
-	// Initialize a state or map the already present state
-	if !state.isZero() {
-		i, contains := utils.ArrayContains(state.Streams, func(elem *StreamState) bool {
-			return elem.Namespace == s.Namespace() && elem.Stream == s.Name()
-		})
-
-		if contains {
-			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
-			s.streamState = state.Streams[i]
-			s.streamState.Mutex = &sync.Mutex{}
-			return
-		}
-	}
-
-	ss := &StreamState{
-		Stream:    s.Name(),
-		Namespace: s.Namespace(),
-		State:     sync.Map{},
-		Mutex:     &sync.Mutex{},
-	}
-
-	// save references of stream state and add it to connector state
-	s.streamState = ss
-	state.Streams = append(state.Streams, ss)
-}
-
-func (s *ConfiguredStream) InitialState() any {
-	return s.InitialCursorStateValue
-}
-
-func (s *ConfiguredStream) SetStateCursor(value any) {
-	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Store(s.Cursor(), value)
-	s.globalState.LogState()
-}
-
-func (s *ConfiguredStream) SetStateKey(key string, value any) {
-	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Store(key, value)
-	s.globalState.LogState()
-}
-
-func (s *ConfiguredStream) GetStateCursor() any {
-	val, _ := s.streamState.State.Load(s.Cursor())
-	return val
-}
-
-func (s *ConfiguredStream) GetStateKey(key string) any {
-	val, _ := s.streamState.State.Load(key)
-	return val
-}
-
-// GetStateChunks retrieves all chunks from the state.
-func (s *ConfiguredStream) GetStateChunks() *Set[Chunk] {
-	chunks, _ := s.streamState.State.Load(ChunksKey)
-	if chunks != nil {
-		chunksSet, converted := chunks.(*Set[Chunk])
-		if converted {
-			return chunksSet
-		}
-	}
-	return nil
-}
-
-// set chunks
-func (s *ConfiguredStream) SetStateChunks(chunks *Set[Chunk]) {
-	s.streamState.State.Store(ChunksKey, chunks)
-	s.streamState.HoldsValue.Store(true)
-	s.globalState.LogState()
-}
-
-// remove chunk
-func (s *ConfiguredStream) RemoveStateChunk(chunk Chunk) {
-	// locking global state so that marshaling call not happen on streamState while writing
-	// example: logState can be called from anywhere which marshal the streamState
-	s.globalState.Lock()
-	s.streamState.Lock()
-	defer func() {
-		s.streamState.Unlock()
-		s.globalState.Unlock()
-		s.globalState.LogState()
-	}()
-
-	stateChunks, loaded := s.streamState.State.LoadAndDelete(ChunksKey)
-	if loaded {
-		stateChunks.(*Set[Chunk]).Remove(chunk)
-		s.streamState.State.Store(ChunksKey, stateChunks)
-	}
 }
 
 // Delete keys from Stream State
