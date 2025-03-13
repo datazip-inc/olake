@@ -28,11 +28,8 @@ Place these files in your project directory before running the commands.
 Add MongoDB credentials in following format in config.json file 
    ```json
    {
-      "hosts": [
-         "host1:27017",
-         "host2:27017",
-         "host3:27017"
-      ],
+      "hosts": ["localhost"],
+      "port": 27017,
       "username": "test",
       "password": "test",
       "authdb": "admin",
