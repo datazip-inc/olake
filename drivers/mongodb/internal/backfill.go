@@ -23,7 +23,7 @@ import (
 
 func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	chunks := stream.GetStateChunks()
+	chunks := m.State.GetChunks(stream.Self())
 	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
 	if chunks == nil || chunks.Len() == 0 {
@@ -43,15 +43,11 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		pool.AddRecordsToSync(recordCount)
 
 		// Generate and update chunks
-		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-			var retryErr error
-			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
-			return retryErr
-		})
+		chunksArray, err = m.splitChunks(backfillCtx, collection, stream)
 		if err != nil {
 			return err
 		}
-		stream.SetStateChunks(types.NewSet(chunksArray...))
+		m.State.SetChunks(stream.Self(), types.NewSet(chunksArray...))
 	} else {
 		// TODO: to get estimated time need to update pool.AddRecordsToSync(totalCount) (Can be done via storing some vars in state)
 		rawChunkArray := chunks.Array()
@@ -74,7 +70,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		defer cancelThread()
 
 		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(threadContext, stream, protocol.WithWaitChannel(waitChannel))
+		insert, err := pool.NewThread(threadContext, stream, protocol.WithErrorChannel(waitChannel))
 		if err != nil {
 			return err
 		}
@@ -103,12 +99,9 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				}
 
 				handleObjectID(doc)
-				exit, err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
+				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, 0))
 				if err != nil {
 					return fmt.Errorf("failed to finish backfill chunk: %s", err)
-				}
-				if exit {
-					return nil
 				}
 			}
 			return cursor.Err()
@@ -116,119 +109,101 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
 
-	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, one types.Chunk, number int) error {
+	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, chunk types.Chunk, number int) error {
 		batchStartTime := time.Now()
-		err := processChunk(backfillCtx, one, number)
+		err := processChunk(backfillCtx, chunk, number)
 		if err != nil {
 			return err
 		}
 		// remove success chunk from state
-		stream.RemoveStateChunk(one)
-		logger.Debugf("finished %d chunk[%s-%s] in %0.2f seconds", number, one.Min, one.Max, time.Since(batchStartTime).Seconds())
+		m.State.RemoveChunk(stream.Self(), chunk)
+		logger.Infof("chunk[%d] with min[%v]-max[%v] completed in %0.2f seconds", number, chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})
 }
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
-		var chunks []types.Chunk
-		strategyErr := base.RetryOnBackoff(3, 1*time.Minute, func() error {
-			getChunkBoundaries := func() ([]*primitive.ObjectID, error) {
-				getID := func(order int) (primitive.ObjectID, error) {
-					var doc bson.M
-					err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
-					if err == mongo.ErrNoDocuments {
-						return primitive.NilObjectID, nil
-					}
-					return doc["_id"].(primitive.ObjectID), err
+		getChunkBoundaries := func() ([]*primitive.ObjectID, error) {
+			getID := func(order int) (primitive.ObjectID, error) {
+				var doc bson.M
+				err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+				if err == mongo.ErrNoDocuments {
+					return primitive.NilObjectID, nil
 				}
-
-				minID, err := getID(1)
-				if err != nil || minID == primitive.NilObjectID {
-					return nil, err
-				}
-				maxID, err := getID(-1)
-				if err != nil {
-					return nil, err
-				}
-
-				var result bson.M
-				cmd := bson.D{
-					{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
-					{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
-					{Key: "maxChunkSize", Value: 1024},
-				}
-				if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
-					return nil, fmt.Errorf("splitVector failed: %w", err)
-				}
-
-				boundaries := []*primitive.ObjectID{&minID}
-				for _, key := range result["splitKeys"].(bson.A) {
-					if id, ok := key.(bson.M)["_id"].(primitive.ObjectID); ok {
-						boundaries = append(boundaries, &id)
-					}
-				}
-				return append(boundaries, &maxID), nil
+				return doc["_id"].(primitive.ObjectID), err
 			}
 
-			boundaries, err := getChunkBoundaries()
+			minID, err := getID(1)
+			if err != nil || minID == primitive.NilObjectID {
+				return nil, err
+			}
+			maxID, err := getID(-1)
 			if err != nil {
-				return fmt.Errorf("failed to get chunk boundaries: %s", err)
+				return nil, err
 			}
 
-			chunks = []types.Chunk{} // Reset chunks in case of retry
-			for i := 0; i < len(boundaries)-1; i++ {
-				chunks = append(chunks, types.Chunk{
-					Min: &boundaries[i],
-					Max: &boundaries[i+1],
-				})
+			var result bson.M
+			cmd := bson.D{
+				{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
+				{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
+				{Key: "maxChunkSize", Value: 1024},
 			}
-			return nil
-		})
+			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
+				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
+			}
 
-		if strategyErr != nil {
-			return nil, strategyErr
+			boundaries := []*primitive.ObjectID{&minID}
+			for _, key := range result["splitKeys"].(bson.A) {
+				if id, ok := key.(bson.M)["_id"].(primitive.ObjectID); ok {
+					boundaries = append(boundaries, &id)
+				}
+			}
+			return append(boundaries, &maxID), nil
+		}
+
+		boundaries, err := getChunkBoundaries()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
+		}
+		var chunks []types.Chunk
+		for i := 0; i < len(boundaries)-1; i++ {
+			chunks = append(chunks, types.Chunk{
+				Min: &boundaries[i],
+				Max: &boundaries[i+1],
+			})
 		}
 		return chunks, nil
 	}
 
 	timestampStrategy := func() ([]types.Chunk, error) {
+		// Time-based strategy implementation
+		first, last, err := m.fetchExtremes(collection)
+		if err != nil {
+			return nil, err
+		}
+
+		logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
+		timeDiff := last.Sub(first).Hours() / 6
+		if timeDiff < 1 {
+			timeDiff = 1
+		}
+		// for every 6hr difference ideal density is 10 Seconds
+		density := time.Duration(timeDiff) * (10 * time.Second)
+		start := first
 		var chunks []types.Chunk
-		strategyErr := base.RetryOnBackoff(3, 1*time.Minute, func() error {
-			// Time-based strategy implementation
-			first, last, err := m.fetchExtremes(collection)
-			if err != nil {
-				return err
+		for start.Before(last) {
+			end := start.Add(density)
+			minObjectID := generateMinObjectID(start)
+			maxObjectID := generateMinObjectID(end)
+			if end.After(last) {
+				maxObjectID = generateMinObjectID(last.Add(time.Second))
 			}
-
-			logger.Infof("Extremes of Stream %s are start: %s \t end:%s", stream.ID(), first, last)
-			timeDiff := last.Sub(first).Hours() / 6
-			if timeDiff < 1 {
-				timeDiff = 1
-			}
-			// for every 6hr difference ideal density is 10 Seconds
-			density := time.Duration(timeDiff) * (10 * time.Second)
-			start := first
-
-			chunks = []types.Chunk{} // Reset chunks in case of retry
-			for start.Before(last) {
-				end := start.Add(density)
-				minObjectID := generateMinObjectID(start)
-				maxObjectID := generateMinObjectID(end)
-				if end.After(last) {
-					maxObjectID = generateMinObjectID(last.Add(time.Second))
-				}
-				start = end
-				chunks = append(chunks, types.Chunk{
-					Min: minObjectID,
-					Max: maxObjectID,
-				})
-			}
-			return nil
-		})
-
-		if strategyErr != nil {
-			return nil, strategyErr
+			start = end
+			chunks = append(chunks, types.Chunk{
+				Min: minObjectID,
+				Max: maxObjectID,
+			})
 		}
 		return chunks, nil
 	}
