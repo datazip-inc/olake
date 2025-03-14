@@ -1,0 +1,27 @@
+#!/bin/sh
+YELLOW="\033[0;33m"
+RESET="\033[0m"
+
+echo "🔍 Running golangci-lint on staged files..."
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
+
+if [ -z "$STAGED_FILES" ]; then
+    echo "✅ No Go files staged. Skipping lint check."
+    exit 0
+fi
+
+echo -e "${YELLOW}📄 Staged Go files:${RESET}"
+echo "$STAGED_FILES" | sed 's/^/   📌 /'
+
+golangci-lint run --timeout=5m $STAGED_FILES
+
+LINT_EXIT_CODE=$?
+
+if [ $LINT_EXIT_CODE -ne 0 ]; then
+    echo "❌ Linting failed! Please fix issues before committing."
+    exit 1
+fi
+
+echo "✅ Linting passed! Proceeding with commit."
+exit 0
