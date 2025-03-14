@@ -123,9 +123,11 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	return socket.StreamMessages(ctx, func(msg waljs.CDCChange) error {
 		pkFields := msg.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 		deleteTS := utils.Ternary(msg.Kind == "delete", msg.Timestamp.UnixMilli(), int64(0)).(int64)
+		opType := utils.Ternary(msg.Kind == "delete", "d", utils.Ternary(msg.Kind == "update", "u", "c")).(string)
 		return inserters[msg.Stream].Insert(types.CreateRawRecord(
 			utils.GetKeysHash(msg.Data, pkFields...),
 			msg.Data,
+			opType,
 			deleteTS,
 		))
 	})

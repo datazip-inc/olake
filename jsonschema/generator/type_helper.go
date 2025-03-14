@@ -34,11 +34,11 @@ var builtinTypes = map[string]string{
 }
 
 var jsonTypes = map[string][]string{
-	"string":  []string{"string", "time.Time", "net.IP", "url.URL", "[]byte"},
-	"boolean": []string{"bool"},
-	"number":  []string{"float32", "float64"},
-	"integer": []string{"int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64"},
-	"array":   []string{},
+	"string":  {"string", "time.Time", "net.IP", "url.URL", "[]byte"},
+	"boolean": {"bool"},
+	"number":  {"float32", "float64"},
+	"integer": {"int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64"},
+	"array":   {},
 }
 
 func (g *JSONSchemaGenerator) findDeclInfoForPackage(pkg *loader.PackageInfo, file *ast.File, typeToFind string) (*declInfo, error) {

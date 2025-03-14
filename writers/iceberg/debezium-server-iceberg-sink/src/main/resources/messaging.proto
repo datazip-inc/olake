@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package io.debezium.server.iceberg.rpc;
+
+// The service definition.
+service StringArrayService {
+  // Sends a string array and returns a simple response.
+  rpc SendStringArray(StringArrayRequest) returns (StringArrayResponse);
+}
+
+// The request message containing an array of strings.
+message StringArrayRequest {
+  repeated string messages = 1;
+}
+
+// The response message with a confirmation string.
+message StringArrayResponse {
+  string result = 1;
+}

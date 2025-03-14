@@ -1,0 +1,35 @@
+NOTICE OF MODIFICATIONS TO DEBEZIUM-SERVER-ICEBERG
+
+This file documents modifications made by Datazip Inc. to the original debezium-server-iceberg project.
+
+Original Project:
+  Name: debezium-server-iceberg
+  Repository: https://github.com/memiiso/debezium-server-iceberg/
+  License: Apache License, Version 2.0
+
+Modified Project:
+  Name: debezium-server-iceberg (Olake fork)
+  Repository: https://github.com/datazip-inc/debezium-server-iceberg
+  License: Apache License, Version 2.0
+
+Modifications:
+The modifications made to the original project are documented in the pull request:
+https://github.com/datazip-inc/debezium-server-iceberg/pull/1
+
+These changes include but are not limited to:
+- Customizations to adapt the project for use within the Olake platform
+- Performance optimizations and feature enhancements
+- Compatibility adjustments for integration with Olake's infrastructure
+
+Future Modifications:
+All future modifications to this project will be tracked in the commit history of the repository.
+Detailed information about changes can be found by examining commit logs, pull requests,
+and release notes at https://github.com/datazip-inc/olake
+
+This notice is provided in compliance with Section 4(b) of the Apache License, Version 2.0, 
+which requires that any modified files carry prominent notices stating that the files have been changed.
+
+The full text of the Apache License, Version 2.0 can be found at:
+http://www.apache.org/licenses/LICENSE-2.0
+
+Copyright 2025 Datazip Inc.
