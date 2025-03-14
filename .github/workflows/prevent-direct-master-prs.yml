@@ -1,0 +1,32 @@
+name: Master Branch Protection
+
+on:
+  pull_request:
+    branches:
+      - 'master'  # This workflow will ONLY run on PRs targeting the master branch
+    types: [opened, synchronize, reopened]
+
+jobs:
+  enforce-master-branch-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        run: |
+          SOURCE_BRANCH="${{ github.head_ref }}"
+          TARGET_BRANCH="${{ github.base_ref }}"
+          
+          echo "PR: $SOURCE_BRANCH → $TARGET_BRANCH"
+          
+          # Double-check that we're targeting master
+          if [ "$TARGET_BRANCH" != "master" ]; then
+            echo "This workflow should only run on PRs to master. Something is wrong with the configuration."
+            exit 0
+          fi
+          
+          # Only allow staging to master PRs
+          if [ "$SOURCE_BRANCH" != "staging" ]; then
+            echo "::error::Only PRs from staging to master are allowed. Direct master merge is prohibited."
+            exit 1
+          else
+            echo "✅ PR from staging to master is allowed"
+          fi
