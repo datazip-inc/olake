@@ -43,10 +43,18 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		pool.AddRecordsToSync(recordCount)
 
 		// Generate and update chunks
-		chunksArray, err = m.splitChunks(backfillCtx, collection, stream)
+		var retryCount int
+		var retryErr error
+		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+			retryCount++
+			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
+			return retryErr
+		})
 		if err != nil {
+			logger.Errorf("Failed to split chunks after %d attempts", retryCount)
 			return err
 		}
+		logger.Infof("Successfully split chunks after %d attempts", retryCount)
 		m.State.SetChunks(stream.Self(), types.NewSet(chunksArray...))
 	} else {
 		// TODO: to get estimated time need to update pool.AddRecordsToSync(totalCount) (Can be done via storing some vars in state)
@@ -215,6 +223,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return splitVectorStrategy()
 	}
 }
+
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
 	command := bson.D{{
