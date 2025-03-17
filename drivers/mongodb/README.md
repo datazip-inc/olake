@@ -39,7 +39,7 @@ Add MongoDB credentials in following format in config.json file
       "server-ram": 16,
       "database": "database",
       "max_threads": 50,
-      "default_mode" :"cdc",
+      "default_mode" : "cdc",
       "backoff_retry_count": 2,
       "partition_strategy":""
    }
@@ -196,3 +196,5 @@ You can save the state in a `state.json` file using the following format:
     ]
 }
 ```
+
+For more information, refer to [MongoDB Connector Docs](https://olake.io/docs/connectors/mongodb/overview)
