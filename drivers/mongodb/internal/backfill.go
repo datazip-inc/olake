@@ -123,24 +123,25 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 }
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
-	getID := func(order int) (primitive.ObjectID, error) {
-		var doc bson.M
-		err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
-		if err == mongo.ErrNoDocuments {
-			return primitive.NilObjectID, nil
-		}
-		return doc["_id"].(primitive.ObjectID), err
-	}
-
-	minID, err := getID(1)
-	if err != nil || minID == primitive.NilObjectID {
-		return nil, err
-	}
-	maxID, err := getID(-1)
-	if err != nil {
-		return nil, err
-	}
+	maxPossibleObjectID := generateMinObjectID(time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC))
 	splitVectorStrategy := func() ([]types.Chunk, error) {
+		getID := func(order int) (primitive.ObjectID, error) {
+			var doc bson.M
+			err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+			if err == mongo.ErrNoDocuments {
+				return primitive.NilObjectID, nil
+			}
+			return doc["_id"].(primitive.ObjectID), err
+		}
+
+		minID, err := getID(1)
+		if err != nil || minID == primitive.NilObjectID {
+			return nil, err
+		}
+		maxID, err := getID(-1)
+		if err != nil {
+			return nil, err
+		}
 		getChunkBoundaries := func() ([]*primitive.ObjectID, error) {
 			var result bson.M
 			cmd := bson.D{
@@ -172,6 +173,12 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				Max: &boundaries[i+1],
 			})
 		}
+		if len(boundaries) > 0 {
+			chunks = append(chunks, types.Chunk{
+				Min: &boundaries[len(boundaries)-1],
+				Max: maxPossibleObjectID,
+			})
+		}
 		return chunks, nil
 	}
 	bucketAutoStrategy := func() ([]types.Chunk, error) {
@@ -181,10 +188,6 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			{{Key: "$bucketAuto", Value: bson.D{
 				{Key: "groupBy", Value: "$_id"},
 				{Key: "buckets", Value: m.config.MaxThreads * 4},
-				{Key: "output", Value: bson.D{
-					{Key: "minId", Value: bson.D{{Key: "$min", Value: "$_id"}}},
-					{Key: "maxId", Value: bson.D{{Key: "$max", Value: "$_id"}}},
-				}},
 			}}},
 		}
 
@@ -195,9 +198,11 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		defer cursor.Close(ctx)
 
 		var buckets []struct {
-			ID    bson.M             `bson:"_id"`
-			MinId primitive.ObjectID `bson:"minId"`
-			MaxId primitive.ObjectID `bson:"maxId"`
+			ID struct {
+				Min primitive.ObjectID `bson:"min"`
+				Max primitive.ObjectID `bson:"max"`
+			} `bson:"_id"`
+			Count int `bson:"count"`
 		}
 
 		if err := cursor.All(ctx, &buckets); err != nil {
@@ -207,8 +212,14 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		var chunks []types.Chunk
 		for _, bucket := range buckets {
 			chunks = append(chunks, types.Chunk{
-				Min: &bucket.MinId,
-				Max: &bucket.MaxId,
+				Min: &bucket.ID.Min,
+				Max: &bucket.ID.Max,
+			})
+		}
+		if len(buckets) > 0 {
+			chunks = append(chunks, types.Chunk{
+				Min: &buckets[len(buckets)-1].ID.Max,
+				Max: maxPossibleObjectID,
 			})
 		}
 
@@ -244,6 +255,11 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				Max: maxObjectID,
 			})
 		}
+		chunks = append(chunks, types.Chunk{
+			Min: generateMinObjectID(last),
+			Max: maxPossibleObjectID,
+		})
+
 		return chunks, nil
 	}
 
@@ -337,7 +353,7 @@ func generatePipeline(start, end any) mongo.Pipeline {
 		andOperation = append(andOperation, bson.D{{
 			Key: "_id",
 			Value: bson.D{{
-				Key:   "$lte",
+				Key:   "$lt",
 				Value: end,
 			}},
 		}})
