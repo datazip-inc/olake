@@ -1,7 +1,5 @@
 # MongoDB Driver
 
-Find more at [MongoDB Docs](https://olake.io/docs/category/mongodb)
-
 The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
 
 ---
@@ -199,7 +197,7 @@ Example (Local Test Configuration (JDBC + Minio))
   }
   ```
 
-Find more about writer [here.](https://olake.io/docs/category/destinations-writers)
+Find more about writer config [here.](https://olake.io/docs/category/destinations-writers)
 
 ### Sync Command
 
@@ -243,8 +241,6 @@ You can save the state in a `state.json` file using the following format:
 }
 ```
 
-For more information, refer to [MongoDB Connector Docs](https://olake.io/docs/connectors/mongodb/overview)
-
 ### Speed Comparison: Full Load Performance
 
 For a collection of 230 million rows (664.81GB) from [Twitter data](https://archive.org/details/archiveteam-twitter-stream-2017-11), here's how Olake compares to other tools:
@@ -282,4 +278,7 @@ Virtual Machine: `Standard_D64as_v5`
   - 1 Primary Node (Master) that handles all write operations.
   - 2 Secondary Nodes (Replicas) that replicate data from the primary node.
 
-Find more [here](https://olake.io/docs/connectors/mongodb/benchmarks).
+Find more about benchmarks [here](https://olake.io/docs/connectors/mongodb/benchmarks).
+
+
+Find more at [MongoDB Docs](https://olake.io/docs/category/mongodb)

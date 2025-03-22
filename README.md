@@ -47,33 +47,33 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 
 ## Source Connector Level Functionalities Supported
 
-| Connector Functionalities | MongoDB [(docs)](https://olake.io/docs/connectors/mongodb/overview) | Postgres [(docs)](https://olake.io/docs/connectors/postgres/overview) | MySQL [(docs)](https://olake.io/docs/connectors/mysql/overview) |
-| ------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Full Refresh Sync Mode    | ✅                                                                   | ✅                                                                     | ✅                                                               |
-| Incremental Sync Mode     | ❌                                                                   | ❌                                                                     | ❌                                                               |
-| CDC Sync Mode             | ✅                                                                   | ✅                                                                     | ✅                                                               |
-| Full Parallel Processing  | ✅                                                                   | ✅                                                                     | ✅                                                               |
-| CDC Parallel Processing   | ✅                                                                   | ❌                                                                     | ❌                                                               |
-| Resumable Full Load       | ✅                                                                   | ✅                                                                     | ✅                                                               |
-| CDC Heart Beat            | ❌                                                                   | ❌                                                                     | ❌                                                               |
+| Connector Functionalities | MongoDB | Postgres | MySQL |
+| ------------------------- | ------- | -------- | ----- |
+| Full Refresh Sync Mode    | ✅       | ✅        | ✅     |
+| Incremental Sync Mode     | ❌       | ❌        | ❌     |
+| CDC Sync Mode             | ✅       | ✅        | ✅     |
+| Full Parallel Processing  | ✅       | ✅        | ✅     |
+| CDC Parallel Processing   | ✅       | ❌        | ❌     |
+| Resumable Full Load       | ✅       | ✅        | ✅     |
+| CDC Heart Beat            | ❌       | ❌        | ❌     |
 
 We have additionally planned the following sources -  [AWS S3](https://github.com/datazip-inc/olake/issues/86) |  [Kafka](https://github.com/datazip-inc/olake/issues/87) 
 
 
 ## Writer Level Functionalities Supported
 
-| Features/Functionality          | Local Filesystem [(docs)](https://olake.io/docs/writers/local) | AWS S3 [(docs)](https://olake.io/docs/writers/s3/overview) | Apache Iceberg [(docs)](https://olake.io/docs/writers/iceberg/overview) |
-| ------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Flattening & Normalization (L1) | ✅                                                              | ✅                                                          |                                                                         |
-| Partitioning                    | ✅                                                              | ✅                                                          |                                                                         |
-| Schema Changes                  | ✅                                                              | ✅                                                          |                                                                         |
-| Schema Evolution                | ✅                                                              | ✅                                                          |                                                                         |
+| Features/Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
+| ------------------------------- | ---------------- | ------ | -------------- |
+| Flattening & Normalization (L1) | ✅                | ✅      |                |
+| Partitioning                    | ✅                | ✅      |                |
+| Schema Changes                  | ✅                | ✅      |                |
+| Schema Evolution                | ✅                | ✅      |                |
 
 ## Catalogue Support
 
 | Catalogues                 | Support                                                                                                  |
 | -------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Glue Catalog               | [WIP](https://github.com/datazip-inc/olake/pull/113)                                                     |
+| Glue Catalog               | WIP                                                                                                      |
 | Hive Meta Store            | Upcoming                                                                                                 |
 | JDBC Catalogue             | Upcoming                                                                                                 |
 | REST Catalogue - Nessie    | Upcoming                                                                                                 |
@@ -119,11 +119,11 @@ We ❤️ contributions big or small. Please read [CONTRIBUTING.md](CONTRIBUTING
 
 - To contribute to Frontend, go to [OLake Frontend GitHub repo](https://github.com/datazip-inc/olake-frontend/).
 
-- To contribute to OLake website and documentation (olake.io), go to [OLake Frontend GitHub repo](https://github.com/datazip-inc/olake-docs).
+- To contribute to OLake website and documentation (olake.io), go to [OLake Website GitHub repo](https://github.com/datazip-inc/olake-docs).
 
 Not sure how to get started? Just ping us on `#contributing-to-olake` in our [slack community](https://olake.io/slack)
 
-## [Documentation](olake.io/docs)
+## Documentation
 
 If you need any clarification or find something missing, feel free to raise a GitHub issue with the label `documentation` at [olake-docs](https://github.com/datazip-inc/olake-docs/) repo or reach out to us at the community slack channel.
 

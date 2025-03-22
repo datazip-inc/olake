@@ -1,7 +1,5 @@
 # Postgres Driver
 
-Find more at [Postgres Docs](https://olake.io/docs/category/postgres)
-
 The Postgres Driver enables data synchronization from Postgres to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
 
 ---
@@ -202,7 +200,7 @@ Example (Local Test Configuration (JDBC + Minio))
   }
   ```
 
-Find more about writer [here.](https://olake.io/docs/category/destinations-writers)
+Find more about writer docs [here.](https://olake.io/docs/category/destinations-writers)
 
 ### Sync Command
 
@@ -254,3 +252,5 @@ You can save the state in a `state.json` file using the following format:
     ]
 }
 ```
+
+Find more at [Postgres Docs](https://olake.io/docs/category/postgres)
