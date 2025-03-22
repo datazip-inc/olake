@@ -168,7 +168,7 @@ Example (For AWS S3 + Glue Configuration)
       "type": "ICEBERG",
       "writer": {
         "normalization": false,
-        "s3_path": "s3://bucket_name/olake_iceberg/test_olake",
+        "s3_path": "s3://{bucket_name}/{path_prefix}/",
         "aws_region": "ap-south-1",
         "aws_access_key": "XXX",
         "aws_secret_key": "XXX",

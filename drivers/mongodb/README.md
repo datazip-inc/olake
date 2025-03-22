@@ -165,7 +165,7 @@ Example (For AWS S3 + Glue Configuration)
       "type": "ICEBERG",
       "writer": {
         "normalization": false,
-        "s3_path": "s3://bucket_name/olake_iceberg/test_olake",
+        "s3_path": "s3://{bucket_name}/{path_prefix}/",
         "aws_region": "ap-south-1",
         "aws_access_key": "XXX",
         "aws_secret_key": "XXX",
@@ -277,8 +277,5 @@ Virtual Machine: `Standard_D64as_v5`
 - 3 Nodes running in a replica set configuration:
   - 1 Primary Node (Master) that handles all write operations.
   - 2 Secondary Nodes (Replicas) that replicate data from the primary node.
-
-Find more about benchmarks [here](https://olake.io/docs/connectors/mongodb/benchmarks).
-
 
 Find more at [MongoDB Docs](https://olake.io/docs/category/mongodb)

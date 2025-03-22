@@ -35,9 +35,9 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 ## Getting Started with OLake
 
 ### Source / Connectors
-1. [Getting started Postgres -> Writers](https://olake.io/docs/getting-started/postgres) | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/postgres)
-2. [Getting started MongoDB -> Writers](https://olake.io/docs/getting-started/mongodb) | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb)
-3. [Getting started MySQL -> Writers](https://olake.io/docs/getting-started/mysql)  | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)
+1. [Getting started Postgres -> Writers](https://olake.io/docs/getting-started/postgres) | [Postgres Docs](https://olake.io/docs/category/postgres)
+2. [Getting started MongoDB -> Writers](https://olake.io/docs/getting-started/mongodb) | [MongoDB Docs](https://olake.io/docs/category/mongodb)
+3. [Getting started MySQL -> Writers](https://olake.io/docs/getting-started/mysql)  | [MySQL Docs](https://olake.io/docs/category/mysql)
 
 ### Writers / Destination
 1. [Apache Iceberg Docs](https://olake.io/docs/category/apache-iceberg) 
