@@ -35,9 +35,9 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 ## Getting Started with OLake
 
 ### Source / Connectors
-1. [Getting started Postgres -> S3/Iceberg](https://olake.io/docs/getting-started/postgres) | [Postgres Source Docs](https://olake.io/docs/category/postgres) | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/postgres)
-2. [Getting started MongoDB -> S3/Iceberg](https://olake.io/docs/getting-started/mongodb) |  [MongoDB Source Docs](https://olake.io/docs/category/mongodb) | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb)
-3. [Getting started MySQL -> S3/Iceberg](https://olake.io/docs/getting-started/mysql) |  [MySQL Source Docs](https://olake.io/docs/category/mysql) | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)
+1. [Getting started Postgres -> Writers](https://olake.io/docs/getting-started/postgres) | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/postgres)
+2. [Getting started MongoDB -> Writers](https://olake.io/docs/getting-started/mongodb) | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb)
+3. [Getting started MySQL -> Writers](https://olake.io/docs/getting-started/mysql)  | [Readme Docs](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)
 
 ### Writers / Destination
 1. [Apache Iceberg Docs](https://olake.io/docs/category/apache-iceberg) 
@@ -48,14 +48,14 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 ## Source Connector Level Functionalities Supported
 
 | Connector Functionalities | MongoDB [(docs)](https://olake.io/docs/connectors/mongodb/overview) | Postgres [(docs)](https://olake.io/docs/connectors/postgres/overview) | MySQL [(docs)](https://olake.io/docs/connectors/mysql/overview) |
-| ------------------------- | ------- | -------- | ------------------------------------------------------------ |
-| Full Refresh Sync Mode    | ✅       | ✅        | ✅                                                            |
-| Incremental Sync Mode     | ❌       | ❌        | ❌                                                            |
-| CDC Sync Mode             | ✅       | ✅        | ✅                                                            |
-| Full Parallel Processing  | ✅       | ✅        | ✅                                                            |
-| CDC Parallel Processing   | ✅       | ❌        | ❌                                                            |
-| Resumable Full Load       | ✅       | ✅        | ✅                                                            |
-| CDC Heart Beat            | ❌       | ❌        | ❌                                                            |
+| ------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Full Refresh Sync Mode    | ✅                                                                   | ✅                                                                     | ✅                                                               |
+| Incremental Sync Mode     | ❌                                                                   | ❌                                                                     | ❌                                                               |
+| CDC Sync Mode             | ✅                                                                   | ✅                                                                     | ✅                                                               |
+| Full Parallel Processing  | ✅                                                                   | ✅                                                                     | ✅                                                               |
+| CDC Parallel Processing   | ✅                                                                   | ❌                                                                     | ❌                                                               |
+| Resumable Full Load       | ✅                                                                   | ✅                                                                     | ✅                                                               |
+| CDC Heart Beat            | ❌                                                                   | ❌                                                                     | ❌                                                               |
 
 We have additionally planned the following sources -  [AWS S3](https://github.com/datazip-inc/olake/issues/86) |  [Kafka](https://github.com/datazip-inc/olake/issues/87) 
 
@@ -63,11 +63,11 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 ## Writer Level Functionalities Supported
 
 | Features/Functionality          | Local Filesystem [(docs)](https://olake.io/docs/writers/local) | AWS S3 [(docs)](https://olake.io/docs/writers/s3/overview) | Apache Iceberg [(docs)](https://olake.io/docs/writers/iceberg/overview) |
-| ------------------------------- | ---------------------- | --- | ------------- |
-| Flattening & Normalization (L1) | ✅                      | ✅             |             |
-| Partitioning                    | ✅                      | ✅             |             |
-| Schema Changes                  | ✅                      | ✅             |             |
-| Schema Evolution                | ✅                      | ✅             |             |
+| ------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Flattening & Normalization (L1) | ✅                                                              | ✅                                                          |                                                                         |
+| Partitioning                    | ✅                                                              | ✅                                                          |                                                                         |
+| Schema Changes                  | ✅                                                              | ✅                                                          |                                                                         |
+| Schema Evolution                | ✅                                                              | ✅                                                          |                                                                         |
 
 ## Catalogue Support
 
