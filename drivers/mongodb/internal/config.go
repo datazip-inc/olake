@@ -46,9 +46,16 @@ func (c *Config) URI() string {
 		options = fmt.Sprintf("%s&replicaSet=%s&readPreference=%s", options, c.ReplicaSet, c.ReadPreference)
 	}
 
+	//  Handle auth credentials
+	auth := ""
+	if c.Username != "" {
+		auth = utils.Ternary(c.Password != "", fmt.Sprintf("%s:%s@", c.Username, c.Password), fmt.Sprintf("%s@", c.Username))
+	}
+
+	// Final MongoDB URI
 	return fmt.Sprintf(
-		"%s://%s:%s@%s/?%s", connectionPrefix,
-		c.Username, c.Password, strings.Join(c.Hosts, ","), options,
+		"%s://%s%s/%s",
+		connectionPrefix, auth, strings.Join(c.Hosts, ","), options,
 	)
 }
 
