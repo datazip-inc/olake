@@ -1,21 +1,17 @@
 # Postgres Driver
-
 The Postgres Driver enables data synchronization from Postgres to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
 
 ---
 
 ## Supported Modes
-
 1. **Full Refresh**  
    Fetches the complete dataset from Postgres.
-
 2. **CDC (Change Data Capture)**  
    Tracks and syncs incremental changes from Postgres in real time.
 
 ---
 
 ## Setup and Configuration
-
 To run the Postgres Driver, configure the following files with your specific credentials and settings:
 
 - **`config.json`**: postgres connection details.  
@@ -131,9 +127,6 @@ Before running the Sync command, the generated `catalog.json` file must be confi
    }
    ```
 
-
-
-
 ### Writer File 
 The Writer file defines the configuration for the destination where data needs to be added.<br>
 `normalization` determine that Level 1 flattening is required. <br>
@@ -203,7 +196,6 @@ Example (Local Test Configuration (JDBC + Minio))
 Find more about writer docs [here.](https://olake.io/docs/category/destinations-writers)
 
 ### Sync Command
-
 The *Sync* command fetches data from Postgres and ingests it into the destination.
 
 ```bash

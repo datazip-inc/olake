@@ -1,21 +1,17 @@
 # MongoDB Driver
-
 The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
 
 ---
 
 ## Supported Modes
-
 1. **Full Refresh**  
    Fetches the complete dataset from MongoDB.
-
 2. **CDC (Change Data Capture)**  
    Tracks and syncs incremental changes from MongoDB in real time.
 
 ---
 
 ## Setup and Configuration
-
 To run the MongoDB Driver, configure the following files with your specific credentials and settings:
 
 - **`config.json`**: MongoDB connection details.  
@@ -25,7 +21,7 @@ To run the MongoDB Driver, configure the following files with your specific cred
 Place these files in your project directory before running the commands.
 
 ### Config File 
-Add MongoDB credentials in following format in `config.json` file. [More details.](https://olake.io/docs/connectors/mongodb/config)
+Add MongoDB credentials in following format in `config.json` file. To check more about config [visit docs](https://olake.io/docs/connectors/mongodb/config)
    ```json
    {
       "hosts": [
@@ -49,9 +45,7 @@ Add MongoDB credentials in following format in `config.json` file. [More details
 ```
 
 ## Commands
-
 ### Discover Command
-
 The *Discover* command generates json content for `catalog.json` file, which defines the schema of the collections to be synced.
 
 #### Usage
@@ -197,10 +191,9 @@ Example (Local Test Configuration (JDBC + Minio))
   }
   ```
 
-Find more about writer config [here.](https://olake.io/docs/category/destinations-writers)
+For Detailed overview check [here.](https://olake.io/docs/category/destinations-writers)
 
 ### Sync Command
-
 The *Sync* command fetches data from MongoDB and ingests it into the destination.
 
 ```bash
@@ -242,7 +235,6 @@ You can save the state in a `state.json` file using the following format:
 ```
 
 ### Speed Comparison: Full Load Performance
-
 For a collection of 230 million rows (664.81GB) from [Twitter data](https://archive.org/details/archiveteam-twitter-stream-2017-11), here's how Olake compares to other tools:
 
 | Tool                    | Full Load Time             | Performance    |
@@ -273,8 +265,7 @@ Virtual Machine: `Standard_D64as_v5`
 - Storage: `250` GB of shared storage
 
 ### MongoDB Setup:
-
-- 3 Nodes running in a replica set configuration:
+  - 3 Nodes running in a replica set configuration:
   - 1 Primary Node (Master) that handles all write operations.
   - 2 Secondary Nodes (Replicas) that replicate data from the primary node.
 
