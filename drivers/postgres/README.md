@@ -25,7 +25,7 @@ To run the Postgres Driver, configure the following files with your specific cre
 Place these files in your project directory before running the commands.
 
 ### Config File 
-Add Postgres credentials in following format in config.json file 
+Add Postgres credentials in following format in `config.json` file. [More details.](https://olake.io/docs/connectors/postgres/config)
    ```json
    {
     "host": "postgres-host",
@@ -44,9 +44,9 @@ Add Postgres credentials in following format in config.json file
     "reader_batch_size": 100000,
     "default_mode":"cdc",
     "max_threads" :50,
-    "split_column":""
   }
 ```
+
 
 ## Commands
 
@@ -161,6 +161,47 @@ Example (For S3):
       }
    }
    ```
+
+Example (For AWS S3 + Glue Configuration)
+  ```
+  {
+      "type": "ICEBERG",
+      "writer": {
+        "normalization": false,
+        "s3_path": "s3://{bucket_name}/{path_prefix}/",
+        "aws_region": "ap-south-1",
+        "aws_access_key": "XXX",
+        "aws_secret_key": "XXX",
+        "database": "olake_iceberg",
+        "grpc_port": 50051,
+        "server_host": "localhost"
+      }
+  }
+  ```
+
+Example (Local Test Configuration (JDBC + Minio))
+  ```
+  {
+    "type": "ICEBERG",
+    "writer": {
+      "catalog_type": "jdbc",
+      "jdbc_url": "jdbc:postgresql://localhost:5432/iceberg",
+      "jdbc_username": "iceberg",
+      "jdbc_password": "password",
+      "normalization": false,
+      "iceberg_s3_path": "s3a://warehouse",
+      "s3_endpoint": "http://localhost:9000",
+      "s3_use_ssl": false,
+      "s3_path_style": true,
+      "aws_access_key": "admin",
+      "aws_secret_key": "password",
+      "iceberg_db": "olake_iceberg"
+    }
+  }
+  ```
+
+Find more about writer docs [here.](https://olake.io/docs/category/destinations-writers)
+
 ### Sync Command
 
 The *Sync* command fetches data from Postgres and ingests it into the destination.
@@ -211,3 +252,5 @@ You can save the state in a `state.json` file using the following format:
     ]
 }
 ```
+
+Find more at [Postgres Docs](https://olake.io/docs/category/postgres)
