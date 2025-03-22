@@ -1,0 +1,31 @@
+name: Update Contributors
+
+on:
+  pull_request:
+    types:
+      - closed  # Triggers when a PR is merged
+
+jobs:
+  update-contributors:
+    if: github.event.pull_request.merged == true  # Only run if PR is merged
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate CONTRIBUTORS.md
+        run: |
+          echo "# Contributors" > CONTRIBUTORS.md
+          echo "" >> CONTRIBUTORS.md
+          echo "This project is powered by these amazing contributors:" >> CONTRIBUTORS.md
+          echo "" >> CONTRIBUTORS.md
+          curl -s "https://api.github.com/repos/${{ github.repository }}/contributors" | jq -r '.[] | "- [\(.login)](\(.html_url))" ' >> CONTRIBUTORS.md
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add CONTRIBUTORS.md
+          git commit -m "Updated CONTRIBUTORS.md"
+          git push origin HEAD:${{ github.ref }}
