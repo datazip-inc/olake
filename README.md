@@ -35,8 +35,8 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 3. [Local FileSystem Docs](https://olake.io/docs/writers/local) 
 
 
-## Source Connector Level Functionalities Supported
-| Connector Functionalities | MongoDB | Postgres | MySQL |
+## Source/Connector Functionalities
+|  Functionality | MongoDB | Postgres | MySQL |
 | ------------------------- | ------- | -------- | ----- |
 | Full Refresh Sync Mode    | ✅       | ✅        | ✅     |
 | Incremental Sync Mode     | ❌       | ❌        | ❌     |
@@ -49,16 +49,16 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 We have additionally planned the following sources -  [AWS S3](https://github.com/datazip-inc/olake/issues/86) |  [Kafka](https://github.com/datazip-inc/olake/issues/87) 
 
 
-## Writer Level Functionalities Supported
-| Features/Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
+## Writer Functionalities
+| Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
 | ------------------------------- | ---------------- | ------ | -------------- |
 | Flattening & Normalization (L1) | ✅                | ✅      |                |
 | Partitioning                    | ✅                | ✅      |                |
 | Schema Changes                  | ✅                | ✅      |                |
 | Schema Evolution                | ✅                | ✅      |                |
 
-## Catalogue Support
-| Catalogues                 | Support                                                                                                  |
+## Supported Catalogs For Iceberg Writer
+| Catalog                 | Status                                                                                                  |
 | -------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Glue Catalog               | WIP                                                                                                      |
 | Hive Meta Store            | Upcoming                                                                                                 |
