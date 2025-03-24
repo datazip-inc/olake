@@ -178,6 +178,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
 		}
 
+		
 		var chunks []types.Chunk
 		for i := 0; i < len(boundaries)-1; i++ {
 			maxObjectID := boundaries[i+1]
