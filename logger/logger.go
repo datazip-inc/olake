@@ -164,7 +164,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 func Init() {
 	// Configure lumberjack for log rotation
 	currentTimestamp := time.Now().UTC()
-	timestamp := fmt.Sprintf("%d-%d-%d_%d-%d-%d", currentTimestamp.Year(), currentTimestamp.Month(), currentTimestamp.Day(), currentTimestamp.Hour(), currentTimestamp.Minute(), currentTimestamp.Second())
+	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d", currentTimestamp.Year(), currentTimestamp.Month(), currentTimestamp.Day(), currentTimestamp.Hour(), currentTimestamp.Minute(), currentTimestamp.Second())
 	rotatingFile := &lumberjack.Logger{
 		Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString("CONFIG_FOLDER"), timestamp), // Log file path
 		MaxSize:    100,                                                                                   // Max size in MB before log rotation
