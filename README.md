@@ -22,6 +22,15 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 - **Connector Autonomy**
 - **Avoid operations that don't contribute to increasing record throughput**
 
+## Performance Benchmarks*
+
+
+- **20x faster than Airbyte.**
+- **15x faster than Embedded Debezium.**
+- **6x faster than Fivetran.**
+
+*See full benchmarks here [MongoDB](https://olake.io/docs/connectors/mongodb/benchmarks) | [Postgres](https://olake.io/docs/connectors/postgres/benchmarks) | [MySQL](https://olake.io/docs/connectors/mysql/benchmarks)
+
 ## Getting Started with OLake
 
 ### Source / Connectors
