@@ -367,7 +367,6 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any) string {
 			}
 			return fmt.Sprintf("%v", value)
 		}
-
 		if colName == "now()" {
 			return granularityFunction(time.Now().UTC())
 		}
