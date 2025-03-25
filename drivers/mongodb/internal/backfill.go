@@ -123,6 +123,14 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 }
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
+
+	isValidChunk := func(maxObjectID *primitive.ObjectID, minThresholdId string) bool {
+		if minThresholdId != "" && maxObjectID.String() < minThresholdId {
+			logger.Infof("skipping chunk as max obj id [%s] doesnt exceed threshold stream [%s]", maxObjectID.String(), stream.GetStream().Name)
+			return false
+		}
+		return true
+	}
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getChunkBoundaries := func() ([]*primitive.ObjectID, error) {
 			getID := func(order int) (primitive.ObjectID, error) {
@@ -168,10 +176,13 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		}
 		var chunks []types.Chunk
 		for i := 0; i < len(boundaries)-1; i++ {
-			chunks = append(chunks, types.Chunk{
-				Min: &boundaries[i],
-				Max: &boundaries[i+1],
-			})
+			maxObjectID := boundaries[i+1]
+			if isValidChunk(maxObjectID, stream.GetStream().MinThresholdID) {
+				chunks = append(chunks, types.Chunk{
+					Min: &boundaries[i],
+					Max: &maxObjectID,
+				})
+			}
 		}
 		return chunks, nil
 	}
@@ -200,10 +211,12 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				maxObjectID = generateMinObjectID(last.Add(time.Second))
 			}
 			start = end
-			chunks = append(chunks, types.Chunk{
-				Min: minObjectID,
-				Max: maxObjectID,
-			})
+			if isValidChunk(maxObjectID, stream.GetStream().MinThresholdID) {
+				chunks = append(chunks, types.Chunk{
+					Min: minObjectID,
+					Max: maxObjectID,
+				})
+			}
 		}
 		return chunks, nil
 	}
