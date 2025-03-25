@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
@@ -10,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
@@ -18,6 +20,7 @@ import (
 type CDCDocument struct {
 	OperationType string         `json:"operationType"`
 	FullDocument  map[string]any `json:"fullDocument"`
+	DocumentKey   map[string]any `json:"documentKey"`
 }
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
@@ -95,8 +98,8 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if record.FullDocument != nil {
 			record.FullDocument["cdc_type"] = record.OperationType
 		}
-		handleObjectID(record.FullDocument)
-		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID), record.FullDocument, 0)
+		handleDocumentKey(record.DocumentKey)
+		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.DocumentKey, constants.MongoPrimaryID), record.FullDocument, 0)
 		err := insert.Insert(rawRecord)
 		if err != nil {
 			return err
@@ -122,4 +125,29 @@ func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.
 
 	resumeToken := cursor.ResumeToken()
 	return &resumeToken, nil
+}
+
+func handleDocumentKey(doc bson.M) {
+	if len(doc) == 2 {
+		var shardValue string
+
+		primaryID := doc[constants.MongoPrimaryID].(primitive.ObjectID).String()
+		trimmedPrimaryID := trimObjectID(primaryID)
+		for key, value := range doc {
+			if key != constants.MongoPrimaryID {
+				shardValue = value.(primitive.ObjectID).String()
+			}
+		}
+		trimmedShardValue := trimObjectID(shardValue)
+		// Combine both shardValue and primaryID to avoid duplicate keys
+		doc[constants.MongoPrimaryID] = trimmedShardValue + trimmedPrimaryID
+		return
+	}
+	primaryID := doc[constants.MongoPrimaryID].(primitive.ObjectID).String()
+	trimmedPrimaryID := trimObjectID(primaryID)
+	doc[constants.MongoPrimaryID] = trimmedPrimaryID
+}
+
+func trimObjectID(objectID string) string {
+	return strings.TrimRight(strings.TrimLeft(objectID, constants.MongoPrimaryIDPrefix), constants.MongoPrimaryIDSuffix)
 }
