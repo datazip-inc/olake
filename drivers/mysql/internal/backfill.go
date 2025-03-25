@@ -117,6 +117,9 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 		if err != nil {
 			return err
 		}
+		if minVal == nil {
+			return nil
+		}
 		chunks.Insert(types.Chunk{
 			Min: nil,
 			Max: fmt.Sprintf("%v", minVal),
@@ -142,17 +145,21 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 			} else if err != nil {
 				return fmt.Errorf("failed to get next chunk end: %w", err)
 			}
-			chunks.Insert(types.Chunk{
-				Min: fmt.Sprintf("%v", currentVal),
-				Max: fmt.Sprintf("%v", nextValRaw),
-			})
+			if currentVal != nil && nextValRaw == nil {
+				chunks.Insert(types.Chunk{
+					Min: fmt.Sprintf("%v", currentVal),
+					Max: fmt.Sprintf("%v", nextValRaw),
+				})
+			}
 			currentVal = nextValRaw
 		}
+		if currentVal != nil {
+			chunks.Insert(types.Chunk{
+				Min: fmt.Sprintf("%v", currentVal),
+				Max: nil,
+			})
+		}
 
-		chunks.Insert(types.Chunk{
-			Min: fmt.Sprintf("%v", currentVal),
-			Max: nil,
-		})
 		return nil
 	})
 }
@@ -163,7 +170,7 @@ func (m *MySQL) getTableExtremes(stream protocol.Stream, pkColumn string, tx *sq
 	if err != nil {
 		return "", "", err
 	}
-	return fmt.Sprintf("%v", min), fmt.Sprintf("%v", max), err
+	return min, max, err
 }
 func (m *MySQL) calculateChunkSize(stream protocol.Stream) (int, error) {
 	var totalRecords int
