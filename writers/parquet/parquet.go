@@ -214,15 +214,14 @@ func (p *Parquet) Close() error {
 	}
 
 	for basePath, parquetFiles := range p.partitionedFiles {
-		for _, fileMetadata := range parquetFiles {
-			// TODO: Async file close and S3 upload (Good First Issue)
+		err := utils.Concurrent(context.TODO(), parquetFiles, len(parquetFiles), func(_ context.Context, fileMetadata FileMetadata, _ int) error {
 			// construct full file path
 			filePath := filepath.Join(p.config.Path, basePath, fileMetadata.fileName)
 
 			// Remove empty files
 			if fileMetadata.recordCount == 0 {
 				removeLocalFile(filePath, "no records written", fileMetadata.recordCount)
-				continue
+				return nil
 			}
 
 			// Close writers
@@ -270,6 +269,10 @@ func (p *Parquet) Close() error {
 				removeLocalFile(filePath, "uploaded to S3", fileMetadata.recordCount)
 				logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, s3KeyPath)
 			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to close writers and files: %s", err)
 		}
 	}
 	return nil
