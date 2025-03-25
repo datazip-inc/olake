@@ -165,6 +165,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err != nil {
 			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
 		}
+
 		var chunks []types.Chunk
 		for i := 0; i < len(boundaries)-1; i++ {
 			chunks = append(chunks, types.Chunk{
@@ -208,7 +209,6 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err := cursor.All(ctx, &buckets); err != nil {
 			return nil, fmt.Errorf("failed to decode bucketAuto results: %s", err)
 		}
-
 		var chunks []types.Chunk
 		for _, bucket := range buckets {
 			chunks = append(chunks, types.Chunk{
@@ -238,6 +238,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if timeDiff < 1 {
 			timeDiff = 1
 		}
+
 		// for every 6hr difference ideal density is 10 Seconds
 		density := time.Duration(timeDiff) * (10 * time.Second)
 		start := first
@@ -263,18 +264,44 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
+	var chunks []types.Chunk
+	var err error
 	switch m.config.PartitionStrategy {
 	case "timestamp":
-		return timestampStrategy()
+		chunks, err = timestampStrategy()
 	default:
-		chunks, err := splitVectorStrategy()
-		// check if authorization error occurs
+		chunks, err = splitVectorStrategy()
 		if err != nil && strings.Contains(err.Error(), "not authorized") {
 			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
-			return bucketAutoStrategy()
+			chunks, err = bucketAutoStrategy()
 		}
-		return chunks, err
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	minThresholdID := stream.GetStream().MinThresholdID
+	var parsedMinThresholdID primitive.ObjectID
+	if minThresholdID == "" {
+		parsedMinThresholdID = primitive.NilObjectID
+	} else {
+		parsedMinThresholdID, err = primitive.ObjectIDFromHex(minThresholdID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	//filter based on threshold
+	filteredChunks := []types.Chunk{}
+	for _, chunk := range chunks {
+		if parsedMinThresholdID == primitive.NilObjectID || chunk.Max == nil || chunk.Max.(*primitive.ObjectID).Timestamp().After(parsedMinThresholdID.Timestamp()) {
+			filteredChunks = append(filteredChunks, chunk)
+		} else {
+			logger.Infof("Skipping chunk as max object ID [%v] does not exceed the minimum threshold for stream [%s]", chunk.Max, stream.GetStream().Name)
+		}
+	}
+
+	return filteredChunks, nil
 }
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
