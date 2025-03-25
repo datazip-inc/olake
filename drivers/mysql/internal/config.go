@@ -78,7 +78,7 @@ func (c *Config) Validate() error {
 
 	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = base.DefaultRetryCount // Aligned with PostgreSQL default
+		c.MaxThreads = base.DefaultThreadCount // Aligned with PostgreSQL default
 	}
 
 	// Set default retry count if not provided

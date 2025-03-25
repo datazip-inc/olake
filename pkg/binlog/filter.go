@@ -48,9 +48,8 @@ func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.
 
 	var rowsToProcess [][]interface{}
 	if operationType == "update" {
-		// For an "update" operation, the rows contain pairs of (before, after) images.
+		// For an "update" operation, the rows contain pairs of (before, after) images: [before, after, before, after, ...]
 		// We start from the second element (i=1) and step by 2 to get the "after" row (the updated state).
-		// These are the rows we want to process in the case of an update.
 		for i := 1; i < len(e.Rows); i += 2 {
 			rowsToProcess = append(rowsToProcess, e.Rows[i]) // Take after-images for updates
 		}

@@ -52,7 +52,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		defer tx.Rollback()
 		splitColumn := stream.Self().StreamMetadata.SplitColumn
 		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
-		stmt := jdbc.PostgresBuildSplitScanQuery(stream, splitColumn, chunk)
+		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
 
 		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.Query(query, args...)

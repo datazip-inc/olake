@@ -55,20 +55,18 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 		}
 	}
 
-	// Set server ID if not set
-	if gs.ServerID == 0 {
-		gs.ServerID = uint32(1000 + time.Now().UnixNano()%9000)
-		m.State.SetGlobalState(gs)
-	}
-
 	// Get current binlog position if state is empty
-	if gs.State.Position.Name == "" {
+	if gs.ServerID == 0 || gs.State.Position.Name == "" {
 		pos, err := m.getCurrentBinlogPosition()
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
+		gs.Streams = types.NewSet[string]()
 		gs.State.Position = pos
+		gs.ServerID = uint32(1000 + time.Now().UnixNano()%9000)
 		m.State.SetGlobalState(gs)
+		// Reset streams for creating chunks again
+		m.State.ResetStreams()
 	}
 
 	config, err := m.prepareBinlogConfig(gs.ServerID)
@@ -98,7 +96,7 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	inserters := make(map[protocol.Stream]*protocol.ThreadEvent)
 	errChans := make(map[protocol.Stream]chan error)
 	for _, stream := range streams {
-		errChan := make(chan error)
+		errChan := make(chan error, 1)
 		inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan))
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread for stream[%s]: %s", stream.ID(), err)
@@ -113,7 +111,10 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 					err = fmt.Errorf("failed to write record for stream[%s]: %s", stream.ID(), threadErr)
 				}
 			}
-			m.State.SetGlobalState(gs)
+			if err == nil {
+				m.State.SetGlobalState(gs)
+				// TODO: Research about acknowledgment of binlogs in mysql
+			}
 		}
 	}()
 
@@ -130,7 +131,6 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", gs.State.Position.Name, gs.State.Position.Pos)
 	return conn.StreamMessages(ctx, filter, func(change binlog.CDCChange) error {
 		stream := change.Stream
-		insert := inserters[stream]
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		deleteTS := utils.Ternary(change.Kind == "delete", change.Timestamp.UnixMilli(), int64(0)).(int64)
 		record := types.CreateRawRecord(
@@ -138,7 +138,7 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 			change.Data,
 			deleteTS,
 		)
-		if err := insert.Insert(record); err != nil {
+		if err := inserters[stream].Insert(record); err != nil {
 			return fmt.Errorf("failed to insert record for stream[%s]: %s", stream.ID(), err)
 		}
 		// Update global state with the new position

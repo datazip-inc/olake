@@ -198,18 +198,17 @@ func (m *MySQL) produceTableSchema(ctx context.Context, streamName string) (*typ
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
-	// Add CDC columns if supported
 	// TODO: Populate cursor fields for incremental purpose
+
+	// Add CDC columns if supported
 	if m.CDCSupport {
 		for column, typ := range base.DefaultColumns {
 			stream.UpsertField(column, typ, true)
 		}
-		stream.WithSyncMode(types.FULLREFRESH)
 		stream.WithSyncMode(types.CDC)
 
-	} else {
-		stream.WithSyncMode(types.FULLREFRESH)
 	}
+	stream.WithSyncMode(types.FULLREFRESH)
 
 	return stream, nil
 }

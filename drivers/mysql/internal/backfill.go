@@ -32,13 +32,14 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 	if pkColumns.Len() == 0 {
 		return fmt.Errorf("no primary key defined for stream %s", stream.Name())
 	}
+	// currently only support single primary key chunking
 	pkColumn := pkColumns.Array()[0]
 	// Get chunks from state or calculate new ones
 	stateChunks := m.State.GetChunks(stream.Self())
 	var splitChunks []types.Chunk
 	if stateChunks == nil || stateChunks.Len() == 0 {
 		chunks := types.NewSet[types.Chunk]()
-		if err := m.calculateChunks(stream, chunks); err != nil {
+		if err := m.splitChunks(stream, chunks); err != nil {
 			return fmt.Errorf("failed to calculate chunks: %s", err)
 		}
 		splitChunks = chunks.Array()
@@ -78,10 +79,10 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 		// Begin transaction with repeatable read isolation
 		return jdbc.WithIsolation(backfillCtx, m.client, func(tx *sql.Tx) error {
 			// Build query for the chunk
-			stmt := jdbc.MysqlChunkDataQuery(stream, pkColumn)
+			stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk)
 			setter := jdbc.NewReader(backfillCtx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 				return tx.QueryContext(ctx, query, args...)
-			}, chunk.Min, chunk.Max)
+			})
 			// Capture and process rows
 			return setter.Capture(func(rows *sql.Rows) error {
 				//crrate a map to hold column names and values
@@ -107,7 +108,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 	return utils.Concurrent(backfillCtx, splitChunks, m.config.MaxThreads, processChunk)
 }
 
-func (m *MySQL) calculateChunks(stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
+func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
 	return jdbc.WithIsolation(context.Background(), m.client, func(tx *sql.Tx) error {
 		// Get primary key column using the provided function
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
@@ -117,14 +118,14 @@ func (m *MySQL) calculateChunks(stream protocol.Stream, chunks *types.Set[types.
 			return err
 		}
 		chunks.Insert(types.Chunk{
-			Min: "",
+			Min: nil,
 			Max: fmt.Sprintf("%v", minVal),
 		})
 
 		logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), minVal, maxVal)
 
 		// Calculate optimal chunk size based on table statistics
-		chunkSize, err := m.calculateChunksSize(stream)
+		chunkSize, err := m.calculateChunkSize(stream)
 		if err != nil {
 			return fmt.Errorf("failed to calculate chunk size: %w", err)
 		}
@@ -132,26 +133,26 @@ func (m *MySQL) calculateChunks(stream protocol.Stream, chunks *types.Set[types.
 		// Generate chunks based on range
 		query := jdbc.NextChunkEndQuery(stream, pkColumn, chunkSize)
 
-		var currentVal interface{} = minVal
+		currentVal := minVal
 		for {
 			var nextValRaw interface{}
 			err := tx.QueryRow(query, currentVal, chunkSize).Scan(&nextValRaw)
-			if err != nil || nextValRaw == nil {
-				// Add final chunk
-				chunks.Insert(types.Chunk{
-					Min: fmt.Sprintf("%v", currentVal),
-					Max: fmt.Sprintf("%v", maxVal),
-				})
+			if err != nil && err == sql.ErrNoRows || nextValRaw == nil {
 				break
+			} else if err != nil {
+				return fmt.Errorf("failed to get next chunk end: %w", err)
 			}
-			nextVal := fmt.Sprintf("%v", nextValRaw)
 			chunks.Insert(types.Chunk{
 				Min: fmt.Sprintf("%v", currentVal),
-				Max: nextVal,
+				Max: fmt.Sprintf("%v", nextValRaw),
 			})
-			currentVal = nextVal
+			currentVal = nextValRaw
 		}
 
+		chunks.Insert(types.Chunk{
+			Min: fmt.Sprintf("%v", currentVal),
+			Max: nil,
+		})
 		return nil
 	})
 }
@@ -164,12 +165,13 @@ func (m *MySQL) getTableExtremes(stream protocol.Stream, pkColumn string, tx *sq
 	}
 	return fmt.Sprintf("%v", min), fmt.Sprintf("%v", max), err
 }
-func (m *MySQL) calculateChunksSize(stream protocol.Stream) (int, error) {
+func (m *MySQL) calculateChunkSize(stream protocol.Stream) (int, error) {
 	var totalRecords int
 	query := jdbc.MySQLTableRowsQuery()
 	err := m.client.QueryRow(query, stream.Name()).Scan(&totalRecords)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get estimated records count:%v", err)
 	}
+	// number of chunks based on max threads
 	return totalRecords / (m.config.MaxThreads * 8), nil
 }

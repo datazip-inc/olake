@@ -2,8 +2,6 @@ module github.com/datazip-inc/olake/drivers/mysql
 
 go 1.23.0
 
-toolchain go1.24.1
-
 require (
 	github.com/datazip-inc/olake v0.0.0-20250312070222-ed705d25bc0c
 	github.com/go-sql-driver/mysql v1.8.1
@@ -47,7 +45,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.22.1 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
-	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
@@ -86,7 +83,6 @@ require (
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
-	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )

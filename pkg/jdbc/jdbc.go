@@ -19,12 +19,18 @@ func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) str
 	return fmt.Sprintf(`SELECT MAX(%[1]s) FROM (SELECT %[1]s FROM %[2]s.%[3]s WHERE %[1]s > ? ORDER BY %[1]s LIMIT %[4]d) AS subquery`, column, stream.Namespace(), stream.Name(), chunkSize)
 }
 
-// ChunkDataQuery returns the query to fetch data for a specific chunk
-func MysqlChunkDataQuery(stream protocol.Stream, column string) string {
-	return fmt.Sprintf(`SELECT * FROM %s.%s WHERE %s > ? AND %s <= ? ORDER BY %s`, stream.Namespace(), stream.Name(), column, column, column)
+// buildChunkCondition builds the condition for a chunk
+func buildChunkCondition(filterColumn string, chunk types.Chunk) string {
+	if chunk.Min != nil && chunk.Max != nil {
+		return fmt.Sprintf("%s >= %v AND %s <= %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
+	} else if chunk.Min != nil {
+		return fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
+	}
+	return fmt.Sprintf("%s <= %v", filterColumn, chunk.Max)
 }
 
 // PostgreSQL-Specific Queries
+// TODO: Rewrite queries for taking vars as arguments while execution.
 
 // PostgresWithoutState returns the query for a simple SELECT without state
 func PostgresWithoutState(stream protocol.Stream) string {
@@ -61,21 +67,19 @@ func PostgresMinQuery(stream protocol.Stream, filterColumn string, filterValue i
 	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue)
 }
 
-// PostgresBuildSplitScanQuery builds a split scan query for PostgreSQL
-func PostgresBuildSplitScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
-	condition := ""
-	if chunk.Min != nil && chunk.Max != nil {
-		condition = fmt.Sprintf("%s >= %v AND %s <= %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
-	} else if chunk.Min != nil {
-		condition = fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
-	} else if chunk.Max != nil {
-		condition = fmt.Sprintf("%s <= %v", filterColumn, chunk.Max)
-	}
-
+// PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
+func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
+	condition := buildChunkCondition(filterColumn, chunk)
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
 }
 
 // MySQL-Specific Queries
+
+// MySQLWithoutState builds a chunk scan query for MySql
+func MysqlChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
+	condition := buildChunkCondition(filterColumn, chunk)
+	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
+}
 
 // MySQLDiscoverTablesQuery returns the query to discover tables in a MySQL database
 func MySQLDiscoverTablesQuery() string {

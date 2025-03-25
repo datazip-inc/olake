@@ -2,7 +2,7 @@ module github.com/datazip-inc/olake
 
 go 1.23.0
 
-toolchain go1.24.1
+toolchain go1.23.7
 
 require (
 	github.com/go-mysql-org/go-mysql v1.11.0
@@ -21,6 +21,7 @@ require (
 	github.com/xitongsys/parquet-go v1.6.2
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
 	go.mongodb.org/mongo-driver v1.17.3
+	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	sigs.k8s.io/yaml v1.4.0
 )
@@ -82,5 +83,4 @@ require (
 	github.com/oklog/ulid v1.3.1
 	github.com/spf13/pflag v1.0.6 // indirect
 	golang.org/x/sync v0.12.0
-	golang.org/x/tools v0.31.0
 )
