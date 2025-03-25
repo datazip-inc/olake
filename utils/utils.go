@@ -288,3 +288,13 @@ func CompareInterfaceValue(a, b interface{}) int {
 	}
 	return 0
 }
+func ConvertToString(value interface{}) string {
+	switch v := value.(type) {
+	case []byte:
+		return string(v) // Convert byte slice to string
+	case string:
+		return v // Already a string
+	default:
+		return fmt.Sprintf("%v", v) // Fallback
+	}
+}

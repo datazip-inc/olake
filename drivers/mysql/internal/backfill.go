@@ -122,10 +122,10 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 		}
 		chunks.Insert(types.Chunk{
 			Min: nil,
-			Max: fmt.Sprintf("%v", minVal),
+			Max: utils.ConvertToString(minVal),
 		})
 
-		logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), minVal, maxVal)
+		logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
 
 		// Calculate optimal chunk size based on table statistics
 		chunkSize, err := m.calculateChunkSize(stream)
@@ -147,15 +147,15 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 			}
 			if currentVal != nil && nextValRaw == nil {
 				chunks.Insert(types.Chunk{
-					Min: fmt.Sprintf("%v", currentVal),
-					Max: fmt.Sprintf("%v", nextValRaw),
+					Min: utils.ConvertToString(currentVal),
+					Max: utils.ConvertToString(nextValRaw),
 				})
 			}
 			currentVal = nextValRaw
 		}
 		if currentVal != nil {
 			chunks.Insert(types.Chunk{
-				Min: fmt.Sprintf("%v", currentVal),
+				Min: utils.ConvertToString(currentVal),
 				Max: nil,
 			})
 		}
