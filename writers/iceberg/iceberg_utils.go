@@ -191,7 +191,7 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 		serverConfig["hive.metastore.sasl.enabled"] = strconv.FormatBool(i.config.HiveSaslEnabled)
 		serverConfig["engine.hive.enabled"] = "true"
 	case RestCatalog:
-		serverConfig["catalog-impl"] = "org.apache.iceberg.rest.RestCatalog"
+		serverConfig["catalog-impl"] = "org.apache.iceberg.rest.RESTCatalog"
 		serverConfig["uri"] = i.config.RestCatalogURL
 
 	default:
