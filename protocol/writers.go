@@ -134,8 +134,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		// add constants key fields
 		flattenedData[constants.OlakeID] = rawRecord.OlakeID
 		flattenedData[constants.OlakeTimestamp] = rawRecord.OlakeTimestamp
-		if rawRecord.DeleteTime != 0 {
-			flattenedData[constants.CDCDeletedAt] = rawRecord.DeleteTime
+		if rawRecord.OperationType == "delete" {
+			flattenedData[constants.CDCDeletedAt] = rawRecord.CdcTimestamp
 		}
 
 		// schema evolution

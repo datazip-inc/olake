@@ -33,7 +33,7 @@ type Config struct {
 	// S3 endpoint for custom S3-compatible services (like MinIO)
 	S3Endpoint  string `json:"s3_endpoint,omitempty"`
 	S3UseSSL    bool   `json:"s3_use_ssl,omitempty"`    // Use HTTPS if true
-	S3PathStyle bool   `json:"s3_path_style,omitempty"` // Use path-style instead of virtual-hosted-style
+	S3PathStyle bool   `json:"s3_path_style,omitempty"` // Use path-style instead of virtual-hosted-style https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html
 
 	// Catalog Configuration
 	CatalogType CatalogType `json:"catalog_type,omitempty"`
@@ -120,7 +120,7 @@ func (c *Config) Validate() error {
 		// Set JarPath based on file existence in two possible locations
 		execDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get current directory: %v", err)
+			return fmt.Errorf("failed to get current directory for searching jar file: %v", err)
 		}
 
 		// Remove /drivers/* from execDir if present
@@ -141,16 +141,8 @@ func (c *Config) Validate() error {
 				logger.Infof("Iceberg JAR file found in target directory: %s", targetJarPath)
 				c.JarPath = targetJarPath
 			} else {
-				// Check the previous location as last resort
-				fallbackPath := fmt.Sprintf("%s/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar", execDir)
-				if err := utils.CheckIfFilesExists(fallbackPath); err == nil {
-					logger.Infof("Iceberg JAR file found in fallback location: %s", fallbackPath)
-					c.JarPath = fallbackPath
-				} else {
-					// Throw error if JAR is not found in any location
-					return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s, or %s. Go to drivers/iceberg/debezium-server-iceberg-sink/target/ directory and run mvn clean package -DskipTests",
-						baseJarPath, targetJarPath, fallbackPath)
-				}
+				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to drivers/iceberg/debezium-server-iceberg-sink/target/ directory and run mvn clean package -DskipTests",
+					baseJarPath, targetJarPath)
 			}
 		}
 	}

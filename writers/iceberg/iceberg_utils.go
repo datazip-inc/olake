@@ -257,25 +257,19 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	var streamID string
-	var namespace string
+	var streamID, namespace string
 	if i.stream == nil {
 		// For check operations or when stream isn't available
-		streamID = "check_" + utils.ULID()
-		namespace = "check" // Generate a unique ID for check operations
+		streamID, namespace = "check_"+utils.ULID(), "check"
 	} else {
-		streamID = i.stream.ID()
-		namespace = i.stream.Namespace()
+		streamID, namespace = i.stream.ID(), i.stream.Namespace()
 	}
 	configHash := getConfigHash(namespace, streamID, upsert)
-
+	i.configHash = configHash
 	// Check if a server with matching config already exists
 	if server, exists := serverRegistry[configHash]; exists {
 		// Reuse existing server
-		i.port = server.port
-		i.client = server.client
-		i.conn = server.conn
-		i.cmd = server.cmd
+		i.port, i.client, i.conn, i.cmd = server.port, server.client, server.conn, server.cmd
 		server.refCount++
 		logger.Infof("Reusing existing Iceberg server on port %d for stream %s, refCount %d", i.port, streamID, server.refCount)
 		return nil
@@ -326,13 +320,13 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	i.cmd.Env = env
 
 	// Set up and start the process with logging
-	processName := fmt.Sprintf("Java-Iceberg:%d", i.port)
+	processName := fmt.Sprintf("Java-Iceberg:%d", port)
 	if err := logger.SetupAndStartProcess(processName, i.cmd); err != nil {
 		return fmt.Errorf("failed to start Iceberg server: %v", err)
 	}
 
 	// Connect to gRPC server
-	conn, err := grpc.NewClient(`localhost:`+strconv.Itoa(i.port),
+	conn, err := grpc.NewClient(i.config.ServerHost+`:`+strconv.Itoa(port),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
 
@@ -346,8 +340,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 		return fmt.Errorf("failed to connect to iceberg writer: %v", err)
 	}
 
-	i.conn = conn
-	i.client = proto.NewRecordIngestServiceClient(conn)
+	i.port, i.conn, i.client = port, conn, proto.NewRecordIngestServiceClient(conn)
 
 	// Register the new server instance
 	serverRegistry[configHash] = &serverInstance{
@@ -424,48 +417,15 @@ func getTestDebeziumRecord() string {
 
 // CloseIcebergClient closes the connection to the Iceberg server
 func (i *Iceberg) CloseIcebergClient() error {
-	if i.conn == nil {
-		return nil // Nothing to close
-	}
-
-	// Find the server this instance is using
-	var serverKey string
-	for key, server := range serverRegistry {
-		if server.port == i.port {
-			serverKey = key
-			break
-		}
-	}
-
-	if serverKey == "" {
-		// Server not found in registry, just clean up the instance
-		if i.conn != nil {
-			i.conn.Close()
-		}
-
-		if i.cmd != nil && i.cmd.Process != nil {
-			return i.cmd.Process.Kill()
-		}
-		return nil
-	}
 
 	// Decrement reference count
-	server := serverRegistry[serverKey]
+	server := serverRegistry[i.configHash]
 	server.refCount--
 
 	// If this was the last reference, shut down the server
 	if server.refCount <= 0 {
 		logger.Infof("Shutting down Iceberg server on port %d", i.port)
-
-		// Flush any remaining records before shutting down
-		if err := flushBatch(serverKey, server.client); err != nil {
-			logger.Errorf("Error flushing batch: %v", err)
-			return err
-		}
-
-		if server.conn != nil {
-			server.conn.Close()
-		}
+		server.conn.Close()
 
 		if server.cmd != nil && server.cmd.Process != nil {
 			err := server.cmd.Process.Kill()
@@ -478,17 +438,12 @@ func (i *Iceberg) CloseIcebergClient() error {
 		portMap.Delete(i.port)
 
 		// Remove from registry
-		delete(serverRegistry, serverKey)
+		delete(serverRegistry, i.configHash)
 
 		return nil
 	}
 
 	logger.Infof("Decreased reference count for Iceberg server on port %d, refCount %d", i.port, server.refCount)
-
-	// Clear references in this instance but don't close shared resources
-	i.conn = nil
-	i.cmd = nil
-	i.client = nil
 
 	return nil
 }
@@ -526,11 +481,6 @@ func getLocalBuffer(configHash string) *LocalBuffer {
 func flushLocalBuffer(buffer *LocalBuffer, configHash string, client proto.RecordIngestServiceClient) error {
 	if len(buffer.records) == 0 {
 		return nil
-	}
-
-	// Check if client is nil and we might need to flush
-	if buffer.size >= maxBatchSize && client == nil {
-		return fmt.Errorf("cannot flush local buffer: gRPC client is nil")
 	}
 
 	batch := getOrCreateBatch(configHash)
@@ -591,11 +541,6 @@ func addToBatch(configHash string, record string, client proto.RecordIngestServi
 		return false, nil
 	}
 
-	// Check if client is nil before flushing
-	if client == nil {
-		return false, fmt.Errorf("cannot flush to batch: gRPC client is nil")
-	}
-
 	// Local buffer reached threshold, flush it to shared batch
 	err := flushLocalBuffer(buffer, configHash, client)
 	if err != nil {
@@ -607,10 +552,6 @@ func addToBatch(configHash string, record string, client proto.RecordIngestServi
 
 // flushBatch forces a flush of all local buffers and the shared batch for a config hash
 func flushBatch(configHash string, client proto.RecordIngestServiceClient) error {
-	// Check if client is nil before attempting to flush
-	if client == nil {
-		return fmt.Errorf("cannot flush batch: gRPC client is nil")
-	}
 
 	// First, flush all local buffers that match this configHash
 	var localBuffersToFlush []*LocalBuffer
@@ -668,11 +609,6 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 	// Skip if empty
 	if len(records) == 0 {
 		return nil
-	}
-
-	// Add nil check for client
-	if client == nil {
-		return fmt.Errorf("cannot send records: gRPC client is nil")
 	}
 
 	// Filter out any nil strings from records

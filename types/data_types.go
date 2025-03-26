@@ -26,10 +26,10 @@ const (
 
 type Record map[string]any
 
+// TODO: change Olake column names to _ prefixed.
 type RawRecord struct {
 	OlakeID        string         `parquet:"olake_id"`
 	Data           map[string]any `parquet:"data,json"`
-	DeleteTime     int64          `parquet:"cdc_deleted_at"`
 	OlakeTimestamp int64          `parquet:"olake_insert_time"`
 	OperationType  string         `parquet:"_"`
 	CdcTimestamp   int64          `parquet:"_"`
@@ -72,7 +72,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	}
 
 	// Add the metadata fields
-	payload["__deleted"] = r.DeleteTime > 0
+	payload["__deleted"] = r.OperationType == "delete"
 	payload["__op"] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
 	payload["__db"] = db
 	payload["__source_ts_ms"] = r.CdcTimestamp

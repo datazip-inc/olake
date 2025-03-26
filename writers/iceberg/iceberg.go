@@ -16,15 +16,16 @@ import (
 )
 
 type Iceberg struct {
-	options  *protocol.Options
-	config   *Config
-	stream   protocol.Stream
-	records  atomic.Int64
-	cmd      *exec.Cmd
-	client   proto.RecordIngestServiceClient
-	conn     *grpc.ClientConn
-	port     int
-	backfill bool
+	options    *protocol.Options
+	config     *Config
+	stream     protocol.Stream
+	records    atomic.Int64
+	cmd        *exec.Cmd
+	client     proto.RecordIngestServiceClient
+	conn       *grpc.ClientConn
+	port       int
+	backfill   bool
+	configHash string
 }
 
 func (i *Iceberg) GetConfigRef() protocol.Config {
@@ -50,11 +51,8 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
 
-	// Get the config hash for this writer instance
-	configHash := getConfigHash(i.stream.Namespace(), i.stream.ID(), i.backfill)
-
 	// Add the record to the batch
-	flushed, err := addToBatch(configHash, debeziumRecord, i.client)
+	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
 	if err != nil {
 		return fmt.Errorf("failed to add record to batch: %v", err)
 	}
@@ -69,26 +67,16 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 }
 
 func (i *Iceberg) Close() error {
-	// Get the config hash for this writer instance to flush any remaining records
-	configHash := getConfigHash(i.stream.Namespace(), i.stream.ID(), i.backfill)
-
-	// Flush any remaining records before closing
-	if i.client != nil {
-		err := flushBatch(configHash, i.client)
-		if err != nil {
-			logger.Infof("Error flushing batch on close: %v", err)
-		}
+	err := flushBatch(i.configHash, i.client)
+	if err != nil {
+		logger.Infof("Error flushing batch on close: %v", err)
+		return err
 	}
 
-	err := i.CloseIcebergClient()
+	err = i.CloseIcebergClient()
 	if err != nil {
 		return fmt.Errorf("error closing Iceberg client: %v", err)
 	}
-
-	// Ensure all references are cleared
-	i.client = nil
-	i.conn = nil
-	i.cmd = nil
 
 	return nil
 }
@@ -102,6 +90,7 @@ func (i *Iceberg) Check() error {
 
 	// Create a temporary setup for checking
 	err := i.SetupIcebergClient(false)
+	defer i.Close()
 	if err != nil {
 		// Restore original stream before returning
 		i.stream = originalStream
@@ -119,22 +108,11 @@ func (i *Iceberg) Check() error {
 	// Call the remote procedure
 	res, err := i.client.SendRecords(ctx, req)
 	if err != nil {
-		// Clean up before returning error
-		if err := i.CloseIcebergClient(); err != nil {
-			logger.Infof("Error closing Iceberg client: %v", err)
-			return err
-		}
 		i.stream = originalStream
 		return fmt.Errorf("error sending record to Iceberg RPC Server: %v", err)
 	}
 	// Print the response from the server
 	logger.Infof("Server Response: %s", res.GetResult())
-
-	// Always clean up after Check()
-	if err := i.CloseIcebergClient(); err != nil {
-		logger.Infof("Error closing Iceberg client after check: %v", err)
-		return err
-	}
 
 	// Restore original stream
 	i.stream = originalStream
