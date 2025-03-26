@@ -481,6 +481,7 @@ func flushLocalBuffer(buffer *LocalBuffer, configHash string, client proto.Recor
 		return nil
 	}
 
+	// TODO: Check if we can remove the below logic as we are locking in java code to iceberg commit already.
 	batch := getOrCreateBatch(configHash)
 
 	// Lock the batch only once when flushing the local buffer
