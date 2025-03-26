@@ -22,7 +22,6 @@ import (
 // determineMaxBatchSize returns appropriate batch size based on system memory
 // This is assuming that each core might create 2 threads, which might eventually need 4 writer threads
 func determineMaxBatchSize() int64 {
-
 	ramGB := utils.DetermineSystemMemoryGB()
 
 	var batchSize int64
@@ -84,7 +83,7 @@ func getGoroutineID() string {
 // batchRegistry tracks batches of records per server configuration
 var (
 	// Maximum batch size before flushing (dynamically set based on system memory)
-	maxBatchSize int64 = determineMaxBatchSize()
+	maxBatchSize = determineMaxBatchSize()
 	// Local buffer threshold before pushing to shared batch (5MB)
 	localBufferThreshold int64 = 50 * 1024 * 1024
 	// Thread-local buffer cache using sync.Map to avoid locks
@@ -417,7 +416,6 @@ func getTestDebeziumRecord() string {
 
 // CloseIcebergClient closes the connection to the Iceberg server
 func (i *Iceberg) CloseIcebergClient() error {
-
 	// Decrement reference count
 	server := serverRegistry[i.configHash]
 	server.refCount--
@@ -552,7 +550,6 @@ func addToBatch(configHash string, record string, client proto.RecordIngestServi
 
 // flushBatch forces a flush of all local buffers and the shared batch for a config hash
 func flushBatch(configHash string, client proto.RecordIngestServiceClient) error {
-
 	// First, flush all local buffers that match this configHash
 	var localBuffersToFlush []*LocalBuffer
 
