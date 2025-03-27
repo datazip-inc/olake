@@ -67,7 +67,7 @@ public class OlakeRpcServer {
 
         if (configMap.get("upsert") != null) {
             upsert_records = Boolean.parseBoolean(configMap.get("upsert"));
-        }       
+        }
 
         // Parse partition fields and their transforms
         // Format: "partition.field.<fieldName>=<transform>"
