@@ -145,15 +145,15 @@ public class IcebergUtil {
     } else {
       // Create a table with partitioning
       LOGGER.info("Creating table with partitioning: {}", partitionTransforms);
-      
+
       // Start building the table
       PartitionSpec.Builder specBuilder = PartitionSpec.builderFor(schema);
-      
+
       // Apply each partition transform
       for (Map.Entry<String, String> entry : partitionTransforms.entrySet()) {
         String field = entry.getKey();
         String transform = entry.getValue().toLowerCase(Locale.ENGLISH);
-        
+
         // Apply the appropriate transform based on the specified type
         switch (transform) {
           case "identity":
@@ -195,7 +195,7 @@ public class IcebergUtil {
             }
         }
       }
-      
+
       // Create the table with the partition spec
       return icebergCatalog.buildTable(tableIdentifier, schema)
           .withProperty(FORMAT_VERSION, "2")

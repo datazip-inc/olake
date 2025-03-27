@@ -698,7 +698,7 @@
             <artifactId>jettison</artifactId>
             <version>1.5.4</version>
         </dependency>
-        
+
         <!-- Fix for CVE-2025-27820 vulnerability -->
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
