@@ -123,7 +123,30 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 }
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
+
+	isValidChunk := func(maxObjectID *primitive.ObjectID, minThresholdId *primitive.ObjectID) bool {
+		if minThresholdId != &primitive.NilObjectID && (maxObjectID.Timestamp().Before(minThresholdId.Timestamp()) || maxObjectID.Timestamp().Equal(minThresholdId.Timestamp())) {
+			logger.Infof("Skipping chunk as max object ID [%s] does not exceed the minimum threshold for stream [%s]", maxObjectID.String(), stream.GetStream().Name)
+			return false
+		}
+		return true
+	}
+
+	getMinimumThresholdID := func() (primitive.ObjectID, error) {
+		minThresholdID := stream.GetStream().MinThresholdID
+		if minThresholdID == "" {
+			return primitive.NilObjectID, nil
+		}
+		return primitive.ObjectIDFromHex(minThresholdID)
+	}
+
+	minThresholdID, err := getMinimumThresholdID()
+	if err != nil {
+		return nil, err
+	}
+
 	splitVectorStrategy := func() ([]types.Chunk, error) {
+
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
 			err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
@@ -165,12 +188,16 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err != nil {
 			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
 		}
+
 		var chunks []types.Chunk
 		for i := 0; i < len(boundaries)-1; i++ {
-			chunks = append(chunks, types.Chunk{
-				Min: &boundaries[i],
-				Max: &boundaries[i+1],
-			})
+			maxObjectID := boundaries[i+1]
+			if isValidChunk(maxObjectID, &minThresholdID) {
+				chunks = append(chunks, types.Chunk{
+					Min: &boundaries[i],
+					Max: &maxObjectID,
+				})
+			}
 		}
 		if len(boundaries) > 0 {
 			chunks = append(chunks, types.Chunk{
@@ -208,13 +235,15 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err := cursor.All(ctx, &buckets); err != nil {
 			return nil, fmt.Errorf("failed to decode bucketAuto results: %s", err)
 		}
-
 		var chunks []types.Chunk
 		for _, bucket := range buckets {
-			chunks = append(chunks, types.Chunk{
-				Min: &bucket.ID.Min,
-				Max: &bucket.ID.Max,
-			})
+			maxObjectID := &bucket.ID.Max
+			if isValidChunk(maxObjectID, &minThresholdID) {
+				chunks = append(chunks, types.Chunk{
+					Min: &bucket.ID.Min,
+					Max: &maxObjectID,
+				})
+			}
 		}
 		if len(buckets) > 0 {
 			chunks = append(chunks, types.Chunk{
@@ -238,6 +267,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if timeDiff < 1 {
 			timeDiff = 1
 		}
+
 		// for every 6hr difference ideal density is 10 Seconds
 		density := time.Duration(timeDiff) * (10 * time.Second)
 		start := first
@@ -250,10 +280,12 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				maxObjectID = generateMinObjectID(last.Add(time.Second))
 			}
 			start = end
-			chunks = append(chunks, types.Chunk{
-				Min: minObjectID,
-				Max: maxObjectID,
-			})
+			if isValidChunk(maxObjectID, &minThresholdID) {
+				chunks = append(chunks, types.Chunk{
+					Min: minObjectID,
+					Max: maxObjectID,
+				})
+			}
 		}
 		chunks = append(chunks, types.Chunk{
 			Min: generateMinObjectID(last),
