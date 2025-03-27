@@ -100,19 +100,22 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate based on catalog type
-	if c.CatalogType == JDBCCatalog {
+	switch c.CatalogType {
+	case JDBCCatalog:
 		if c.JDBCUrl == "" {
 			return fmt.Errorf("jdbc_url is required when using JDBC catalog")
 		}
-	} else if c.CatalogType == RestCatalog {
+	case RestCatalog:
 		if c.RestCatalogURL == "" {
 			return fmt.Errorf("rest_catalog_url is required when using REST catalog")
 		}
-	} else if c.CatalogType == HiveCatalog {
+	case HiveCatalog:
 		if c.HiveURI == "" {
 			return fmt.Errorf("hive_uri is required when using Hive catalog")
 		}
-	} else if c.CatalogType != GlueCatalog {
+	case GlueCatalog:
+		// No additional validation required for Glue catalog
+	default:
 		return fmt.Errorf("unsupported catalog_type: %s", c.CatalogType)
 	}
 

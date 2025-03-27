@@ -109,12 +109,12 @@ func getConfigHash(namespace string, streamID string, upsert bool) string {
 	return strings.Join(hashComponents, "-")
 }
 
-func findAvailablePort() (int, error) {
+func findAvailablePort(serverHost string) (int, error) {
 	for p := 50051; p <= 59051; p++ {
 		// Try to store port in map - returns false if already exists
 		if _, loaded := portMap.LoadOrStore(p, true); !loaded {
 			// Check if the port is already in use by another process
-			conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", p), time.Second)
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", serverHost, p), time.Second)
 			if err == nil {
 				// Port is in use, close our test connection
 				conn.Close()
@@ -275,7 +275,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	}
 
 	// No matching server found, create a new one
-	port, err := findAvailablePort()
+	port, err := findAvailablePort(i.config.ServerHost)
 	if err != nil {
 		return err
 	}
