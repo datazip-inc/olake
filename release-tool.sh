@@ -10,7 +10,31 @@ function chalk() {
     elif [[ $color == "green" ]]; then
         color_code=2
     fi
-    echo -e "$(tput setaf $color_code)${text}$(tput sgr0)"
+    # Check if TERM is set before using tput
+    if [[ -n "$TERM" ]]; then
+        echo -e "$(tput setaf $color_code)${text}$(tput sgr0)"
+    else
+        # Fallback if TERM is not set
+        if [[ $color == "red" ]]; then
+            echo -e "\033[31m${text}\033[0m"
+        elif [[ $color == "green" ]]; then
+            echo -e "\033[32m${text}\033[0m"
+        else
+            echo -e "${text}"
+        fi
+    fi
+}
+
+# Function to build the Java project with Maven
+function build_java_project() {
+    echo "Building Java project with Maven..."
+    # Change to the directory containing the POM file
+    cd writers/iceberg/debezium-server-iceberg-sink || fail "Failed to change to Maven project directory"
+    echo "Building Maven project in $(pwd)"
+    mvn clean package -Dmaven.test.skip=true || fail "Maven build failed"
+    # Return to the original directory
+    cd - || fail "Failed to return to original directory"
+    echo "$(chalk green "✅ Java project successfully built")"
 }
 
 # Function to fail with a message
@@ -112,5 +136,9 @@ chalk green "=== Branch: $CURRENT_BRANCH ==="
 chalk green "=== Release version: $VERSION ==="
 connector=$DRIVER
 type="source"
+
+
+# Build Java project
+build_java_project
 
 release "$VERSION" "$platform" "$CURRENT_BRANCH"
