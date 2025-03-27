@@ -280,6 +280,21 @@ func CompareInterfaceValue(a, b interface{}) int {
 		} else if af > bf {
 			return 1
 		}
+	case string:
+		if a != nil && b != nil {
+			return strings.Compare(a.(string), b.(string))
+		}
+		return Ternary(a == nil, -1, 1).(int)
 	}
 	return 0
+}
+func ConvertToString(value interface{}) string {
+	switch v := value.(type) {
+	case []byte:
+		return string(v) // Convert byte slice to string
+	case string:
+		return v // Already a string
+	default:
+		return fmt.Sprintf("%v", v) // Fallback
+	}
 }
