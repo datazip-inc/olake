@@ -83,8 +83,17 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}()
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
+
+		var columnsToFetch []string
+		stream.Schema().Properties.Range(func(key, value interface{}) bool {
+			if columnName, ok := key.(string); ok {
+				columnsToFetch = append(columnsToFetch, columnName)
+			}
+			return true
+		})
+
 		cursorIterationFunc := func() error {
-			cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
+			cursor, err := collection.Aggregate(ctx, generatePipeline(columnsToFetch, chunk.Min, chunk.Max), opts)
 			if err != nil {
 				return fmt.Errorf("collection.Find: %s", err)
 			}
@@ -326,7 +335,7 @@ func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Tim
 	return start, end, nil
 }
 
-func generatePipeline(start, end any) mongo.Pipeline {
+func generatePipeline(columnsToFetch []string, start, end any) mongo.Pipeline {
 	andOperation := bson.A{
 		bson.D{
 			{
@@ -360,6 +369,14 @@ func generatePipeline(start, end any) mongo.Pipeline {
 		}})
 	}
 
+	projection := bson.D{
+		{Key: "_id", Value: 1},
+	}
+
+	for _, columnName := range columnsToFetch {
+		projection = append(projection, bson.E{Key: columnName, Value: 1})
+	}
+
 	// Define the aggregation pipeline
 	return mongo.Pipeline{
 		{
@@ -372,9 +389,17 @@ func generatePipeline(start, end any) mongo.Pipeline {
 					},
 				}},
 		},
-		bson.D{
-			{Key: "$sort",
-				Value: bson.D{{Key: "_id", Value: 1}}},
+		{
+			{
+				Key:   "$project",
+				Value: projection,
+			},
+		},
+		{
+			{
+				Key:   "$sort",
+				Value: bson.D{{Key: "_id", Value: 1}},
+			},
 		},
 	}
 }

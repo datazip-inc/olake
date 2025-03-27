@@ -44,10 +44,33 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	cdcCtx := context.TODO()
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
+
+	var columnsToFetch []string
+	stream.Schema().Properties.Range(func(key, value interface{}) bool {
+		if columnName, ok := key.(string); ok {
+			columnsToFetch = append(columnsToFetch, columnName)
+		}
+		return true
+	})
+	projection := bson.D{
+		{Key: "operationType", Value: 1},
+		{Key: "documentKey", Value: 1},
+		{Key: "fullDocument", Value: bson.D{}},
+	}
+
+	// Add columns to fullDocument projection
+	fullDocProjection := bson.D{}
+	for _, columnName := range columnsToFetch {
+		//to do do we need to include _id ?
+		fullDocProjection = append(fullDocProjection, bson.E{Key: columnName, Value: 1})
+	}
+	projection[2].Value = fullDocProjection
+
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
 		}}},
+		{{Key: "$project", Value: projection}},
 	}
 
 	prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
