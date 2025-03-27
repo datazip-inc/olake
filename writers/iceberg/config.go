@@ -144,7 +144,7 @@ func (c *Config) Validate() error {
 				logger.Infof("Iceberg JAR file found in target directory: %s", targetJarPath)
 				c.JarPath = targetJarPath
 			} else {
-				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to drivers/iceberg/debezium-server-iceberg-sink/target/ directory and run mvn clean package -DskipTests",
+				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to writers/iceberg/debezium-server-iceberg-sink/target/ directory and run mvn clean package -DskipTests",
 					baseJarPath, targetJarPath)
 			}
 		}
