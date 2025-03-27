@@ -59,7 +59,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		})
 		batchStartTime := time.Now()
 		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(backfillCtx, stream, protocol.WithErrorChannel(waitChannel))
+		insert, err := pool.NewThread(backfillCtx, stream, protocol.WithErrorChannel(waitChannel), protocol.WithBackfill(true))
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
@@ -88,7 +88,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 			// generate olake id
 			olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			// insert record
-			err = insert.Insert(types.CreateRawRecord(olakeID, record, 0))
+			err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0).UnixNano()))
 			if err != nil {
 				return err
 			}

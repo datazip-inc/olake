@@ -132,11 +132,12 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	return conn.StreamMessages(ctx, filter, func(change binlog.CDCChange) error {
 		stream := change.Stream
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
-		deleteTS := utils.Ternary(change.Kind == "delete", change.Timestamp.UnixMilli(), int64(0)).(int64)
+		opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 		record := types.CreateRawRecord(
 			utils.GetKeysHash(change.Data, pkColumn),
 			change.Data,
-			deleteTS,
+			opType,
+			change.Timestamp.UnixMilli(),
 		)
 		if err := inserters[stream].Insert(record); err != nil {
 			return fmt.Errorf("failed to insert record for stream[%s]: %s", stream.ID(), err)
