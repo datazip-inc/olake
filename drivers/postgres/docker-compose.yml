@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  postgres-primary:
+    image: 'postgres:latest'
+    container_name: postgres-primary
+    environment:
+      POSTGRES_USER: olake
+      POSTGRES_PASSWORD: olake
+      POSTGRES_DB: testdb
+    command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=10"]
+    ports:
+      - "5432:5432"
+    networks:
+      - olake-test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U olake -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+networks:
+  olake-test:
+    name: olake-test
+    external: true
