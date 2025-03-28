@@ -41,7 +41,7 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 	i.options = options
 	i.stream = stream
 	i.backfill = options.Backfill
-	return i.SetupIcebergClient(options.Backfill)
+	return i.SetupIcebergClient(!options.Backfill)
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
@@ -90,12 +90,13 @@ func (i *Iceberg) Check() error {
 
 	// Create a temporary setup for checking
 	err := i.SetupIcebergClient(false)
-	defer i.Close()
 	if err != nil {
 		// Restore original stream before returning
 		i.stream = originalStream
 		return fmt.Errorf("failed to setup iceberg: %v", err)
 	}
+
+	defer i.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

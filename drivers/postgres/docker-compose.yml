@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: olake
       POSTGRES_PASSWORD: olake
       POSTGRES_DB: testdb
-    command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=10"]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
     ports:
       - "5432:5432"
     networks:

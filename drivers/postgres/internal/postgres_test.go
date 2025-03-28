@@ -38,11 +38,11 @@ func TestPostgresDiscover(t *testing.T) {
 	assert.NotNil(t, client)
 
 	ctx := context.Background()
-	tableName := "test_table"
+	tableName := "test_table111"
 
-	// Create and populate test table
-	//createTestTable(ctx, t, client, tableName)
-	//defer dropTestTable(ctx, t, client, tableName)
+	//Create and populate test table
+	createTestTable(ctx, t, client, tableName)
+	defer dropTestTable(ctx, t, client, tableName)
 
 	addTestTableData(ctx, t, client, tableName, 5, 6, "col1", "col2")
 
@@ -72,7 +72,7 @@ func TestPostgresRead(t *testing.T) {
 		return
 	}
 	ctx := context.Background()
-	tableName := "test_read_table_6"
+	tableName := "test_d_tab"
 
 	// Create and populate test table
 	createTestTable(ctx, t, client, tableName)
@@ -103,7 +103,8 @@ func TestPostgresRead(t *testing.T) {
 	pool, err := protocol.NewWriter(ctx, &types.WriterConfig{
 		Type: "PARQUET",
 		WriterConfig: map[string]any{
-			"local_path": "/Users/datazip/Desktop/olake-1/drivers/postgres/examples",
+			"normalization": true,
+			"local_path":    "/Users/datazip/Desktop/olake-1/drivers/postgres/examples",
 		},
 	})
 	assert.NoError(t, err)
@@ -152,8 +153,37 @@ func TestPostgresRead(t *testing.T) {
 		}
 		assert.NoError(t, err, "Read operation failed")
 	})
+	t.Run("cdc read", func(t *testing.T) {
+		pClient := &Postgres{
+			Driver: base.NewBase(),
+			client: client,
+			config: &config,
+		}
 
-	// Skipping CDC test for now to focus on full_refresh
+		var walLevel string
+		err := client.QueryRowContext(context.Background(), "SHOW wal_level").Scan(&walLevel)
+		require.NoError(t, err, "Failed to query wal_level")
+		if walLevel != "logical" {
+			t.Skip("Skipping CDC test because wal_level is not set to logical")
+		}
+
+		pClient.SetupState(types.NewState(types.GlobalType))
+
+		// Discover streams
+		streams, err := pClient.Discover(true)
+		assert.NoError(t, err)
+
+		dummyStream := &types.ConfiguredStream{
+			Stream: streams[0],
+		}
+		assert.NotEmpty(t, streams)
+		dummyStream.Stream.SyncMode = types.CDC
+		d.State.SetGlobalState(&types.State{})
+		err = pClient.Read(pool, dummyStream)
+		assert.NoError(t, err)
+
+	})
+
 }
 
 // Helper function to create a test table with primary key
