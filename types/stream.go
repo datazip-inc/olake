@@ -28,6 +28,7 @@ type Stream struct {
 	// Renderable JSON Schema for additional properties supported by respective driver for individual stream
 	AdditionalPropertiesSchema schema.JSONSchema `json:"additional_properties_schema,omitempty"`
 	SyncMode                   SyncMode          `json:"sync_mode,omitempty"` // Mode being used for syncing data
+	TrackingField              string            `json:"tracking_field,omitempty"`
 }
 
 func NewStream(name, namespace string) *Stream {
