@@ -43,7 +43,11 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		pool.AddRecordsToSync(recordCount)
 
 		// Generate and update chunks
-		chunksArray, err = m.splitChunks(backfillCtx, collection, stream)
+		var retryErr error
+		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
+			return retryErr
+		})
 		if err != nil {
 			return err
 		}
@@ -276,6 +280,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, err
 	}
 }
+
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
 	command := bson.D{{
