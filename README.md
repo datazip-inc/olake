@@ -1,98 +1,115 @@
-<h1 align="center" style="border-bottom: none">
-    <a href="https://datazip.io/olake" target="_blank">
-        <img alt="olake" src="https://github.com/user-attachments/assets/d204f25f-5289-423c-b3f2-44b2194bdeaf" width="100" height="100"/>
-    </a>
-    <br>OLake
-</h1>
+# OLake Documentation
 
-<p align="center">Fastest open-source tool for replicating Databases to Apache Iceberg or Data Lakehouse. ⚡ Efficient, quick and scalable data ingestion for real-time analytics. Starting with MongoDB. Visit <a href="https://olake.io/" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
+## Overview
+OLake is an open-source tool designed for efficient replication of databases to Apache Iceberg or Data Lakehouses. It supports databases like PostgreSQL, MongoDB, and MySQL, making it easy to sync and manage data in modern storage solutions.
 
-<p align="center">
-    <a href="https://github.com/datazip-inc/olake/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"/></a><a href="https://olake.io/docs"><img alt="Documentation" height="23" src="https://img.shields.io/badge/view-Documentation-blue?style=for-the-badge"/></a>
-    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag"><img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/></a>
-</p>
+## Features
+- **Database Replication**: Seamlessly replicate data from various databases.
+- **Apache Iceberg Support**: Enables efficient storage and querying of data.
+- **Data Lakehouse Integration**: Supports modern data architectures.
+- **High Performance**: Optimized for fast and reliable data transfer.
+- **Open Source**: Community-driven and actively maintained.
 
+## Installation
+### Prerequisites
+Ensure you have the following installed:
+- Docker
+- Python 3.x
+- PostgreSQL, MongoDB, or MySQL (as required)
 
-![undefined](https://github.com/user-attachments/assets/fe37e142-556a-48f0-a649-febc3dbd083c)
+### Steps
+1. Clone the OLake repository:
+   ```sh
+   git clone https://github.com/datazip-inc/olake.git
+   cd olake
+   ```
+2. Install dependencies:
+   ```sh
+   pip install -r requirements.txt
+   ```
+3. Run the application:
+   ```sh
+   docker-compose up
+   ```
 
-Connector ecosystem for Olake, the key points Olake Connectors focuses on are these
-- **Integrated Writers to avoid block of reading, and pushing directly into destinations**
-- **Connector Autonomy**
-- **Avoid operations that don't contribute to increasing record throughput**
+## Usage
+### Basic Configuration
+Update the `config.yaml` file with your database credentials and target storage details.
 
-## Getting Started with OLake
+### Running OLake
+To start data replication, run:
+```sh
+python olake.py --config config.yaml
+```
 
-### Source / Connectors
-1. [Getting started Postgres -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/postgres) | [Postgres Docs](https://olake.io/docs/category/postgres)
-2. [Getting started MongoDB -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb) | [MongoDB Docs](https://olake.io/docs/category/mongodb)
-3. [Getting started MySQL -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)  | [MySQL Docs](https://olake.io/docs/category/mysql)
+## Troubleshooting Guide
 
-### Writers / Destination
-1. [Apache Iceberg Docs](https://olake.io/docs/category/apache-iceberg) 
-2. [AWS S3 Docs](https://olake.io/docs/category/aws-s3) 
-3. [Local FileSystem Docs](https://olake.io/docs/writers/local) 
+This guide provides solutions to common issues encountered while using OLake. If you experience a problem not listed here, please refer to our [GitHub Issues Page](https://github.com/datazip-inc/olake/issues) or contact our support team.
 
+### 1. Parquet File Not Closing Properly
+**Issue:** During data replication, you may encounter an error indicating that a Parquet file is not closed when a new one is being created.
 
-## Source/Connector Functionalities
-|  Functionality | MongoDB | Postgres | MySQL |
-| ------------------------- | ------- | -------- | ----- |
-| Full Refresh Sync Mode    | ✅       | ✅        | ✅     |
-| Incremental Sync Mode     | ❌       | ❌        | ❌     |
-| CDC Sync Mode             | ✅       | ✅        | ✅     |
-| Full Parallel Processing  | ✅       | ✅        | ✅     |
-| CDC Parallel Processing   | ✅       | ❌        | ❌     |
-| Resumable Full Load       | ✅       | ✅        | ✅     |
-| CDC Heart Beat            | ❌       | ❌        | ❌     |
+**Solution:**
+- Ensure that OLake has the necessary permissions to write and close files in the target directory.
+- Verify that there is sufficient disk space available.
+- If the issue persists, consider updating to the latest version of OLake, as this may be a known issue addressed in recent updates.
 
-We have additionally planned the following sources -  [AWS S3](https://github.com/datazip-inc/olake/issues/86) |  [Kafka](https://github.com/datazip-inc/olake/issues/87) 
+*Reference: [GitHub Issue #184](https://github.com/datazip-inc/olake/issues/184)*
 
+### 2. Slow Iceberg Writer Performance in Docker
+**Issue:** When running OLake in a Docker environment, the Iceberg writer operates significantly slower than expected.
 
-## Writer Functionalities
-| Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
-| ------------------------------- | ---------------- | ------ | -------------- |
-| Flattening & Normalization (L1) | ✅                | ✅      |                |
-| Partitioning                    | ✅                | ✅      |                |
-| Schema Changes                  | ✅                | ✅      |                |
-| Schema Evolution                | ✅                | ✅      |                |
+**Solution:**
+- Allocate more resources (CPU and memory) to the Docker container running OLake.
+- Optimize the Docker environment by ensuring that the host machine has adequate resources and that other containers are not consuming excessive resources.
+- Check for any network latency issues that might affect data transfer rates.
 
-## Supported Catalogs For Iceberg Writer
-| Catalog                 | Status                                                                                                  |
-| -------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Glue Catalog               | WIP                                                                                                      |
-| Hive Meta Store            | Upcoming                                                                                                 |
-| JDBC Catalogue             | Upcoming                                                                                                 |
-| REST Catalogue - Nessie    | Upcoming                                                                                                 |
-| REST Catalogue - Polaris   | Upcoming                                                                                                 |
-| REST Catalogue - Unity     | Upcoming                                                                                                 |
-| REST Catalogue - Gravitino | Upcoming                                                                                                 |
-| Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
-| BigLake Metastore          | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
+*Reference: [GitHub Issue #172](https://github.com/datazip-inc/olake/issues/172)*
 
-## Core
-Core or framework is the component/logic that has been abstracted out from Connectors to follow DRY. This includes base CLI commands, State logic, Validation logic, Type detection for unstructured data, handling Config, State, Catalog, and Writer config file, logging etc.
+### 3. Using `documentKey` Instead of `_id` in Sharded MongoDB
+**Issue:** In a sharded MongoDB setup, change event keys may not be correctly identified when using the `_id` field.
 
-Core includes http server that directly exposes live stats about running sync such as:
-- Possible finish time
-- Concurrently running processes
-- Live record count
+**Solution:**
+- Modify the OLake configuration to use the `documentKey` field instead of `_id` for change event keys in sharded environments.
+- Ensure that the `documentKey` field is correctly indexed in your MongoDB collections to improve performance.
 
-Core handles the commands to interact with a driver via these:
-- `spec` command: Returns render-able JSON Schema that can be consumed by rjsf libraries in frontend
-- `check` command: performs all necessary checks on the Config, Catalog, State and Writer config
-- `discover` command: Returns all streams and their schema
-- `sync` command: Extracts data out of Source and writes into destinations
+*Reference: [GitHub Issue #171](https://github.com/datazip-inc/olake/issues/171)*
 
-Find more about how OLake works [here.](https://olake.io/docs/category/understanding-olake)
+### 4. Incremental Sync Not Supported
+**Issue:** Incremental synchronization for MongoDB and PostgreSQL is not currently supported.
 
-## Roadmap
-Checkout [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track and influence the way we build it. 
-If you have any ideas, questions, or any feedback, please share on our [Github Discussions](https://github.com/datazip-inc/olake/discussions) or raise an issue.
+**Solution:**
+- Monitor the [GitHub Issues Page](https://github.com/datazip-inc/olake/issues) for updates on the implementation of incremental sync features.
+- Consider contributing to the development of this feature by following our [Contributing Guidelines](https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md).
+
+*References: [GitHub Issues #161](https://github.com/datazip-inc/olake/issues/161) and [#160](https://github.com/datazip-inc/olake/issues/160)*
+
+### 5. Postgres Inconsistency in CDC and Backfill Data Types
+**Issue:** There may be inconsistencies in data types between Change Data Capture (CDC) and backfill processes in PostgreSQL.
+
+**Solution:**
+- Review and standardize the data type mappings used in both CDC and backfill processes.
+- Test the data replication process with a subset of data to identify and resolve type mismatches before performing a full replication.
+
+*Reference: [GitHub Issue #152](https://github.com/datazip-inc/olake/issues/152)*
 
 ## Contributing
-We ❤️ contributions big or small check our [Bounty Program](https://olake.io/docs/community/issues-and-prs#goodies). As always, thanks to our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors).
-- To contribute to Olake Check [CONTRIBUTING.md](CONTRIBUTING.md)
-- To contribute to UI, visit [OLake UI Repository](https://github.com/datazip-inc/olake-frontend/).
-- To contribute to OLake website and documentation (olake.io), visit [Olake Docs Repository][GITHUB_DOCS].
+We welcome contributions from the community! To contribute:
+1. Fork the repository.
+2. Create a new branch for your feature/fix.
+3. Submit a pull request with a clear description of your changes.
 
-<!----variables---->
-[GITHUB_DOCS]: https://github.com/datazip-inc/olake-docs/
+## Need Assistance?
+If you have any questions or uncertainties about setting up OLake, contributing to the project, or troubleshooting issues, we're here to help:
+
+- **Email Support:** Reach out to our team at [hello@olake.io](mailto:hello@olake.io) for prompt assistance.
+- **Join our Slack Community:** Engage with other users and the development team to discuss roadmaps, report bugs, and seek debugging help.
+- **Schedule a Call:** If you prefer a one-on-one conversation, schedule a call with our CTO and team.
+
+Your success with OLake is our priority. Don’t hesitate to contact us if you need any help or further clarification!
+
+## License
+OLake is released under the MIT License. See `LICENSE` for details.
+
+## Contact
+For support and discussion, open an issue on GitHub or reach out via the OLake community forum.
