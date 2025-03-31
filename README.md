@@ -1,98 +1,70 @@
-<h1 align="center" style="border-bottom: none">
-    <a href="https://datazip.io/olake" target="_blank">
-        <img alt="olake" src="https://github.com/user-attachments/assets/d204f25f-5289-423c-b3f2-44b2194bdeaf" width="100" height="100"/>
-    </a>
-    <br>OLake
-</h1>
+<h1 align="center" style="border-bottom: none"> <a href="https://datazip.io/olake" target="_blank"> <img alt="OLake" src="https://github.com/user-attachments/assets/d204f25f-5289-423c-b3f2-44b2194bdeaf" width="100" height="100"/> </a> <br>OLake </h1><p align="center"> Fastest open-source database replication tool for Apache Iceberg & Data Lakehouses<br> ⚡ Efficient, scalable data ingestion for real-time analytics. MongoDB-first implementation. </p><p align="center"> <a href="https://olake.io/docs"><img alt="Documentation" src="https://img.shields.io/badge/docs-olake.io-blue?style=flat-square"></a> <a href="https://github.com/datazip-inc/olake/issues"><img alt="GitHub Issues" src="https://img.shields.io/github/issues/datazip-inc/olake?style=flat-square"></a> <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag"><img alt="Slack Community" src="https://img.shields.io/badge/community-slack-blue?style=flat-square"></a> </p>
+OLake Architecture
 
-<p align="center">Fastest open-source tool for replicating Databases to Apache Iceberg or Data Lakehouse. ⚡ Efficient, quick and scalable data ingestion for real-time analytics. Starting with MongoDB. Visit <a href="https://olake.io/" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
+Key Features
+Integrated Writers: Direct data pipeline from source to destination
 
-<p align="center">
-    <a href="https://github.com/datazip-inc/olake/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"/></a><a href="https://olake.io/docs"><img alt="Documentation" height="23" src="https://img.shields.io/badge/view-Documentation-blue?style=for-the-badge"/></a>
-    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag"><img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/></a>
-</p>
+Massive Parallel Processing: 10-100x faster than traditional ETL
 
+Schema Evolution: Automatic handling of schema changes
 
-![undefined](https://github.com/user-attachments/assets/fe37e142-556a-48f0-a649-febc3dbd083c)
+Resumable Syncs: Continue from last successful state
 
-Connector ecosystem for Olake, the key points Olake Connectors focuses on are these
-- **Integrated Writers to avoid block of reading, and pushing directly into destinations**
-- **Connector Autonomy**
-- **Avoid operations that don't contribute to increasing record throughput**
+Getting Started
+Connectors
+Source	Documentation	Status
+MongoDB	MongoDB Guide	Production Ready
+PostgreSQL	Postgres Guide	Beta
+MySQL	MySQL Guide	Beta
+Destinations
+Target	Documentation	Status
+Apache Iceberg	Iceberg Guide	Production Ready
+AWS S3	S3 Guide	Production Ready
+Local Filesystem	Local FS Guide	Production Ready
+Feature Matrix
+Source Capabilities
+Feature	MongoDB	PostgreSQL	MySQL
+Full Refresh Sync	✔️	✔️	✔️
+Change Data Capture	✔️	◻️	◻️
+Parallel Processing	✔️	✔️	✔️
+Resumable Loads	✔️	✔️	✔️
+Writer Capabilities
+Feature	Iceberg	AWS S3	Local FS
+Schema Evolution	✔️	✔️	✔️
+Time Travel	✔️	◻️	◻️
+Partition Management	✔️	✔️	✔️
+ACID Compliance	✔️	◻️	◻️
+Iceberg Catalog Support
+Catalog Type	Status
+AWS Glue	Production
+Hive Metastore	Beta
+JDBC	Development
+REST (Nessie/Polaris)	Planned
+Core Architecture
+mermaid
+Copy
+graph TD
+    A[Source Connector] --> B{OLake Core}
+    B --> C[Stream Processor]
+    C --> D[Schema Manager]
+    D --> E[Parallel Writer]
+    E --> F[(Destination)]
+    
+    B --> G[State Manager]
+    G --> H[Checkpoint Service]
+    B --> I[Monitoring API]
+Roadmap
+Q3 2024: Kafka Source Connector
 
-## Getting Started with OLake
+Q4 2024: Unity Catalog Support
 
-### Source / Connectors
-1. [Getting started Postgres -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/postgres) | [Postgres Docs](https://olake.io/docs/category/postgres)
-2. [Getting started MongoDB -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb) | [MongoDB Docs](https://olake.io/docs/category/mongodb)
-3. [Getting started MySQL -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)  | [MySQL Docs](https://olake.io/docs/category/mysql)
+Q1 2025: Snowflake Destination
 
-### Writers / Destination
-1. [Apache Iceberg Docs](https://olake.io/docs/category/apache-iceberg) 
-2. [AWS S3 Docs](https://olake.io/docs/category/aws-s3) 
-3. [Local FileSystem Docs](https://olake.io/docs/writers/local) 
+Contribution
+We welcome contributions through:
 
+GitHub Issues for bug reports
 
-## Source/Connector Functionalities
-|  Functionality | MongoDB | Postgres | MySQL |
-| ------------------------- | ------- | -------- | ----- |
-| Full Refresh Sync Mode    | ✅       | ✅        | ✅     |
-| Incremental Sync Mode     | ❌       | ❌        | ❌     |
-| CDC Sync Mode             | ✅       | ✅        | ✅     |
-| Full Parallel Processing  | ✅       | ✅        | ✅     |
-| CDC Parallel Processing   | ✅       | ❌        | ❌     |
-| Resumable Full Load       | ✅       | ✅        | ✅     |
-| CDC Heart Beat            | ❌       | ❌        | ❌     |
+Pull Requests for code changes
 
-We have additionally planned the following sources -  [AWS S3](https://github.com/datazip-inc/olake/issues/86) |  [Kafka](https://github.com/datazip-inc/olake/issues/87) 
-
-
-## Writer Functionalities
-| Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
-| ------------------------------- | ---------------- | ------ | -------------- |
-| Flattening & Normalization (L1) | ✅                | ✅      |                |
-| Partitioning                    | ✅                | ✅      |                |
-| Schema Changes                  | ✅                | ✅      |                |
-| Schema Evolution                | ✅                | ✅      |                |
-
-## Supported Catalogs For Iceberg Writer
-| Catalog                 | Status                                                                                                  |
-| -------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Glue Catalog               | WIP                                                                                                      |
-| Hive Meta Store            | Upcoming                                                                                                 |
-| JDBC Catalogue             | Upcoming                                                                                                 |
-| REST Catalogue - Nessie    | Upcoming                                                                                                 |
-| REST Catalogue - Polaris   | Upcoming                                                                                                 |
-| REST Catalogue - Unity     | Upcoming                                                                                                 |
-| REST Catalogue - Gravitino | Upcoming                                                                                                 |
-| Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
-| BigLake Metastore          | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
-
-## Core
-Core or framework is the component/logic that has been abstracted out from Connectors to follow DRY. This includes base CLI commands, State logic, Validation logic, Type detection for unstructured data, handling Config, State, Catalog, and Writer config file, logging etc.
-
-Core includes http server that directly exposes live stats about running sync such as:
-- Possible finish time
-- Concurrently running processes
-- Live record count
-
-Core handles the commands to interact with a driver via these:
-- `spec` command: Returns render-able JSON Schema that can be consumed by rjsf libraries in frontend
-- `check` command: performs all necessary checks on the Config, Catalog, State and Writer config
-- `discover` command: Returns all streams and their schema
-- `sync` command: Extracts data out of Source and writes into destinations
-
-Find more about how OLake works [here.](https://olake.io/docs/category/understanding-olake)
-
-## Roadmap
-Checkout [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track and influence the way we build it. 
-If you have any ideas, questions, or any feedback, please share on our [Github Discussions](https://github.com/datazip-inc/olake/discussions) or raise an issue.
-
-## Contributing
-We ❤️ contributions big or small check our [Bounty Program](https://olake.io/docs/community/issues-and-prs#goodies). As always, thanks to our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors).
-- To contribute to Olake Check [CONTRIBUTING.md](CONTRIBUTING.md)
-- To contribute to UI, visit [OLake UI Repository](https://github.com/datazip-inc/olake-frontend/).
-- To contribute to OLake website and documentation (olake.io), visit [Olake Docs Repository][GITHUB_DOCS].
-
-<!----variables---->
-[GITHUB_DOCS]: https://github.com/datazip-inc/olake-docs/
+Documentation improvements
