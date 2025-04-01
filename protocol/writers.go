@@ -159,6 +159,11 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	w.group.Go(func() error {
 		err := func() error {
 			w.threadCounter.Add(1)
+			// init writer first
+			if err := initNewWriter(); err != nil {
+				return err
+			}
+
 			defer func() {
 				// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
 				w.tmu.Lock()
@@ -171,10 +176,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				thread.Close() // close it after closing inserts
 				w.threadCounter.Add(-1)
 			}()
-			// init writer first
-			if err := initNewWriter(); err != nil {
-				return err
-			}
 
 			return func() error {
 				for {

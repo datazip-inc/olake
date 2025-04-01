@@ -28,11 +28,11 @@ type Record map[string]any
 
 // TODO: change Olake column names to _ prefixed.
 type RawRecord struct {
-	OlakeID        string         `parquet:"olake_id"`
 	Data           map[string]any `parquet:"data,json"`
-	OlakeTimestamp int64          `parquet:"olake_insert_time"`
-	OperationType  string         `parquet:"_"`
-	CdcTimestamp   int64          `parquet:"_"`
+	OlakeID        string         `parquet:"_olake_id"`
+	OlakeTimestamp int64          `parquet:"_olake_insert_time"`
+	OperationType  string         `parquet:"_op_type"`
+	CdcTimestamp   int64          `parquet:"_cdc_timestamp"`
 }
 
 func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp int64) RawRecord {
