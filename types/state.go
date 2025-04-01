@@ -196,7 +196,7 @@ func (s *State) LogState() {
 		State: s,
 	}
 	// TODO: Only Log in logs file, not in CLI
-	logger.Info(message)
+	// logger.Info(message)
 
 	// log to file
 	err := logger.FileLogger(message.State, "state", ".json")
