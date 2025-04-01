@@ -32,16 +32,17 @@ func TestMySQLSetup(t *testing.T) {
 	})
 }
 
-// TestMySQLDiscover
+// TestMySQLDiscover Update TestMySQLDiscover to use same table name
 func TestMySQLDiscover(t *testing.T) {
 	client, config, _ := testMySQLClient(t)
 	assert.NotNil(t, client)
 
 	ctx := context.Background()
-	tableName := "test_table111"
+	tableName := "test_table_olake" // Same table name as TestMySQLRead
 
 	createTestTable(ctx, t, client, tableName)
 	defer dropTestTable(ctx, t, client, tableName)
+	cleanTestTable(ctx, t, client, tableName) // Clean before adding data
 	addTestTableData(ctx, t, client, tableName, 5, 6, "col1", "col2")
 
 	t.Run("discover with tables", func(t *testing.T) {
@@ -63,18 +64,25 @@ func TestMySQLDiscover(t *testing.T) {
 }
 
 // TestMySQLRead
+// TestMySQLRead
 func TestMySQLRead(t *testing.T) {
-	client, config, d := testMySQLClient(t)
+	client, config, _ := testMySQLClient(t)
 	if client == nil {
 		return
 	}
-	ctx := context.Background()
-	tableName := "test_d_tab"
 
+	ctx := context.Background()
+	tableName := "test_table_olake" // Consistent table name
+
+	// Create and clean table once
 	createTestTable(ctx, t, client, tableName)
 	defer dropTestTable(ctx, t, client, tableName)
+
+	// Clean table before adding data
+	cleanTestTable(ctx, t, client, tableName)
 	addTestTableData(ctx, t, client, tableName, 5, 1, "col1", "col2")
 
+	// Verify initial data
 	rows, err := client.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", tableName))
 	require.NoError(t, err, "Failed to query test table")
 	defer rows.Close()
@@ -127,7 +135,7 @@ func TestMySQLRead(t *testing.T) {
 			Stream: testStream,
 		}
 		dummyStream.Stream.SyncMode = types.FULLREFRESH
-		d.State.SetGlobalState(&types.State{})
+		mClient.State.SetGlobalState(&types.State{})
 
 		err = mClient.Read(pool, dummyStream)
 		assert.NoError(t, err, "Read operation failed")
@@ -140,29 +148,41 @@ func TestMySQLRead(t *testing.T) {
 			config: &config,
 		}
 
-		var logBin string
-		err := client.QueryRowContext(ctx, "SHOW VARIABLES LIKE 'log_bin'").Scan(&logBin, &logBin)
-		require.NoError(t, err, "Failed to query log_bin")
-		if logBin != "ON" {
-			t.Skip("Skipping CDC test because binary logging is not enabled")
-		} else {
-			t.Log("Binary logging is enabled")
+		mClient.CDCSupport = true
+		mClient.cdcConfig = CDC{
+			InitialWaitTime: 5,
 		}
-
 		mClient.SetupState(types.NewState(types.GlobalType))
+		mClient.State.SetGlobalState(&types.State{})
 
 		streams, err := mClient.Discover(true)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, streams)
 
+		var testStream *types.Stream
+		for _, stream := range streams {
+			if stream.Name == tableName {
+				testStream = stream
+				break
+			}
+		}
+		assert.NotNil(t, testStream, "Could not find stream for table %s", tableName)
+
 		dummyStream := &types.ConfiguredStream{
-			Stream: streams[0],
+			Stream: testStream,
 		}
 		dummyStream.Stream.SyncMode = types.CDC
-		d.State.SetGlobalState(&types.State{})
+
 		err = mClient.Read(pool, dummyStream)
 		assert.NoError(t, err)
 	})
+}
+
+// Add this new helper function to clean the table
+func cleanTestTable(ctx context.Context, t *testing.T, conn *sql.DB, tableName string) {
+	query := fmt.Sprintf("DELETE FROM %s", tableName)
+	_, err := conn.ExecContext(ctx, query)
+	require.NoError(t, err, "Failed to clean test table")
 }
 
 // Helper function to create a test table with primary key
@@ -184,8 +204,6 @@ func dropTestTable(ctx context.Context, t *testing.T, conn *sql.DB, tableName st
 	_, err := conn.ExecContext(ctx, query)
 	require.NoError(t, err, "Failed to drop test table")
 }
-
-// Modified addTestTableData with primary key
 func addTestTableData(
 	_ context.Context,
 	t *testing.T,

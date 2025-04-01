@@ -1,33 +1,29 @@
-
+version: '3.8'
 
 services:
-  db:
-    image: 'mysql:8.4'
-    command: [
-      "--log-bin=mysql-bin",           # Enables binary logging
-      "--binlog-format=ROW",           # Sets binlog format to ROW
-      "--binlog-row-metadata=FULL",    # Ensures full row metadata       
-    ]
+  mysql:
+    image: mysql:8.0
+    container_name: olake_mysql-test
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: mysql
+      MYSQL_USER: mysql
+      MYSQL_PASSWORD: secret1234
     ports:
       - "3306:3306"
-    healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "--silent" ]
-      interval: 5s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-    environment:
-      MYSQL_DATABASE: olake
-      MYSQL_ROOT_PASSWORD: olake
-      MYSQL_USER: olake_user           # Added MySQL username
-      MYSQL_PASSWORD: olake_password
-      MYSQL_ROOT_HOST: '%'
-    networks:
-      - olake-test
-    cap_add:
-      - SYS_NICE # Prevents 'mbind: Operation not permitted' errors
+    volumes:
+      - ./init-scripts:/docker-entrypoint-initdb.d  
+      - mysql_data:/var/lib/mysql
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --binlog-row-image=FULL
+      --binlog_row_metadata=FULL
+      --max_allowed_packet=256M
+      --innodb_buffer_pool_size=512M
+      --default-authentication-plugin=mysql_native_password
 
-networks:
-  olake-test:
-    name: olake-test
-    external: true
+volumes:
+  mysql_data:
