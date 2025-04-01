@@ -12,3 +12,10 @@ trivy:
 
 gofmt:
 	gofmt -l -s -w .
+
+pre-commit:
+	PYTHON=$$(command -v python3 || command -v python); \
+	if [ -z "$$PYTHON" ]; then echo "Error: Python not found"; exit 1; fi; \
+	$$PYTHON -m venv .venv; \
+	. .venv/bin/activate && pip install pre-commit; \
+	.venv/bin/pre-commit install
