@@ -1,21 +1,17 @@
 # MongoDB Driver
-
 The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
 
 ---
 
 ## Supported Modes
-
 1. **Full Refresh**  
    Fetches the complete dataset from MongoDB.
-
 2. **CDC (Change Data Capture)**  
    Tracks and syncs incremental changes from MongoDB in real time.
 
 ---
 
 ## Setup and Configuration
-
 To run the MongoDB Driver, configure the following files with your specific credentials and settings:
 
 - **`config.json`**: MongoDB connection details.  
@@ -25,7 +21,7 @@ To run the MongoDB Driver, configure the following files with your specific cred
 Place these files in your project directory before running the commands.
 
 ### Config File 
-Add MongoDB credentials in following format in config.json file 
+Add MongoDB credentials in following format in `config.json` file. To check more about config [visit docs](https://olake.io/docs/connectors/mongodb/config)
    ```json
    {
       "hosts": [
@@ -42,16 +38,14 @@ Add MongoDB credentials in following format in config.json file
       "server-ram": 16,
       "database": "database",
       "max_threads": 50,
-      "default_mode" :"cdc",
+      "default_mode" : "cdc",
       "backoff_retry_count": 2,
       "partition_strategy":""
    }
 ```
 
 ## Commands
-
 ### Discover Command
-
 The *Discover* command generates json content for `catalog.json` file, which defines the schema of the collections to be synced.
 
 #### Usage
@@ -158,8 +152,48 @@ Example (For S3):
       }
    }
    ```
-### Sync Command
 
+Example (For AWS S3 + Glue Configuration)
+  ```
+  {
+      "type": "ICEBERG",
+      "writer": {
+        "normalization": false,
+        "s3_path": "s3://{bucket_name}/{path_prefix}/",
+        "aws_region": "ap-south-1",
+        "aws_access_key": "XXX",
+        "aws_secret_key": "XXX",
+        "database": "olake_iceberg",
+        "grpc_port": 50051,
+        "server_host": "localhost"
+      }
+  }
+  ```
+
+Example (Local Test Configuration (JDBC + Minio))
+  ```
+  {
+    "type": "ICEBERG",
+    "writer": {
+      "catalog_type": "jdbc",
+      "jdbc_url": "jdbc:postgresql://localhost:5432/iceberg",
+      "jdbc_username": "iceberg",
+      "jdbc_password": "password",
+      "normalization": false,
+      "iceberg_s3_path": "s3a://warehouse",
+      "s3_endpoint": "http://localhost:9000",
+      "s3_use_ssl": false,
+      "s3_path_style": true,
+      "aws_access_key": "admin",
+      "aws_secret_key": "password",
+      "iceberg_db": "olake_iceberg"
+    }
+  }
+  ```
+
+For Detailed overview check [here.](https://olake.io/docs/category/destinations-writers)
+
+### Sync Command
 The *Sync* command fetches data from MongoDB and ingests it into the destination.
 
 ```bash
@@ -199,3 +233,40 @@ You can save the state in a `state.json` file using the following format:
     ]
 }
 ```
+
+### Speed Comparison: Full Load Performance
+For a collection of 230 million rows (664.81GB) from [Twitter data](https://archive.org/details/archiveteam-twitter-stream-2017-11), here's how Olake compares to other tools:
+
+| Tool                    | Full Load Time             | Performance    |
+| ----------------------- | -------------------------- | -------------- |
+| **Olake**               | 46 mins                    | X times faster |
+| **Fivetran**            | 4 hours 39 mins (279 mins) | 6x slower      |
+| **Airbyte**             | 16 hours (960 mins)        | 20x slower     |
+| **Debezium (Embedded)** | 11.65 hours (699 mins)     | 15x slower     |
+
+
+### Incremental Sync Performance
+
+| Tool                    | Incremental Sync Time | Records per Second (r/s) | Performance    |
+| ----------------------- | --------------------- | ------------------------ | -------------- |
+| **Olake**               | 28.3 sec              | 35,694 r/s               | X times faster |
+| **Fivetran**            | 3 min 10 sec          | 5,260 r/s                | 6.7x slower    |
+| **Airbyte**             | 12 min 44 sec         | 1,308 r/s                | 27.3x slower   |
+| **Debezium (Embedded)** | 12 min 44 sec         | 1,308 r/s                | 27.3x slower   |
+
+Cost Comparison: (Considering 230 million first full load & 50 million rows incremental rows per month) as dated 30th September 2025
+
+### Testing Infrastructure
+
+Virtual Machine: `Standard_D64as_v5`
+
+- CPU: `64` vCPUs
+- Memory: `256` GiB RAM
+- Storage: `250` GB of shared storage
+
+### MongoDB Setup:
+  - 3 Nodes running in a replica set configuration:
+  - 1 Primary Node (Master) that handles all write operations.
+  - 2 Secondary Nodes (Replicas) that replicate data from the primary node.
+
+Find more at [MongoDB Docs](https://olake.io/docs/category/mongodb)

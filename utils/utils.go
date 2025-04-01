@@ -60,6 +60,14 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 	return -1, false
 }
 
+// returns cond ? a ; b
+func Ternary(cond bool, a, b any) any {
+	if cond {
+		return a
+	}
+	return b
+}
+
 // Unmarshal serializes and deserializes any from into the object
 // return error if occurred
 func Unmarshal(from, object any) error {
@@ -199,7 +207,6 @@ func ULID() string {
 func genULID(t time.Time) string {
 	ulidMutex.Lock()
 	defer ulidMutex.Unlock()
-	// TODO: Handle Error (Need to remove state and catalog print from logger)
 	newUlid, err := ulid.New(ulid.Timestamp(t), entropy)
 	if err != nil {
 		logger.Fatalf("failed to generate ulid: %s", err)
@@ -209,7 +216,7 @@ func genULID(t time.Time) string {
 
 // Returns a timestamped
 func TimestampedFileName(extension string) string {
-	now := time.Now()
+	now := time.Now().UTC()
 	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
@@ -239,4 +246,55 @@ func GetHash(m map[string]interface{}) string {
 	}
 
 	return GetKeysHash(m, keys...)
+}
+
+func AddConstantToInterface(val interface{}, increment int) (interface{}, error) {
+	switch v := val.(type) {
+	case int:
+		return v + increment, nil
+	case int64:
+		return v + int64(increment), nil
+	case float32:
+		return v + float32(increment), nil
+	case float64:
+		return v + float64(increment), nil
+	default:
+		return nil, fmt.Errorf("failed to add contant values to interface, unsupported type %T", val)
+	}
+}
+
+// return 0 for equal, -1 if a < b else 1 if a>b
+func CompareInterfaceValue(a, b interface{}) int {
+	switch a.(type) {
+	case int, int64, float32, float64:
+		af := 0.0
+		if a != nil {
+			af = reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
+		}
+		bf := 0.0
+		if b != nil {
+			bf = reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
+		}
+		if af < bf {
+			return -1
+		} else if af > bf {
+			return 1
+		}
+	case string:
+		if a != nil && b != nil {
+			return strings.Compare(a.(string), b.(string))
+		}
+		return Ternary(a == nil, -1, 1).(int)
+	}
+	return 0
+}
+func ConvertToString(value interface{}) string {
+	switch v := value.(type) {
+	case []byte:
+		return string(v) // Convert byte slice to string
+	case string:
+		return v // Already a string
+	default:
+		return fmt.Sprintf("%v", v) // Fallback
+	}
 }

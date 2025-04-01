@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 )
 
@@ -26,10 +27,10 @@ const (
 // TODO: Add validation tags; Write custom unmarshal that triggers validation
 // State is a dto for airbyte state serialization
 type State struct {
-	*sync.Mutex `json:"-"`
-	Type        StateType      `json:"type"`
-	Global      any            `json:"global,omitempty"`
-	Streams     []*StreamState `json:"streams,omitempty"`
+	*sync.RWMutex `json:"-"`
+	Type          StateType      `json:"type"`
+	Global        any            `json:"global,omitempty"`
+	Streams       []*StreamState `json:"streams,omitempty"` // TODO: make it set
 }
 
 var (
@@ -41,25 +42,118 @@ func (s *State) SetType(typ StateType) {
 	s.Type = typ
 }
 
-// func (s *State) Add(stream, namespace string, field string, value any) {
-// 	s.Streams = append(s.Streams, &StreamState{
-// 		Stream:    stream,
-// 		Namespace: namespace,
-// 		State: map[string]any{
-// 			field: value,
-// 		},
-// 	})
-// }
+func (s *State) InitialState(stream *ConfiguredStream) *StreamState {
+	return &StreamState{
+		Stream:     stream.Name(),
+		Namespace:  stream.Namespace(),
+		State:      sync.Map{},
+		HoldsValue: atomic.Bool{},
+	}
+}
 
-// func (s *State) Get(streamName, namespace string) map[string]any {
-// 	for _, stream := range s.Streams {
-// 		if stream.Stream == streamName && stream.Namespace == namespace {
-// 			return stream.State
-// 		}
-// 	}
+func (s *State) ResetStreams() {
+	s.Lock()
+	defer s.Unlock()
+	s.Streams = nil
+	s.LogState()
+}
 
-// 	return nil
-// }
+func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Store(key, value)
+		s.Streams[index].HoldsValue.Store(true)
+	} else {
+		newStream := s.InitialState(stream)
+		newStream.State.Store(key, value)
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+	s.LogState()
+}
+
+func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
+	s.RLock()
+	defer s.RUnlock()
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		val, _ := s.Streams[index].State.Load(key)
+		return val
+	}
+	return nil
+}
+
+// GetStateChunks retrieves all chunks from the state.
+func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
+	s.RLock()
+	defer s.RUnlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		chunks, _ := s.Streams[index].State.Load(ChunksKey)
+		if chunks != nil {
+			chunksSet, converted := chunks.(*Set[Chunk])
+			if converted {
+				return chunksSet
+			}
+		}
+	}
+	return nil
+}
+
+// set chunks
+func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Store(ChunksKey, chunks)
+		s.Streams[index].HoldsValue.Store(true)
+	} else {
+		newStream := s.InitialState(stream)
+		newStream.State.Store(ChunksKey, chunks)
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+	s.LogState()
+}
+
+// remove chunk
+func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		stateChunks, loaded := s.Streams[index].State.LoadAndDelete(ChunksKey)
+		if loaded {
+			stateChunks.(*Set[Chunk]).Remove(chunk)
+			s.Streams[index].State.Store(ChunksKey, stateChunks)
+		}
+	}
+	s.LogState()
+}
+
+func (s *State) SetGlobalState(globalState any) {
+	s.Lock()
+	defer s.Unlock()
+	s.Global = globalState
+	s.LogState()
+}
 
 func (s *State) isZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
@@ -84,19 +178,25 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
+func (s *State) LogWithLock() {
+	s.Lock()
+	defer s.Unlock()
+	s.LogState()
+}
+
 func (s *State) LogState() {
+	// function need to be called after state lock
 	if s.isZero() {
 		logger.Info("state is empty")
 		return
 	}
-	s.Lock()
-	defer s.Unlock()
 
 	message := Message{
 		Type:  StateMessage,
 		State: s,
 	}
-	logger.Info(message)
+	// TODO: Only Log in logs file, not in CLI
+	// logger.Info(message)
 
 	// log to file
 	err := logger.FileLogger(message.State, "state", ".json")
@@ -112,8 +212,7 @@ type Chunk struct {
 }
 
 type StreamState struct {
-	*sync.Mutex `json:"-"`
-	HoldsValue  atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
+	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
 	Stream    string   `json:"stream"`
 	Namespace string   `json:"namespace"`

@@ -73,6 +73,11 @@ func (m *Mongo) Check() error {
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
 }
 
+func (m *Mongo) SetupState(state *types.State) {
+	state.Type = m.StateType()
+	m.State = state
+}
+
 func (m *Mongo) Close() error {
 	return m.client.Disconnect(context.Background())
 }

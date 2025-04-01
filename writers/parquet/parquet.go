@@ -78,7 +78,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	directoryPath := filepath.Join(p.config.Path, basePath)
 
 	if err := os.MkdirAll(directoryPath, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directories[%s]: %w", directoryPath, err)
+		return fmt.Errorf("failed to create directories[%s]: %s", directoryPath, err)
 	}
 
 	fileName := utils.TimestampedFileName(constants.ParquetFileExt)
@@ -86,7 +86,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	pqFile, err := local.NewLocalFileWriter(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create parquet file writer: %w", err)
+		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
 
 	writer := func() any {
@@ -333,14 +333,15 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any) string {
 					if converted {
 						switch granularity {
 						case "HH":
-							value = timestamp.UTC().Hour()
+							value = fmt.Sprintf("%02d", timestamp.UTC().Hour())
 						case "DD":
-							value = timestamp.UTC().Day()
+							value = fmt.Sprintf("%02d", timestamp.UTC().Day())
 						case "WW":
-							_, value = timestamp.UTC().ISOWeek()
+							_, week := timestamp.UTC().ISOWeek()
+							value = fmt.Sprintf("%02d", week)
 						case "MM":
-							value = int(timestamp.UTC().Month())
-						case "YY":
+							value = fmt.Sprintf("%02d", int(timestamp.UTC().Month()))
+						case "YYYY":
 							value = timestamp.UTC().Year()
 						}
 					}

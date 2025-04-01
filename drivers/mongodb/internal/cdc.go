@@ -10,14 +10,16 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
 type CDCDocument struct {
-	OperationType string         `json:"operationType"`
-	FullDocument  map[string]any `json:"fullDocument"`
+	OperationType string              `json:"operationType"`
+	FullDocument  map[string]any      `json:"fullDocument"`
+	ClusterTime   primitive.Timestamp `json:"clusterTime"`
 }
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
@@ -48,8 +50,8 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}}},
 	}
 
-	prevResumeToken := stream.GetStateKey(cdcCursorField)
-	chunks := stream.GetStateChunks()
+	prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
+	chunks := m.State.GetChunks(stream.Self())
 
 	if prevResumeToken == nil || chunks == nil || chunks.Len() != 0 {
 		// get current resume token and do full load for stream
@@ -62,7 +64,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		}
 
 		// save resume token
-		stream.SetStateKey(cdcCursorField, prevResumeToken)
+		m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 
 		if err := m.backfill(stream, pool); err != nil {
 			return err
@@ -80,29 +82,31 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 	defer cursor.Close(cdcCtx)
 
-	insert, err := pool.NewThread(cdcCtx, stream)
+	insert, err := pool.NewThread(cdcCtx, stream, protocol.WithBackfill(false))
 	if err != nil {
 		return err
 	}
 	defer insert.Close()
+
 	// Iterates over the cursor to print the change stream events
 	for cursor.TryNext(cdcCtx) {
 		var record CDCDocument
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		// TODO: Handle Deleted documents (Good First Issue)
-		if record.FullDocument != nil {
-			record.FullDocument["cdc_type"] = record.OperationType
-		}
 		handleObjectID(record.FullDocument)
-		rawRecord := types.CreateRawRecord(utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID), record.FullDocument, 0)
-		exit, err := insert.Insert(rawRecord)
+
+		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
+
+		rawRecord := types.CreateRawRecord(
+			utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
+			record.FullDocument,
+			opType,
+			int64(record.ClusterTime.T)*1000,
+		)
+		err := insert.Insert(rawRecord)
 		if err != nil {
 			return err
-		}
-		if exit {
-			return nil
 		}
 
 		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
@@ -112,7 +116,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 
 	// save state for the current stream
-	stream.SetStateKey(cdcCursorField, prevResumeToken)
+	m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 	return nil
 }
 
