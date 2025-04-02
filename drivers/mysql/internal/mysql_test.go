@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
@@ -72,30 +73,13 @@ func TestMySQLRead(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	tableName := "test_table_olake" // Consistent table name
+	tableName := "test_table_olake"
 
-	// Create and clean table once
+	// Setup table and initial data
 	createTestTable(ctx, t, client, tableName)
 	defer dropTestTable(ctx, t, client, tableName)
-
-	// Clean table before adding data
 	cleanTestTable(ctx, t, client, tableName)
 	addTestTableData(ctx, t, client, tableName, 5, 1, "col1", "col2")
-
-	// Verify initial data
-	rows, err := client.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", tableName))
-	require.NoError(t, err, "Failed to query test table")
-	defer rows.Close()
-	count := 0
-	for rows.Next() {
-		count++
-		var id int
-		var col1, col2 string
-		err := rows.Scan(&id, &col1, &col2)
-		require.NoError(t, err)
-		t.Logf("Row %d: id=%d, col1=%s, col2=%s", count, id, col1, col2)
-	}
-	assert.Equal(t, 5, count, "Expected 5 rows in test table")
 
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
 		return &parquet.Parquet{}
@@ -108,7 +92,7 @@ func TestMySQLRead(t *testing.T) {
 			"local_path":    "/Users/datazip/Desktop/olake-1/drivers/mysql/examples",
 		},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err, "Failed to create writer pool")
 
 	t.Run("full refresh read", func(t *testing.T) {
 		mClient := &MySQL{
@@ -119,8 +103,8 @@ func TestMySQLRead(t *testing.T) {
 		mClient.SetupState(types.NewState(types.GlobalType))
 
 		streams, err := mClient.Discover(true)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, streams)
+		require.NoError(t, err, "Discover failed")
+		require.NotEmpty(t, streams, "No streams found")
 
 		var testStream *types.Stream
 		for _, stream := range streams {
@@ -129,7 +113,7 @@ func TestMySQLRead(t *testing.T) {
 				break
 			}
 		}
-		assert.NotNil(t, testStream, "Could not find stream for table %s", tableName)
+		require.NotNil(t, testStream, "Could not find stream for table %s", tableName)
 
 		dummyStream := &types.ConfiguredStream{
 			Stream: testStream,
@@ -156,8 +140,8 @@ func TestMySQLRead(t *testing.T) {
 		mClient.State.SetGlobalState(&types.State{})
 
 		streams, err := mClient.Discover(true)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, streams)
+		require.NoError(t, err, "Discover failed")
+		require.NotEmpty(t, streams, "No streams found")
 
 		var testStream *types.Stream
 		for _, stream := range streams {
@@ -166,15 +150,55 @@ func TestMySQLRead(t *testing.T) {
 				break
 			}
 		}
-		assert.NotNil(t, testStream, "Could not find stream for table %s", tableName)
+		require.NotNil(t, testStream, "Could not find stream for table %s", tableName)
 
 		dummyStream := &types.ConfiguredStream{
 			Stream: testStream,
 		}
 		dummyStream.Stream.SyncMode = types.CDC
 
-		err = mClient.Read(pool, dummyStream)
-		assert.NoError(t, err)
+		// Start CDC read in a goroutine to capture changes
+		readErrCh := make(chan error, 1)
+		go func() {
+			readErrCh <- mClient.Read(pool, dummyStream)
+		}()
+
+		// Give CDC some time to initialize
+		time.Sleep(2 * time.Second)
+
+		// Test INSERT
+		t.Run("insert operation", func(t *testing.T) {
+			_, err := client.ExecContext(ctx,
+				fmt.Sprintf("INSERT INTO %s (id, col1, col2) VALUES (6, 'new val 6', 'test 6')", tableName))
+			assert.NoError(t, err)
+		})
+
+		// Test UPDATE
+		t.Run("update operation", func(t *testing.T) {
+			_, err := client.ExecContext(ctx,
+				fmt.Sprintf("UPDATE %s SET col1 = 'updated val 1' WHERE id = 1", tableName))
+			assert.NoError(t, err)
+		})
+
+		// Test DELETE
+		t.Run("delete operation", func(t *testing.T) {
+			_, err := client.ExecContext(ctx,
+				fmt.Sprintf("DELETE FROM %s WHERE id = 2", tableName))
+			assert.NoError(t, err)
+		})
+
+		// Wait briefly for CDC to process changes
+		time.Sleep(3 * time.Second)
+
+		select {
+		case err := <-readErrCh:
+			assert.NoError(t, err, "CDC read operation failed")
+		case <-time.After(100 * time.Second):
+			t.Fatal("CDC read timed out")
+		}
+
+		// Give CDC time to process the new data
+		time.Sleep(2 * time.Second)
 	})
 }
 

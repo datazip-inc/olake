@@ -1,24 +1,44 @@
-version: '3.8'
+
 
 services:
   postgres-primary:
-    image: 'postgres:latest'
+    image: 'debezium/postgres:latest'  # Prebuilt image with wal2json
     container_name: postgres-primary
     environment:
       POSTGRES_USER: olake
       POSTGRES_PASSWORD: olake
       POSTGRES_DB: testdb
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+    command: 
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "shared_preload_libraries=wal2json"
+      - "-c"
+      - "listen_addresses=*"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
     ports:
       - "5432:5432"
     networks:
       - olake-test
+    volumes:
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U olake -d testdb"]
       interval: 5s
       timeout: 5s
       retries: 3
       start_period: 5s
+
+volumes:
+  postgres_data:
 
 networks:
   olake-test:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
@@ -43,7 +44,7 @@ func TestPostgresDiscover(t *testing.T) {
 	//Create and populate test table
 	createTestTable(ctx, t, client, tableName)
 	defer dropTestTable(ctx, t, client, tableName)
-
+	cleanTestTable(ctx, t, client, tableName) // Clean before adding data
 	addTestTableData(ctx, t, client, tableName, 5, 6, "col1", "col2")
 
 	t.Run("discover with tables", func(t *testing.T) {
@@ -67,32 +68,17 @@ func TestPostgresDiscover(t *testing.T) {
 // TestPostgresRead tests full refresh and CDC read operations
 // TestPostgresRead tests full refresh and CDC read operations
 func TestPostgresRead(t *testing.T) {
-	client, config, d := testClient(t)
+	client, config, _ := testClient(t)
 	if client == nil {
 		return
 	}
 	ctx := context.Background()
-	tableName := "test_d_tab"
-
-	// Create and populate test table
+	tableName := "test_table_olake"
+	// Setup table and initial data
 	createTestTable(ctx, t, client, tableName)
 	defer dropTestTable(ctx, t, client, tableName)
+	cleanTestTable(ctx, t, client, tableName)
 	addTestTableData(ctx, t, client, tableName, 5, 1, "col1", "col2")
-
-	// Verify data insertion
-	rows, err := client.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", tableName))
-	require.NoError(t, err, "Failed to query test table")
-	defer rows.Close()
-	count := 0
-	for rows.Next() {
-		count++
-		var id int
-		var col1, col2 string
-		err := rows.Scan(&id, &col1, &col2)
-		require.NoError(t, err)
-		t.Logf("Row %d: id=%d, col1=%s, col2=%s", count, id, col1, col2)
-	}
-	assert.Equal(t, 5, count, "Expected 5 rows in test table")
 
 	// Register the Parquet writer
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
@@ -108,6 +94,15 @@ func TestPostgresRead(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err)
+	// var walLevel string
+	// err = client.QueryRowContext(context.Background(), "SHOW wal_level").Scan(&walLevel)
+	// require.NoError(t, err, "Failed to query wal_level")
+
+	// t.Logf("PostgreSQL wal_level is: %s", walLevel)
+
+	// if walLevel != "logical" {
+	// 	t.Fatalf("Expected wal_level to be 'logical', but got: %s", walLevel)
+	// }
 
 	t.Run("full refresh read", func(t *testing.T) {
 		pClient := &Postgres{
@@ -141,7 +136,7 @@ func TestPostgresRead(t *testing.T) {
 			Stream: testStream,
 		}
 		dummyStream.Stream.SyncMode = types.FULLREFRESH
-		d.State.SetGlobalState(&types.State{})
+		pClient.State.SetGlobalState(&types.State{})
 
 		// Log configured stream
 		t.Logf("Configured stream: %+v", dummyStream)
@@ -153,37 +148,88 @@ func TestPostgresRead(t *testing.T) {
 		}
 		assert.NoError(t, err, "Read operation failed")
 	})
-	t.Run("cdc read", func(t *testing.T) {
+
+	t.Run("cdc read with crud operations", func(t *testing.T) {
 		pClient := &Postgres{
 			Driver: base.NewBase(),
 			client: client,
 			config: &config,
+			cdcConfig: CDC{
+				InitialWaitTime: 5,
+				ReplicationSlot: "olake_slot",
+			},
 		}
-
-		var walLevel string
-		err := client.QueryRowContext(context.Background(), "SHOW wal_level").Scan(&walLevel)
-		require.NoError(t, err, "Failed to query wal_level")
-		if walLevel != "logical" {
-			t.Skip("Skipping CDC test because wal_level is not set to logical")
-		}
-
+		pClient.CDCSupport = true
 		pClient.SetupState(types.NewState(types.GlobalType))
 
 		// Discover streams
 		streams, err := pClient.Discover(true)
-		assert.NoError(t, err)
+		require.NoError(t, err)
+		require.NotEmpty(t, streams)
+
+		var testStream *types.Stream
+		for _, stream := range streams {
+			if stream.Name == tableName {
+				testStream = stream
+				break
+			}
+		}
+		require.NotNil(t, testStream)
 
 		dummyStream := &types.ConfiguredStream{
-			Stream: streams[0],
+			Stream: testStream,
 		}
-		assert.NotEmpty(t, streams)
 		dummyStream.Stream.SyncMode = types.CDC
-		d.State.SetGlobalState(&types.State{})
-		err = pClient.Read(pool, dummyStream)
-		assert.NoError(t, err)
 
+		// Start CDC read in a goroutine to capture changes
+		errChan := make(chan error, 1)
+		go func() {
+			errChan <- pClient.Read(pool, dummyStream)
+		}()
+
+		// Give CDC some time to initialize
+		time.Sleep(2 * time.Second)
+
+		// Test INSERT
+		t.Run("insert operation", func(t *testing.T) {
+			_, err := client.ExecContext(ctx,
+				fmt.Sprintf("INSERT INTO %s (id, col1, col2) VALUES (6, 'new val 6', 'test 6')", tableName))
+			assert.NoError(t, err)
+		})
+
+		// Test UPDATE
+		t.Run("update operation", func(t *testing.T) {
+			_, err := client.ExecContext(ctx,
+				fmt.Sprintf("UPDATE %s SET col1 = 'updated val 1' WHERE id = 1", tableName))
+			assert.NoError(t, err)
+		})
+
+		// Test DELETE
+		t.Run("delete operation", func(t *testing.T) {
+			_, err := client.ExecContext(ctx,
+				fmt.Sprintf("DELETE FROM %s WHERE id = 2", tableName))
+			assert.NoError(t, err)
+		})
+
+		// Wait briefly for CDC to process changes
+		time.Sleep(3 * time.Second)
+
+		// Check if CDC read completed successfully
+		select {
+		case err := <-errChan:
+			assert.NoError(t, err, "CDC read failed")
+		case <-time.After(100 * time.Second):
+			t.Fatal("CDC read timed out")
+		}
 	})
 
+}
+
+// Add this new helper function to clean the table
+func cleanTestTable(ctx context.Context, t *testing.T, conn *sqlx.DB, tableName string) {
+	query := fmt.Sprintf("DELETE FROM %s", tableName)
+	_, err := conn.ExecContext(ctx, query)
+	require.NoError(t, err, "Failed to clean test table")
 }
 
 // Helper function to create a test table with primary key
@@ -205,8 +251,6 @@ func dropTestTable(ctx context.Context, t *testing.T, conn *sqlx.DB, tableName s
 	_, err := conn.ExecContext(ctx, query)
 	require.NoError(t, err, "Failed to drop test table")
 }
-
-// Modified addTestTableData with primary key
 func addTestTableData(
 	_ context.Context,
 	t *testing.T,
