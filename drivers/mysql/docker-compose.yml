@@ -6,15 +6,13 @@ services:
     container_name: olake_mysql-test
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: mysql
       MYSQL_USER: mysql
       MYSQL_PASSWORD: secret1234
     ports:
       - "3306:3306"
     volumes:
-      - ./init-scripts:/docker-entrypoint-initdb.d  
-      - mysql_data:/var/lib/mysql
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     command: >
       --server-id=1
       --log-bin=mysql-bin
@@ -24,6 +22,3 @@ services:
       --max_allowed_packet=256M
       --innodb_buffer_pool_size=512M
       --default-authentication-plugin=mysql_native_password
-
-volumes:
-  mysql_data:

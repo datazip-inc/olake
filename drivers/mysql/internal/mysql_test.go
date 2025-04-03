@@ -3,12 +3,14 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/writers/parquet"
@@ -19,15 +21,11 @@ import (
 )
 
 func TestMySQLSetup(t *testing.T) {
-	client, config, _ := testMySQLClient(t)
+	client, _, _ := testMySQLClient(t)
 	assert.NotNil(t, client)
 
 	t.Run("successful connection check", func(t *testing.T) {
-		mClient := &MySQL{
-			Driver: base.NewBase(),
-			client: client,
-			config: &config,
-		}
+		_, _, mClient := testMySQLClient(t)
 		err := mClient.Check()
 		assert.NoError(t, err)
 	})
@@ -35,7 +33,7 @@ func TestMySQLSetup(t *testing.T) {
 
 // TestMySQLDiscover Update TestMySQLDiscover to use same table name
 func TestMySQLDiscover(t *testing.T) {
-	client, config, _ := testMySQLClient(t)
+	client, _, _ := testMySQLClient(t)
 	assert.NotNil(t, client)
 
 	ctx := context.Background()
@@ -47,27 +45,24 @@ func TestMySQLDiscover(t *testing.T) {
 	addTestTableData(ctx, t, client, tableName, 5, 6, "col1", "col2")
 
 	t.Run("discover with tables", func(t *testing.T) {
-		mClient := &MySQL{
-			Driver: base.NewBase(),
-			client: client,
-			config: &config,
-		}
+		_, _, mClient := testMySQLClient(t)
 		streams, err := mClient.Discover(true)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, streams)
 		for _, stream := range streams {
 			if stream.Name == tableName {
+				verifyStreamSchema(t, client, stream, tableName)
 				return
 			}
 		}
+
 		assert.NoError(t, fmt.Errorf("unable to find test table %s", tableName))
 	})
 }
 
 // TestMySQLRead
-// TestMySQLRead
 func TestMySQLRead(t *testing.T) {
-	client, config, _ := testMySQLClient(t)
+	client, _, _ := testMySQLClient(t)
 	if client == nil {
 		return
 	}
@@ -94,15 +89,9 @@ func TestMySQLRead(t *testing.T) {
 	})
 	require.NoError(t, err, "Failed to create writer pool")
 
-	t.Run("full refresh read", func(t *testing.T) {
-		mClient := &MySQL{
-			Driver: base.NewBase(),
-			client: client,
-			config: &config,
-		}
-		mClient.SetupState(types.NewState(types.GlobalType))
-
-		streams, err := mClient.Discover(true)
+	// Helper function to get test stream for the table
+	getTestStream := func(d *MySQL) *types.Stream {
+		streams, err := d.Discover(true)
 		require.NoError(t, err, "Discover failed")
 		require.NotEmpty(t, streams, "No streams found")
 
@@ -114,91 +103,79 @@ func TestMySQLRead(t *testing.T) {
 			}
 		}
 		require.NotNil(t, testStream, "Could not find stream for table %s", tableName)
+		return testStream
+	}
 
+	// Helper function to setup and run a test with the specified sync mode
+	runReadTest := func(t *testing.T, syncMode types.SyncMode, extraTests func(t *testing.T)) {
+		// Use a fresh instance of the MySQL driver
+		_, _, mClient := testMySQLClient(t)
+
+		// Reset state for this test
+		mClient.State.SetGlobalState(&types.State{})
+
+		testStream := getTestStream(mClient)
 		dummyStream := &types.ConfiguredStream{
 			Stream: testStream,
 		}
-		dummyStream.Stream.SyncMode = types.FULLREFRESH
-		mClient.State.SetGlobalState(&types.State{})
+		dummyStream.Stream.SyncMode = syncMode
 
-		err = mClient.Read(pool, dummyStream)
-		assert.NoError(t, err, "Read operation failed")
+		if syncMode == types.CDC {
+			// Start CDC read in a goroutine to capture changes
+			readErrCh := make(chan error, 1)
+			go func() {
+				readErrCh <- mClient.Read(pool, dummyStream)
+			}()
+
+			// Give CDC some time to initialize
+			time.Sleep(2 * time.Second)
+
+			// Run extra tests if provided
+			if extraTests != nil {
+				extraTests(t)
+			}
+
+			// Wait briefly for CDC to process changes
+			time.Sleep(3 * time.Second)
+
+			select {
+			case err := <-readErrCh:
+				assert.NoError(t, err, "CDC read operation failed")
+			case <-time.After(100 * time.Second):
+				t.Fatal("CDC read timed out")
+			}
+		} else {
+			// For non-CDC modes, just run the read operation directly
+			err = mClient.Read(pool, dummyStream)
+			assert.NoError(t, err, "Read operation failed")
+		}
+	}
+
+	t.Run("full refresh read", func(t *testing.T) {
+		runReadTest(t, types.FULLREFRESH, nil)
 	})
 
 	t.Run("cdc read", func(t *testing.T) {
-		mClient := &MySQL{
-			Driver: base.NewBase(),
-			client: client,
-			config: &config,
-		}
+		runReadTest(t, types.CDC, func(t *testing.T) {
+			// Test database operations
+			t.Run("insert operation", func(t *testing.T) {
+				_, err := client.ExecContext(ctx,
+					fmt.Sprintf("INSERT INTO %s (id, col1, col2) VALUES (6, 'new val 6', 'test 6')", tableName))
+				assert.NoError(t, err)
+			})
 
-		mClient.CDCSupport = true
-		mClient.cdcConfig = CDC{
-			InitialWaitTime: 5,
-		}
-		mClient.SetupState(types.NewState(types.GlobalType))
-		mClient.State.SetGlobalState(&types.State{})
+			t.Run("update operation", func(t *testing.T) {
+				_, err := client.ExecContext(ctx,
+					fmt.Sprintf("UPDATE %s SET col1 = 'updated val 1' WHERE id = 1", tableName))
+				assert.NoError(t, err)
+			})
 
-		streams, err := mClient.Discover(true)
-		require.NoError(t, err, "Discover failed")
-		require.NotEmpty(t, streams, "No streams found")
-
-		var testStream *types.Stream
-		for _, stream := range streams {
-			if stream.Name == tableName {
-				testStream = stream
-				break
-			}
-		}
-		require.NotNil(t, testStream, "Could not find stream for table %s", tableName)
-
-		dummyStream := &types.ConfiguredStream{
-			Stream: testStream,
-		}
-		dummyStream.Stream.SyncMode = types.CDC
-
-		// Start CDC read in a goroutine to capture changes
-		readErrCh := make(chan error, 1)
-		go func() {
-			readErrCh <- mClient.Read(pool, dummyStream)
-		}()
-
-		// Give CDC some time to initialize
-		time.Sleep(2 * time.Second)
-
-		// Test INSERT
-		t.Run("insert operation", func(t *testing.T) {
-			_, err := client.ExecContext(ctx,
-				fmt.Sprintf("INSERT INTO %s (id, col1, col2) VALUES (6, 'new val 6', 'test 6')", tableName))
-			assert.NoError(t, err)
+			t.Run("delete operation", func(t *testing.T) {
+				_, err := client.ExecContext(ctx,
+					fmt.Sprintf("DELETE FROM %s WHERE id = 2", tableName))
+				assert.NoError(t, err)
+			})
 		})
-
-		// Test UPDATE
-		t.Run("update operation", func(t *testing.T) {
-			_, err := client.ExecContext(ctx,
-				fmt.Sprintf("UPDATE %s SET col1 = 'updated val 1' WHERE id = 1", tableName))
-			assert.NoError(t, err)
-		})
-
-		// Test DELETE
-		t.Run("delete operation", func(t *testing.T) {
-			_, err := client.ExecContext(ctx,
-				fmt.Sprintf("DELETE FROM %s WHERE id = 2", tableName))
-			assert.NoError(t, err)
-		})
-
-		// Wait briefly for CDC to process changes
-		time.Sleep(3 * time.Second)
-
-		select {
-		case err := <-readErrCh:
-			assert.NoError(t, err, "CDC read operation failed")
-		case <-time.After(100 * time.Second):
-			t.Fatal("CDC read timed out")
-		}
-
-		// Give CDC time to process the new data
-		time.Sleep(2 * time.Second)
 	})
 }
 
@@ -256,4 +233,68 @@ func addTestTableData(
 		_, err := conn.Exec(query)
 		require.NoError(t, err)
 	}
+}
+func verifyStreamSchema(t *testing.T, conn *sql.DB, stream *types.Stream, tableName string) {
+	ctx := context.Background()
+	assert.Equal(t, stream.Name, tableName, "Stream name does not match table name")
+	query := jdbc.MySQLTableSchemaQuery()
+	rows, err := conn.QueryContext(ctx, query, tableName, stream.Namespace)
+	require.NoError(t, err, "Failed to query table schema")
+	defer rows.Close()
+	schemaJSON, err := json.Marshal(stream.Schema)
+	require.NoError(t, err, "Failed to marshal stream schema")
+
+	// Unmarshal back into a more convenient structure
+	var schemaMap struct {
+		Properties map[string]map[string]interface{}
+	}
+	err = json.Unmarshal(schemaJSON, &schemaMap)
+	require.NoError(t, err, "Failed to unmarshal stream schema")
+
+	// Now work with the unmarshaled map
+	schemaColumns := make(map[string]string)
+	for colName, colInfo := range schemaMap.Properties {
+		typeField := colInfo["type"]
+
+		var schemaType string
+		if typeList, ok := typeField.([]interface{}); ok && len(typeList) > 0 {
+			schemaType = typeList[0].(string) // Take first type, e.g., "string" from ["string", "null"]
+		} else if typeStr, ok := typeField.(string); ok {
+			schemaType = typeStr
+		} else {
+			assert.Fail(t, "Invalid type field for column %s", colName)
+		}
+
+		schemaColumns[colName] = schemaType
+	}
+	actualColumnCount := 0
+	for rows.Next() {
+		var colName, colType, dataType, isNullable, columnKey string
+		err := rows.Scan(&colName, &colType, &dataType, &isNullable, &columnKey)
+		require.NoError(t, err, "Failed to scan column info")
+
+		// Map MySQL data type to schema type
+		schemaType := types.Unknown
+		if val, found := mysqlTypeToDataTypes[dataType]; found {
+			schemaType = val
+		} else {
+			logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, tableName, colName)
+			schemaType = types.String
+		}
+
+		// Check column existence and type
+		streamType, exists := schemaColumns[colName]
+		assert.True(t, exists, "Column %s should exist in stream schema", colName)
+		assert.Equal(t, schemaType, streamType, "Data type for column %s should match", colName)
+
+		// Check primary key status
+		isPrimary := columnKey == "PRI"
+		if isPrimary {
+			assert.NotNil(t, stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should not be nil for table with primary key")
+			assert.True(t, stream.SourceDefinedPrimaryKey.Exists(colName), "Column %s should be in SourceDefinedPrimaryKey", colName)
+		}
+
+		actualColumnCount++
+	}
+
 }
