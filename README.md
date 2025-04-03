@@ -21,7 +21,7 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 - **Avoid operations that don't contribute to increasing record throughput**
 
 ## Performance Benchmarks*
-1. **MongoDB Connector:** 20× faster than Airbyte, 15× faster than Embedded Debezium, 6× faster than Fivetran -> ([See Detailed Benchmark](https://olake.io/docs/connectors/mongodb/benchmarks))  
+1. **MongoDB Connector:** Syncs 35,694 records/sec; 230 million rows in 46 minutes for a 664 GB dataset (20× Airbyte, 15× Embedded Debezium, 6× Fivetran) -> ([See Detailed Benchmark](https://olake.io/docs/connectors/mongodb/benchmarks))  
 2. **Postgres Connector:**  Syncs 1,000,000 records/sec for 50GB -> ([See Detailed Benchmark](https://olake.io/docs/connectors/postgres/benchmarks))  
 3. **MySQL Connector:** Syncs 1,000,000 records/sec for 10GB; ~209 mins for 100+GB ->  ([See Detailed Benchmark](https://olake.io/docs/connectors/mysql/benchmarks))  
 
