@@ -700,6 +700,12 @@
             <artifactId>jettison</artifactId>
             <version>1.5.4</version>
         </dependency>
+        <!-- Fix vulnerable transitive dependencies -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+            <version>1.15.1</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
