@@ -49,7 +49,7 @@ func (c *Config) URI() string {
 	//  Handle auth credentials
 	auth := ""
 	if c.Username != "" {
-		auth = utils.Ternary(c.Password != "", fmt.Sprintf("%s:%s@", c.Username, c.Password), fmt.Sprintf("%s@", c.Username)).(string)
+		auth = utils.Ternary(c.Password != "", c.Username+":"+c.Password+"@", c.Username+"@").(string)
 	}
 
 	// Final MongoDB URI
