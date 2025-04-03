@@ -3,6 +3,7 @@ package waljs
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	"github.com/goccy/go-json"
 
@@ -30,45 +31,63 @@ func NewChangeFilter(streams ...protocol.Stream) ChangeFilter {
 func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered OnMessage) error {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
-		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
+		return fmt.Errorf("failed to parse change received from WAL logs: %s", err)
 	}
 
 	if len(changes.Change) == 0 {
 		return nil
 	}
 
-	// TODO: Parallel process changes
-	for _, ch := range changes.Change {
+	// Parallel processing using goroutines
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(changes.Change))
+
+	for i, ch := range changes.Change {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
 			continue
 		}
 
-		changesMap := map[string]any{}
-		if ch.Kind == "delete" {
-			for i, changedValue := range ch.Oldkeys.Keyvalues {
-				changesMap[ch.Oldkeys.Keynames[i]] = changedValue
-			}
-		} else {
-			for i, changedValue := range ch.Columnvalues {
-				changesMap[ch.Columnnames[i]] = changedValue
-			}
-		}
+		wg.Add(1)
+		go func(i int, stream protocol.Stream) {
+			ch:=changes.Change[i];
+			defer wg.Done()
 
-		err := OnFiltered(CDCChange{
-			Stream:    stream,
-			Kind:      ch.Kind,
-			Schema:    ch.Schema,
-			Table:     ch.Table,
-			Timestamp: changes.Timestamp,
-			LSN:       lsn,
-			Data:      changesMap,
-		})
+			changesMap := make(map[string]any) // Prevents race conditions
 
-		if err != nil {
-			return fmt.Errorf("failed to write filtered changed: %s", err)
-		}
+			if ch.Kind == "delete" {
+				for i, changedValue := range ch.Oldkeys.Keyvalues {
+					changesMap[ch.Oldkeys.Keynames[i]] = changedValue
+				}
+			} else {
+				for i, changedValue := range ch.Columnvalues {
+					changesMap[ch.Columnnames[i]] = changedValue
+				}
+			}
+
+			err := OnFiltered(CDCChange{
+				Stream:    stream,
+				Kind:      ch.Kind,
+				Schema:    ch.Schema,
+				Table:     ch.Table,
+				Timestamp: changes.Timestamp,
+				LSN:       lsn,
+				Data:      changesMap,
+			})
+
+			if err != nil {
+				errChan <- fmt.Errorf("failed to write filtered change: %s", err)
+			}
+		}(i, stream) // Pass i and stream explicitly to avoid race conditions
 	}
 
-	return nil
+	wg.Wait()
+	close(errChan)
+
+	// Collect errors
+	var finalErr error
+	for err := range errChan {
+		finalErr = err 
+	}
+	return finalErr
 }
