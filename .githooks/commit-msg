@@ -1,0 +1,13 @@
+#!/bin/sh
+
+COMMIT_MSG_FILE=$1
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Regex pattern for Conventional Commits
+PATTERN="^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)(\(.+\))?: .+"
+
+if ! echo "$COMMIT_MSG" | grep -Eq "$PATTERN"; then
+  echo "❌ Commit message must follow Conventional Commits format:"
+  echo "   Example: feat(api): add new endpoint"
+  exit 1
+fi
