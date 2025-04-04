@@ -2,31 +2,39 @@ name: Master Branch Protection
 
 on:
   pull_request:
-    branches:
-      - 'master'  # This workflow will ONLY run on PRs targeting the master branch
     types: [opened, synchronize, reopened]
 
 jobs:
-  enforce-master-branch-rules:
+  enforce-rules:
     runs-on: ubuntu-latest
     steps:
-      - name: Check source branch
+      - name: Validate Branch Rules
         run: |
-          SOURCE_BRANCH="${{ github.head_ref }}"
-          TARGET_BRANCH="${{ github.base_ref }}"
-          
-          echo "PR: $SOURCE_BRANCH → $TARGET_BRANCH"
-          
-          # Double-check that we're targeting master
-          if [ "$TARGET_BRANCH" != "master" ]; then
-            echo "This workflow should only run on PRs to master. Something is wrong with the configuration."
-            exit 0
-          fi
-          
-          # Only allow staging to master PRs
-          if [ "$SOURCE_BRANCH" != "staging" ]; then
-            echo "::error::Only PRs from staging to master are allowed. Direct master merge is prohibited."
-            exit 1
+          SOURCE_BRANCH="${{ github.event.pull_request.head.ref }}"
+          TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+
+          # Allow only staging → master PRs
+          if [ "$TARGET_BRANCH" == "master" ]; then
+            if [ "$SOURCE_BRANCH" != "staging" ]; then
+              echo "::error::Direct PRs to master are blocked. Use staging branch."
+              exit 1
+            fi
+            echo "✅ Valid staging → master PR"
           else
-            echo "✅ PR from staging to master is allowed"
+            echo "ℹ️ Not a master PR - branch rules not enforced"
           fi
+
+      - name: Validate PR Title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PATTERN="^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)(\(.+\))?: .+"
+
+          if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then
+            echo "::error::PR title must follow: type(scope): description"
+            echo "Valid formats:"
+            echo "- feat: add new feature"
+            echo "- fix(login): resolve auth issue"
+            echo "Allowed types: feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert"
+            exit 1
+          fi
+          echo "✅ Valid PR title format"
