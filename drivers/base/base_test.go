@@ -60,7 +60,7 @@ func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, help
 }
 
 // TestRead tests full refresh and CDC read operations
-func TestRead(t *testing.T, driver protocol.Driver, client interface{}, helper TestHelper, setupClient func(t *testing.T) (interface{}, protocol.Driver)) {
+func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHelper, setupClient func(t *testing.T) (interface{}, protocol.Driver)) {
 	t.Helper()
 	ctx := context.Background()
 	conn := client.(*sqlx.DB) // Adjust based on driver
@@ -112,14 +112,15 @@ func TestRead(t *testing.T, driver protocol.Driver, client interface{}, helper T
 				readErrCh <- streamDriver.Read(pool, dummyStream)
 			}()
 			time.Sleep(2 * time.Second) // Wait for CDC initialization
+
 			if extraTests != nil {
 				extraTests(t)
 			}
 			time.Sleep(3 * time.Second) // Wait for CDC to process
-			select {
-			case err := <-readErrCh:
-				assert.NoError(t, err, "CDC read operation failed")
-			}
+			// Directly receive from the channel
+			err := <-readErrCh
+			assert.NoError(t, err, "CDC read operation failed")
+
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
