@@ -7,6 +7,7 @@ import (
 
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/jmoiron/sqlx"
 )
 
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a table
@@ -149,7 +150,7 @@ func MySQLTableColumnsQuery() string {
 		ORDER BY ORDINAL_POSITION
 	`
 }
-func WithIsolation(ctx context.Context, client *sql.DB, fn func(tx *sql.Tx) error) error {
+func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) error) error {
 	tx, err := client.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
 		ReadOnly:  true,

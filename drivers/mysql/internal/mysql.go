@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/jmoiron/sqlx"
 
 	// MySQL driver
 	_ "github.com/go-sql-driver/mysql"
@@ -26,7 +26,7 @@ const (
 type MySQL struct {
 	*base.Driver
 	config    *Config
-	client    *sql.DB
+	client    *sqlx.DB
 	cdcConfig CDC
 }
 
@@ -57,7 +57,7 @@ func (m *MySQL) Setup() error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 	// Open database connection
-	client, err := sql.Open("mysql", m.config.URI())
+	client, err := sqlx.Open("mysql", m.config.URI())
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
