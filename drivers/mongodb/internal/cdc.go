@@ -94,7 +94,11 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
 		}
-		handleObjectID(record.FullDocument)
+
+		// in delete operation, fullDocument is not present
+		if record.OperationType != "delete" {
+			handleObjectID(record.FullDocument)
+		}
 
 		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
 
