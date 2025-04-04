@@ -53,3 +53,4 @@ jobs:
           scan-type: 'fs'
           scan-ref: './'
           severity: 'HIGH,CRITICAL'
+          ignorefile: '.trivyignore'
