@@ -2,7 +2,7 @@ name: Master Branch Protection
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, edited, reopened, synchronize]
 
 jobs:
   enforce-rules:
