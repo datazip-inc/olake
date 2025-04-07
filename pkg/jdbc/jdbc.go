@@ -65,11 +65,10 @@ func PostgresWalLSNQuery() string {
 	return `SELECT pg_current_wal_lsn()::text::pg_lsn`
 }
 
-
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
 func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int, filterColumnType types.DataType) string {
 	if filterColumnType == types.String {
-		return fmt.Sprintf(`SELECT MAX(%s::text) FROM (SELECT %s FROM "%s"."%s" WHERE %s::text > '%v'::text ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
+		return fmt.Sprintf(`SELECT MAX(%s::text) FROM (SELECT %s FROM "%s"."%s" WHERE %s::text > $$%v$$ ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 	}
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 }
@@ -88,7 +87,7 @@ func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk t
 func buildPostgresChunkCondition(filterColumn string, chunk types.Chunk, filterColumnType types.DataType) string {
 	formatCondition := func(operator string, value interface{}) string {
 		if filterColumnType == types.String {
-			return fmt.Sprintf("%s::text %s '%v'::text", filterColumn, operator, value)
+			return fmt.Sprintf("%s::text %s $$%v$$", filterColumn, operator, value)
 		}
 		return fmt.Sprintf("%s %s %v", filterColumn, operator, value)
 	}
@@ -106,6 +105,7 @@ func buildPostgresChunkCondition(filterColumn string, chunk types.Chunk, filterC
 	// Both Min and Max conditions
 	return fmt.Sprintf("%s AND %s", formatCondition(">=", chunk.Min), formatCondition("<=", chunk.Max))
 }
+
 // MySQL-Specific Queries
 
 // MySQLWithoutState builds a chunk scan query for MySql
