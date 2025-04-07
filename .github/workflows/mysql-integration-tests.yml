@@ -12,23 +12,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_DATABASE: mysql
-          MYSQL_USER: mysql
-          MYSQL_PASSWORD: secret1234
-          MYSQL_ROOT_PASSWORD: rootsecret
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -prootsecret"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-          --command="mysqld --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL --binlog-row-metadata=FULL --max-allowed-packet=256M --innodb-buffer-pool-size=512M --default-authentication-plugin=mysql_native_password"
-
     steps:
     - uses: actions/checkout@v3
 
@@ -36,10 +19,45 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
+
+    - name: Create MySQL container
+      run: |
+        docker run -d \
+          --name mysql_test \
+          -e MYSQL_DATABASE=mysql \
+          -e MYSQL_USER=mysql \
+          -e MYSQL_PASSWORD=secret1234 \
+          -e MYSQL_ROOT_PASSWORD=rootsecret \
+          -p 3306:3306 \
+          mysql:8.0 \
+          --server-id=1 \
+          --log-bin=mysql-bin \
+          --binlog-format=ROW \
+          --binlog-row-image=FULL \
+          --binlog-row-metadata=FULL \
+          --max-allowed-packet=256M \
+          --innodb-buffer-pool-size=512M \
+          --default-authentication-plugin=mysql_native_password
+
+    - name: Wait for MySQL to be ready
+      run: |
+        for i in {1..30}; do
+          if docker exec mysql_test mysqladmin ping -h localhost -u root -prootsecret --silent; then
+            echo "MySQL is ready!"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "Timed out waiting for MySQL"
+            docker logs mysql_test
+            exit 1
+          fi
+          echo "Waiting for MySQL to be ready... ($i/30)"
+          sleep 3
+        done
         
     - name: Initialize MySQL Permissions
       run: |
-        mysql -h 127.0.0.1 -P 3306 -u root -prootsecret -e "
+        docker exec mysql_test mysql -u root -prootsecret -e "
           DROP USER IF EXISTS 'mysql'@'%';
           CREATE USER 'mysql'@'%' IDENTIFIED BY 'secret1234';
           GRANT REPLICATION CLIENT ON *.* TO 'mysql'@'%';
@@ -53,18 +71,6 @@ jobs:
 
     - name: Build
       run: go build -v ./...
-      
-    - name: Wait for MySQL to be ready
-      run: |
-        for i in {1..30}; do
-          if mysql -h 127.0.0.1 -P 3306 -u mysql -psecret1234 -e "SELECT 1"; then
-            echo "MySQL is ready!"
-            break
-          fi
-          echo "Waiting for MySQL to be ready... ($i/30)"
-          sleep 2
-        done
 
     - name: Run MySQL integration tests
       run: go test -v ./drivers/mysql/internal/... --timeout 0 -tags=integration
-      
