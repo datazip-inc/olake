@@ -1,6 +1,49 @@
 version: "3"
 
 services:
+  lakekeeper:
+    image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
+    pull_policy: &lakekeeper-pull-policy always
+    environment: &lakekeeper-environment
+      - LAKEKEEPER__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
+      - LAKEKEEPER__PG_DATABASE_URL_READ=postgresql://iceberg:password@postgres:5432/iceberg
+      - LAKEKEEPER__PG_DATABASE_URL_WRITE=postgresql://iceberg:password@postgres:5432/iceberg
+      - LAKEKEEPER__AUTHZ_BACKEND=allowall
+      # Externally taken from environment variables if set
+      - LAKEKEEPER__OPENID_PROVIDER_URI
+      - LAKEKEEPER__OPENID_AUDIENCE
+      - LAKEKEEPER__OPENID_ADDITIONAL_ISSUERS
+      - LAKEKEEPER__UI__OPENID_CLIENT_ID
+      - LAKEKEEPER__UI__OPENID_SCOPE
+    command: [ "serve" ]
+    healthcheck:
+      test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
+      interval: 1s
+      timeout: 10s
+      retries: 3
+      start_period: 3s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8181:8181"
+    networks:
+      iceberg_net:
+
+
+  migrate:
+    image: *lakekeeper-image
+    pull_policy: *lakekeeper-pull-policy
+    environment: *lakekeeper-environment
+    restart: "no"
+    command: [ "migrate" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      iceberg_net:
+
+
   spark-iceberg:
     image: tabulario/spark-iceberg
     container_name: spark-iceberg
@@ -42,8 +85,8 @@ services:
       - 9000:9000
     volumes:
       - ./data/minio-data:/data
-    command: ["server", "/data", "--console-address", ":9001"]
-  
+    command: [ "server", "/data", "--console-address", ":9001" ]
+
   mc:
     depends_on:
       - minio
@@ -64,9 +107,9 @@ services:
       fi;
       tail -f /dev/null
       "
-  
+
   postgres:
-    image: postgres:13
+    image: postgres:15
     container_name: iceberg-postgres
     networks:
       iceberg_net:
@@ -74,6 +117,12 @@ services:
       - POSTGRES_USER=iceberg
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=iceberg
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "iceberg", "-d", "iceberg" ]
+      interval: 2s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     ports:
       - 5432:5432
     volumes:
@@ -81,6 +130,7 @@ services:
 
 networks:
   iceberg_net:
+
 
 volumes:
   postgres-data:

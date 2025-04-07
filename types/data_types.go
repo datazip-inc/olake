@@ -31,7 +31,7 @@ type RawRecord struct {
 	Data           map[string]any `parquet:"data,json"`
 	OlakeID        string         `parquet:"_olake_id"`
 	OlakeTimestamp int64          `parquet:"_olake_insert_time"`
-	OperationType  string         `parquet:"_op_type"`
+	OperationType  string         `parquet:"_op_type"` // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
 	CdcTimestamp   int64          `parquet:"_cdc_timestamp"`
 }
 
