@@ -20,6 +20,7 @@ type CDCDocument struct {
 	OperationType string              `json:"operationType"`
 	FullDocument  map[string]any      `json:"fullDocument"`
 	ClusterTime   primitive.Timestamp `json:"clusterTime"`
+	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
@@ -95,11 +96,11 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return fmt.Errorf("error while decoding: %s", err)
 		}
 
-		// in delete operation, fullDocument is not present
-		if record.OperationType != "delete" {
-			handleObjectID(record.FullDocument)
+		if record.OperationType == "delete" {
+			// replace full document(null) with documentKey
+			record.FullDocument = record.DocumentKey
 		}
-
+		handleObjectID(record.FullDocument)
 		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
 
 		rawRecord := types.CreateRawRecord(
