@@ -2,17 +2,79 @@ package base
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/writers/parquet"
+	"github.com/datazip-inc/olake/writers/iceberg"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, message string, verifyColumns ...string) {
+	t.Helper()
+	// Skip if SKIP_SPARK_VERIFICATION is set
+	if os.Getenv("SKIP_SPARK_VERIFICATION") == "true" {
+		t.Log("Skipping Spark verification as SKIP_SPARK_VERIFICATION is set")
+		return
+	}
+	ctx := context.Background()
+
+	// Allow some time for data to be synced to Iceberg
+	time.Sleep(5 * time.Second)
+
+	// Connect to Spark
+	var sparkConnectAddress = "sc://localhost:15002" // Default value
+
+	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+	if err == nil {
+		fmt.Println("Connected to Spark")
+	} else {
+		t.Logf("Failed to connect to Spark at sc://localhost:15002. Make sure Spark Connect server is running.")
+		require.NoError(t, err, "Failed to connect to Spark Connect server")
+	}
+	require.NoError(t, err, "Failed to connect to Spark")
+	defer spark.Stop()
+
+	// Query the table
+	query := fmt.Sprintf("SELECT * FROM olake_iceberg.olake_iceberg.%s", tableName)
+	df, err := spark.Sql(ctx, query)
+	require.NoError(t, err, "Failed to query data from the table")
+
+	// Print the DataFrame result (data from the table)
+	df.Show(ctx, 100, false)
+
+	// Get rows to verify data
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err, "Failed to collect data from Iceberg")
+
+	// Verify row count
+	assert.Equal(t, expectedCount, len(rows), "Row count mismatch in Iceberg (%s)", message)
+
+	// If there are rows, verify schema contains expected columns
+	if len(rows) > 0 && len(verifyColumns) > 0 {
+		schema, err := df.Schema(ctx)
+		require.NoError(t, err, "Failed to get schema from row")
+
+		columnExists := make(map[string]bool)
+		for _, field := range schema.Fields {
+			columnExists[field.Name] = true
+		}
+
+		// Verify all expected columns exist
+		for _, col := range verifyColumns {
+			assert.True(t, columnExists[col], "Column %s not found in Iceberg table", col)
+		}
+	}
+
+	// Log the data for debugging
+	t.Logf("Successfully verified %d rows in Iceberg table %s - %s", len(rows), tableName, message)
+}
 
 // TestHelper defines database-specific helper functions
 type TestHelper struct {
@@ -73,14 +135,25 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 	// Register Parquet writer
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
-		return &parquet.Parquet{}
+		return &iceberg.Iceberg{}
 	}
 
 	pool, err := protocol.NewWriter(ctx, &types.WriterConfig{
-		Type: "PARQUET",
+		Type: "ICEBERG",
 		WriterConfig: map[string]any{
-			"normalization": true,
-			"local_path":    os.TempDir(), // Adjust path as needed
+			"catalog_type":    "jdbc",
+			"jdbc_url":        "jdbc:postgresql://iceberg-postgres:5432/iceberg", // Changed from localhost to container name
+			"jdbc_username":   "iceberg",
+			"jdbc_password":   "password",
+			"normalization":   true,
+			"iceberg_s3_path": "s3a://warehouse",
+			"s3_endpoint":     "http://minio:9000", // Changed from localhost to container name
+			"s3_use_ssl":      false,
+			"s3_path_style":   true,
+			"aws_access_key":  "admin",     // Changed to match workflow credentials
+			"aws_region":      "us-east-1", // Changed to match workflow region
+			"aws_secret_key":  "password",  // Changed to match workflow credentials
+			"iceberg_db":      "olake_iceberg",
 		},
 	})
 	require.NoError(t, err, "Failed to create writer pool")
@@ -143,4 +216,5 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			})
 		})
 	})
+	//VerifyIcebergSync(t, tableName, 5, "col1", "col2")
 }
