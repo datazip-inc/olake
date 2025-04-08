@@ -92,7 +92,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	// Inserter initialization
 	for _, stream := range streams {
 		errChan := make(chan error)
-		inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan))
+		inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan), protocol.WithBackfill(false))
 		if err != nil {
 			return fmt.Errorf("failed to initiate writer thread for stream[%s]: %s", stream.ID(), err)
 		}
@@ -122,11 +122,12 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	// Message processing
 	return socket.StreamMessages(ctx, func(msg waljs.CDCChange) error {
 		pkFields := msg.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-		deleteTS := utils.Ternary(msg.Kind == "delete", msg.Timestamp.UnixMilli(), int64(0)).(int64)
+		opType := utils.Ternary(msg.Kind == "delete", "d", utils.Ternary(msg.Kind == "update", "u", "c")).(string)
 		return inserters[msg.Stream].Insert(types.CreateRawRecord(
 			utils.GetKeysHash(msg.Data, pkFields...),
 			msg.Data,
-			deleteTS,
+			opType,
+			msg.Timestamp.UnixMilli(),
 		))
 	})
 }
