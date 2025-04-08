@@ -50,7 +50,7 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 ## Writer Functionalities
 | Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
 | ------------------------------- | ---------------- | ------ | -------------- |
-| Flattening & Normalization (L1) | ✅                | ✅      |                |
+| Flattening & Normalization (L1) | ✅                | ✅      |  ✅              |
 | Partitioning                    | ✅                | ✅      |                |
 | Schema Changes                  | ✅                | ✅      |                |
 | Schema Evolution                | ✅                | ✅      |                |
@@ -58,13 +58,10 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 ## Supported Catalogs For Iceberg Writer
 | Catalog                 | Status                                                                                                  |
 | -------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Glue Catalog               | WIP                                                                                                      |
+| Glue Catalog               | Supported                                                                                                      |
 | Hive Meta Store            | Upcoming                                                                                                 |
-| JDBC Catalogue             | Upcoming                                                                                                 |
-| REST Catalogue - Nessie    | Upcoming                                                                                                 |
-| REST Catalogue - Polaris   | Upcoming                                                                                                 |
-| REST Catalogue - Unity     | Upcoming                                                                                                 |
-| REST Catalogue - Gravitino | Upcoming                                                                                                 |
+| JDBC Catalogue             | Supported                                                                                                 |
+| REST Catalogue             | Supported                                                                                                 |
 | Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 | BigLake Metastore          | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 
