@@ -37,19 +37,21 @@ jobs:
           minio/minio server /data --console-address ":9001"
 
     # Setup MinIO client for bucket initialization
+    # Setup MinIO client for bucket initialization
     - name: Initialize MinIO buckets
       run: |
-        docker run --rm \
+         docker run --rm \
           --name mc \
           --network iceberg_net \
           -e AWS_ACCESS_KEY_ID=admin \
           -e AWS_SECRET_ACCESS_KEY=password \
           -e AWS_REGION=us-east-1 \
-          minio/mc /bin/sh -c "
-          until (mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
-          mc mb minio/warehouse || true;
-          mc policy set public minio/warehouse || true;
-          "
+         --entrypoint sh \
+         minio/mc -c "
+         until (mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+         mc mb minio/warehouse || true;
+         mc policy set public minio/warehouse || true;
+         "
 
     # Setup PostgreSQL for Iceberg catalog
     - name: Create PostgreSQL container for Iceberg
