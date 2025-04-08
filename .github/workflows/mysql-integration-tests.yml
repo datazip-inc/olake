@@ -193,16 +193,16 @@ jobs:
           sleep 3
         done
         
-    - name: Initialize MySQL Permissions
-      run: |
-        docker exec mysql_test mysql -u root -prootsecret -e "
-          DROP USER IF EXISTS 'mysql'@'%';
-          CREATE USER 'mysql'@'%' IDENTIFIED BY 'secret1234';
-          GRANT REPLICATION CLIENT ON *.* TO 'mysql'@'%';
-          GRANT REPLICATION SLAVE ON *.* TO 'mysql'@'%';
-          GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'%';
-          FLUSH PRIVILEGES;
-        "
+      - name: Initialize MySQL Permissions
+        run: |
+          docker exec -e MYSQL_PWD=rootsecret mysql_test mysql -u root -e "
+            DROP USER IF EXISTS 'mysql'@'%';
+            CREATE USER 'mysql'@'%' IDENTIFIED BY 'secret1234';
+            GRANT REPLICATION CLIENT ON *.* TO 'mysql'@'%';
+            GRANT REPLICATION SLAVE ON *.* TO 'mysql'@'%';
+            GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'%';
+            FLUSH PRIVILEGES;
+          "
 
     - name: Install dependencies
       run: go mod download
