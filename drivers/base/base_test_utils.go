@@ -142,17 +142,17 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		Type: "ICEBERG",
 		WriterConfig: map[string]any{
 			"catalog_type":    "jdbc",
-			"jdbc_url":        "jdbc:postgresql://iceberg-postgres:5432/iceberg", // Changed from localhost to container name
+			"jdbc_url":        "jdbc:postgresql://localhost:5432/iceberg",
 			"jdbc_username":   "iceberg",
 			"jdbc_password":   "password",
-			"normalization":   true,
+			"normalization":   false,
 			"iceberg_s3_path": "s3a://warehouse",
-			"s3_endpoint":     "http://minio:9000", // Changed from localhost to container name
+			"s3_endpoint":     "http://localhost:9000",
 			"s3_use_ssl":      false,
 			"s3_path_style":   true,
-			"aws_access_key":  "admin",     // Changed to match workflow credentials
-			"aws_region":      "us-east-1", // Changed to match workflow region
-			"aws_secret_key":  "password",  // Changed to match workflow credentials
+			"aws_access_key":  "admin",
+			"aws_region":      "ap-south-1",
+			"aws_secret_key":  "password",
 			"iceberg_db":      "olake_iceberg",
 		},
 	})
