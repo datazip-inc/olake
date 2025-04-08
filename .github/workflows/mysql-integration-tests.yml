@@ -11,7 +11,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v3
 
@@ -37,21 +37,20 @@ jobs:
           minio/minio server /data --console-address ":9001"
 
     # Setup MinIO client for bucket initialization
-    # Setup MinIO client for bucket initialization
     - name: Initialize MinIO buckets
       run: |
-         docker run --rm \
+        docker run --rm \
           --name mc \
           --network iceberg_net \
           -e AWS_ACCESS_KEY_ID=admin \
           -e AWS_SECRET_ACCESS_KEY=password \
           -e AWS_REGION=us-east-1 \
-         --entrypoint sh \
-         minio/mc -c "
-         until (mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
-         mc mb minio/warehouse || true;
-         mc policy set public minio/warehouse || true;
-         "
+          --entrypoint sh \
+          minio/mc -c "
+          until (mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+          mc mb minio/warehouse || true;
+          mc policy set public minio/warehouse || true;
+          "
 
     # Setup PostgreSQL for Iceberg catalog
     - name: Create PostgreSQL container for Iceberg
@@ -161,7 +160,6 @@ jobs:
       run: |
         docker run -d \
           --name mysql_test \
-          --network iceberg_net \
           -e MYSQL_DATABASE=mysql \
           -e MYSQL_USER=mysql \
           -e MYSQL_PASSWORD=secret1234 \
@@ -192,17 +190,17 @@ jobs:
           echo "Waiting for MySQL to be ready... ($i/30)"
           sleep 3
         done
-        
+
     - name: Initialize MySQL Permissions
       run: |
-        docker exec -e MYSQL_PWD=rootsecret mysql_test mysql -u root -e "
-        DROP USER IF EXISTS 'mysql'@'%';
-        CREATE USER 'mysql'@'%' IDENTIFIED BY 'secret1234';
-        GRANT REPLICATION CLIENT ON *.* TO 'mysql'@'%';
-        GRANT REPLICATION SLAVE ON *.* TO 'mysql'@'%';
-        GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'%';
-        FLUSH PRIVILEGES;
-          "
+        docker exec mysql_test mysql -u root -prootsecret -e "
+          DROP USER IF EXISTS 'mysql'@'%';
+          CREATE USER 'mysql'@'%' IDENTIFIED BY 'secret1234';
+          GRANT REPLICATION CLIENT ON *.* TO 'mysql'@'%';
+          GRANT REPLICATION SLAVE ON *.* TO 'mysql'@'%';
+          GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'%';
+          FLUSH PRIVILEGES;
+        "
 
     - name: Install dependencies
       run: go mod download
@@ -212,5 +210,3 @@ jobs:
 
     - name: Run MySQL integration tests
       run: go test -v ./drivers/mysql/internal/... --timeout 0 -tags=integration
-      env:
-        SKIP_SPARK_VERIFICATION: "false"
