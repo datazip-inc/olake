@@ -6,7 +6,7 @@ on:
       - "feat/testing_framework"
   pull_request:
     branches:
-      - "*"
+      - "feat/testing_framework"
 
 jobs:
   test:
