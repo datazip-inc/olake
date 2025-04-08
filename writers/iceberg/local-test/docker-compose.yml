@@ -65,6 +65,9 @@ services:
       - 8088:8080
       - 10000:10000
       - 10001:10001
+      - 15002:15002
+    post_start:
+      - command: ["sh", "-c", "/opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2 &"]
 
   minio:
     image: minio/minio
