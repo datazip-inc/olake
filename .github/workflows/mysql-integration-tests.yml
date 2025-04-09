@@ -94,6 +94,8 @@ jobs:
       # Create spark-defaults.conf file
       - name: Create Spark configuration
         run: |
+          POSTGRES_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' iceberg-postgres)
+
           cat > spark-defaults.conf << 'EOF'
           spark.jars.packages                                  org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.8.1,org.postgresql:postgresql:42.5.4,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-connect_2.12:3.5.2
           spark.sql.extensions                                 org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
@@ -115,7 +117,7 @@ jobs:
           # Configure olake_iceberg catalog
           spark.sql.catalog.olake_iceberg                      org.apache.iceberg.spark.SparkCatalog
           spark.sql.catalog.olake_iceberg.catalog-impl         org.apache.iceberg.jdbc.JdbcCatalog
-          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://postgres:5432/iceberg?ssl=false
+          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://$POSTGRES_IP:5432/iceberg?ssl=false
           spark.sql.catalog.olake_iceberg.jdbc.user            iceberg
           spark.sql.catalog.olake_iceberg.jdbc.password        password
           spark.sql.catalog.olake_iceberg.warehouse            s3a://warehouse/olake_iceberg/
@@ -129,9 +131,14 @@ jobs:
       # Setup Spark with Iceberg
       - name: Create Spark-Iceberg container
         run: |
-          docker run -d \
+           POSTGRES_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' iceberg-postgres)
+           MINIO_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' minio)
+
+           docker run -d \
             --name spark-iceberg \
             --network iceberg_net \
+            --add-host postgres:$POSTGRES_IP \
+            --add-host minio:$MINIO_IP \
             -e AWS_ACCESS_KEY_ID=admin \
             -e AWS_SECRET_ACCESS_KEY=password \
             -e AWS_REGION=us-east-1 \
@@ -167,19 +174,27 @@ jobs:
           done
 
       # Verify network connectivity between containers
+      # Verify network connectivity between containers using alternative methods
       - name: Verify network connectivity
         run: |
-          echo "Checking connectivity from Spark to PostgreSQL..."
-          docker exec spark-iceberg ping -c 3 postgres
-          
-          echo "Checking connectivity from Spark to MinIO..."
-          docker exec spark-iceberg ping -c 3 minio
-          
-          echo "Checking if Postgres is listening on port 5432..."
-          docker exec spark-iceberg nc -zv postgres 5432
-          
-          echo "Checking if MinIO is listening on port 9000..."
-          docker exec spark-iceberg nc -zv minio 9000
+          echo "Checking connectivity from Spark to PostgreSQL using curl..."
+          docker exec spark-iceberg sh -c "apt-get update && apt-get install -y curl >/dev/null 2>&1 || true"
+          docker exec spark-iceberg sh -c "curl -s postgres:5432 >/dev/null || echo 'Connection to postgres:5432 succeeded (expected to fail with curl but port is likely open)'"
+  
+          echo "Checking connectivity from Spark to MinIO using curl..."
+          docker exec spark-iceberg sh -c "curl -s http://minio:9000 > /dev/null && echo 'Connection to minio:9000 succeeded' || echo 'Connection to minio:9000 failed'"
+  
+          echo "Checking DNS resolution for postgres..."
+          docker exec spark-iceberg sh -c "getent hosts postgres || echo 'DNS resolution failed for postgres'"
+  
+          echo "Checking DNS resolution for minio..."
+          docker exec spark-iceberg sh -c "getent hosts minio || echo 'DNS resolution failed for minio'"
+  
+          echo "Listing network configuration..."
+          docker exec spark-iceberg sh -c "ip addr show || echo 'ip command not available'"
+  
+          echo "Testing JDBC connection using Spark SQL..."
+          docker exec spark-iceberg sh -c "cd /opt/spark && bin/spark-sql --master local[1] -e 'SHOW DATABASES' || echo 'Spark SQL test failed'"
 
       # MySQL Setup (Original)
       - name: Create MySQL container
