@@ -22,7 +22,12 @@ jobs:
 
       - name: Create Docker network for Iceberg
         run: docker network create iceberg_net
-
+      - name: Create data directories with proper permissions
+        run: |
+          mkdir -p ${{ github.workspace }}/data/postgres-data
+          mkdir -p ${{ github.workspace }}/data/minio-data
+          mkdir -p ${{ github.workspace }}/data/ivy-cache
+          chmod -R 777 ${{ github.workspace }}/data
       # Setup MinIO service
       - name: Create MinIO container
         run: |
