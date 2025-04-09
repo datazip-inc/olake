@@ -43,11 +43,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		pool.AddRecordsToSync(recordCount)
 
 		// Generate and update chunks
-		var retryErr error
-		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
-			return retryErr
-		})
+		chunksArray, err = m.splitChunks(backfillCtx, collection, stream)
 		if err != nil {
 			return err
 		}
@@ -150,7 +146,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			cmd := bson.D{
 				{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
 				{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
-				{Key: "maxChunkSize", Value: 1024},
+				{Key: "maxChunkSize", Value: m.config.MaxChunkSize},
 			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
 				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
@@ -280,7 +276,6 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, err
 	}
 }
-
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
 	command := bson.D{{

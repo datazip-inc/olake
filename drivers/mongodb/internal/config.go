@@ -23,6 +23,7 @@ type Config struct {
 	DefaultMode       types.SyncMode `json:"default_mode"`
 	RetryCount        int            `json:"backoff_retry_count"`
 	PartitionStrategy string         `json:"partition_strategy"`
+	MaxChunkSize      int            `json:"max_chunk_size"`
 }
 
 func (c *Config) URI() string {
@@ -35,6 +36,11 @@ func (c *Config) URI() string {
 	}
 	if c.Srv {
 		connectionPrefix = "mongodb+srv"
+	}
+
+	if c.MaxChunkSize < 1 || c.MaxChunkSize > 1024 {
+		logger.Info("setting max chunk size to default[1024]")
+		c.MaxChunkSize = 1024
 	}
 
 	if c.ReplicaSet != "" {
