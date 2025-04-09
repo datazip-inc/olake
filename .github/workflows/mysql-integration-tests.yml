@@ -13,7 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -22,7 +23,8 @@ jobs:
 
       - name: Create Docker network for Iceberg
         run: docker network create iceberg_net
-      # Setup MinIO service
+
+      # MinIO Setup
       - name: Create MinIO container
         run: |
           docker run -d \
@@ -37,7 +39,6 @@ jobs:
             -v ${{ github.workspace }}/data/minio-data:/data \
             minio/minio server /data --console-address ":9001"
 
-      # Setup MinIO client for bucket initialization
       - name: Initialize MinIO buckets
         run: |
           docker run --rm \
@@ -53,7 +54,7 @@ jobs:
             mc policy set public minio/warehouse || true;
             "
 
-      # Setup PostgreSQL for Iceberg catalog - IMPORTANT: using the network-alias "postgres" to match your local config
+      # PostgreSQL Setup for Iceberg
       - name: Create PostgreSQL container for Iceberg
         run: |
           docker run -d \
@@ -67,7 +68,6 @@ jobs:
             -v ${{ github.workspace }}/data/postgres-data:/var/lib/postgresql/data \
             postgres:15
 
-      # Wait for PostgreSQL to be ready
       - name: Wait for PostgreSQL to be ready
         run: |
           for i in {1..30}; do
@@ -84,14 +84,13 @@ jobs:
             sleep 2
           done
 
-      # Initialize Iceberg schema
       - name: Initialize Iceberg Schema
         run: |
           docker exec iceberg-postgres psql -U iceberg -d iceberg -c "
             CREATE SCHEMA IF NOT EXISTS olake_iceberg;
           "
 
-      # Create spark-defaults.conf file
+      # Spark Configuration
       - name: Create Spark configuration
         run: |
           cat > spark-defaults.conf << 'EOF'
@@ -126,7 +125,7 @@ jobs:
           spark.sql.defaultCatalog                             olake_iceberg
           EOF
 
-      # Setup Spark with Iceberg
+      # Spark with Iceberg Setup
       - name: Create Spark-Iceberg container
         run: |
           docker run -d \
@@ -144,12 +143,16 @@ jobs:
             -v ${{ github.workspace }}/data/ivy-cache:/root/.ivy2 \
             tabulario/spark-iceberg:latest
 
-      # Start Spark Connect server
       - name: Start Spark Connect server
         run: |
-          docker exec spark-iceberg /opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+          docker exec spark-iceberg /opt/spark/sbin/start-connect-server.sh \
+            --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.8.1,org.postgresql:postgresql:42.5.4,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-connect_2.12:3.5.2 \
+            --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
 
-      # Wait for Spark to be ready
+      - name: Check Spark configuration inside container
+        run: |
+          docker exec spark-iceberg cat /opt/spark/conf/spark-defaults.conf
+
       - name: Wait for Spark Connect to be ready
         run: |
           for i in {1..60}; do
@@ -166,22 +169,7 @@ jobs:
             sleep 5
           done
 
-      # Verify network connectivity between containers
-      - name: Verify network connectivity
-        run: |
-          echo "Checking connectivity from Spark to PostgreSQL..."
-          docker exec spark-iceberg ping -c 3 postgres
-          
-          echo "Checking connectivity from Spark to MinIO..."
-          docker exec spark-iceberg ping -c 3 minio
-          
-          echo "Checking if Postgres is listening on port 5432..."
-          docker exec spark-iceberg nc -zv postgres 5432
-          
-          echo "Checking if MinIO is listening on port 9000..."
-          docker exec spark-iceberg nc -zv minio 9000
-
-      # MySQL Setup (Original)
+      # MySQL Setup
       - name: Create MySQL container
         run: |
           docker run -d \
@@ -227,20 +215,22 @@ jobs:
             GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'%';
             FLUSH PRIVILEGES;
           "
+
+      # Prepare Data Directories and Run Tests
       - name: Create data directories with proper permissions
         run: |
-              sudo mkdir -p /home/runner/work/olake/olake/data/postgres-data
-              sudo mkdir -p /home/runner/work/olake/olake/data/minio-data
-              sudo mkdir -p /home/runner/work/olake/olake/data/ivy-cache
-              sudo chmod -R 777 /home/runner/work/olake/olake/data
+          sudo mkdir -p /home/runner/work/olake/olake/data/postgres-data
+          sudo mkdir -p /home/runner/work/olake/olake/data/minio-data
+          sudo mkdir -p /home/runner/work/olake/olake/data/ivy-cache
+          sudo chmod -R 777 /home/runner/work/olake/olake/data
+
       - name: Install dependencies
         run: go mod download
 
       - name: Build
         run: go build -v ./...
 
-      # Run Maven build without running tests
-      - name: Run Maven build 
+      - name: Run Maven build
         run: |
           cd ./writers/iceberg/debezium-server-iceberg-sink
           mvn clean package -DskipTests
