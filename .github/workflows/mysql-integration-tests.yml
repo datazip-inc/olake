@@ -34,6 +34,7 @@ jobs:
           -e MINIO_DOMAIN=minio \
           -p 9000:9000 \
           -p 9001:9001 \
+          -v ${{ github.workspace }}/data/minio-data:/data \
           minio/minio server /data --console-address ":9001"
 
     # Setup MinIO client for bucket initialization
@@ -62,6 +63,8 @@ jobs:
           -e POSTGRES_PASSWORD=password \
           -e POSTGRES_DB=iceberg \
           -p 5432:5432 \
+           -v ${{ github.workspace }}/data/postgres-data:/var/lib/postgresql/data \
+          
           postgres:15
 
     # Wait for PostgreSQL to be ready
