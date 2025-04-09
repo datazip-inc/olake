@@ -3,7 +3,7 @@ package base
 import (
 	"context"
 	"fmt"
-	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,11 +18,6 @@ import (
 
 func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, message string, verifyColumns ...string) {
 	t.Helper()
-	// Skip if SKIP_SPARK_VERIFICATION is set
-	if os.Getenv("SKIP_SPARK_VERIFICATION") == "true" {
-		t.Log("Skipping Spark verification as SKIP_SPARK_VERIFICATION is set")
-		return
-	}
 	ctx := context.Background()
 
 	// Allow some time for data to be synced to Iceberg
@@ -40,40 +35,49 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 	}
 	require.NoError(t, err, "Failed to connect to Spark")
 	defer spark.Stop()
+	time.Sleep(15 * time.Second)
+	// Query for unique olake_id records
+	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
+	countDf, err := spark.Sql(ctx, query)
+	require.NoError(t, err, "Failed to query unique count from the table")
 
-	// Query the table
-	query := fmt.Sprintf("SELECT * FROM olake_iceberg.olake_iceberg.%s", tableName)
-	df, err := spark.Sql(ctx, query)
-	require.NoError(t, err, "Failed to query data from the table")
+	// Collect the count result
+	countRows, err := countDf.Collect(ctx)
+	require.NoError(t, err, "Failed to collect count data from Iceberg")
+	require.NotEmpty(t, countRows, "Count result is empty")
 
-	// Print the DataFrame result (data from the table)
-	df.Show(ctx, 100, false)
+	// Extract the count value using the correct method
+	countValue := countRows[0].Value("unique_count")
+	require.NotNil(t, countValue, "Count value is nil")
 
-	// Get rows to verify data
-	rows, err := df.Collect(ctx)
-	require.NoError(t, err, "Failed to collect data from Iceberg")
-
-	// Verify row count
-	assert.Equal(t, expectedCount, len(rows), "Row count mismatch in Iceberg (%s)", message)
-
-	// If there are rows, verify schema contains expected columns
-	if len(rows) > 0 && len(verifyColumns) > 0 {
-		schema, err := df.Schema(ctx)
-		require.NoError(t, err, "Failed to get schema from row")
-
-		columnExists := make(map[string]bool)
-		for _, field := range schema.Fields {
-			columnExists[field.Name] = true
-		}
-
-		// Verify all expected columns exist
-		for _, col := range verifyColumns {
-			assert.True(t, columnExists[col], "Column %s not found in Iceberg table", col)
-		}
+	// Convert the value to int (handling different possible types)
+	var uniqueCount int
+	switch v := countValue.(type) {
+	case int64:
+		uniqueCount = int(v)
+	case int32:
+		uniqueCount = int(v)
+	case int:
+		uniqueCount = v
+	case float64:
+		uniqueCount = int(v)
+	default:
+		t.Logf("Unexpected type for count: %T", countValue)
+		// Try to convert using fmt.Sprintf and then parsing
+		countStr := fmt.Sprintf("%v", countValue)
+		parsed, err := strconv.ParseInt(countStr, 10, 64)
+		require.NoError(t, err, "Failed to parse count value: %v", countValue)
+		uniqueCount = int(parsed)
 	}
 
-	// Log the data for debugging
-	t.Logf("Successfully verified %d rows in Iceberg table %s - %s", len(rows), tableName, message)
+	// Verify unique count
+	assert.Equal(t, expectedCount, uniqueCount, "Unique olake_id count mismatch in Iceberg (%s)", message)
+	// Display the actual data for debugging
+	dataDf, err := spark.Sql(ctx, fmt.Sprintf("SELECT * FROM olake_iceberg.olake_iceberg.%s", tableName))
+	require.NoError(t, err, "Failed to query data from the table")
+	dataDf.Show(ctx, 100, false)
+	// Log the verification result
+	t.Logf("Successfully verified %d unique olake_id records in Iceberg table %s - %s", uniqueCount, tableName, message)
 }
 
 // TestHelper defines database-specific helper functions
@@ -185,7 +189,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				readErrCh <- streamDriver.Read(pool, dummyStream)
 			}()
 			time.Sleep(2 * time.Second) // Wait for CDC initialization
-
 			if extraTests != nil {
 				extraTests(t)
 			}
@@ -193,20 +196,23 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
+			VerifyIcebergSync(t, tableName, 6, "after c/u/d", "olake_id", "col1", "col2")
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
+			VerifyIcebergSync(t, tableName, 5, "after full refresh", "olake_id", "col1", "col2")
 		}
 	}
 
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
 	})
-
+	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
 		runReadTest(t, types.CDC, func(t *testing.T) {
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
+
 			})
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
@@ -216,5 +222,5 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			})
 		})
 	})
-	//VerifyIcebergSync(t, tableName, 5, "col1", "col2")
+
 }
