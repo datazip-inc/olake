@@ -122,8 +122,8 @@ jobs:
         docker run -d \
           --name spark-iceberg \
           --network iceberg_net \
-          -e AWS_ACCESS_KEY_ID=xEfUhqWql5XBTXQ4n38E \
-          -e AWS_SECRET_ACCESS_KEY=c9DgZz0BMpttxqVOGG9uxKFwb9hd1AcXDAAx08Qd \
+          -e AWS_ACCESS_KEY_ID=admin \
+          -e AWS_SECRET_ACCESS_KEY=password \
           -e AWS_REGION=us-east-1 \
           -p 8888:8888 \
           -p 8088:8080 \
