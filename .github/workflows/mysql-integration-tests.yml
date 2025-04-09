@@ -93,6 +93,8 @@ jobs:
       # Spark Configuration
       - name: Create Spark configuration
         run: |
+          POSTGRES_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' iceberg-postgres)
+
           cat > spark-defaults.conf << 'EOF'
           spark.jars.packages                                  org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.8.1,org.postgresql:postgresql:42.5.4,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-connect_2.12:3.5.2
           spark.sql.extensions                                 org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
@@ -114,7 +116,7 @@ jobs:
           # Configure olake_iceberg catalog
           spark.sql.catalog.olake_iceberg                      org.apache.iceberg.spark.SparkCatalog
           spark.sql.catalog.olake_iceberg.catalog-impl         org.apache.iceberg.jdbc.JdbcCatalog
-          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://postgres:5432/iceberg?ssl=false
+          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://$POSTGRES_IP:5432/iceberg?ssl=false
           spark.sql.catalog.olake_iceberg.jdbc.user            iceberg
           spark.sql.catalog.olake_iceberg.jdbc.password        password
           spark.sql.catalog.olake_iceberg.warehouse            s3a://warehouse/olake_iceberg/
@@ -128,9 +130,14 @@ jobs:
       # Spark with Iceberg Setup
       - name: Create Spark-Iceberg container
         run: |
-          docker run -d \
+           POSTGRES_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' iceberg-postgres)
+           MINIO_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' minio)
+
+           docker run -d \
             --name spark-iceberg \
             --network iceberg_net \
+            --add-host postgres:$POSTGRES_IP \
+            --add-host minio:$MINIO_IP \
             -e AWS_ACCESS_KEY_ID=admin \
             -e AWS_SECRET_ACCESS_KEY=password \
             -e AWS_REGION=us-east-1 \
