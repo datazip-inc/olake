@@ -204,10 +204,10 @@ jobs:
           "
       - name: Create data directories with proper permissions
         run: |
-            mkdir -p ${{ github.workspace }}/data/postgres-data
-            mkdir -p ${{ github.workspace }}/data/minio-data
-            mkdir -p ${{ github.workspace }}/data/ivy-cache
-            chmod -R 777 ${{ github.workspace }}/data
+              sudo mkdir -p /home/runner/work/olake/olake/data/postgres-data
+              sudo mkdir -p /home/runner/work/olake/olake/data/minio-data
+              sudo mkdir -p /home/runner/work/olake/olake/data/ivy-cache
+              sudo chmod -R 777 /home/runner/work/olake/olake/data
       - name: Install dependencies
         run: go mod download
 
