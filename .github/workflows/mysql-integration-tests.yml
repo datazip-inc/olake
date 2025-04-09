@@ -28,6 +28,7 @@ jobs:
           docker run -d \
             --name minio \
             --network iceberg_net \
+            --network-alias minio \
             -e MINIO_ROOT_USER=admin \
             -e MINIO_ROOT_PASSWORD=password \
             -e MINIO_DOMAIN=minio \
@@ -52,12 +53,13 @@ jobs:
             mc policy set public minio/warehouse || true;
             "
 
-      # Setup PostgreSQL for Iceberg catalog
+      # Setup PostgreSQL for Iceberg catalog - IMPORTANT: using the network-alias "postgres" to match your local config
       - name: Create PostgreSQL container for Iceberg
         run: |
           docker run -d \
             --name iceberg-postgres \
             --network iceberg_net \
+            --network-alias postgres \
             -e POSTGRES_USER=iceberg \
             -e POSTGRES_PASSWORD=password \
             -e POSTGRES_DB=iceberg \
@@ -81,6 +83,13 @@ jobs:
             echo "Waiting for PostgreSQL to be ready... ($i/30)"
             sleep 2
           done
+
+      # Initialize Iceberg schema
+      - name: Initialize Iceberg Schema
+        run: |
+          docker exec iceberg-postgres psql -U iceberg -d iceberg -c "
+            CREATE SCHEMA IF NOT EXISTS olake_iceberg;
+          "
 
       # Create spark-defaults.conf file
       - name: Create Spark configuration
@@ -106,7 +115,7 @@ jobs:
           # Configure olake_iceberg catalog
           spark.sql.catalog.olake_iceberg                      org.apache.iceberg.spark.SparkCatalog
           spark.sql.catalog.olake_iceberg.catalog-impl         org.apache.iceberg.jdbc.JdbcCatalog
-          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://iceberg-postgres:5432/iceberg?ssl=false
+          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://postgres:5432/iceberg?ssl=false
           spark.sql.catalog.olake_iceberg.jdbc.user            iceberg
           spark.sql.catalog.olake_iceberg.jdbc.password        password
           spark.sql.catalog.olake_iceberg.warehouse            s3a://warehouse/olake_iceberg/
@@ -132,6 +141,7 @@ jobs:
             -p 10001:10001 \
             -p 15002:15002 \
             -v ${{ github.workspace }}/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf \
+            -v ${{ github.workspace }}/data/ivy-cache:/root/.ivy2 \
             tabulario/spark-iceberg:latest
 
       # Start Spark Connect server
@@ -142,19 +152,34 @@ jobs:
       # Wait for Spark to be ready
       - name: Wait for Spark Connect to be ready
         run: |
-          for i in {1..30}; do
+          for i in {1..60}; do
             if nc -z localhost 15002; then
               echo "Spark Connect is ready!"
               break
             fi
-            if [ $i -eq 30 ]; then
+            if [ $i -eq 60 ]; then
               echo "Timed out waiting for Spark Connect"
               docker logs spark-iceberg
               exit 1
             fi
-            echo "Waiting for Spark Connect to be ready... ($i/30)"
+            echo "Waiting for Spark Connect to be ready... ($i/60)"
             sleep 5
           done
+
+      # Verify network connectivity between containers
+      - name: Verify network connectivity
+        run: |
+          echo "Checking connectivity from Spark to PostgreSQL..."
+          docker exec spark-iceberg ping -c 3 postgres
+          
+          echo "Checking connectivity from Spark to MinIO..."
+          docker exec spark-iceberg ping -c 3 minio
+          
+          echo "Checking if Postgres is listening on port 5432..."
+          docker exec spark-iceberg nc -zv postgres 5432
+          
+          echo "Checking if MinIO is listening on port 9000..."
+          docker exec spark-iceberg nc -zv minio 9000
 
       # MySQL Setup (Original)
       - name: Create MySQL container
