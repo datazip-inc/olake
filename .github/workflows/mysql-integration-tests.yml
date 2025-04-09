@@ -157,8 +157,8 @@ jobs:
       - name: Check Spark configuration inside container
         run: |
           docker exec spark-iceberg cat /opt/spark/conf/spark-defaults.conf
-          docker exec spark-iceberg ping -c 4 postgres
-          docker exec spark-iceberg ping -c 4 minio
+          docker exec spark-iceberg bash -c "echo > /dev/tcp/postgres/5432 && echo 'PostgreSQL is reachable' || echo 'Cannot reach PostgreSQL'"
+          docker exec spark-iceberg bash -c "echo > /dev/tcp/minio/9000 && echo 'MinIO is reachable' || echo 'Cannot reach MinIO'"
 
       - name: Wait for Spark Connect to be ready
         run: |
