@@ -276,6 +276,9 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err != nil && strings.Contains(err.Error(), "not authorized") {
 			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
 			return bucketAutoStrategy()
+		}else if err != nil && strings.Contains(err.Error(), "CMD_NOT_ALLOWED") {
+			logger.Warnf("command is not allowed on MongoAtlas: %s", err.Error())
+			return bucketAutoStrategy()
 		}
 		return chunks, err
 	}
