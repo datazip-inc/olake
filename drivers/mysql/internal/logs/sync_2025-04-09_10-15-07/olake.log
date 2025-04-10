@@ -1,0 +1,159 @@
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"System has 32GB RAM, setting iceberg writer batch size to 838860800 bytes"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"Starting discover for MySQL database mysql"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.user]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.columns_priv]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.default_roles]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.gtid_executed]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.engine_cost]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.global_grants]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.replication_group_member_actions]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.func]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.role_edges]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.general_log]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.servers]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.plugin]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.replication_asynchronous_connection_failover]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.time_zone]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.test_table_olake]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.tables_priv]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.password_history]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.proxies_priv]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.time_zone_leap_second]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.server_cost]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.replication_asynchronous_connection_failover_managed]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.db]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.slow_log]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.ndb_binlog_index]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.time_zone_name]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.help_category]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.slave_master_info]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.procs_priv]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.slave_worker_info]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.component]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.innodb_index_stats]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.slave_relay_log_info]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.help_keyword]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.help_relation]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.help_topic]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.replication_group_configuration_version]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.innodb_table_stats]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.time_zone_transition]"}
+{"level":"info","time":"2025-04-09T10:15:07Z","message":"producing type schema for stream [mysql.time_zone_transition_type]"}
+{"level":"info","time":"2025-04-09T10:15:08Z","message":"Iceberg JAR file found in base directory: /Users/datazip/Desktop/olake-1/debezium-server-iceberg-sink.jar"}
+{"level":"info","time":"2025-04-09T10:15:08Z","message":"Connected to new iceberg writer on port 50051 for stream check_01JRD0QR5NA2SYFTYJTE0NKPF1, configHash check_01JRD0QR5NA2SYFTYJTE0NKPF1-check-false"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:09.095 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Logs will be output to console only","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:09.172 [main] INFO  org.apache.iceberg.CatalogUtil - Loading custom FileIO implementation: org.apache.iceberg.io.ResolvingFileIO","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:09.449 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tfrom.field = null","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tunknown.properties.ignored = false","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] ","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:09.450 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tfrom.field = null","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tunknown.properties.ignored = false","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] ","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:09.704 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Server started on port 50051 with max message size: 2000MB","time":"2025-04-09T10:15:09Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:11.091 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198887484545186] Parsing messages took: 27 ms","time":"2025-04-09T10:15:11Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:11.105 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Refreshing table metadata from new version: s3a://warehouse/olake_iceberg/olake_test_table/metadata/00002-0f3bc99b-597d-4be4-871a-e82af181384e.metadata.json","time":"2025-04-09T10:15:11Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:11.110 [grpc-default-executor-0] INFO  org.apache.iceberg.CatalogUtil - Loading custom FileIO implementation: org.apache.iceberg.aws.s3.S3FileIO","time":"2025-04-09T10:15:11Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:11.854 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreCatalog - Table loaded by catalog: olake_iceberg.olake_iceberg.olake_test_table","time":"2025-04-09T10:15:11Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:11.855 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.tableoperator.IcebergTableOperator - Batch got 1 records with 1 different schema!!","time":"2025-04-09T10:15:11Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:11.953 [grpc-default-executor-0] INFO  org.apache.hadoop.io.compress.CodecPool - Got brand-new compressor [.zstd]","time":"2025-04-09T10:15:11Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:13.201 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Successfully committed to table olake_iceberg.olake_test_table in 19 ms","time":"2025-04-09T10:15:13Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:13.201 [grpc-default-executor-0] INFO  org.apache.iceberg.SnapshotProducer - Committed snapshot 810556072233565087 (MergeAppend)","time":"2025-04-09T10:15:13Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:13.221 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Refreshing table metadata from new version: s3a://warehouse/olake_iceberg/olake_test_table/metadata/00003-6bef72a8-db27-4c16-b4d3-536afb25d051.metadata.json","time":"2025-04-09T10:15:13Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:13.235 [grpc-default-executor-0] INFO  org.apache.iceberg.metrics.LoggingMetricsReporter - Received metrics report: CommitReport{tableName=olake_iceberg.olake_iceberg.olake_test_table, snapshotId=810556072233565087, sequenceNumber=3, operation=append, commitMetrics=CommitMetricsResult{totalDuration=TimerResult{timeUnit=NANOSECONDS, totalDuration=PT0.506781708S, count=1}, attempts=CounterResult{unit=COUNT, value=1}, addedDataFiles=CounterResult{unit=COUNT, value=1}, removedDataFiles=null, totalDataFiles=CounterResult{unit=COUNT, value=3}, addedDeleteFiles=null, addedEqualityDeleteFiles=null, addedPositionalDeleteFiles=null, removedDeleteFiles=null, removedEqualityDeleteFiles=null, removedPositionalDeleteFiles=null, totalDeleteFiles=CounterResult{unit=COUNT, value=0}, addedRecords=CounterResult{unit=COUNT, value=1}, removedRecords=null, totalRecords=CounterResult{unit=COUNT, value=3}, addedFilesSizeInBytes=CounterResult{unit=BYTES, value=1564}, removedFilesSizeInBytes=null, totalFilesSizeInBytes=CounterResult{unit=BYTES, value=4692}, addedPositionalDeletes=null, removedPositionalDeletes=null, totalPositionalDeletes=CounterResult{unit=COUNT, value=0}, addedEqualityDeletes=null, removedEqualityDeletes=null, totalEqualityDeletes=CounterResult{unit=COUNT, value=0}}, metadata={iceberg-version=Apache Iceberg 1.7.1 (commit 4a432839233f2343a9eae8255532f911f06358ef)}}","time":"2025-04-09T10:15:13Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:13.261 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.tableoperator.IcebergTableOperator - Successfully committed 1 events","time":"2025-04-09T10:15:13Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:13.261 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198887484545186] Processing tables took: 2170 ms","time":"2025-04-09T10:15:13Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:13.271 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198887484545186] Total time taken: 2207 ms","time":"2025-04-09T10:15:13Z"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Server Response: [Thread-23-198887484545186] Received 1 messages"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Shutting down Iceberg server on port 50051"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Starting discover for MySQL database mysql"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.columns_priv]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.general_log]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.innodb_index_stats]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.gtid_executed]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.func]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.component]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.user]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.default_roles]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.global_grants]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.time_zone_leap_second]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.help_topic]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.tables_priv]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.password_history]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.procs_priv]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.innodb_table_stats]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.slave_worker_info]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.time_zone_transition]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.time_zone_transition_type]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.test_table_olake]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.slow_log]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.replication_group_member_actions]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.time_zone_name]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.help_keyword]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.engine_cost]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.slave_master_info]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.help_category]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.db]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.servers]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.help_relation]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.slave_relay_log_info]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.time_zone]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.ndb_binlog_index]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.replication_asynchronous_connection_failover_managed]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.proxies_priv]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.replication_asynchronous_connection_failover]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.plugin]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.replication_group_configuration_version]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.role_edges]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"producing type schema for stream [mysql.server_cost]"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Stream mysql.test_table_olake extremes - min: 1, max: 5"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Starting backfill for stream[test_table_olake] with 2 chunks"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Iceberg JAR file found in base directory: /Users/datazip/Desktop/olake-1/debezium-server-iceberg-sink.jar"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Connected to new iceberg writer on port 50051 for stream mysql.test_table_olake, configHash mysql.test_table_olake-mysql-true"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Iceberg JAR file found in base directory: /Users/datazip/Desktop/olake-1/debezium-server-iceberg-sink.jar"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"Reusing existing Iceberg server on port 50051 for stream mysql.test_table_olake, refCount 2"}
+{"level":"info","time":"2025-04-09T10:15:13Z","message":"chunk[2] with min[1]-max[<nil>] completed in 0.44 seconds"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:14.362 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Logs will be output to console only","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:14.432 [main] INFO  org.apache.iceberg.CatalogUtil - Loading custom FileIO implementation: org.apache.iceberg.io.ResolvingFileIO","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:14.673 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tfrom.field = null","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tunknown.properties.ignored = false","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] ","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:14.674 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tfrom.field = null","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] \tunknown.properties.ignored = false","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] ","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:14.881 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Server started on port 50051 with max message size: 2000MB","time":"2025-04-09T10:15:14Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:16.606 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198893006442794] Parsing messages took: 20 ms","time":"2025-04-09T10:15:16Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:16.616 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Refreshing table metadata from new version: s3a://warehouse/olake_iceberg/test_table_olake/metadata/00010-5a7d8f3a-cd6d-47be-8f7e-9af76bc72ea8.metadata.json","time":"2025-04-09T10:15:16Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:16.620 [grpc-default-executor-0] INFO  org.apache.iceberg.CatalogUtil - Loading custom FileIO implementation: org.apache.iceberg.aws.s3.S3FileIO","time":"2025-04-09T10:15:16Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:17.231 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreCatalog - Table loaded by catalog: olake_iceberg.olake_iceberg.test_table_olake","time":"2025-04-09T10:15:17Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:17.235 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.tableoperator.IcebergTableOperator - Batch got 5 records with 1 different schema!!","time":"2025-04-09T10:15:17Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:17.337 [grpc-default-executor-0] INFO  org.apache.hadoop.io.compress.CodecPool - Got brand-new compressor [.zstd]","time":"2025-04-09T10:15:17Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:17.505 [grpc-default-executor-0] INFO  org.apache.hadoop.io.compress.CodecPool - Got brand-new compressor [.zstd]","time":"2025-04-09T10:15:17Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.634 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Successfully committed to table olake_iceberg.test_table_olake in 20 ms","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.634 [grpc-default-executor-0] INFO  org.apache.iceberg.SnapshotProducer - Committed snapshot 7575876153627827650 (BaseRowDelta)","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.654 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Refreshing table metadata from new version: s3a://warehouse/olake_iceberg/test_table_olake/metadata/00011-025bb4f7-95ad-4104-bcd2-e0e5e5550270.metadata.json","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.668 [grpc-default-executor-0] INFO  org.apache.iceberg.metrics.LoggingMetricsReporter - Received metrics report: CommitReport{tableName=olake_iceberg.olake_iceberg.test_table_olake, snapshotId=7575876153627827650, sequenceNumber=11, operation=overwrite, commitMetrics=CommitMetricsResult{totalDuration=TimerResult{timeUnit=NANOSECONDS, totalDuration=PT0.566895543S, count=1}, attempts=CounterResult{unit=COUNT, value=1}, addedDataFiles=CounterResult{unit=COUNT, value=1}, removedDataFiles=null, totalDataFiles=CounterResult{unit=COUNT, value=11}, addedDeleteFiles=CounterResult{unit=COUNT, value=1}, addedEqualityDeleteFiles=CounterResult{unit=COUNT, value=1}, addedPositionalDeleteFiles=null, removedDeleteFiles=null, removedEqualityDeleteFiles=null, removedPositionalDeleteFiles=null, totalDeleteFiles=CounterResult{unit=COUNT, value=11}, addedRecords=CounterResult{unit=COUNT, value=5}, removedRecords=null, totalRecords=CounterResult{unit=COUNT, value=35}, addedFilesSizeInBytes=CounterResult{unit=BYTES, value=2986}, removedFilesSizeInBytes=null, totalFilesSizeInBytes=CounterResult{unit=BYTES, value=32418}, addedPositionalDeletes=null, removedPositionalDeletes=null, totalPositionalDeletes=CounterResult{unit=COUNT, value=0}, addedEqualityDeletes=CounterResult{unit=COUNT, value=5}, removedEqualityDeletes=null, totalEqualityDeletes=CounterResult{unit=COUNT, value=33}}, metadata={iceberg-version=Apache Iceberg 1.7.1 (commit 4a432839233f2343a9eae8255532f911f06358ef)}}","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.768 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.tableoperator.IcebergTableOperator - Successfully committed 5 events","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.768 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198893006442794] Processing tables took: 2162 ms","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.777 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198893006442794] Total time taken: 2191 ms","time":"2025-04-09T10:15:18Z"}
+{"level":"info","time":"2025-04-09T10:15:18Z","message":"Sent batch to Iceberg server: 5 records, response: [Thread-23-198893006442794] Received 5 messages"}
+{"level":"info","time":"2025-04-09T10:15:18Z","message":"Decreased reference count for Iceberg server on port 50051, refCount 1"}
+{"level":"info","time":"2025-04-09T10:15:18Z","message":"chunk[1] with min[<nil>]-max[1] completed in 5.46 seconds"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.799 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198895218850598] Parsing messages took: 1 ms","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.804 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Refreshing table metadata from new version: s3a://warehouse/olake_iceberg/test_table_olake/metadata/00011-025bb4f7-95ad-4104-bcd2-e0e5e5550270.metadata.json","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.814 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreCatalog - Table loaded by catalog: olake_iceberg.olake_iceberg.test_table_olake","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.814 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.tableoperator.IcebergTableOperator - Batch got 1 records with 1 different schema!!","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.825 [grpc-default-executor-0] INFO  org.apache.hadoop.io.compress.CodecPool - Got brand-new compressor [.zstd]","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:18.834 [grpc-default-executor-0] INFO  org.apache.hadoop.io.compress.CodecPool - Got brand-new compressor [.zstd]","time":"2025-04-09T10:15:18Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:19.035 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Successfully committed to table olake_iceberg.test_table_olake in 16 ms","time":"2025-04-09T10:15:19Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:19.036 [grpc-default-executor-0] INFO  org.apache.iceberg.SnapshotProducer - Committed snapshot 8596991571775729715 (BaseRowDelta)","time":"2025-04-09T10:15:19Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:19.052 [grpc-default-executor-0] INFO  org.apache.iceberg.BaseMetastoreTableOperations - Refreshing table metadata from new version: s3a://warehouse/olake_iceberg/test_table_olake/metadata/00012-318f1377-7725-456e-b5b0-229bd6d56858.metadata.json","time":"2025-04-09T10:15:19Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:19.061 [grpc-default-executor-0] INFO  org.apache.iceberg.metrics.LoggingMetricsReporter - Received metrics report: CommitReport{tableName=olake_iceberg.olake_iceberg.test_table_olake, snapshotId=8596991571775729715, sequenceNumber=12, operation=overwrite, commitMetrics=CommitMetricsResult{totalDuration=TimerResult{timeUnit=NANOSECONDS, totalDuration=PT0.176856241S, count=1}, attempts=CounterResult{unit=COUNT, value=1}, addedDataFiles=CounterResult{unit=COUNT, value=1}, removedDataFiles=null, totalDataFiles=CounterResult{unit=COUNT, value=12}, addedDeleteFiles=CounterResult{unit=COUNT, value=1}, addedEqualityDeleteFiles=CounterResult{unit=COUNT, value=1}, addedPositionalDeleteFiles=null, removedDeleteFiles=null, removedEqualityDeleteFiles=null, removedPositionalDeleteFiles=null, totalDeleteFiles=CounterResult{unit=COUNT, value=12}, addedRecords=CounterResult{unit=COUNT, value=1}, removedRecords=null, totalRecords=CounterResult{unit=COUNT, value=36}, addedFilesSizeInBytes=CounterResult{unit=BYTES, value=2893}, removedFilesSizeInBytes=null, totalFilesSizeInBytes=CounterResult{unit=BYTES, value=35311}, addedPositionalDeletes=null, removedPositionalDeletes=null, totalPositionalDeletes=CounterResult{unit=COUNT, value=0}, addedEqualityDeletes=CounterResult{unit=COUNT, value=1}, removedEqualityDeletes=null, totalEqualityDeletes=CounterResult{unit=COUNT, value=34}}, metadata={iceberg-version=Apache Iceberg 1.7.1 (commit 4a432839233f2343a9eae8255532f911f06358ef)}}","time":"2025-04-09T10:15:19Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:19.061 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.tableoperator.IcebergTableOperator - Successfully committed 1 events","time":"2025-04-09T10:15:19Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:19.061 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198895218850598] Processing tables took: 262 ms","time":"2025-04-09T10:15:19Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:45:19.061 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-23-198895218850598] Total time taken: 263 ms","time":"2025-04-09T10:15:19Z"}
+{"level":"info","time":"2025-04-09T10:15:19Z","message":"Sent batch to Iceberg server: 1 records, response: [Thread-23-198895218850598] Received 1 messages"}
+{"level":"info","time":"2025-04-09T10:15:19Z","message":"Shutting down Iceberg server on port 50051"}

@@ -87,7 +87,7 @@ services:
       - ./data/minio-data:/data
     command: [ "server", "/data", "--console-address", ":9001" ]
 
-  mc:
+  mc: 
     depends_on:
       - minio
     image: minio/mc

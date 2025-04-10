@@ -1,0 +1,1 @@
+{"type":"GLOBAL","global":{"server_id":9000,"state":{"position":{"Name":"mysql-bin.000003","Pos":455787}},"streams":["mysql.test_table_olake"]},"streams":[{"stream":"test_table_olake","namespace":"mysql","sync_mode":"","state":{"chunks":[]}}]}

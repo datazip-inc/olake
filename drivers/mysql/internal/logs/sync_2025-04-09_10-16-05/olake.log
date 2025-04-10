@@ -1,0 +1,69 @@
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"System has 32GB RAM, setting iceberg writer batch size to 838860800 bytes"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"Starting discover for MySQL database mysql"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.global_grants]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.columns_priv]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.default_roles]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.general_log]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.component]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.plugin]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.engine_cost]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.func]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.replication_asynchronous_connection_failover_managed]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.proxies_priv]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.test_table_olake]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.db]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.help_topic]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.procs_priv]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.password_history]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.slow_log]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.time_zone]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.time_zone_name]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.time_zone_transition_type]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.slave_worker_info]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.innodb_index_stats]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.time_zone_leap_second]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.ndb_binlog_index]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.help_relation]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.help_category]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.help_keyword]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.replication_group_member_actions]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.slave_relay_log_info]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.slave_master_info]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.time_zone_transition]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.server_cost]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.user]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.role_edges]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.replication_asynchronous_connection_failover]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.servers]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.gtid_executed]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.replication_group_configuration_version]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.innodb_table_stats]"}
+{"level":"info","time":"2025-04-09T10:16:05Z","message":"producing type schema for stream [mysql.tables_priv]"}
+{"level":"info","time":"2025-04-09T10:16:06Z","message":"Iceberg JAR file found in base directory: /Users/datazip/Desktop/olake-1/debezium-server-iceberg-sink.jar"}
+{"level":"info","time":"2025-04-09T10:16:06Z","message":"Connected to new iceberg writer on port 50051 for stream check_01JRD0SGQDB6S59ETK5XM1DXJ7, configHash check_01JRD0SGQDB6S59ETK5XM1DXJ7-check-false"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:46:06.801 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Logs will be output to console only","time":"2025-04-09T10:16:06Z"}
+{"level":"info","message":"[Java-Iceberg:50051] 15:46:06.871 [main] INFO  org.apache.iceberg.CatalogUtil - Loading custom FileIO implementation: org.apache.iceberg.io.ResolvingFileIO","time":"2025-04-09T10:16:06Z"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] Exception in thread \"main\" org.apache.iceberg.jdbc.UncheckedSQLException: Failed to connect: jdbc:postgresql://localhost:5432/iceberg"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.jdbc.JdbcClientPool.newClient(JdbcClientPool.java:90)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.jdbc.JdbcClientPool.newClient(JdbcClientPool.java:35)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.ClientPoolImpl.get(ClientPoolImpl.java:143)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.ClientPoolImpl.run(ClientPoolImpl.java:70)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.ClientPoolImpl.run(ClientPoolImpl.java:65)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.jdbc.JdbcCatalog.initializeCatalogTables(JdbcCatalog.java:160)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.jdbc.JdbcCatalog.initialize(JdbcCatalog.java:146)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.CatalogUtil.loadCatalog(CatalogUtil.java:274)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.CatalogUtil.buildIcebergCatalog(CatalogUtil.java:328)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat io.debezium.server.iceberg.OlakeRpcServer.main(OlakeRpcServer.java:70)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] Caused by: org.postgresql.util.PSQLException: FATAL: could not open file \"global/pg_filenode.map\": Operation not permitted"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.postgresql.core.v3.ConnectionFactoryImpl.doAuthentication(ConnectionFactoryImpl.java:711)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:213)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:268)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:54)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:273)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.postgresql.Driver.makeConnection(Driver.java:446)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.postgresql.Driver.connect(Driver.java:298)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat java.sql/java.sql.DriverManager.getConnection(DriverManager.java:681)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat java.sql/java.sql.DriverManager.getConnection(DriverManager.java:190)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \tat org.apache.iceberg.jdbc.JdbcClientPool.newClient(JdbcClientPool.java:88)"}
+{"level":"error","time":"2025-04-09T10:16:06Z","message":"[Java-Iceberg:50051] \t... 9 more"}
+{"level":"info","time":"2025-04-09T10:16:36Z","message":"Shutting down Iceberg server on port 50051"}
