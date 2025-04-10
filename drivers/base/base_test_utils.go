@@ -101,7 +101,7 @@ type TestHelper struct {
 }
 
 // TestSetup tests the driver setup and connection check
-const tableName = "test_table_olake"
+var tableName = fmt.Sprintf("%s_%d", "test_table_olake", time.Now().Unix())
 
 func TestSetup(t *testing.T, driver protocol.Driver, client interface{}) {
 	t.Helper()
