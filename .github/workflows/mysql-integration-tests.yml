@@ -25,11 +25,11 @@ jobs:
         run: |
           # Start MySQL and related services
           cd ./drivers/mysql
-          docker-compose up -d
+          docker compose up -d
           
           # Start Iceberg-related services
           cd ./writers/iceberg/local-test
-          docker-compose up -d
+          docker compose up -d
           
           # Wait for services to be ready
           echo "Waiting for services to start..."
