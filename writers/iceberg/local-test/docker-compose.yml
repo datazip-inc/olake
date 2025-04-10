@@ -66,8 +66,11 @@ services:
       - 10000:10000
       - 10001:10001
       - 15002:15002
-    post_start:
-      - command: ["sh", "-c", "/opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem &"]
+    entrypoint: |
+      /bin/sh -c "
+      /opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem &
+      /bin/bash -c 'while true; do sleep 30; done'
+      "
 
   minio:
     image: minio/minio
