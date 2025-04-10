@@ -158,12 +158,12 @@ jobs:
 
       - name: Build
         run: go build -v ./...
-        
+
       - name: Run Maven build
         run: |
           cd ./writers/iceberg/debezium-server-iceberg-sink
           mvn clean package -DskipTests
 
       - name: Run integration tests
-        run: go test -v ./... -tags=integration --timeout 0
+        run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
         
