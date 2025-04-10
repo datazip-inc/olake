@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.23.2'
       - name: Create directories for volume mounts
         run: |
             mkdir -p ./data/minio-data
@@ -42,28 +42,20 @@ jobs:
             -v ${{ github.workspace }}/data/minio-data:/data \
             minio/minio server /data --console-address ":9001"
 
-      - name: Initialize MinIO bucket
+      - name: Initialize MinIO buckets
         run: |
-          # Wait for MinIO to be ready
-          sleep 5
-          
-          # Use mc alias set instead of config host add (newer syntax)
-          docker run --rm \
-            --network iceberg_net \
-            minio/mc \
-            alias set minio http://minio:9000 admin password
-          
-          # Create the warehouse bucket if it doesn't exist
-          docker run --rm \
-            --network iceberg_net \
-            minio/mc \
-            mb --ignore-existing minio/warehouse
-          
-          # Set public policy on the bucket
-          docker run --rm \
-            --network iceberg_net \
-            minio/mc \
-            policy set public minio/warehouse
+              docker run --rm \
+                --name mc \
+                --network iceberg_net \
+                -e AWS_ACCESS_KEY_ID=admin \
+                -e AWS_SECRET_ACCESS_KEY=password \
+                -e AWS_REGION=us-east-1 \
+                --entrypoint sh \
+                minio/mc -c "
+                until (mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+                mc mb minio/warehouse || true;
+                mc policy set public minio/warehouse || true;
+                "
 
       - name: Start Postgres
         run: |
