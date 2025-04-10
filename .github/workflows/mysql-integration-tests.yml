@@ -56,10 +56,10 @@ jobs:
        # Prepare Data Directories and Run Tests
       - name: Create data directories with proper permissions
         run: |
-          sudo mkdir -p /home/runner/work/olake/olake/data/postgres-data
-          sudo mkdir -p /home/runner/work/olake/olake/data/minio-data
-          sudo mkdir -p /home/runner/work/olake/olake/data/ivy-cache
-          sudo chmod -R 777 /home/runner/work/olake/olake/data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
+          sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
       # Install go dependencies and build
       - name: Install dependencies
         run: go mod download
