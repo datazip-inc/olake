@@ -82,10 +82,81 @@ func (m *MySQL) Setup() error {
 		m.cdcConfig = *cdc
 	}
 	m.client = client
+
+	binLogPermissions, err := checkBinlogPermissions(m)
+	if err != nil {
+		logger.Errorf("failed to check binlog permissions for CDC support: %v", err)
+	}
+
+	userPermissions, err := checkUserPermissions(m)
+	if err != nil {
+		logger.Errorf("failed to check user permissions for CDC support: %v", err)
+	}
+
 	// Enable CDC support if binlog is configured
-	//TODO : check for mysql binlog permisssions
-	m.CDCSupport = true
+	m.CDCSupport = binLogPermissions && userPermissions
 	return nil
+}
+
+// QueryRow executes a query and scans the result into the destination
+func QueryRow(client *sql.DB, query string, dest ...any) error {
+	return client.QueryRow(query).Scan(dest...)
+}
+
+// checkBinLogPermissions verifies the binary log permissions required for CDC support
+func checkBinlogPermissions(m *MySQL) (bool, error) {
+	var variableName string
+	var variableValue string
+
+	err := QueryRow(m.client, "SHOW VARIABLES LIKE 'log_bin'", &variableName, &variableValue)
+	if err != nil {
+		return false, fmt.Errorf("failed to check log_bin: %w", err)
+	}
+	if variableValue != "ON" {
+		logger.Warnf("log_bin is not set to 'ON'")
+		return false, nil
+	}
+
+	err = QueryRow(m.client, "SHOW VARIABLES LIKE 'binlog_format'", &variableName, &variableValue)
+	if err != nil {
+		return false, fmt.Errorf("failed to check binlog_format: %w", err)
+	}
+	if variableValue != "ROW" {
+		logger.Warnf("binlog_format is not set to ROW")
+		return false, nil
+	}
+
+	err = QueryRow(m.client, "SHOW VARIABLES LIKE 'binlog_row_metadata'", &variableName, &variableValue)
+	if err != nil {
+		return false, fmt.Errorf("failed to check binlog_row_metadata: %w", err)
+	}
+	if variableValue != "FULL" {
+		logger.Warnf("binlog_row_metadata is not set to FULL")
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// checkUserPermissions verifies user permissions required for CDC support
+func checkUserPermissions(m *MySQL) (bool, error) {
+	var userGrants string
+
+	err := QueryRow(m.client, "SHOW GRANTS FOR CURRENT_USER()", &userGrants)
+	if err != nil {
+		return false, fmt.Errorf("failed to check user privileges: %w", err)
+	}
+	if !strings.Contains(userGrants, "REPLICATION CLIENT") {
+		logger.Warnf("user does not have REPLICATION CLIENT privilege")
+		return false, nil
+	}
+
+	if !strings.Contains(userGrants, "REPLICATION SLAVE") {
+		logger.Warnf("user does not have REPLICATION SLAVE privilege")
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // Check verifies the database connection
@@ -135,7 +206,6 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 		m.AddStream(stream)
 		return err
 	})
-
 	if err != nil {
 		return nil, err
 	}
