@@ -24,11 +24,11 @@ jobs:
       - name: Start Docker containers using local compose files
         run: |
           # Start MySQL and related services
-          cd /Users/datazip/Desktop/olake-1/drivers/mysql
+          cd ./drivers/mysql
           docker-compose up -d
           
           # Start Iceberg-related services
-          cd /Users/datazip/Desktop/olake-1/writers/iceberg/local-test
+          cd ./writers/iceberg/local-test
           docker-compose up -d
           
           # Wait for services to be ready
