@@ -3,7 +3,7 @@ name: Iceberg Integration Tests
 on:
   push:
     branches:
-     - "feat/testing_framework"
+      - "feat/testing_framework"
   pull_request:
     branches:
       - "feat/testing_framework*"
@@ -21,19 +21,21 @@ jobs:
           go-version: '1.23.2'
 
       # Use your local Docker environment instead of creating containers
-      - name: Start Docker containers using local compose files
+      - name: Start MySQL and related services
         run: |
-          # Start MySQL and related services
-          cd ./drivers/mysql
+          pushd ./drivers/mysql
           docker compose up -d
-          
-          # Start Iceberg-related services
-          cd ./writers/iceberg/local-test
+          popd
+
+      - name: Start Iceberg-related services
+        run: |
+          pushd ./writers/iceberg/local-test
           docker compose up -d
-          
-          # Wait for services to be ready
-          echo "Waiting for services to start..."
-          sleep 30
+          popd
+    
+      # Wait for services to be ready
+      - name: Wait for services to be ready
+        run: sleep 30
 
       # Verify services are running
       - name: Verify MySQL is running
@@ -73,8 +75,10 @@ jobs:
       # Clean up containers when done
       - name: Clean up Docker containers
         run: |
-          cd /Users/datazip/Desktop/olake-1/writers/iceberg/local-test
-          docker-compose down
+          pushd ./writers/iceberg/local-test
+          docker compose down
+          popd
           
-          cd /Users/datazip/Desktop/olake-1/drivers/mysql
-          docker-compose down
+          pushd ./drivers/mysql
+          docker compose down
+          popd
