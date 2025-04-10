@@ -39,7 +39,7 @@ jobs:
             -e MINIO_DOMAIN=minio \
             -p 9000:9000 \
             -p 9001:9001 \
-            -v $(pwd)/data/minio-data:/data \
+            -v ${{ github.workspace }}/data/minio-data:/data \
             minio/minio server /data --console-address ":9001"
 
       - name: Initialize MinIO bucket
@@ -74,7 +74,7 @@ jobs:
             -e POSTGRES_PASSWORD=password \
             -e POSTGRES_DB=iceberg \
             -p 5432:5432 \
-            -v $(pwd)/data/postgres-data:/var/lib/postgresql/data \
+            -v ${{ github.workspace }}/data/postgres-data:/var/lib/postgresql/data \
             postgres:15
 
       - name: Wait for Postgres to be ready
@@ -139,7 +139,7 @@ jobs:
             -p 10000:10000 \
             -p 10001:10001 \
             -p 15002:15002 \
-            -v $(pwd)/data/ivy-cache:/root/.ivy2 \
+            -v ${{ github.workspace }}/data/ivy-cache:/root/.ivy2 \
             -v $(pwd)/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf \
             tabulario/spark-iceberg:latest
 
@@ -206,6 +206,12 @@ jobs:
               GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'%';
               FLUSH PRIVILEGES;
             "
+      - name: Create data directories with proper permissions
+        run: |
+              sudo mkdir -p /home/runner/work/olake/olake/data/postgres-data
+              sudo mkdir -p /home/runner/work/olake/olake/data/minio-data
+              sudo mkdir -p /home/runner/work/olake/olake/data/ivy-cache
+              sudo chmod -R 777 /home/runner/work/olake/olake/data
 
       - name: Install dependencies
         run: go mod download
