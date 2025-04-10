@@ -267,10 +267,6 @@
                     <artifactId>log4j</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>org.apache.thrift</groupId>
-                    <artifactId>libthrift</artifactId>
-                </exclusion>
-                <exclusion>
                     <groupId>org.apache.derby</groupId>
                     <artifactId>derby</artifactId>
                 </exclusion>
@@ -684,12 +680,6 @@
             <version>${version.kafka}</version>
         </dependency>
         
-        <!-- Updated vulnerable transitive dependencies -->
-        <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libthrift</artifactId>
-            <version>0.17.0</version>
-        </dependency>
         <dependency>
             <groupId>org.apache.derby</groupId>
             <artifactId>derby</artifactId>

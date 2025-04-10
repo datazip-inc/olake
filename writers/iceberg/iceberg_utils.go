@@ -186,7 +186,7 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	case HiveCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.hive.HiveCatalog"
 		serverConfig["uri"] = i.config.HiveURI
-		serverConfig["clients"] = i.config.HiveClients
+		serverConfig["clients"] = strconv.Itoa(i.config.HiveClients)
 		serverConfig["hive.metastore.sasl.enabled"] = strconv.FormatBool(i.config.HiveSaslEnabled)
 		serverConfig["engine.hive.enabled"] = "true"
 	case RestCatalog:
@@ -287,7 +287,6 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to create server config: %v", err)
 	}
-
 	// Start the Java server process
 	i.cmd = exec.Command("java", "-jar", i.config.JarPath, string(configJSON))
 
