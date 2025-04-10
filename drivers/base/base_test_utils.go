@@ -35,16 +35,9 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 	}
 	require.NoError(t, err, "Failed to connect to Spark")
 	defer spark.Stop()
-
 	time.Sleep(15 * time.Second)
-	query := "SHOW DATABASES"
-
-	// Execute the SQL query to get the list of databases
-	databasesDf, err := spark.Sql(ctx, query)
-	require.NoError(t, err, "Failed to execute SHOW DATABASES query")
-	databasesDf.Show(ctx, 100, false)
 	//Query for unique olake_id records
-	query = fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
+	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
 	countDf, err := spark.Sql(ctx, query)
 	require.NoError(t, err, "Failed to query unique count from the table")
 
@@ -119,7 +112,7 @@ func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, help
 	helper.CreateTable(ctx, t, conn, tableName)
 	defer helper.DropTable(ctx, t, conn, tableName)
 	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 6, "col1", "col2")
+	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
 
 	streams, err := driver.Discover(true)
 	assert.NoError(t, err, "Discover failed")

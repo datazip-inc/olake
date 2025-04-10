@@ -60,6 +60,28 @@ jobs:
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
           sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
+      - name: Debug container networking
+        run: |
+            docker ps -a
+            docker network ls
+            docker network inspect $(docker network ls -q)
+            docker logs $(docker ps -q --filter name=postgres)
+            docker exec $(docker ps -q --filter name=postgres) pg_isready -h localhost
+      - name: Check Postgres configuration
+        run: |
+              docker exec $(docker ps -q --filter name=postgres) cat /var/lib/postgresql/data/postgresql.conf | grep listen_addresses
+              docker exec $(docker ps -q --filter name=postgres) cat /var/lib/postgresql/data/pg_hba.conf
+         
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Test direct connection to Postgres
+        run: |
+              PGPASSWORD=password psql -h localhost -p 5432 -U iceberg -d iceberg -c "SELECT 1"
+              - name: Verify Spark configuration
+              run: |
+                docker exec $(docker ps -q --filter name=spark) ls -la /opt/spark/jars/ | grep postgres
+
       # Install go dependencies and build
       - name: Install dependencies
         run: go mod download

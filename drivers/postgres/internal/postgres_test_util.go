@@ -20,7 +20,7 @@ func testPostgresClient(t *testing.T) (*sqlx.DB, Config, *Postgres) {
 
 	config := Config{
 		Host:             "localhost",
-		Port:             5432,
+		Port:             5433,
 		Username:         "postgres",
 		Password:         "secret1234",
 		Database:         "postgres",

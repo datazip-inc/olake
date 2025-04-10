@@ -14,12 +14,12 @@ func setupClient(t *testing.T) (interface{}, protocol.Driver) {
 }
 
 // Test functions using base utilities
-func TestMySQLSetup(t *testing.T) {
+func TestPostgresSetup(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
 	base.TestSetup(t, pClient, client)
 }
 
-func TestMySQLDiscover(t *testing.T) {
+func TestPostgresDiscover(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
 	helper := base.TestHelper{
 		CreateTable: createTestTable,
@@ -31,7 +31,7 @@ func TestMySQLDiscover(t *testing.T) {
 	// TODO : Add Postgres-specific schema verification if needed
 }
 
-func TestMySQLRead(t *testing.T) {
+func TestPostgresRead(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
 	helper := base.TestHelper{
 		CreateTable: createTestTable,
