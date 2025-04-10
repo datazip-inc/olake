@@ -45,13 +45,10 @@ jobs:
 
       - name: Create draft release
         id: create-draft-release
-        uses: softprops/action-gh-release@v2
+        uses: ncipollo/release-action@v1
         with:
-          tag_name: ${{ env.NEXT_VERSION }}
-          name: Release ${{ env.NEXT_VERSION }}
-          body_path: CHANGELOG.txt
+          tag: ${{ env.NEXT_VERSION }}
+          generateReleaseNotes: true
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-
