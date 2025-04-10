@@ -19,6 +19,11 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
+      - name: Create directories for volume mounts
+        run: |
+            mkdir -p ./data/minio-data
+            mkdir -p ./data/postgres-data
+            sudo chmod -R 777 ./data  # Ensure permissions
 
       - name: Create Docker network
         run: docker network create iceberg_net
@@ -34,6 +39,7 @@ jobs:
             -e MINIO_DOMAIN=minio \
             -p 9000:9000 \
             -p 9001:9001 \
+            -v $(pwd)/data/minio-data:/data \
             minio/minio server /data --console-address ":9001"
 
       - name: Initialize MinIO bucket
@@ -68,6 +74,7 @@ jobs:
             -e POSTGRES_PASSWORD=password \
             -e POSTGRES_DB=iceberg \
             -p 5432:5432 \
+            -v $(pwd)/data/postgres-data:/var/lib/postgresql/data \
             postgres:15
 
       - name: Wait for Postgres to be ready
@@ -85,7 +92,10 @@ jobs:
             echo "Waiting for Postgres to be ready... ($i/30)"
             sleep 3
           done
-
+      - name: Create ivy2 cache directory
+        run: |
+            mkdir -p ./data/ivy-cache
+            sudo chmod 777 ./data/ivy-cache
       - name: Create spark-defaults.conf
         run: |
           cat > spark-defaults.conf << EOL
@@ -129,6 +139,7 @@ jobs:
             -p 10000:10000 \
             -p 10001:10001 \
             -p 15002:15002 \
+            -v $(pwd)/data/ivy-cache:/root/.ivy2 \
             -v $(pwd)/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf \
             tabulario/spark-iceberg:latest
 
