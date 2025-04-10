@@ -94,7 +94,13 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 				}
 				// TODO : create hash from all keys if primary key not present
 				//genrate olake id
-				olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
+				var olakeID string
+				// if no primary key is defined, generate a hash from all values in record
+				if pkColumns.Len() == 0 {
+					olakeID = utils.GetHash(record)
+				} else {
+					olakeID = utils.GetKeysHash(record, pkColumns.Array()...)
+				}
 				//insert record
 				err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0).UnixNano()))
 				if err != nil {
