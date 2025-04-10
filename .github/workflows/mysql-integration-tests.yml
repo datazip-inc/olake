@@ -120,7 +120,7 @@ jobs:
           # Configure olake_iceberg catalog
           spark.sql.catalog.olake_iceberg                      org.apache.iceberg.spark.SparkCatalog
           spark.sql.catalog.olake_iceberg.catalog-impl         org.apache.iceberg.jdbc.JdbcCatalog
-          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://postgres:5432/iceberg?ssl=false
+          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://localhost:5432/iceberg?ssl=false
           spark.sql.catalog.olake_iceberg.jdbc.user            iceberg
           spark.sql.catalog.olake_iceberg.jdbc.password        password
           spark.sql.catalog.olake_iceberg.warehouse            s3a://warehouse/olake_iceberg/
@@ -150,14 +150,14 @@ jobs:
 
       - name: Start Spark Connect server
         run: |
-          docker exec spark-iceberg bash -c "cd /opt/spark && ./sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.postgresql:postgresql:42.5.4 --conf spark.sql.catalog.olake_iceberg.uri=jdbc:postgresql://postgres:5432/iceberg?ssl=false spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
+          docker exec spark-iceberg bash -c "cd /opt/spark && ./sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.postgresql:postgresql:42.5.4 --conf spark.sql.catalog.olake_iceberg.uri=jdbc:postgresql://localhost:5432/iceberg?ssl=false spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
 
       - name: Verify Spark Connect is running
         run: |
           for i in {1..30}; do
             if docker exec spark-iceberg bash -c "ps -ef | grep 'ConnectServer'" | grep -q java; then
               echo "Spark Connect server is running!"
-              sleep 120  # Extra time to fully initialize
+              sleep 10  # Extra time to fully initialize
               break
             fi
             if [ $i -eq 30 ]; then
