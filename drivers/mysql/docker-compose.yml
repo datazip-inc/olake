@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: olake_mysql-test
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: mysql
+      MYSQL_USER: mysql
+      MYSQL_PASSWORD: secret1234
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --binlog-row-image=FULL
+      --binlog_row_metadata=FULL
+      --max_allowed_packet=256M
+      --innodb_buffer_pool_size=512M
+      --default-authentication-plugin=mysql_native_password

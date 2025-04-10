@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: 'debezium/postgres:latest'
+    container_name: olake_postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret1234
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
+    command: >
+      -c wal_level=logical
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c shared_preload_libraries=wal2json
+      -c hba_file=/etc/postgresql/pg_hba.conf
+      -c listen_addresses='*'
