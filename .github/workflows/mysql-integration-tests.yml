@@ -85,13 +85,13 @@ jobs:
             echo "Waiting for Postgres to be ready... ($i/30)"
             sleep 3
           done
-      - name: Ping Postgres container
-        run: |
-            docker run --rm \
-              --network iceberg_net \
-              -e HOSTNAME=postgres \
-              -e TIMEOUT=30 \
-              willfarrell/ping
+      # - name: Ping Postgres container
+      #   run: |
+      #       docker run --rm \
+      #         --network iceberg_net \
+      #         -e HOSTNAME=postgres \
+      #         -e TIMEOUT=30 \
+      #         willfarrell/ping
         
       - name: Create ivy2 cache directory
         run: |
