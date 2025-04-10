@@ -146,7 +146,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		Type: "ICEBERG",
 		WriterConfig: map[string]any{
 			"catalog_type":    "jdbc",
-			"jdbc_url":        "jdbc:postgresql://localhost:5432/iceberg",
+			"jdbc_url":        "jdbc:postgresql://postgres:5432/iceberg",
 			"jdbc_username":   "iceberg",
 			"jdbc_password":   "password",
 			"normalization":   false,
