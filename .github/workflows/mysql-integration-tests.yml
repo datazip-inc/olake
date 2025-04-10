@@ -53,7 +53,13 @@ jobs:
       - name: Verify Spark Iceberg is running
         run: |
           docker ps | grep spark-iceberg && echo "Spark Iceberg is running"
-
+       # Prepare Data Directories and Run Tests
+      - name: Create data directories with proper permissions
+        run: |
+          sudo mkdir -p /home/runner/work/olake/olake/data/postgres-data
+          sudo mkdir -p /home/runner/work/olake/olake/data/minio-data
+          sudo mkdir -p /home/runner/work/olake/olake/data/ivy-cache
+          sudo chmod -R 777 /home/runner/work/olake/olake/data
       # Install go dependencies and build
       - name: Install dependencies
         run: go mod download
