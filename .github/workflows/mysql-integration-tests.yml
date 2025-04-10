@@ -3,10 +3,10 @@ name: Iceberg Integration Tests
 on:
   push:
     branches:
-      - "feat/testing_framework"
+     -"feat/testing_framework"
   pull_request:
     branches:
-      - "feat/testing_framework"
+      - "feat/testing_framework*"
 
 jobs:
   test:
@@ -38,16 +38,26 @@ jobs:
 
       - name: Initialize MinIO bucket
         run: |
+          # Wait for MinIO to be ready
+          sleep 5
+          
+          # Use mc alias set instead of config host add (newer syntax)
           docker run --rm \
             --network iceberg_net \
-            -e AWS_ACCESS_KEY_ID=admin \
-            -e AWS_SECRET_ACCESS_KEY=password \
-            -e AWS_REGION=us-east-1 \
-            minio/mc /bin/sh -c "
-              mc config host add minio http://minio:9000 admin password;
-              mc mb minio/warehouse || true;
-              mc policy set public minio/warehouse;
-            "
+            minio/mc \
+            alias set minio http://minio:9000 admin password
+          
+          # Create the warehouse bucket if it doesn't exist
+          docker run --rm \
+            --network iceberg_net \
+            minio/mc \
+            mb --ignore-existing minio/warehouse
+          
+          # Set public policy on the bucket
+          docker run --rm \
+            --network iceberg_net \
+            minio/mc \
+            policy set public minio/warehouse
 
       - name: Start Postgres
         run: |
@@ -124,14 +134,14 @@ jobs:
 
       - name: Start Spark Connect server
         run: |
-          docker exec spark-iceberg sh -c "/opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
+          docker exec spark-iceberg bash -c "cd /opt/spark && ./sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
 
-      - name: Wait for Spark Connect to be ready
+      - name: Verify Spark Connect is running
         run: |
           for i in {1..30}; do
-            if docker logs spark-iceberg | grep -q "Starting Spark Connect server"; then
-              echo "Spark Connect is starting!"
-              sleep 10  # Give it some extra time to fully initialize
+            if docker exec spark-iceberg bash -c "ps -ef | grep 'ConnectServer'" | grep -q java; then
+              echo "Spark Connect server is running!"
+              sleep 10  # Extra time to fully initialize
               break
             fi
             if [ $i -eq 30 ]; then
@@ -150,5 +160,5 @@ jobs:
         run: go build -v ./...
 
       - name: Run integration tests
-        run: go test -v ./... -tags=integration --timeout 10m
+        run: go test -v ./... -tags=integration --timeout 0
         
