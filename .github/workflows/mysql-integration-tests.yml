@@ -3,7 +3,7 @@ name: Iceberg Integration Tests
 on:
   push:
     branches:
-     -"feat/testing_framework"
+     - "feat/testing_framework"
   pull_request:
     branches:
       - "feat/testing_framework*"
@@ -19,216 +19,62 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.23.2'
-      - name: Create directories for volume mounts
-        run: |
-            mkdir -p ./data/minio-data
-            mkdir -p ./data/postgres-data
-            sudo chmod -R 777 ./data  # Ensure permissions
 
-      - name: Create Docker network
-        run: docker network create iceberg_net
+      # Use your local Docker environment instead of creating containers
+      - name: Start Docker containers using local compose files
+        run: |
+          # Start MySQL and related services
+          cd /Users/datazip/Desktop/olake-1/drivers/mysql
+          docker-compose up -d
+          
+          # Start Iceberg-related services
+          cd /Users/datazip/Desktop/olake-1/writers/iceberg/local-test
+          docker-compose up -d
+          
+          # Wait for services to be ready
+          echo "Waiting for services to start..."
+          sleep 30
 
-      - name: Start MinIO
+      # Verify services are running
+      - name: Verify MySQL is running
         run: |
-          docker run -d \
-            --name minio \
-            --network iceberg_net \
-            --network-alias warehouse.minio \
-            -e MINIO_ROOT_USER=admin \
-            -e MINIO_ROOT_PASSWORD=password \
-            -e MINIO_DOMAIN=minio \
-            -p 9000:9000 \
-            -p 9001:9001 \
-            -v ${{ github.workspace }}/data/minio-data:/data \
-            minio/minio server /data --console-address ":9001"
+          docker ps | grep mysql && echo "MySQL is running"
 
-      - name: Initialize MinIO buckets
+      - name: Verify Postgres is running
         run: |
-              docker run --rm \
-                --name mc \
-                --network iceberg_net \
-                -e AWS_ACCESS_KEY_ID=admin \
-                -e AWS_SECRET_ACCESS_KEY=password \
-                -e AWS_REGION=us-east-1 \
-                --entrypoint sh \
-                minio/mc -c "
-                until (mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
-                mc mb minio/warehouse || true;
-                mc policy set public minio/warehouse || true;
-                "
+          docker ps | grep postgres && echo "Postgres is running"
 
-      - name: Start Postgres
+      - name: Verify MinIO is running
         run: |
-          docker run -d \
-            --name postgres \
-            --network iceberg_net \
-            -e POSTGRES_USER=iceberg \
-            -e POSTGRES_PASSWORD=password \
-            -e POSTGRES_DB=iceberg \
-            -p 5432:5432 \
-            -v ${{ github.workspace }}/data/postgres-data:/var/lib/postgresql/data \
-            postgres:15
-            sleep 10
+          docker ps | grep minio && echo "MinIO is running"
 
-      - name: Wait for Postgres to be ready
+      - name: Verify Spark Iceberg is running
         run: |
-          for i in {1..30}; do
-            if docker exec postgres pg_isready -U iceberg -d iceberg; then
-              echo "Postgres is ready!"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "Timed out waiting for Postgres"
-              docker logs postgres
-              exit 1
-            fi
-            echo "Waiting for Postgres to be ready... ($i/30)"
-            sleep 3
-          done
-      # - name: Ping Postgres container
-      #   run: |
-      #       docker run --rm \
-      #         --network iceberg_net \
-      #         -e HOSTNAME=postgres \
-      #         -e TIMEOUT=30 \
-      #         willfarrell/ping
-        
-      - name: Create ivy2 cache directory
-        run: |
-            mkdir -p ./data/ivy-cache
-            sudo chmod 777 ./data/ivy-cache
-      - name: Create spark-defaults.conf
-        run: |
-          cat > spark-defaults.conf << EOL
-          spark.jars.packages                                  org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.8.1,org.postgresql:postgresql:42.5.4,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.apache.spark:spark-connect_2.12:3.5.2
-          spark.sql.extensions                                 org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
-          spark.sql.catalog.spark_catalog                      org.apache.iceberg.spark.SparkSessionCatalog
-          spark.sql.catalog.spark_catalog.type                 hive
-           
-           # Ensure the path is correct for the tabulario/spark-iceberg image
-          spark.driver.extraClassPath                          /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar:/root/.ivy2/jars/*
-          spark.executor.extraClassPath                        /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar:/root/.ivy2/jars/*
+          docker ps | grep spark-iceberg && echo "Spark Iceberg is running"
 
-          # S3 Configuration for MinIO
-          spark.hadoop.fs.s3a.endpoint                           http://minio:9000
-          spark.hadoop.fs.s3a.access.key                         admin
-          spark.hadoop.fs.s3a.secret.key                         password
-          spark.hadoop.fs.s3a.path.style.access                  true
-          spark.hadoop.fs.s3a.impl                               org.apache.hadoop.fs.s3a.S3AFileSystem
-          spark.hadoop.fs.s3a.connection.ssl.enabled             false
-
-          # Configure olake_iceberg catalog
-          spark.sql.catalog.olake_iceberg                      org.apache.iceberg.spark.SparkCatalog
-          spark.sql.catalog.olake_iceberg.catalog-impl         org.apache.iceberg.jdbc.JdbcCatalog
-          spark.sql.catalog.olake_iceberg.uri                  jdbc:postgresql://localhost:5432/iceberg?ssl=false
-          spark.sql.catalog.olake_iceberg.jdbc.user            iceberg
-          spark.sql.catalog.olake_iceberg.jdbc.password        password
-          spark.sql.catalog.olake_iceberg.warehouse            s3a://warehouse/olake_iceberg/
-          spark.sql.catalog.olake_iceberg.jdbc.driver          org.postgresql.Driver
-          spark.sql.catalog.olake_iceberg.jdbc.schema-version  V1
-
-          # Set default catalog
-          spark.sql.defaultCatalog                             olake_iceberg
-          EOL
-
-      - name: Start Spark Iceberg container
-        run: |
-          docker run -d \
-            --name spark-iceberg \
-            --network iceberg_net \
-            -e AWS_ACCESS_KEY_ID=admin \
-            -e AWS_SECRET_ACCESS_KEY=password \
-            -e AWS_REGION=us-east-1 \
-            -p 8888:8888 \
-            -p 8088:8080 \
-            -p 10000:10000 \
-            -p 10001:10001 \
-            -p 15002:15002 \
-            -v ${{ github.workspace }}/data/ivy-cache:/root/.ivy2 \
-            -v $(pwd)/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf \
-            tabulario/spark-iceberg:latest
-
-      - name: Start Spark Connect server
-        run: |
-          docker exec spark-iceberg bash -c "cd /opt/spark && ./sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.postgresql:postgresql:42.5.4 --conf spark.sql.catalog.olake_iceberg.uri=jdbc:postgresql://localhost:5432/iceberg?ssl=false spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
-
-      - name: Verify Spark Connect is running
-        run: |
-          for i in {1..30}; do
-            if docker exec spark-iceberg bash -c "ps -ef | grep 'ConnectServer'" | grep -q java; then
-              echo "Spark Connect server is running!"
-              sleep 10  # Extra time to fully initialize
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "Timed out waiting for Spark Connect"
-              docker logs spark-iceberg
-              exit 1
-            fi
-            echo "Waiting for Spark Connect to start... ($i/30)"
-            sleep 3
-          done
-      - name: Create MySQL container
-        run: |
-            docker run -d \
-              --name mysql_test \
-              -e MYSQL_DATABASE=mysql \
-              -e MYSQL_USER=mysql \
-              -e MYSQL_PASSWORD=secret1234 \
-              -e MYSQL_ROOT_PASSWORD=rootsecret \
-              -p 3306:3306 \
-              mysql:8.0 \
-              --server-id=1 \
-              --log-bin=mysql-bin \
-              --binlog-format=ROW \
-              --binlog-row-image=FULL \
-              --binlog-row-metadata=FULL \
-              --max-allowed-packet=256M \
-              --innodb-buffer-pool-size=512M \
-              --default-authentication-plugin=mysql_native_password
-      - name: Wait for MySQL to be ready
-        run: |
-            for i in {1..30}; do
-              if docker exec mysql_test mysqladmin ping -h localhost -u root -prootsecret --silent; then
-                echo "MySQL is ready!"
-                break
-              fi
-              if [ $i -eq 30 ]; then
-                echo "Timed out waiting for MySQL"
-                docker logs mysql_test
-                exit 1
-              fi
-              echo "Waiting for MySQL to be ready... ($i/30)"
-              sleep 3
-            done
-      - name: Initialize MySQL Permissions
-        run: |
-            docker exec mysql_test mysql -u root -prootsecret -e "
-              DROP USER IF EXISTS 'mysql'@'%';
-              CREATE USER 'mysql'@'%' IDENTIFIED BY 'secret1234';
-              GRANT REPLICATION CLIENT ON *.* TO 'mysql'@'%';
-              GRANT REPLICATION SLAVE ON *.* TO 'mysql'@'%';
-              GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'%';
-              FLUSH PRIVILEGES;
-            "
-      - name: Create data directories with proper permissions
-        run: |
-              sudo mkdir -p /home/runner/work/olake/olake/data/postgres-data
-              sudo mkdir -p /home/runner/work/olake/olake/data/minio-data
-              sudo mkdir -p /home/runner/work/olake/olake/data/ivy-cache
-              sudo chmod -R 777 /home/runner/work/olake/olake/data
-
+      # Install go dependencies and build
       - name: Install dependencies
         run: go mod download
 
       - name: Build
         run: go build -v ./...
 
+      # Skip the Maven build if it's already in your local setup
+      # Or keep it if still needed
       - name: Run Maven build
         run: |
           cd ./writers/iceberg/debezium-server-iceberg-sink
           mvn clean package -DskipTests
 
+      # Run the integration tests
       - name: Run integration tests
         run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
-        
+
+      # Clean up containers when done
+      - name: Clean up Docker containers
+        run: |
+          cd /Users/datazip/Desktop/olake-1/writers/iceberg/local-test
+          docker-compose down
+          
+          cd /Users/datazip/Desktop/olake-1/drivers/mysql
+          docker-compose down
