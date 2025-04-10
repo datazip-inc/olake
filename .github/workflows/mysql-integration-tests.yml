@@ -150,7 +150,7 @@ jobs:
 
       - name: Start Spark Connect server
         run: |
-          docker exec spark-iceberg bash -c "cd /opt/spark && ./sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.sql.catalog.olake_iceberg.uri=jdbc:postgresql://postgres:5432/iceberg?ssl=false spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
+          docker exec spark-iceberg bash -c "cd /opt/spark && ./sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.sql.catalog.olake_iceberg.uri=jdbc:postgresql://host.docker.internal:5432/iceberg?ssl=false spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
 
       - name: Verify Spark Connect is running
         run: |
