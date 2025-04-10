@@ -95,6 +95,10 @@ jobs:
           spark.sql.extensions                                 org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
           spark.sql.catalog.spark_catalog                      org.apache.iceberg.spark.SparkSessionCatalog
           spark.sql.catalog.spark_catalog.type                 hive
+           
+           # Ensure the path is correct for the tabulario/spark-iceberg image
+          spark.driver.extraClassPath                          /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar:/root/.ivy2/jars/*
+          spark.executor.extraClassPath                        /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar:/root/.ivy2/jars/*
 
           # S3 Configuration for MinIO
           spark.hadoop.fs.s3a.endpoint                           http://minio:9000
