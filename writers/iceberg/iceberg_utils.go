@@ -287,7 +287,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to create server config: %v", err)
 	}
-	
+
 	// Start the Java server process
 	i.cmd = exec.Command("java", "-jar", i.config.JarPath, string(configJSON))
 
