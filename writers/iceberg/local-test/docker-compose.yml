@@ -1,47 +1,47 @@
 version: "3"
 
 services:
-  # lakekeeper:
-  #   image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
-  #   pull_policy: &lakekeeper-pull-policy always
-  #   environment: &lakekeeper-environment
-  #     - LAKEKEEPER__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
-  #     - LAKEKEEPER__PG_DATABASE_URL_READ=postgresql://iceberg:password@postgres:5432/iceberg
-  #     - LAKEKEEPER__PG_DATABASE_URL_WRITE=postgresql://iceberg:password@postgres:5432/iceberg
-  #     - LAKEKEEPER__AUTHZ_BACKEND=allowall
-  #     # Externally taken from environment variables if set
-  #     - LAKEKEEPER__OPENID_PROVIDER_URI
-  #     - LAKEKEEPER__OPENID_AUDIENCE
-  #     - LAKEKEEPER__OPENID_ADDITIONAL_ISSUERS
-  #     - LAKEKEEPER__UI__OPENID_CLIENT_ID
-  #     - LAKEKEEPER__UI__OPENID_SCOPE
-  #   command: [ "serve" ]
-  #   healthcheck:
-  #     test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
-  #     interval: 1s
-  #     timeout: 10s
-  #     retries: 3
-  #     start_period: 3s
-  #   depends_on:
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   ports:
-  #     - "8181:8181"
-  #   networks:
-  #     iceberg_net:
+  lakekeeper:
+    image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
+    pull_policy: &lakekeeper-pull-policy always
+    environment: &lakekeeper-environment
+      - LAKEKEEPER__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
+      - LAKEKEEPER__PG_DATABASE_URL_READ=postgresql://iceberg:password@postgres:5432/iceberg
+      - LAKEKEEPER__PG_DATABASE_URL_WRITE=postgresql://iceberg:password@postgres:5432/iceberg
+      - LAKEKEEPER__AUTHZ_BACKEND=allowall
+      # Externally taken from environment variables if set
+      - LAKEKEEPER__OPENID_PROVIDER_URI
+      - LAKEKEEPER__OPENID_AUDIENCE
+      - LAKEKEEPER__OPENID_ADDITIONAL_ISSUERS
+      - LAKEKEEPER__UI__OPENID_CLIENT_ID
+      - LAKEKEEPER__UI__OPENID_SCOPE
+    command: [ "serve" ]
+    healthcheck:
+      test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
+      interval: 1s
+      timeout: 10s
+      retries: 3
+      start_period: 3s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8181:8181"
+    networks:
+      iceberg_net:
 
 
-  # migrate:
-  #   image: *lakekeeper-image
-  #   pull_policy: *lakekeeper-pull-policy
-  #   environment: *lakekeeper-environment
-  #   restart: "no"
-  #   command: [ "migrate" ]
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   networks:
-  #     iceberg_net:
+  migrate:
+    image: *lakekeeper-image
+    pull_policy: *lakekeeper-pull-policy
+    environment: *lakekeeper-environment
+    restart: "no"
+    command: [ "migrate" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      iceberg_net:
 
 
   spark-iceberg:
@@ -136,69 +136,31 @@ services:
         - SERVICE_NAME=metastore
     depends_on:
       - postgres
+      - spark-iceberg
     user: root
     volumes:
-        - ./data/ivy-cache:/opt/ivy-cache
+        - ./data/ivy-cache:/root/.ivy2
         - ./hive-site.conf:/opt/hive/conf/hive-site.xml
     entrypoint: |
       /bin/sh -c "
-      # Create ivy-cache directories
-      mkdir -p /opt/ivy-cache/jars
-      chmod -R 777 /opt/ivy-cache
+      # Wait for Spark to download JARs
+      echo 'Waiting for Spark to download JARs...'
+      while [ ! -f /root/.ivy2/jars/org.apache.hadoop_hadoop-aws-3.3.4.jar ] || \
+            [ ! -f /root/.ivy2/jars/com.amazonaws_aws-java-sdk-bundle-1.12.262.jar ] || \
+            [ ! -f /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar ]; do
+        echo 'Waiting for JARs to be available...'
+        sleep 5
+      done
       
-      # Check if curl is available, if not try to use apt-get
-      if ! command -v curl > /dev/null; then
-        if command -v apt-get > /dev/null; then
-          apt-get update && apt-get install -y curl
-        else
-          echo 'Neither curl nor apt-get is available. Cannot download dependencies.'
-          exit 1
-        fi
-      fi
-      
-      # Download dependencies to ivy-cache if they don't exist
-      if [ ! -f /opt/ivy-cache/jars/hadoop-aws-3.3.6.jar ]; then
-        echo 'Downloading hadoop-aws-3.3.6.jar to ivy-cache...'
-        curl -L -o /opt/ivy-cache/jars/hadoop-aws-3.3.6.jar https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.6/hadoop-aws-3.3.6.jar
-        
-        # Verify download was successful
-        if [ ! -f /opt/ivy-cache/jars/hadoop-aws-3.3.6.jar ] || [ ! -s /opt/ivy-cache/jars/hadoop-aws-3.3.6.jar ]; then
-          echo 'Failed to download hadoop-aws-3.3.6.jar. Exiting.'
-          exit 1
-        fi
-      fi
-      
-      if [ ! -f /opt/ivy-cache/jars/aws-java-sdk-bundle-1.11.1026.jar ]; then
-        echo 'Downloading aws-java-sdk-bundle-1.11.1026.jar to ivy-cache...'
-        curl -L -o /opt/ivy-cache/jars/aws-java-sdk-bundle-1.11.1026.jar https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.11.1026/aws-java-sdk-bundle-1.11.1026.jar
-        
-        # Verify download was successful
-        if [ ! -f /opt/ivy-cache/jars/aws-java-sdk-bundle-1.11.1026.jar ] || [ ! -s /opt/ivy-cache/jars/aws-java-sdk-bundle-1.11.1026.jar ]; then
-          echo 'Failed to download aws-java-sdk-bundle-1.11.1026.jar. Exiting.'
-          exit 1
-        fi
-      fi
-      
-      if [ ! -f /opt/ivy-cache/jars/postgresql-42.5.1.jar ]; then
-        echo 'Downloading postgresql-42.5.1.jar to ivy-cache...'
-        curl -L -o /opt/ivy-cache/jars/postgresql-42.5.1.jar https://repo1.maven.org/maven2/org/postgresql/postgresql/42.5.1/postgresql-42.5.1.jar
-        
-        # Verify download was successful
-        if [ ! -f /opt/ivy-cache/jars/postgresql-42.5.1.jar ] || [ ! -s /opt/ivy-cache/jars/postgresql-42.5.1.jar ]; then
-          echo 'Failed to download postgresql-42.5.1.jar. Exiting.'
-          exit 1
-        fi
-      fi
-      
-      echo 'All dependencies downloaded to ivy-cache. Copying to Hive lib directory...'
+      echo 'JARs found. Copying to Hive lib directory...'
       
       # Copy the JAR files to Hive's lib directory
-      cp /opt/ivy-cache/jars/hadoop-aws-3.3.6.jar /opt/hive/lib/ || { echo 'Failed to copy hadoop-aws-3.3.6.jar'; exit 1; }
-      cp /opt/ivy-cache/jars/aws-java-sdk-bundle-1.11.1026.jar /opt/hive/lib/ || { echo 'Failed to copy aws-java-sdk-bundle-1.11.1026.jar'; exit 1; }
-      cp /opt/ivy-cache/jars/postgresql-42.5.1.jar /opt/hive/lib/ || { echo 'Failed to copy postgresql-42.5.1.jar'; exit 1; }
+      cp /root/.ivy2/jars/org.apache.hadoop_hadoop-aws-3.3.4.jar /opt/hive/lib/hadoop-aws-3.3.4.jar || { echo 'Failed to copy hadoop-aws-3.3.4.jar'; exit 1; }
+      cp /root/.ivy2/jars/com.amazonaws_aws-java-sdk-bundle-1.12.262.jar /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar || { echo 'Failed to copy aws-java-sdk-bundle-1.12.262.jar'; exit 1; }
+      cp /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar /opt/hive/lib/postgresql-42.5.4.jar || { echo 'Failed to copy postgresql-42.5.4.jar'; exit 1; }
       
       # Verify files were copied successfully
-      if [ ! -f /opt/hive/lib/hadoop-aws-3.3.6.jar ] || [ ! -f /opt/hive/lib/aws-java-sdk-bundle-1.11.1026.jar ] || [ ! -f /opt/hive/lib/postgresql-42.5.1.jar ]; then
+      if [ ! -f /opt/hive/lib/hadoop-aws-3.3.4.jar ] || [ ! -f /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar ] || [ ! -f /opt/hive/lib/postgresql-42.5.4.jar ]; then
         echo 'JAR files not found in Hive lib directory. Exiting.'
         exit 1
       fi
