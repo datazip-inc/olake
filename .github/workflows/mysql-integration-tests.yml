@@ -79,7 +79,9 @@ jobs:
       # Run the integration tests
       - name: Run integration tests
         run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
-
+      - name : iceberg-postgres logs
+        run: |
+          docker logs iceberg-postgres
       # Clean up containers when done
       - name: Clean up Docker containers
         run: |
