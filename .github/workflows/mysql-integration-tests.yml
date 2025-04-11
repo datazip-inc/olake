@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    runs-on: mac-os-latest
+    runs-on: alpine-3.18
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
