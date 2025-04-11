@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    runs-on: alpine-3.18
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -59,6 +59,7 @@ jobs:
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
+          sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
           sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
       
       # Install go dependencies and build
