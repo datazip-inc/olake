@@ -26,7 +26,6 @@ const (
 
 type Record map[string]any
 
-// TODO: change Olake column names to _ prefixed.
 type RawRecord struct {
 	Data           map[string]any `parquet:"data,json"`
 	OlakeID        string         `parquet:"_olake_id"`
@@ -76,6 +75,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	payload["__op"] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
 	payload["__db"] = db
 	payload["__source_ts_ms"] = r.CdcTimestamp
+	payload["__ts_ms"] = r.OlakeTimestamp
 
 	// Create Debezium format
 	debeziumRecord := map[string]interface{}{
@@ -180,6 +180,11 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 			"type":     "int64",
 			"optional": true,
 			"field":    "__source_ts_ms",
+		},
+		{
+			"type":     "int64",
+			"optional": true,
+			"field":    "__ts_ms",
 		},
 	}...)
 

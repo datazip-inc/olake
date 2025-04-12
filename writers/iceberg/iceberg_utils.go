@@ -170,6 +170,12 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 		"write.format.default": "parquet",
 	}
 
+	// Add partition fields if defined
+	for field, info := range i.partitionInfo {
+		partitionKey := fmt.Sprintf("partition.field.%s", field)
+		serverConfig[partitionKey] = info.Transform
+	}
+
 	// Configure catalog implementation based on the selected type
 	switch i.config.CatalogType {
 	case GlueCatalog:
