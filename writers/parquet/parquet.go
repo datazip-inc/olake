@@ -150,6 +150,10 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 	fileMetadata := &partitionFolder[len(partitionFolder)-1]
 	var err error
 	if p.config.Normalization {
+		record.Data[constants.OlakeID] = record.OlakeID
+		record.Data[constants.OlakeTimestamp] = record.OlakeTimestamp
+		record.Data[constants.OpType] = record.OperationType
+		record.Data[constants.CdcTimestamp] = record.CdcTimestamp
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 	} else {
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})

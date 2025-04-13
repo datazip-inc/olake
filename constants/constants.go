@@ -6,7 +6,8 @@ const (
 	MongoPrimaryIDPrefix = `ObjectID("`
 	MongoPrimaryIDSuffix = `")`
 	OlakeID              = "_olake_id"
-	OlakeTimestamp       = "_olake_insert_time"
-	CDCDeletedAt         = "_cdc_deleted_at"
+	OlakeTimestamp       = "_olake_timestamp"
 	OpType               = "_op_type"
+	CdcTimestamp         = "_cdc_timestamp"
+	DBName               = "_db"
 )

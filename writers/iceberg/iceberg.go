@@ -64,10 +64,10 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 
 	// Convert record to Debezium format
 	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.config.Normalization)
+
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
-
 	// Add the record to the batch
 	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
@@ -129,13 +128,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		flattenedData, err := thread.Flattener()(rawRecord.Data) // flatten the record first
 		if err != nil {
 			return nil, err
-		}
-
-		// add constants key fields
-		flattenedData[constants.OlakeID] = rawRecord.OlakeID
-		flattenedData[constants.OlakeTimestamp] = rawRecord.OlakeTimestamp
-		if rawRecord.OperationType == "d" {
-			flattenedData[constants.CDCDeletedAt] = rawRecord.CdcTimestamp
 		}
 
 		// schema evolution

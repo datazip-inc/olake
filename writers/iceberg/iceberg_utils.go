@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -183,8 +184,8 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		// Special handling for now() function
 		if colName == "now()" {
 			// Create a special field for timestamps in Iceberg
-			// We'll use __source_ts_ms which is present in all records
-			field := "__ts_ms"
+			// We'll use _olake_timestamp which is present in all records
+			field := constants.OlakeTimestamp
 
 			i.partitionInfo[field] = &PartitionField{
 				Transform:    transform,
@@ -422,12 +423,12 @@ func getTestDebeziumRecord() string {
 						"fields" : [ {
 							"type" : "string",
 							"optional" : true,
-							"field" : "_id"
+							"field" : "` + constants.OlakeID + `"
 						} ],
 						"optional" : false
 					},
 					"payload" : {
-						"_id" : "` + randomID + `"
+						"` + constants.OlakeID + `" : "` + randomID + `"
 					}
 				}
 				,
@@ -437,33 +438,28 @@ func getTestDebeziumRecord() string {
 					"fields" : [ {
 					"type" : "string",
 					"optional" : true,
-					"field" : "_id"
-					}, {
-					"type" : "boolean",
-					"optional" : true,
-					"field" : "__deleted"
+					"field" : "` + constants.OlakeID + `"
 					}, {
 					"type" : "string",
 					"optional" : true,
-					"field" : "__op"
+					"field" : "` + constants.OpType + `"
 					}, {
 					"type" : "string",
 					"optional" : true,
-					"field" : "__db"
+					"field" : "` + constants.DBName + `"
 					}, {
 					"type" : "int64",
 					"optional" : true,
-					"field" : "__source_ts_ms"
+					"field" : "` + constants.OlakeTimestamp + `"
 					} ],
 					"optional" : false,
 					"name" : "dbz_.incr.incr1"
 				},
 				"payload" : {
-					"_id" : "` + randomID + `",
-					"__deleted" : false,
-					"__op" : "r",
-					"__db" : "incr",
-					"__source_ts_ms" : 1738502494009
+					"` + constants.OlakeID + `" : "` + randomID + `",
+					"` + constants.OpType + `" : "r",
+					"` + constants.DBName + `" : "incr",
+					"` + constants.OlakeTimestamp + `" : 1738502494009
 				}
 			}
 		}`
@@ -705,10 +701,9 @@ func applyPartitionDefaults(record *types.RawRecord, partitionInfo map[string]*P
 	if len(partitionInfo) == 0 {
 		return nil
 	}
-
 	for field, info := range partitionInfo {
-		// Skip validation for internal fields like __ts_ms which are automatically added
-		if strings.HasPrefix(field, "__") {
+		// Skip validation for internal fields like _olake_timestamp which are automatically added
+		if strings.HasPrefix(field, "_") {
 			continue
 		}
 
