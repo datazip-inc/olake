@@ -107,7 +107,6 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	// Add default values for missing partition fields and validate required fields
 	if len(i.partitionInfo) > 0 {
-
 		for field, info := range i.partitionInfo {
 			// Skip validation for internal fields like __source_ts_ms which are automatically added
 			if strings.HasPrefix(field, "__") {

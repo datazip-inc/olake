@@ -103,3 +103,86 @@ And run the sync normally as mentioned in the getting started doc.
 * database -> database you want to create in glue.
 
 Please change the above to real credentials to make it work.
+
+## Partitioning Support
+
+The Iceberg writer supports partitioning data based on field values, which can significantly improve query performance when filtering on partition columns. Partitioning is configured at the stream level using the `PartitionRegex` field in `StreamMetadata`.
+
+### Partition Configuration Format
+
+Partitions are specified using the following format:
+
+```
+/{field_name, default_value, transform}/{another_field, default_value, transform}
+```
+
+Where:
+- `field_name`: Name of the column to partition by
+- `default_value`: Value to use if the column is missing in a record (can be empty)
+- `transform`: Iceberg partition transform to apply (e.g., `identity`, `hour`, `day`, `month`, `year`, `bucket[N]`, `truncate[N]`)
+
+### Example Partition Configurations
+
+1. Partition by year from a timestamp column:
+```
+/{created_at, '', year}
+```
+
+2. Partition by day with a default value for missing data:
+```
+/{event_date, '2023-01-01', day}
+```
+
+3. Multiple partitions (by customer ID and month):
+```
+/{customer_id, 'unknown', identity}/{event_time, '', month}
+```
+
+4. Using a current timestamp (special case):
+```
+/{now(), '', day}
+```
+
+### Supported Transforms
+
+The Iceberg writer supports the following transforms:
+- `identity`: Use the raw value (good for categorical data)
+- `year`, `month`, `day`, `hour`: Time-based transforms (good for timestamp columns)
+- `bucket[N]`: Hash the value into N buckets (for high-cardinality fields)
+- `truncate[N]`: Truncate the string to N characters (for string fields)
+
+### Using Default Values
+
+When a partition field is missing from a record, the writer will:
+1. Use the specified default value if one is provided
+2. Return an error if no default value is specified
+
+Default values are useful for handling missing data or ensuring backward compatibility when adding new partition fields.
+
+### Example Usage
+
+To include partitioning in your sync:
+
+1. Specify the partitioning in your stream configuration:
+```json
+{
+  "selected_streams": {
+    "my_namespace": [
+      {
+        "stream_name": "my_stream",
+        "partition_regex": "/{timestamp_col, '', day}/{region, 'unknown', identity}"
+      }
+    ]
+  }
+}
+```
+
+2. Run your sync as usual, and the Iceberg writer will create the appropriate partitioned table structure.
+
+After syncing, you can query the data efficiently by filtering on partition columns:
+
+```sql
+-- This query will only scan relevant partitions
+select * from olake_iceberg.olake_iceberg.my_stream 
+where timestamp_col = '2023-05-01' and region = 'us-east';
+```
