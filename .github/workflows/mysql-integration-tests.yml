@@ -67,7 +67,7 @@ jobs:
       - name: Check network and port mappings
         run: |
           docker network ls
-          docker network inspect writers_iceberg_local-test_iceberg_net
+          docker network inspect iceberg_network
           docker port iceberg-postgres
           docker port spark-iceberg
       
