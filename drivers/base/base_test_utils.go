@@ -20,31 +20,65 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 	t.Helper()
 	ctx := context.Background()
 
-	// Allow some time for data to be synced to Iceberg
-	time.Sleep(5 * time.Second)
+	// Allow more time for data to be synced to Iceberg
+	t.Logf("Waiting for data to be synced to Iceberg...")
+	time.Sleep(15 * time.Second)
 
 	// Connect to Spark - use localhost instead of container hostname
 	var sparkConnectAddress = "sc://localhost:15002" // Default value
 
-	t.Logf("Attempting to connect to Spark at %s", sparkConnectAddress)
-	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
-	if err == nil {
-		t.Logf("Successfully connected to Spark at %s", sparkConnectAddress)
-	} else {
-		t.Logf("Failed to connect to Spark at %s: %v", sparkConnectAddress, err)
-		require.NoError(t, err, "Failed to connect to Spark Connect server")
+	// Add retries for spark connection
+	var spark sql.SparkSession
+	var err error
+	maxRetries := 3
+
+	for i := 0; i < maxRetries; i++ {
+		t.Logf("Attempt %d: Connecting to Spark at %s", i+1, sparkConnectAddress)
+
+		spark, err = sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+
+		if err == nil {
+			t.Logf("Successfully connected to Spark at %s", sparkConnectAddress)
+			break
+		} else {
+			t.Logf("Failed to connect to Spark at %s: %v", sparkConnectAddress, err)
+			if i < maxRetries-1 {
+				t.Logf("Retrying in 10 seconds...")
+				time.Sleep(10 * time.Second)
+			}
+		}
 	}
-	require.NoError(t, err, "Failed to connect to Spark")
+
+	require.NoError(t, err, "Failed to connect to Spark Connect server after %d attempts", maxRetries)
 	defer spark.Stop()
+
+	// Wait for Spark session to initialize
+	t.Logf("Waiting for Spark session to initialize...")
 	time.Sleep(15 * time.Second)
 
-	//Query for unique olake_id records
+	// Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
 	t.Logf("Executing query: %s", query)
-	countDf, err := spark.Sql(ctx, query)
-	require.NoError(t, err, "Failed to query unique count from the table")
 
-	//Collect the count result
+	// Add retry for query execution
+	var countDf sql.DataFrame
+	for i := 0; i < maxRetries; i++ {
+		t.Logf("Attempt %d: Executing Spark SQL query", i+1)
+		countDf, err = spark.Sql(ctx, query)
+		if err == nil {
+			break
+		} else {
+			t.Logf("Query failed: %v", err)
+			if i < maxRetries-1 {
+				t.Logf("Retrying query in 5 seconds...")
+				time.Sleep(5 * time.Second)
+			}
+		}
+	}
+
+	require.NoError(t, err, "Failed to query unique count from the table after %d attempts", maxRetries)
+
+	// Collect the count result
 	countRows, err := countDf.Collect(ctx)
 	require.NoError(t, err, "Failed to collect count data from Iceberg")
 	require.NotEmpty(t, countRows, "Count result is empty")

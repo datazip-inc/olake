@@ -19,8 +19,18 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.23.2'
+        
+      # Create data directories first to avoid permission issues
+      - name: Create data directories with proper permissions
+        run: |
+          sudo mkdir -p ./writers/iceberg/local-test/data/postgres-data
+          sudo mkdir -p ./writers/iceberg/local-test/data/minio-data
+          sudo mkdir -p ./writers/iceberg/local-test/data/ivy-cache
+          sudo chown -R $USER:$USER ./writers/iceberg/local-test/data
+          sudo chmod -R 777 ./writers/iceberg/local-test/data
+          # Check if directories were created properly
+          ls -la ./writers/iceberg/local-test/data/
 
-      
       # Start MySQL container
       - name: Start MySQL and related services
         run: |
@@ -37,41 +47,46 @@ jobs:
     
       # Wait longer for services to be fully ready
       - name: Wait for services to be ready
-        run: sleep 60
+        run: |
+          echo "Waiting for services to initialize..."
+          sleep 90
+          echo "Services should be ready now"
 
       # Verify services are running and ports are mapped
-      - name: Verify MySQL is running
+      - name: Verify services and check for port conflicts
         run: |
-          docker ps | grep mysql && echo "MySQL is running"
-
-      - name: Verify Postgres is running
-        run: |
-          docker ps | grep postgres && echo "Postgres is running"
-          docker exec iceberg-postgres pg_isready -U iceberg -d iceberg
-
-      - name: Verify MinIO is running
-        run: |
-          docker ps | grep minio && echo "MinIO is running"
-
-      - name: Verify Spark Iceberg is running
-        run: |
-          docker ps | grep spark-iceberg && echo "Spark Iceberg is running"
-      # Create data directories first to avoid permission issues
-      - name: Create data directories with proper permissions
-        run: |
-          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
-          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
-          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
-          sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
-          sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
-
+          # Check running processes on port 8080
+          echo "Checking processes on port 8080:"
+          sudo lsof -i :8080 || echo "No process using port 8080"
+          
+          # Check all services
+          docker ps -a
+          echo "Checking MySQL:"
+          docker ps | grep mysql && echo "MySQL is running" || echo "MySQL not found"
+          echo "Checking Postgres:"
+          docker ps | grep postgres && echo "Postgres is running" || echo "Postgres not found"
+          docker exec iceberg-postgres pg_isready -U iceberg -d iceberg || echo "Postgres not ready"
+          echo "Checking MinIO:"
+          docker ps | grep minio && echo "MinIO is running" || echo "MinIO not found"
+          echo "Checking Spark Iceberg:"
+          docker ps | grep spark-iceberg && echo "Spark Iceberg is running" || echo "Spark Iceberg not found"
           
       - name: Check network and port mappings
         run: |
           docker network ls
-          docker network inspect iceberg_network
-          docker port iceberg-postgres
-          docker port spark-iceberg
+          docker network inspect iceberg_network || echo "Network not found"
+          echo "Postgres ports:"
+          docker port iceberg-postgres || echo "No ports exposed for Postgres"
+          echo "Spark ports:"
+          docker port spark-iceberg || echo "No ports exposed for Spark"
+      
+      # Display logs for debugging
+      - name: Show container logs for debugging
+        run: |
+          echo "Postgres logs:"
+          docker logs iceberg-postgres
+          echo "Spark logs:"
+          docker logs spark-iceberg
       
       # Install go dependencies and build
       - name: Install dependencies
@@ -90,10 +105,14 @@ jobs:
       # Run the integration tests with additional debug information
       - name: Run integration tests with debug info
         run: |
-          docker logs iceberg-postgres
-          docker logs spark-iceberg
           go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+          
+      - name: Show post-test logs
+        if: always()
+        run: |
+          echo "Postgres logs after test:"
           docker logs iceberg-postgres
+          echo "Spark logs after test:"
           docker logs spark-iceberg
           
       # Clean up containers when done
