@@ -62,13 +62,15 @@ services:
       - AWS_REGION=us-east-1
     ports:
       - 8888:8888
-      - 8088:8080
+      - 8080:8080
       - 10000:10000
       - 10001:10001
       - 15002:15002
     entrypoint: |
       /bin/sh -c "
+      echo 'Starting Spark Connect server...' && 
       /opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem &
+      echo 'Spark Connect server started' &&
       /bin/bash -c 'while true; do sleep 30; done'
       "
 
@@ -133,6 +135,8 @@ services:
 
 networks:
   iceberg_net:
+    driver: bridge
+    name: iceberg_network
 
 
 volumes:

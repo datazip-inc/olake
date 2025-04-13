@@ -20,24 +20,33 @@ jobs:
         with:
           go-version: '1.23.2'
 
-      # Use your local Docker environment instead of creating containers
+      # Create data directories first to avoid permission issues
+      - name: Create data directories with proper permissions
+        run: |
+          mkdir -p ./writers/iceberg/local-test/data/postgres-data
+          mkdir -p ./writers/iceberg/local-test/data/minio-data
+          mkdir -p ./writers/iceberg/local-test/data/ivy-cache
+          chmod -R 777 ./writers/iceberg/local-test/data
+
+      # Start MySQL container
       - name: Start MySQL and related services
         run: |
           pushd ./drivers/mysql
           docker compose up -d
           popd
 
+      # Start Iceberg services with proper network configuration
       - name: Start Iceberg-related services
         run: |
           pushd ./writers/iceberg/local-test
           docker compose up -d
           popd
     
-      # Wait for services to be ready
+      # Wait longer for services to be fully ready
       - name: Wait for services to be ready
-        run: sleep 30
+        run: sleep 60
 
-      # Verify services are running
+      # Verify services are running and ports are mapped
       - name: Verify MySQL is running
         run: |
           docker ps | grep mysql && echo "MySQL is running"
@@ -45,6 +54,7 @@ jobs:
       - name: Verify Postgres is running
         run: |
           docker ps | grep postgres && echo "Postgres is running"
+          docker exec iceberg-postgres pg_isready -U iceberg -d iceberg
 
       - name: Verify MinIO is running
         run: |
@@ -53,14 +63,13 @@ jobs:
       - name: Verify Spark Iceberg is running
         run: |
           docker ps | grep spark-iceberg && echo "Spark Iceberg is running"
-       # Prepare Data Directories and Run Tests
-      - name: Create data directories with proper permissions
+          
+      - name: Check network and port mappings
         run: |
-          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
-          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
-          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
-          sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
-          sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
+          docker network ls
+          docker network inspect writers_iceberg_local-test_iceberg_net
+          docker port iceberg-postgres
+          docker port spark-iceberg
       
       # Install go dependencies and build
       - name: Install dependencies
@@ -76,15 +85,18 @@ jobs:
           cd ./writers/iceberg/debezium-server-iceberg-sink
           mvn clean package -DskipTests
 
-      # Run the integration tests
-      
-      - name : Run integration tests and postgres logs
+      # Run the integration tests with additional debug information
+      - name: Run integration tests with debug info
         run: |
           docker logs iceberg-postgres
+          docker logs spark-iceberg
           go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
           docker logs iceberg-postgres
+          docker logs spark-iceberg
+          
       # Clean up containers when done
       - name: Clean up Docker containers
+        if: always()
         run: |
           pushd ./writers/iceberg/local-test
           docker compose down

@@ -23,21 +23,24 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 	// Allow some time for data to be synced to Iceberg
 	time.Sleep(5 * time.Second)
 
-	// Connect to Spark
+	// Connect to Spark - use localhost instead of container hostname
 	var sparkConnectAddress = "sc://localhost:15002" // Default value
 
+	t.Logf("Attempting to connect to Spark at %s", sparkConnectAddress)
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	if err == nil {
-		fmt.Println("Connected to Spark")
+		t.Logf("Successfully connected to Spark at %s", sparkConnectAddress)
 	} else {
-		t.Logf("Failed to connect to Spark at sc://localhost:15002. Make sure Spark Connect server is running.")
+		t.Logf("Failed to connect to Spark at %s: %v", sparkConnectAddress, err)
 		require.NoError(t, err, "Failed to connect to Spark Connect server")
 	}
 	require.NoError(t, err, "Failed to connect to Spark")
 	defer spark.Stop()
 	time.Sleep(15 * time.Second)
+
 	//Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
+	t.Logf("Executing query: %s", query)
 	countDf, err := spark.Sql(ctx, query)
 	require.NoError(t, err, "Failed to query unique count from the table")
 
