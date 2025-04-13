@@ -23,10 +23,11 @@ jobs:
       # Create data directories first to avoid permission issues
       - name: Create data directories with proper permissions
         run: |
-          mkdir -p ./writers/iceberg/local-test/data/postgres-data
-          mkdir -p ./writers/iceberg/local-test/data/minio-data
-          mkdir -p ./writers/iceberg/local-test/data/ivy-cache
-          chmod -R 777 ./writers/iceberg/local-test/data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
+          sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
+          sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
 
       # Start MySQL container
       - name: Start MySQL and related services
