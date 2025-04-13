@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -59,25 +58,8 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	// Add default values for missing partition fields and validate required fields
-	if len(i.partitionInfo) > 0 {
-		for field, info := range i.partitionInfo {
-			// Skip validation for internal fields like __source_ts_ms which are automatically added
-			if strings.HasPrefix(field, "__") {
-				continue
-			}
-
-			_, exists := record.Data[field]
-			if !exists {
-				// If field doesn't exist, check if we have a default value
-				if info.DefaultValue != "" {
-					// Add the default value to the record
-					record.Data[field] = info.DefaultValue
-				} else {
-					// No default value available, must error
-					return fmt.Errorf("required partition field '%s' not found in record and no default value provided", field)
-				}
-			}
-		}
+	if err := applyPartitionDefaults(&record, i.partitionInfo); err != nil {
+		return err
 	}
 
 	// Convert record to Debezium format

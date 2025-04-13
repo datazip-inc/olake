@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/writers/iceberg/proto"
 	"google.golang.org/grpc"
@@ -694,6 +695,35 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
 		len(validRecords),
 		res.GetResult())
+
+	return nil
+}
+
+// applyPartitionDefaults adds default values for missing partition fields and validates required fields
+// Returns an error if a required field is missing with no default value
+func applyPartitionDefaults(record *types.RawRecord, partitionInfo map[string]*PartitionField) error {
+	if len(partitionInfo) == 0 {
+		return nil
+	}
+
+	for field, info := range partitionInfo {
+		// Skip validation for internal fields like __ts_ms which are automatically added
+		if strings.HasPrefix(field, "__") {
+			continue
+		}
+
+		_, exists := record.Data[field]
+		if !exists {
+			// If field doesn't exist, check if we have a default value
+			if info.DefaultValue != "" {
+				// Add the default value to the record
+				record.Data[field] = info.DefaultValue
+			} else {
+				// No default value available, must error
+				return fmt.Errorf("required partition field '%s' not found in record and no default value provided", field)
+			}
+		}
+	}
 
 	return nil
 }
