@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,12 +15,6 @@ import (
 	"github.com/datazip-inc/olake/writers/iceberg/proto"
 	"google.golang.org/grpc"
 )
-
-// PartitionField holds information about a partition field
-type PartitionField struct {
-	Transform    string // The transform to apply (e.g., "hour", "day", "month")
-	DefaultValue string // Default value to use if field is missing
-}
 
 type Iceberg struct {
 	options       *protocol.Options
@@ -62,46 +55,6 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 	}
 
 	return i.SetupIcebergClient(!options.Backfill)
-}
-
-// parsePartitionRegex parses the partition regex and populates the partitionInfo map
-func (i *Iceberg) parsePartitionRegex(pattern string) error {
-	// path pattern example: /{col_name, default_value_if_not_present, partition_transform}/{col_name, default_value_if_not_present, partition_transform}
-	// This strictly identifies column name, default value, and partition transform entries
-	patternRegex := regexp.MustCompile(`\{([^,]+),\s*([^,]*),\s*([^}]+)\}`)
-	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
-	for _, match := range matches {
-		if len(match) < 4 {
-			continue // We need at least 4 matches: full match, column name, default value, transform
-		}
-
-		colName := strings.TrimSpace(strings.Trim(match[1], `'"`))
-		defaultValue := strings.TrimSpace(strings.Trim(match[2], `'"`))
-		transform := strings.TrimSpace(strings.Trim(match[3], `'"`))
-
-		// Special handling for now() function
-		if colName == "now()" {
-			// Create a special field for timestamps in Iceberg
-			// We'll use __source_ts_ms which is present in all records
-			field := "__ts_ms"
-
-			i.partitionInfo[field] = &PartitionField{
-				Transform:    transform,
-				DefaultValue: "", // No default value needed for timestamp field
-			}
-
-			logger.Infof("Added timestamp partition field: %s with transform: %s (from now() function)", field, transform)
-			continue
-		}
-
-		// Store both transform and default value for this field
-		i.partitionInfo[colName] = &PartitionField{
-			Transform:    transform,
-			DefaultValue: defaultValue,
-		}
-	}
-
-	return nil
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {

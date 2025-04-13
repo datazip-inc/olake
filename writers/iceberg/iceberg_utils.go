@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,6 +19,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// PartitionField holds information about a partition field
+type PartitionField struct {
+	Transform    string // The transform to apply (e.g., "hour", "day", "month")
+	DefaultValue string // Default value to use if field is missing
+}
 
 // determineMaxBatchSize returns appropriate batch size based on system memory
 // This is assuming that each core might create 2 threads, which might eventually need 4 writer threads
@@ -109,6 +116,7 @@ func getConfigHash(namespace string, streamID string, upsert bool) string {
 	return strings.Join(hashComponents, "-")
 }
 
+// findAvailablePort finds an available port for the RPC server
 func findAvailablePort(serverHost string) (int, error) {
 	for p := 50051; p <= 59051; p++ {
 		// Try to store port in map - returns false if already exists
@@ -154,6 +162,46 @@ func findAvailablePort(serverHost string) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
+}
+
+// parsePartitionRegex parses the partition regex and populates the partitionInfo map
+func (i *Iceberg) parsePartitionRegex(pattern string) error {
+	// path pattern example: /{col_name, default_value_if_not_present, partition_transform}/{col_name, default_value_if_not_present, partition_transform}
+	// This strictly identifies column name, default value, and partition transform entries
+	patternRegex := regexp.MustCompile(`\{([^,]+),\s*([^,]*),\s*([^}]+)\}`)
+	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
+	for _, match := range matches {
+		if len(match) < 4 {
+			continue // We need at least 4 matches: full match, column name, default value, transform
+		}
+
+		colName := strings.TrimSpace(strings.Trim(match[1], `'"`))
+		defaultValue := strings.TrimSpace(strings.Trim(match[2], `'"`))
+		transform := strings.TrimSpace(strings.Trim(match[3], `'"`))
+
+		// Special handling for now() function
+		if colName == "now()" {
+			// Create a special field for timestamps in Iceberg
+			// We'll use __source_ts_ms which is present in all records
+			field := "__ts_ms"
+
+			i.partitionInfo[field] = &PartitionField{
+				Transform:    transform,
+				DefaultValue: "", // No default value needed for timestamp field
+			}
+
+			logger.Infof("Added timestamp partition field: %s with transform: %s (from now() function)", field, transform)
+			continue
+		}
+
+		// Store both transform and default value for this field
+		i.partitionInfo[colName] = &PartitionField{
+			Transform:    transform,
+			DefaultValue: defaultValue,
+		}
+	}
+
+	return nil
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
