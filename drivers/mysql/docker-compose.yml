@@ -9,6 +9,7 @@ services:
       MYSQL_DATABASE: mysql
       MYSQL_USER: mysql
       MYSQL_PASSWORD: secret1234
+      MYSQL_ROOT_PASSWORD: root1234  
     ports:
       - "3306:3306"
     volumes:

@@ -2,18 +2,19 @@ package base
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/writers/parquet"
+	"github.com/datazip-inc/olake/writers/iceberg"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// TODO : verify iceberg sync
 // TestHelper defines database-specific helper functions
 type TestHelper struct {
 	CreateTable func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
@@ -28,7 +29,7 @@ type TestHelper struct {
 }
 
 // TestSetup tests the driver setup and connection check
-const tableName = "test_table_olake"
+var tableName = fmt.Sprintf("%s_%d", "test_table_olake", time.Now().Unix())
 
 func TestSetup(t *testing.T, driver protocol.Driver, client interface{}) {
 	t.Helper()
@@ -46,7 +47,7 @@ func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, help
 	helper.CreateTable(ctx, t, conn, tableName)
 	defer helper.DropTable(ctx, t, conn, tableName)
 	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 6, "col1", "col2")
+	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
 
 	streams, err := driver.Discover(true)
 	assert.NoError(t, err, "Discover failed")
@@ -73,14 +74,25 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 	// Register Parquet writer
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
-		return &parquet.Parquet{}
+		return &iceberg.Iceberg{}
 	}
 
 	pool, err := protocol.NewWriter(ctx, &types.WriterConfig{
-		Type: "PARQUET",
+		Type: "ICEBERG",
 		WriterConfig: map[string]any{
-			"normalization": true,
-			"local_path":    os.TempDir(), // Adjust path as needed
+			"catalog_type":    "jdbc",
+			"jdbc_url":        "jdbc:postgresql://localhost:5432/iceberg",
+			"jdbc_username":   "iceberg",
+			"jdbc_password":   "password",
+			"normalization":   false,
+			"iceberg_s3_path": "s3a://warehouse",
+			"s3_endpoint":     "http://localhost:9000",
+			"s3_use_ssl":      false,
+			"s3_path_style":   true,
+			"aws_access_key":  "admin",
+			"aws_region":      "ap-south-1",
+			"aws_secret_key":  "password",
+			"iceberg_db":      "olake_iceberg",
 		},
 	})
 	require.NoError(t, err, "Failed to create writer pool")
@@ -112,7 +124,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				readErrCh <- streamDriver.Read(pool, dummyStream)
 			}()
 			time.Sleep(2 * time.Second) // Wait for CDC initialization
-
 			if extraTests != nil {
 				extraTests(t)
 			}
@@ -120,20 +131,23 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
+			//VerifyIcebergSync(t, tableName, 6, "after c/u/d", "olake_id", "col1", "col2")
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
+			//VerifyIcebergSync(t, tableName, 5, "after full refresh", "olake_id", "col1", "col2")
 		}
 	}
 
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
 	})
-
+	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
 		runReadTest(t, types.CDC, func(t *testing.T) {
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
+
 			})
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
@@ -143,4 +157,5 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			})
 		})
 	})
+
 }
