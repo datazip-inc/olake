@@ -1,0 +1,40 @@
+name: Master Branch Protection
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  enforce-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Branch Rules
+        run: |
+          SOURCE_BRANCH="${{ github.event.pull_request.head.ref }}"
+          TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+
+          # Allow only staging → master PRs
+          if [ "$TARGET_BRANCH" == "master" ]; then
+            if [ "$SOURCE_BRANCH" != "staging" ]; then
+              echo "::error::Direct PRs to master are blocked. Use staging branch."
+              exit 1
+            fi
+            echo "✅ Valid staging → master PR"
+          else
+            echo "ℹ️ Not a master PR - branch rules not enforced"
+          fi
+
+      - name: Validate PR Title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PATTERN="^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)(\(.+\))?: .+"
+
+          if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then
+            echo "::error::PR title must follow: type(scope): description"
+            echo "Valid formats:"
+            echo "- feat: add new feature"
+            echo "- fix(login): resolve auth issue"
+            echo "Allowed types: feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert"
+            exit 1
+          fi
+          echo "✅ Valid PR title format"
