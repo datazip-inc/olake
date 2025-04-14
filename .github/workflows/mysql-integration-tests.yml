@@ -20,16 +20,7 @@ jobs:
         with:
           go-version: '1.23.2'
         
-      # Create data directories first to avoid permission issues
-      - name: Create data directories with proper permissions
-        run: |
-          sudo mkdir -p ./writers/iceberg/local-test/data/postgres-data
-          sudo mkdir -p ./writers/iceberg/local-test/data/minio-data
-          sudo mkdir -p ./writers/iceberg/local-test/data/ivy-cache
-          sudo chown -R $USER:$USER ./writers/iceberg/local-test/data
-          sudo chmod -R 777 ./writers/iceberg/local-test/data
-          # Check if directories were created properly
-          ls -la ./writers/iceberg/local-test/data/
+  
 
       # Start MySQL container
       - name: Start MySQL and related services
@@ -87,7 +78,13 @@ jobs:
           docker logs iceberg-postgres
           echo "Spark logs:"
           docker logs spark-iceberg
-      
+      - name: Create data directories with proper permissions
+        run: |
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
+          sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
+          sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
       # Install go dependencies and build
       - name: Install dependencies
         run: go mod download
@@ -114,7 +111,7 @@ jobs:
           docker logs iceberg-postgres
           echo "Spark logs after test:"
           docker logs spark-iceberg
-          
+
       - name: Test connectivity between containers
         run: |
             # Test connection from spark-iceberg to postgres
