@@ -21,3 +21,19 @@ services:
       -c shared_preload_libraries=wal2json
       -c hba_file=/etc/postgresql/pg_hba.conf
       -c listen_addresses='*'
+
+  mongodb:
+    image: mongo:5.0
+    container_name: olake_mongodb-test
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: CoXgxxldCfW0U94t73Ai
+      MONGO_INITDB_ROOT_PASSWORD: T74QLVAHW7OOwvMplrr2wjY7APrGrfIDOdqT4o3vlYfJrYwzVL
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    command: --replSet rs0 --wiredTigerCacheSizeGB 1
+
+volumes:
+  mongodb_data:

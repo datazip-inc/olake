@@ -1,0 +1,9 @@
+{"level":"info","time":"2025-04-11T07:05:02Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-11T07:05:02Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-11T07:05:02Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:05:03Z","message":"local writer configuration found, writing at location[/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/]"}
+{"level":"info","time":"2025-04-11T07:05:03Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-11T07:05:03Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:05:03Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-11T07:05:03Z","message":"Starting full load for stream [Duke_DB2.test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:05:03Z","message":"Total expected count for stream Duke_DB2.test_collection_olake: 5"}
