@@ -198,7 +198,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		},
 	})
 	require.NoError(t, err, "Failed to create writer pool")
-
 	// Get test stream
 	getTestStream := func(d protocol.Driver) *types.Stream {
 		streams, err := d.Discover(true)
@@ -212,7 +211,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		require.Fail(t, "Could not find stream for table %s", tableName)
 		return nil
 	}
-
 	// Run read test for a given sync mode
 	runReadTest := func(t *testing.T, syncMode types.SyncMode, extraTests func(t *testing.T)) {
 		_, streamDriver := setupClient(t)
@@ -240,7 +238,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			VerifyIcebergSync(t, tableName, 5, "after full refresh", "olake_id", "col1", "col2")
 		}
 	}
-
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
 	})

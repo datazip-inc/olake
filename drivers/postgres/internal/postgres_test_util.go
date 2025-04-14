@@ -26,10 +26,6 @@ func testPostgresClient(t *testing.T) (*sqlx.DB, Config, *Postgres) {
 		Database:         "postgres",
 		SSLConfiguration: &utils.SSLConfig{Mode: "disable"},
 		BatchSize:        10000,
-		UpdateMethod: &CDC{
-			ReplicationSlot: "olake_slot",
-			InitialWaitTime: 9,
-		},
 	}
 
 	d := &Postgres{
