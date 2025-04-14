@@ -1,0 +1,31 @@
+{"level":"info","time":"2025-04-14T06:36:08Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-14T06:36:08Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-14T06:36:08Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-14T06:36:10Z","message":"local writer configuration found, writing at location[/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/]"}
+{"level":"info","time":"2025-04-14T06:36:10Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-14T06:36:10Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-14T06:36:10Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Starting full load for stream [Duke_DB2.test_collection_olake]"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Total expected count for stream Duke_DB2.test_collection_olake: 5"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Running backfill for 2 chunks"}
+{"level":"debug","time":"2025-04-14T06:36:11Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6DZBQ19SRGCE85CG1VSH.parquet] with 0 records (no records written)."}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"chunk[1] with min[0xc00066bb70]-max[0xc00066bb78] completed in 0.03 seconds"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Finished writing file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6E035Y23PFRRBNSFEY2W.parquet] with 4 records."}
+{"level":"debug","time":"2025-04-14T06:36:11Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6DZBQ19SRGCE821PM4QF.parquet] with 0 records (no records written)."}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"chunk[2] with min[0xc00066bb78]-max[<nil>] completed in 0.03 seconds"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Finished writing file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6E035Y23PFRRBR5Y43JA.parquet] with 1 records."}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Starting full load for stream [Duke_DB2.test_collection_olake]"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Total expected count for stream Duke_DB2.test_collection_olake: 5"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Running backfill for 2 chunks"}
+{"level":"debug","time":"2025-04-14T06:36:11Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6EM37M9YGBJE42H7TAKV.parquet] with 0 records (no records written)."}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"chunk[2] with min[0xc0006e2618]-max[<nil>] completed in 0.03 seconds"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Finished writing file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6EMVQRAY85NWEFKTAET4.parquet] with 1 records."}
+{"level":"debug","time":"2025-04-14T06:36:11Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6EM37M9YGBJE450DHNDC.parquet] with 0 records (no records written)."}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Finished writing file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6EMW78DJGSQGAZJB41AC.parquet] with 4 records."}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"chunk[1] with min[0xc0006e2610]-max[0xc0006e2618] completed in 0.03 seconds"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"backfill done for stream[Duke_DB2.test_collection_olake]"}
+{"level":"info","time":"2025-04-14T06:36:11Z","message":"Starting CDC sync for stream[Duke_DB2.test_collection_olake] with resume token[8267FCACDB000000022B0429296E1404]"}
+{"level":"debug","time":"2025-04-14T06:36:11Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-14_6-36-11_01JRSG6ENWKYSN3ZK57P4AC9VD.parquet] with 0 records (no records written)."}

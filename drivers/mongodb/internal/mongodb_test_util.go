@@ -54,8 +54,7 @@ func testMongoClient(t *testing.T) (*mongo.Client, Config, *Mongo) {
 
 // MongoDB-specific helpers
 func createTestCollection(ctx context.Context, t *testing.T, client *mongo.Client, dbName, collName string) {
-	// MongoDB creates collections automatically when documents are inserted,
-	// but we'll explicitly create it with specific options if needed
+	// Expilicitly creating the collection
 	err := client.Database(dbName).CreateCollection(ctx, collName)
 	if err != nil {
 		// Ignore "collection already exists" error

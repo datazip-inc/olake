@@ -1,19 +1,16 @@
-# To spawn mongo replica set for unit tests
-
 version: "3.7"
 
 services:
   db:
     image: 'mongo:latest'
-    environment: {"MONGO_INITDB_ROOT_USERNAME": "olake", "MONGO_INITDB_ROOT_PASSWORD": "olake"}
-    command: "mongod --bind_ip_all --replSet rs0 --keyFile /etc/ssl/sample.key"
-    entrypoint: ["bash", "-c", "chmod 400 /etc/ssl/sample.key; chown 999:999 /etc/ssl/sample.key; exec docker-entrypoint.sh $@"]
+    environment: 
+      MONGO_INITDB_ROOT_USERNAME: olake
+      MONGO_INITDB_ROOT_PASSWORD: olake
+    command: mongod --bind_ip_all
     ports:
       - "27017:27017"
     networks:
       - olake-test
-    volumes:
-      - ${PWD}/drivers/mongodb/test.key:/etc/ssl/sample.key
     healthcheck:
       test: ["CMD","mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s
