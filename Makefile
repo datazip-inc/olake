@@ -12,3 +12,8 @@ trivy:
 
 gofmt:
 	gofmt -l -s -w .
+
+pre-commit:
+	chmod +x $(shell pwd)/.githooks/pre-commit
+	chmod +x $(shell pwd)/.githooks/commit-msg
+	git config core.hooksPath $(shell pwd)/.githooks
