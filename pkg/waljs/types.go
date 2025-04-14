@@ -47,19 +47,21 @@ type CDCChange struct {
 type WALMessage struct {
 	// NextLSN   pglogrepl.LSN `json:"nextlsn"`
 	Timestamp typeutils.Time `json:"timestamp"`
-	Change    []struct {
-		Kind         string        `json:"kind"`
-		Schema       string        `json:"schema"`
-		Table        string        `json:"table"`
-		Columnnames  []string      `json:"columnnames"`
-		Columntypes  []string      `json:"columntypes"`
-		Columnvalues []interface{} `json:"columnvalues"`
-		Oldkeys      struct {
-			Keynames  []string      `json:"keynames"`
-			Keytypes  []string      `json:"keytypes"`
-			Keyvalues []interface{} `json:"keyvalues"`
-		} `json:"oldkeys"`
-	} `json:"change"`
+	Change    []ChangeStruct `json:"change"`
 }
 
 type OnMessage = func(message CDCChange) error
+
+type ChangeStruct struct {
+	Kind         string        `json:"kind"`
+	Schema       string        `json:"schema"`
+	Table        string        `json:"table"`
+	Columnnames  []string      `json:"columnnames"`
+	Columntypes  []string      `json:"columntypes"`
+	Columnvalues []interface{} `json:"columnvalues"`
+	Oldkeys      struct {
+		Keynames  []string      `json:"keynames"`
+		Keytypes  []string      `json:"keytypes"`
+		Keyvalues []interface{} `json:"keyvalues"`
+	} `json:"oldkeys"`
+}

@@ -2,6 +2,7 @@ package waljs
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
 	"github.com/goccy/go-json"
@@ -37,14 +38,18 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		return nil
 	}
 
-	// TODO: Parallel process changes
-	for _, ch := range changes.Change {
+	// Create a concurrency group with a limit (adjust as needed)
+	concurrencyLimit := len(changes.Change)
+	group := utils.NewCGroupWithLimit(context.Background(), concurrencyLimit)
+
+	utils.ConcurrentInGroup(group, changes.Change, func(ctx context.Context, ch ChangeStruct) error {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
-			continue
+			return nil
 		}
 
-		changesMap := map[string]any{}
+		changesMap := make(map[string]any) // Prevents race conditions
+
 		if ch.Kind == "delete" {
 			for i, changedValue := range ch.Oldkeys.Keyvalues {
 				changesMap[ch.Oldkeys.Keynames[i]] = changedValue
@@ -66,9 +71,11 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		})
 
 		if err != nil {
-			return fmt.Errorf("failed to write filtered changed: %s", err)
+			return fmt.Errorf("failed to write filtered change: %s", err)
 		}
-	}
+		return nil
+	})
 
-	return nil
+	// Wait for all goroutines to finish and return any errors
+	return group.Block()
 }
