@@ -19,15 +19,15 @@ func testPostgresClient(t *testing.T) (*sqlx.DB, Config, *Postgres) {
 	t.Helper()
 
 	config := Config{
-		Host:             "localhost",
+		Host:             "stag-postgres.postgres.database.azure.com",
 		Port:             5432,
 		Username:         "postgres",
-		Password:         "secret1234",
+		Password:         "stag_dz_4",
 		Database:         "postgres",
 		SSLConfiguration: &utils.SSLConfig{Mode: "disable"},
-		BatchSize:        10000,
+		BatchSize:        100000,
 		UpdateMethod: &CDC{
-			ReplicationSlot: "olake_slot",
+			ReplicationSlot: "test_slot",
 			InitialWaitTime: 9,
 		},
 	}
@@ -41,7 +41,7 @@ func testPostgresClient(t *testing.T) (*sqlx.DB, Config, *Postgres) {
 	d.CDCSupport = true
 	d.cdcConfig = CDC{
 		InitialWaitTime: 5,
-		ReplicationSlot: "olake_slot",
+		ReplicationSlot: "test_slot",
 	}
 	state := types.NewState(types.GlobalType)
 	d.SetupState(state)

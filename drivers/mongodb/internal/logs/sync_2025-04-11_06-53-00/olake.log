@@ -1,0 +1,3 @@
+{"level":"info","time":"2025-04-11T06:53:02Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-11T06:53:02Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-11T06:53:02Z","message":"producing type schema for stream [test_collection_olake]"}

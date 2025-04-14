@@ -1,0 +1,24 @@
+version: "3.7"
+
+services:
+  db:
+    image: 'mongo:latest'
+    environment: 
+      MONGO_INITDB_ROOT_USERNAME: olake
+      MONGO_INITDB_ROOT_PASSWORD: olake
+    command: mongod --bind_ip_all
+    ports:
+      - "27017:27017"
+    networks:
+      - olake-test
+    healthcheck:
+      test: ["CMD","mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+networks:
+  olake-test:
+    name: olake-test
+    external: true

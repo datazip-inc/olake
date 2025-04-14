@@ -1,0 +1,35 @@
+{"level":"info","time":"2025-04-11T07:29:03Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-11T07:29:03Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-11T07:29:03Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"local writer configuration found, writing at location[/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/]"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"Starting full load for stream [Duke_DB2.test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"Total expected count for stream Duke_DB2.test_collection_olake: 5"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"Running backfill for 2 chunks"}
+{"level":"debug","time":"2025-04-11T07:29:04Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-29-4_01JRHW140RAEVB3DTXZ08SKA4J.parquet] with 0 records (no records written)."}
+{"level":"debug","time":"2025-04-11T07:29:04Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-29-4_01JRHW141FPCMG1G0A4JHQ9GZ2.parquet] with 0 records (no records written)."}
+{"level":"error","time":"2025-04-11T07:29:04Z","message":"main writer closed, with error: failed to reformat value[%!s(primitive.DateTime=1744356544055)] to datatype[integer] for key[timestamp]: failed to change 1744356544055 (type:primitive.DateTime) to int64"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"chunk[2] with min[0xc0005ab7d8]-max[<nil>] completed in 0.02 seconds"}
+{"level":"debug","time":"2025-04-11T07:29:04Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-29-4_01JRHW140RAEVB3DTXYYCJR3YM.parquet] with 0 records (no records written)."}
+{"level":"debug","time":"2025-04-11T07:29:04Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-29-4_01JRHW141QQ5MJK0Y6F92JN2B3.parquet] with 0 records (no records written)."}
+{"level":"error","time":"2025-04-11T07:29:04Z","message":"main writer closed, with error: failed to reformat value[%!s(primitive.DateTime=1744356543741)] to datatype[integer] for key[timestamp]: failed to change 1744356543741 (type:primitive.DateTime) to int64"}
+{"level":"info","time":"2025-04-11T07:29:04Z","message":"retry attempt[1], retrying after 60.00 seconds due to err: failed to finish backfill chunk: main writer closed"}
+{"level":"info","time":"2025-04-11T07:30:04Z","message":"retry attempt[2], retrying after 120.00 seconds due to err: failed to finish backfill chunk: main writer closed"}
+{"level":"info","time":"2025-04-11T07:32:04Z","message":"retry attempt[3], retrying after 240.00 seconds due to err: failed to finish backfill chunk: main writer closed"}
+{"level":"info","time":"2025-04-11T07:36:04Z","message":"Starting discover for MongoDB database Duke_DB2"}
+{"level":"info","time":"2025-04-11T07:36:05Z","message":"producing type schema for stream [Duke_Collection2]"}
+{"level":"info","time":"2025-04-11T07:36:05Z","message":"producing type schema for stream [test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:36:05Z","message":"Starting full load for stream [Duke_DB2.test_collection_olake]"}
+{"level":"info","time":"2025-04-11T07:36:05Z","message":"Total expected count for stream Duke_DB2.test_collection_olake: 5"}
+{"level":"info","time":"2025-04-11T07:36:05Z","message":"Running backfill for 2 chunks"}
+{"level":"debug","time":"2025-04-11T07:36:05Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-36-5_01JRHWDZ40BPSNAZE9R2HAEXMP.parquet] with 0 records (no records written)."}
+{"level":"debug","time":"2025-04-11T07:36:05Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-36-5_01JRHWDZ53S8A2ND41GAWEZN52.parquet] with 0 records (no records written)."}
+{"level":"error","time":"2025-04-11T07:36:05Z","message":"main writer closed, with error: failed to reformat value[%!s(primitive.DateTime=1744356543741)] to datatype[integer] for key[timestamp]: failed to change 1744356543741 (type:primitive.DateTime) to int64"}
+{"level":"debug","time":"2025-04-11T07:36:05Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-36-5_01JRHWDZ41ZAZBGKMDH6Y0SZ2M.parquet] with 0 records (no records written)."}
+{"level":"debug","time":"2025-04-11T07:36:05Z","message":"Deleted file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/Duke_DB2/test_collection_olake/2025-4-11_7-36-5_01JRHWDZ54AGMJMHQGZ29HCB81.parquet] with 0 records (no records written)."}
+{"level":"error","time":"2025-04-11T07:36:05Z","message":"main writer closed, with error: failed to reformat value[%!s(primitive.DateTime=1744356544055)] to datatype[integer] for key[timestamp]: failed to change 1744356544055 (type:primitive.DateTime) to int64"}
+{"level":"info","time":"2025-04-11T07:36:05Z","message":"chunk[2] with min[0xc000502258]-max[<nil>] completed in 0.04 seconds"}
+{"level":"info","time":"2025-04-11T07:36:05Z","message":"retry attempt[1], retrying after 60.00 seconds due to err: failed to finish backfill chunk: main writer closed"}
+{"level":"info","time":"2025-04-11T07:37:05Z","message":"retry attempt[2], retrying after 120.00 seconds due to err: failed to finish backfill chunk: main writer closed"}

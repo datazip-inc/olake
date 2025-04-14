@@ -1,0 +1,23 @@
+{"level":"info","message":"Found CDC Configuration","time":"2025-04-11T05:48:59Z"}
+{"level":"info","message":"Found CDC Configuration","time":"2025-04-11T05:48:59Z"}
+{"level":"info","message":"Found CDC Configuration","time":"2025-04-11T05:48:59Z"}
+{"level":"info","time":"2025-04-11T05:49:00Z","message":"Starting discover for Postgres database postgres"}
+{"level":"warn","time":"2025-04-11T05:49:00Z","message":"failed to get respective type in datatypes for column: time[time without time zone]"}
+{"level":"warn","time":"2025-04-11T05:49:00Z","message":"failed to get respective type in datatypes for column: timez[time with time zone]"}
+{"level":"info","message":"Found CDC Configuration","time":"2025-04-11T05:49:01Z"}
+{"level":"info","time":"2025-04-11T05:49:02Z","message":"local writer configuration found, writing at location[/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/]"}
+{"level":"info","message":"Found CDC Configuration","time":"2025-04-11T05:49:02Z"}
+{"level":"info","time":"2025-04-11T05:49:02Z","message":"Starting discover for Postgres database postgres"}
+{"level":"warn","time":"2025-04-11T05:49:02Z","message":"failed to get respective type in datatypes for column: time[time without time zone]"}
+{"level":"warn","time":"2025-04-11T05:49:02Z","message":"failed to get respective type in datatypes for column: timez[time with time zone]"}
+{"level":"info","time":"2025-04-11T05:49:02Z","message":"Starting backfill for stream[test_table_olake] with 1 chunks"}
+{"level":"info","time":"2025-04-11T05:49:03Z","message":"chunk[1] with min['(0,0)']-max['(4294967295,0)'] completed in 0.05 seconds"}
+{"level":"info","time":"2025-04-11T05:49:03Z","message":"Finished writing file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/public/test_table_olake/2025-4-11_5-49-3_01JRHP9Z5BFPHXCAK4PX4759KE.parquet] with 5 records."}
+{"level":"info","message":"Found CDC Configuration","time":"2025-04-11T05:49:03Z"}
+{"level":"info","time":"2025-04-11T05:49:03Z","message":"Starting discover for Postgres database postgres"}
+{"level":"warn","time":"2025-04-11T05:49:03Z","message":"failed to get respective type in datatypes for column: time[time without time zone]"}
+{"level":"warn","time":"2025-04-11T05:49:03Z","message":"failed to get respective type in datatypes for column: timez[time with time zone]"}
+{"level":"info","time":"2025-04-11T05:49:03Z","message":"SystemID:7325382546763239467 Timeline:10 XLogPos:411/1E01CA68 Database:postgres"}
+{"level":"info","time":"2025-04-11T05:49:04Z","message":"Starting backfill for stream[test_table_olake] with 1 chunks"}
+{"level":"info","time":"2025-04-11T05:49:04Z","message":"chunk[1] with min['(0,0)']-max['(4294967295,0)'] completed in 0.05 seconds"}
+{"level":"info","time":"2025-04-11T05:49:04Z","message":"Finished writing file [/var/folders/xs/5mgb9wlx0xj6l0hshcwlyrq00000gn/T/public/test_table_olake/2025-4-11_5-49-4_01JRHPA05J8356BXEAX3C2191R.parquet] with 5 records."}

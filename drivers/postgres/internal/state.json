@@ -1,0 +1,1 @@
+{"type":"GLOBAL","global":{"state":{"lsn":"408/AA004E85"},"streams":["public.test_table_olake"]},"streams":[{"stream":"test_table_olake","namespace":"public","sync_mode":"","state":{"chunks":[]}}]}
