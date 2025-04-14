@@ -25,7 +25,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 	time.Sleep(15 * time.Second)
 
 	// Connect to Spark - use localhost instead of container hostname
-	var sparkConnectAddress = "sc://localhost:15002" // Default value
+	var sparkConnectAddress = "sc://spark-iceberg:15002" // Default value
 
 	// Add retries for spark connection
 	var spark sql.SparkSession
@@ -183,12 +183,12 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		Type: "ICEBERG",
 		WriterConfig: map[string]any{
 			"catalog_type":    "jdbc",
-			"jdbc_url":        "jdbc:postgresql://localhost:5432/iceberg",
+			"jdbc_url":        "jdbc:postgresql://postgres:5432/iceberg",
 			"jdbc_username":   "iceberg",
 			"jdbc_password":   "password",
 			"normalization":   false,
 			"iceberg_s3_path": "s3a://warehouse",
-			"s3_endpoint":     "http://localhost:9000",
+			"s3_endpoint":     "http://minio:9000",
 			"s3_use_ssl":      false,
 			"s3_path_style":   true,
 			"aws_access_key":  "admin",

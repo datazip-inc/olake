@@ -115,6 +115,14 @@ jobs:
           echo "Spark logs after test:"
           docker logs spark-iceberg
           
+      - name: Test connectivity between containers
+        run: |
+            # Test connection from spark-iceberg to postgres
+            docker exec spark-iceberg bash -c "apt-get update && apt-get install -y netcat && nc -zv postgres 5432"
+            # Test connection to Minio
+            docker exec spark-iceberg bash -c "apt-get install -y curl && curl -v http://minio:9000"
+        
+          
       # Clean up containers when done
       - name: Clean up Docker containers
         if: always()
