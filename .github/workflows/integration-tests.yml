@@ -20,13 +20,6 @@ jobs:
         with:
           go-version: '1.23.2'
         
-      # Create data directories with proper permissions
-      - name: Create data directories
-        run: |
-          sudo mkdir -p ./writers/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
-          sudo chown -R 999:999 ./writers/iceberg/local-test/data
-          sudo chmod -R 777 ./writers/iceberg/local-test/data
-
       # Start required containers
       - name: Start MySQL container
         run: |
@@ -68,6 +61,14 @@ jobs:
       # Wait for services to be ready
       - name: Wait for services to be ready
         run: sleep 60
+
+      - name: Create data directories with proper permissions
+        run: |
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
+          sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
+          sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
+          sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
       
       # Install go dependencies and build
       - name: Install dependencies

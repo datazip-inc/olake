@@ -96,7 +96,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		},
 	})
 	require.NoError(t, err, "Failed to create writer pool")
-
 	// Get test stream
 	getTestStream := func(d protocol.Driver) *types.Stream {
 		streams, err := d.Discover(true)
@@ -110,7 +109,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		require.Fail(t, "Could not find stream for table %s", tableName)
 		return nil
 	}
-
 	// Run read test for a given sync mode
 	runReadTest := func(t *testing.T, syncMode types.SyncMode, extraTests func(t *testing.T)) {
 		_, streamDriver := setupClient(t)
@@ -131,14 +129,11 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
-			//VerifyIcebergSync(t, tableName, 6, "after c/u/d", "olake_id", "col1", "col2")
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
-			//VerifyIcebergSync(t, tableName, 5, "after full refresh", "olake_id", "col1", "col2")
 		}
 	}
-
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
 	})
@@ -147,7 +142,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		runReadTest(t, types.CDC, func(t *testing.T) {
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
-
 			})
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
