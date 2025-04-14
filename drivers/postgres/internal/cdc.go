@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
@@ -123,11 +124,17 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	return socket.StreamMessages(ctx, func(msg waljs.CDCChange) error {
 		pkFields := msg.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 		opType := utils.Ternary(msg.Kind == "delete", "d", utils.Ternary(msg.Kind == "update", "u", "c")).(string)
+		// msg.Timestamp.In(time.Local)
+		log.Printf("stream[%s] opType[%s] timestamp[%s] lsn[%s]", msg.Stream.ID(), opType, msg.Timestamp, msg.LSN.String())
+		fmt.Printf("stream[%s] opType[%s] timestamp[%s] lsn[%s]", msg.Stream.ID(), opType, msg.Timestamp, msg.LSN.String())
+		indiaTZ, _ := time.LoadLocation("Asia/Kolkata")
+		localTimestamp := msg.Timestamp.In(indiaTZ)
+		log.Printf("stream[%s] opType[%s] timestamp[%s] lsn[%s]", msg.Stream.ID(), opType, localTimestamp, msg.LSN.String())
 		return inserters[msg.Stream].Insert(types.CreateRawRecord(
 			utils.GetKeysHash(msg.Data, pkFields...),
 			msg.Data,
 			opType,
-			msg.Timestamp.UnixMilli(),
+			localTimestamp.UnixMilli(),
 		))
 	})
 }

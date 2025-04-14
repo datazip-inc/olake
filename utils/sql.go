@@ -1,6 +1,10 @@
 package utils
 
-import "database/sql"
+import (
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+)
 
 func MapScan(rows *sql.Rows, dest map[string]any) error {
 	columns, err := rows.Columns()
@@ -18,10 +22,17 @@ func MapScan(rows *sql.Rows, dest map[string]any) error {
 	}
 
 	for i, col := range columns {
-		dest[col] = *(scanValues[i].(*any)) // Dereference pointer before storing
-		switch v := dest[col].(type) {
+		val := *(scanValues[i].(*any))
+		switch v := val.(type) {
 		case []byte:
-			dest[col] = string(v)
+			s := string(v)
+			if decoded, err := base64.StdEncoding.DecodeString(s); err == nil && json.Valid(decoded) {
+				dest[col] = string(decoded)
+			} else {
+				dest[col] = s
+			}
+		default:
+			dest[col] = val
 		}
 	}
 
