@@ -45,9 +45,8 @@ services:
 
 
   spark-iceberg:
-    image: tabulario/spark-iceberg
+    image: ankitshamra/spark-connect:v0.0.1
     container_name: spark-iceberg
-    build: spark/
     networks:
       iceberg_net:
     depends_on:
@@ -65,6 +64,14 @@ services:
       - 8088:8080
       - 10000:10000
       - 10001:10001
+      - 15002:15002
+    entrypoint: |
+          /bin/sh -c "
+          ./entrypoint.sh &&
+          echo 'Starting Spark Connect server...' &&
+          /opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem &
+          /bin/bash -c 'while true; do sleep 30; done'
+          "
 
   minio:
     image: minio/minio
@@ -127,7 +134,6 @@ services:
 
 networks:
   iceberg_net:
-
 
 volumes:
   postgres-data:
