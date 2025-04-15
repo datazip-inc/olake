@@ -27,7 +27,7 @@ Its based in the directory debezium-server-iceberg-sink. Read more ./debezium-se
 
 ## How to run 
 
-### Local Minio + JDBC (Local test setup):
+### Local Minio + JDBC Catalog (Local test setup):
 
 Make sure you have docker installed before you run this
 
@@ -76,7 +76,7 @@ select * from olake_iceberg.olake_iceberg.table_name;
 ```
 
 
-### AWS S3 + Glue
+### AWS S3 + Glue Catalog
 Create a json for writer config (Works for S3 as storage and AWS Glue as a catalog) : 
 ```json
 {
@@ -102,4 +102,44 @@ And run the sync normally as mentioned in the getting started doc.
 * aws_secret_key -> AWS secret key
 * database -> database you want to create in glue.
 
+### REST Catalog
+Create a json for writer config (writer.json)
+```json
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "rest",
+    "normalization": false,
+    "rest_catalog_url": "http://localhost:8181/catalog",
+    "iceberg_s3_path": "warehouse",
+    "iceberg_db": "ICEBERG_DATABASE_NAME"
+  }
+}
+```
+
+### Hive Catalog
+Create a json for writer config (writer.json)
+```json
+{
+    "type": "ICEBERG",
+    "writer": {
+        "catalog_type": "hive",
+        "normalization": false,
+        "iceberg_s3_path": "s3a://warehouse/",
+        "aws_region": "us-east-1",
+        "aws_access_key": "admin",
+        "aws_secret_key": "password",
+        "s3_endpoint": "http://localhost:9000",
+        "hive_uri": "http://localhost:9083",
+        "s3_use_ssl": false,
+        "s3_path_style": true,
+        "hive_clients": 5,
+        "hive_sasl_enabled": false,
+        "iceberg_db": "olake_iceberg"
+    }
+}
+```
+
 Please change the above to real credentials to make it work.
+
+For detailed catalog configs and usage, refer [here.](https://olake.io/docs/category/catalogs)
