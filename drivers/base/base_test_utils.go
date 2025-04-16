@@ -3,20 +3,19 @@ package base
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/writers/iceberg"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TODO : verify iceberg sync
 // TestHelper defines database-specific helper functions
 type TestHelper struct {
 	CreateTable func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
@@ -131,11 +130,11 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
-			VerifyIcebergSync(t, tableName, 6, "after c/u/d", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "6", "after c/u/d", "olake_id", "col1", "col2")
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
-			VerifyIcebergSync(t, tableName, 5, "after c/u/d", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "5", "after c/u/d", "olake_id", "col1", "col2")
 		}
 	}
 	t.Run("full refresh read", func(t *testing.T) {
@@ -158,65 +157,22 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 }
 
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, message string, verifyColumns ...string) {
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, verifyColumns ...string) {
 	t.Helper()
 	ctx := context.Background()
-
-	// Allow more time for data to be synced to Iceberg
-	t.Logf("Waiting for data to be synced to Iceberg...")
-	time.Sleep(20 * time.Second)
 	var sparkConnectAddress = "sc://localhost:15002" // Default value
 
-	// Add retries for spark connection
-	var spark sql.SparkSession
-	var err error
-	maxRetries := 5
-
-	for i := 0; i < maxRetries; i++ {
-		t.Logf("Attempt %d: Connecting to Spark at %s", i+1, sparkConnectAddress)
-
-		spark, err = sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
-
-		if err == nil {
-			t.Logf("Successfully connected to Spark at %s", sparkConnectAddress)
-			break
-		} else {
-			t.Logf("Failed to connect to Spark at %s: %v", sparkConnectAddress, err)
-			if i < maxRetries-1 {
-				t.Logf("Retrying in 10 seconds...")
-				time.Sleep(10 * time.Second)
-			}
-		}
-	}
-
-	require.NoError(t, err, "Failed to connect to Spark Connect server after %d attempts", maxRetries)
+	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+	require.NoError(t, err, "Failed to connect to Spark Connect server")
 	defer spark.Stop()
-
-	// Wait for Spark session to initialize
-	t.Logf("Waiting for Spark session to initialize...")
-	time.Sleep(15 * time.Second)
 
 	// Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
 	t.Logf("Executing query: %s", query)
 
 	// Add retry for query execution
-	var countDf sql.DataFrame
-	for i := 0; i < maxRetries; i++ {
-		t.Logf("Attempt %d: Executing Spark SQL query", i+1)
-		countDf, err = spark.Sql(ctx, query)
-		if err == nil {
-			break
-		} else {
-			t.Logf("Query failed: %v", err)
-			if i < maxRetries-1 {
-				t.Logf("Retrying query in 5 seconds...")
-				time.Sleep(5 * time.Second)
-			}
-		}
-	}
-
-	require.NoError(t, err, "Failed to query unique count from the table after %d attempts", maxRetries)
+	countDf, err := spark.Sql(ctx, query)
+	require.NoError(t, err, "Failed to query unique count from the table")
 
 	// Collect the count result
 	countRows, err := countDf.Collect(ctx)
@@ -227,32 +183,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 	countValue := countRows[0].Value("unique_count")
 	require.NotNil(t, countValue, "Count value is nil")
 
-	// Convert the value to int (handling different possible types)
-	var uniqueCount int
-	switch v := countValue.(type) {
-	case int64:
-		uniqueCount = int(v)
-	case int32:
-		uniqueCount = int(v)
-	case int:
-		uniqueCount = v
-	case float64:
-		uniqueCount = int(v)
-	default:
-		t.Logf("Unexpected type for count: %T", countValue)
-		// Try to convert using fmt.Sprintf and then parsing
-		countStr := fmt.Sprintf("%v", countValue)
-		parsed, err := strconv.ParseInt(countStr, 10, 64)
-		require.NoError(t, err, "Failed to parse count value: %v", countValue)
-		uniqueCount = int(parsed)
-	}
-
 	// Verify unique count
-	assert.Equal(t, expectedCount, uniqueCount, "Unique olake_id count mismatch in Iceberg (%s)", message)
-	// Display the actual data for debugging
-	dataDf, err := spark.Sql(ctx, fmt.Sprintf("SELECT * FROM olake_iceberg.olake_iceberg.%s", tableName))
-	require.NoError(t, err, "Failed to query data from the table")
-	dataDf.Show(ctx, 100, false)
-	//Log the verification result
-	t.Logf("Successfully verified %d unique olake_id records in Iceberg table %s - %s", uniqueCount, tableName, message)
+	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg (%s)", message)
+	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s - %s", countValue, tableName, message)
 }
