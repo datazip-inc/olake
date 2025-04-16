@@ -3,8 +3,6 @@ package base
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"strconv"
 	"testing"
 	"time"
@@ -168,22 +166,6 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 	t.Logf("Waiting for data to be synced to Iceberg...")
 	time.Sleep(15 * time.Second)
 	var sparkConnectAddress = "sc://localhost:15002" // Default value
-	go func() {
-		for {
-			// cmd := exec.Command("docker", "exec", "spark-iceberg", "spark-sql", "-e", "SHOW DATABASES;")
-			// output, err := cmd.CombinedOutput()
-			// require.NoError(t, err, "Failed to execute command in container")
-			// t.Logf("Available databases:\n%s", string(output))
-			// Get logs from spark-iceberg container
-			dockerLogs := exec.Command("docker", "logs", "spark-iceberg")
-			dockerLogs.Stdout = os.Stdout
-			dockerLogs.Stderr = os.Stderr
-			if err := dockerLogs.Run(); err != nil {
-				fmt.Printf("Error getting spark-iceberg logs: %v\n", err)
-			}
-			time.Sleep(20 * time.Second)
-		}
-	}()
 
 	// Add retries for spark connection
 	var spark sql.SparkSession
