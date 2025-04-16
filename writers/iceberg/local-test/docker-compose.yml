@@ -52,9 +52,6 @@ services:
     depends_on:
       - minio
       - postgres
-    volumes:
-      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
-      - ./data/ivy-cache:/root/.ivy2
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password

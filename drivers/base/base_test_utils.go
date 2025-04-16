@@ -164,13 +164,13 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount int, messag
 
 	// Allow more time for data to be synced to Iceberg
 	t.Logf("Waiting for data to be synced to Iceberg...")
-	time.Sleep(15 * time.Second)
+	time.Sleep(20 * time.Second)
 	var sparkConnectAddress = "sc://localhost:15002" // Default value
 
 	// Add retries for spark connection
 	var spark sql.SparkSession
 	var err error
-	maxRetries := 300
+	maxRetries := 5
 
 	for i := 0; i < maxRetries; i++ {
 		t.Logf("Attempt %d: Connecting to Spark at %s", i+1, sparkConnectAddress)
