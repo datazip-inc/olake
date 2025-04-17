@@ -130,17 +130,16 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
-			VerifyIcebergSync(t, tableName, "6", "after c/u/d", "olake_id", "col1", "col2")
+
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
-			VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
 		}
-
 	}
 
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
+		VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
 	})
 	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
@@ -148,13 +147,17 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
+			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
 			})
+			VerifyIcebergSync(t, tableName, "6", "after update", "olake_id", "col1", "col2")
 			t.Run("delete operation", func(t *testing.T) {
 				helper.DeleteOp(ctx, t, conn, tableName)
 			})
+			VerifyIcebergSync(t, tableName, "6", "after delete", "olake_id", "col1", "col2")
 		})
+
 	})
 
 }
