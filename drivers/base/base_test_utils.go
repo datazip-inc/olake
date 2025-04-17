@@ -130,11 +130,13 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
+			VerifyIcebergSync(t, tableName, "6", "after c/u/d", "olake_id", "col1", "col2")
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
+			VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
 		}
-		VerifyIcebergSync(t, tableName, "5", "after c/u/d", "olake_id", "col1", "col2")
+
 	}
 
 	t.Run("full refresh read", func(t *testing.T) {
