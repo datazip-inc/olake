@@ -147,6 +147,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
+			time.Sleep(180 * time.Second)
 			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
