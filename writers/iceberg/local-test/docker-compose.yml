@@ -45,7 +45,7 @@ services:
 
 
   spark-iceberg:
-    image: ankitshamra/spark-connect:v0.0.1
+    image: olakego/spark-connect:v0.0.1
     container_name: spark-iceberg
     networks:
       iceberg_net:
