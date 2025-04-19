@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func converter(value interface{}, columnType string) (interface{}, error) {
+func Converter(value interface{}, columnType string) (interface{}, error) {
 
 	if value == nil {
 		return nil, nil
