@@ -90,7 +90,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	}
 
 	writer := func() any {
-		if p.config.Normalization {
+		if p.Normalization() {
 			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
 		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
@@ -149,7 +149,7 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 	// get last written file
 	fileMetadata := &partitionFolder[len(partitionFolder)-1]
 	var err error
-	if p.config.Normalization {
+	if p.Normalization() {
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 	} else {
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
@@ -227,7 +227,7 @@ func (p *Parquet) Close() error {
 
 			// Close writers
 			var err error
-			if p.config.Normalization {
+			if p.Normalization() {
 				err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Close()
 			} else {
 				err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
@@ -301,7 +301,7 @@ func (p *Parquet) Flattener() protocol.FlattenFunction {
 }
 
 func (p *Parquet) Normalization() bool {
-	return p.config.Normalization
+	return p.stream.Self().StreamMetadata.Normalization
 }
 
 func (p *Parquet) getPartitionedFilePath(values map[string]any) string {

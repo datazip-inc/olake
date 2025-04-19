@@ -139,7 +139,7 @@ func (i *Iceberg) Flattener() protocol.FlattenFunction {
 }
 
 func (i *Iceberg) Normalization() bool {
-	return i.config.Normalization
+	return i.stream.Self().StreamMetadata.Normalization
 }
 
 func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record) error {
