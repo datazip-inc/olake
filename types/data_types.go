@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
