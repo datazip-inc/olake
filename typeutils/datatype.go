@@ -3,6 +3,7 @@ package typeutils
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
@@ -60,6 +61,13 @@ func TypeFromValue(v interface{}) types.DataType {
 	}
 }
 
+// data type converter
+func Converter(convertorMap map[string]types.DataType, value interface{}, columnType string) (interface{}, error) {
+	// Remove any length specifiers from types (e.g., varchar(50) -> varchar)
+	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
+	goType := convertorMap[baseType]
+	return ReformatValue(goType, value)
+}
 func MaximumOnDataType[T any](typ types.DataType, a, b T) (T, error) {
 	switch typ {
 	case types.Timestamp:

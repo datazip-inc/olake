@@ -4,7 +4,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-var pgTypeToDataTypes = map[string]types.DataType{
+var pgTypesToDatatypes = map[string]types.DataType{
 	// TODO: add proper types (not only int64)
 	"bigint":      types.Int64,
 	"tinyint":     types.Int64,
@@ -71,12 +71,12 @@ var pgTypeToDataTypes = map[string]types.DataType{
 	"tsrange":           types.String,
 
 	// date/time
-	"time":                        types.Timestamp,
-	"timez":                       types.Timestamp,
+	"time":                        types.String,
+	"timez":                       types.String,
+	"interval":                    types.String,
 	"date":                        types.Timestamp,
 	"timestamp":                   types.Timestamp,
 	"timestampz":                  types.Timestamp,
-	"interval":                    types.Int64,
 	"timestamp with time zone":    types.Timestamp,
 	"timestamp without time zone": types.Timestamp,
 

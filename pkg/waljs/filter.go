@@ -5,18 +5,22 @@ import (
 	"fmt"
 
 	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 	"github.com/jackc/pglogrepl"
 )
 
 type ChangeFilter struct {
-	tables map[string]protocol.Stream
+	tables           map[string]protocol.Stream
+	typeConverterMap map[string]types.DataType
 }
 
-func NewChangeFilter(streams ...protocol.Stream) ChangeFilter {
+func NewChangeFilter(typeConverter map[string]types.DataType, streams ...protocol.Stream) ChangeFilter {
 	filter := ChangeFilter{
-		tables: make(map[string]protocol.Stream),
+		tables:           make(map[string]protocol.Stream),
+		typeConverterMap: typeConverter,
 	}
 
 	for _, stream := range streams {
@@ -45,8 +49,8 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		if ch.Kind == "delete" {
 			for i, val := range ch.Oldkeys.Keyvalues {
 				colType := ch.Oldkeys.Keytypes[i]
-				conv, err := utils.Converter(val, colType)
-				if err != nil {
+				conv, err := typeutils.Converter(c.typeConverterMap, val, colType)
+				if err != nil && err != typeutils.ErrNullValue {
 					return err
 				}
 				data[ch.Oldkeys.Keynames[i]] = conv
@@ -54,8 +58,8 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		} else {
 			for i, val := range ch.Columnvalues {
 				colType := ch.Columntypes[i]
-				conv, err := utils.Converter(val, colType)
-				if err != nil {
+				conv, err := typeutils.Converter(c.typeConverterMap, val, colType)
+				if err != nil && err != typeutils.ErrNullValue {
 					return err
 				}
 				data[ch.Columnnames[i]] = conv

@@ -53,12 +53,12 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	payload := make(map[string]interface{})
 
 	// Add olake_id to payload
-	payload["olake_id"] = r.OlakeID
+	payload["_olake_id"] = r.OlakeID
 
 	// Handle data based on normalization flag
 	if normalization {
 		for key, value := range r.Data {
-			if key != "olake_id" {
+			if key != "_olake_id" {
 				payload[key] = value
 			}
 		}
@@ -71,7 +71,6 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	}
 
 	// Add the metadata fields
-	payload["__deleted"] = r.OperationType == "delete"
 	payload["__op"] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
 	payload["__db"] = db
 	payload["__source_ts_ms"] = r.CdcTimestamp
@@ -86,13 +85,13 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 					{
 						"type":     "string",
 						"optional": true,
-						"field":    "olake_id",
+						"field":    "_olake_id",
 					},
 				},
 				"optional": false,
 			},
 			"payload": map[string]interface{}{
-				"olake_id": r.OlakeID,
+				"_olake_id": r.OlakeID,
 			},
 		},
 		"value": map[string]interface{}{
@@ -115,14 +114,14 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 	fields = append(fields, map[string]interface{}{
 		"type":     "string",
 		"optional": true,
-		"field":    "olake_id",
+		"field":    "_olake_id",
 	})
 
 	if normalization {
 		// Add individual data fields
 		for key, value := range r.Data {
 			// Skip olake_id for normalized mode
-			if key == "olake_id" {
+			if key == "_olake_id" {
 				continue
 			}
 

@@ -204,7 +204,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 
 	for _, column := range columnSchemaOutput {
 		datatype := types.Unknown
-		if val, found := pgTypeToDataTypes[*column.DataType]; found {
+		if val, found := pgTypesToDatatypes[*column.DataType]; found {
 			datatype = val
 		} else {
 			logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
