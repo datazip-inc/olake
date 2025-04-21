@@ -38,6 +38,19 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		return nil
 	}
 
+	buildData := func(values []interface{}, types []string, names []string) (map[string]any, error) {
+		data := make(map[string]any)
+		for i, val := range values {
+			colType := types[i]
+			conv, err := c.converter(val, colType)
+			if err != nil && err != typeutils.ErrNullValue {
+				return nil, err
+			}
+			data[names[i]] = conv
+		}
+		return data, nil
+	}
+
 	for _, ch := range changes.Change {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
@@ -45,24 +58,15 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		}
 
 		data := make(map[string]any)
+		var err error
 		if ch.Kind == "delete" {
-			for i, val := range ch.Oldkeys.Keyvalues {
-				colType := ch.Oldkeys.Keytypes[i]
-				conv, err := c.converter(val, colType)
-				if err != nil && err != typeutils.ErrNullValue {
-					return err
-				}
-				data[ch.Oldkeys.Keynames[i]] = conv
-			}
+			data, err = buildData(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
 		} else {
-			for i, val := range ch.Columnvalues {
-				colType := ch.Columntypes[i]
-				conv, err := c.converter(val, colType)
-				if err != nil && err != typeutils.ErrNullValue {
-					return err
-				}
-				data[ch.Columnnames[i]] = conv
-			}
+			data, err = buildData(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to convert change data: %s", err)
 		}
 
 		if err := OnFiltered(CDCChange{

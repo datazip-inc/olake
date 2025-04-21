@@ -4,7 +4,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-var pgTypesToDatatypes = map[string]types.DataType{
+var pgTypeToDatatypes = map[string]types.DataType{
 	// TODO: add proper types (not only int64)
 	"bigint":      types.Int64,
 	"tinyint":     types.Int64,

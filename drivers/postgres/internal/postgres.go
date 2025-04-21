@@ -176,7 +176,7 @@ func (p *Postgres) Type() string {
 func (p *Postgres) Converter(value interface{}, columnType string) (interface{}, error) {
 	// Remove any length specifiers from types (e.g., varchar(50) -> varchar)
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
-	goType := pgTypesToDatatypes[baseType]
+	goType := pgTypeToDatatypes[baseType]
 	return typeutils.ReformatValue(goType, value)
 }
 
@@ -213,7 +213,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 
 	for _, column := range columnSchemaOutput {
 		datatype := types.Unknown
-		if val, found := pgTypesToDatatypes[*column.DataType]; found {
+		if val, found := pgTypeToDatatypes[*column.DataType]; found {
 			datatype = val
 		} else {
 			logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
