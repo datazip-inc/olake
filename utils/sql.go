@@ -80,6 +80,24 @@ func Converter(value interface{}, columnType string) (interface{}, error) {
 		case []byte:
 			return string(v), nil
 		}
+
+	// All other types keep as string
+	default:
+		switch v := value.(type) {
+		case string:
+			return v, nil
+		case []byte:
+			return string(v), nil
+		case nil:
+			return nil, nil
+		case map[string]interface{}, []interface{}:
+			// For JSON/JSONB values
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				return nil, err
+			}
+			return string(jsonBytes), nil
+		}
 	}
 
 	return value, nil
