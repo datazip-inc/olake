@@ -38,7 +38,7 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		return nil
 	}
 
-	buildData := func(values []interface{}, types []string, names []string) (map[string]any, error) {
+	buildChangesMap := func(values []interface{}, types []string, names []string) (map[string]any, error) {
 		data := make(map[string]any)
 		for i, val := range values {
 			colType := types[i]
@@ -57,12 +57,13 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 			continue
 		}
 
-		data := make(map[string]any)
+		var changesMap map[string]any
 		var err error
+
 		if ch.Kind == "delete" {
-			data, err = buildData(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
+			changesMap, err = buildChangesMap(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
 		} else {
-			data, err = buildData(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
+			changesMap, err = buildChangesMap(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
 		}
 
 		if err != nil {
@@ -76,7 +77,7 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 			Table:     ch.Table,
 			Timestamp: changes.Timestamp,
 			LSN:       lsn,
-			Data:      data,
+			Data:      changesMap,
 		}); err != nil {
 			return fmt.Errorf("failed to write filtered change: %s", err)
 		}
