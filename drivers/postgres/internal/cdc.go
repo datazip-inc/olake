@@ -42,7 +42,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 		return fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
-	socket, err := waljs.NewConnection(ctx, p.client, config, pgTypesToDatatypes)
+	socket, err := waljs.NewConnection(ctx, p.client, config, p.Converter)
 	if err != nil {
 		return fmt.Errorf("failed to create wal connection: %s", err)
 	}

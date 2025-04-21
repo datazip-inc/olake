@@ -58,7 +58,7 @@ func (o *Reader[T]) Capture(onCapture func(T) error) error {
 	return nil
 }
 
-func MapScan(rows *sql.Rows, dest map[string]any, typeConvertor map[string]types.DataType) error {
+func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error)) error {
 	columns, err := rows.Columns()
 	if err != nil {
 		return err
@@ -80,8 +80,8 @@ func MapScan(rows *sql.Rows, dest map[string]any, typeConvertor map[string]types
 
 	for i, col := range columns {
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
-		if typeConvertor != nil {
-			conv, err := typeutils.Converter(typeConvertor, rawData, types[i].DatabaseTypeName())
+		if converter != nil {
+			conv, err := converter(rawData, types[i].DatabaseTypeName())
 			if err != nil && err != typeutils.ErrNullValue {
 				return err
 			}
@@ -89,7 +89,6 @@ func MapScan(rows *sql.Rows, dest map[string]any, typeConvertor map[string]types
 		} else {
 			dest[col] = rawData
 		}
-
 	}
 
 	return nil

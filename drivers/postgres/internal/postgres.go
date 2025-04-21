@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/jmoiron/sqlx"
 )
@@ -169,6 +170,14 @@ func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
 
 func (p *Postgres) Type() string {
 	return "Postgres"
+}
+
+// data type converter
+func (p *Postgres) Converter(value interface{}, columnType string) (interface{}, error) {
+	// Remove any length specifiers from types (e.g., varchar(50) -> varchar)
+	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
+	goType := pgTypesToDatatypes[baseType]
+	return typeutils.ReformatValue(goType, value)
 }
 
 func (p *Postgres) Read(pool *protocol.WriterPool, stream protocol.Stream) error {

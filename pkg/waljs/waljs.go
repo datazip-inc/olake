@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/types"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -42,7 +41,7 @@ type Socket struct {
 	initialWaitTime time.Duration
 }
 
-func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvertor map[string]types.DataType) (*Socket, error) {
+func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Socket, error) {
 	// Build PostgreSQL connection config
 	connURL := config.Connection
 	q := connURL.Query()
@@ -82,7 +81,7 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	// Create and return final connection object
 	return &Socket{
 		pgConn:            pgConn,
-		changeFilter:      NewChangeFilter(typeConvertor, config.Tables.Array()...),
+		changeFilter:      NewChangeFilter(typeConverter, config.Tables.Array()...),
 		ConfirmedFlushLSN: slot.LSN,
 		ClientXLogPos:     slot.LSN,
 		replicationSlot:   config.ReplicationSlotName,
