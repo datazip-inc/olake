@@ -3,15 +3,15 @@ package utils
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	"strconv"
 	"strings"
 )
 
 func Converter(value interface{}, columnType string) (interface{}, error) {
-
 	if value == nil {
-		return nil, nil
+		return nil, fmt.Errorf("nil value provided")
 	}
 
 	if strings.HasPrefix(columnType, "_") || strings.Contains(strings.ToUpper(columnType), "ARRAY") {
@@ -23,7 +23,6 @@ func Converter(value interface{}, columnType string) (interface{}, error) {
 	baseType = strings.ToLower(strings.TrimSpace(baseType))
 
 	switch baseType {
-
 	case "date", "timestamp", "timestamptz", "timestamp without time zone", "timestamp with time zone", "time", "timetz", "time without time zone", "time with time zone":
 		return value, nil
 
@@ -89,7 +88,7 @@ func Converter(value interface{}, columnType string) (interface{}, error) {
 		case []byte:
 			return string(v), nil
 		case nil:
-			return nil, nil
+			return nil, fmt.Errorf("nil value encountered in default case")
 		case map[string]interface{}, []interface{}:
 			// For JSON/JSONB values
 			jsonBytes, err := json.Marshal(v)
