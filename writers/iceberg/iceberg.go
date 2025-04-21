@@ -50,7 +50,7 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
-
+	logger.Debugf("Converted record: %s", debeziumRecord)
 	// Add the record to the batch
 	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
 	if err != nil {
