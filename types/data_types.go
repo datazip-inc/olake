@@ -158,6 +158,8 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 				field["type"] = "float32"
 			case float64:
 				field["type"] = "float64"
+			case time.Time:
+				field["type"] = "timestamptz" // use with timezone as we use default utc
 			default:
 				field["type"] = "string"
 			}
