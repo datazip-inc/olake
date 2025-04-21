@@ -41,6 +41,10 @@ func TypeFromValue(v interface{}) types.DataType {
 	case reflect.Float32, reflect.Float64:
 		return types.Float64
 	case reflect.String:
+		t, err := ReformatDate(v)
+		if err == nil {
+			return detectTimestampPrecision(t)
+		}
 		return types.String
 	case reflect.Slice, reflect.Array:
 		return types.Array
