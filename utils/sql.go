@@ -3,7 +3,6 @@ package utils
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 
 	"strconv"
 	"strings"
@@ -80,32 +79,6 @@ func Converter(value interface{}, columnType string) (interface{}, error) {
 			return v, nil
 		case []byte:
 			return string(v), nil
-		}
-
-	// All other types keep as string
-	default:
-		switch v := value.(type) {
-		case string:
-			return v, nil
-		case float64:
-			return fmt.Sprintf("%v", v), nil
-		case int:
-			return fmt.Sprintf("%d", v), nil
-		case int64:
-			return fmt.Sprintf("%d", v), nil
-		case bool:
-			return fmt.Sprintf("%t", v), nil
-		case []byte:
-			return string(v), nil
-		case nil:
-			return nil, nil
-		case map[string]interface{}, []interface{}:
-			// For JSON/JSONB values
-			jsonBytes, err := json.Marshal(v)
-			if err != nil {
-				return nil, err
-			}
-			return string(jsonBytes), nil
 		}
 	}
 
