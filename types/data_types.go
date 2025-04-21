@@ -2,9 +2,6 @@ package types
 
 import (
 	"fmt"
-	"time"
-
-	// "time"
 
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
@@ -61,25 +58,11 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	if normalization {
 		for key, value := range r.Data {
 			if key != "olake_id" {
-				// Convert time.Time values to UTC
-				if timeVal, isTime := value.(time.Time); isTime {
-					payload[key] = timeVal.UTC().Format(time.RFC3339Nano)
-				} else {
-					payload[key] = value
-				}
+				payload[key] = value
 			}
 		}
 	} else {
-		processedData := make(map[string]interface{})
-		for k, v := range r.Data {
-			if timeVal, isTime := v.(time.Time); isTime {
-				processedData[k] = timeVal.UTC().Format(time.RFC3339Nano)
-			} else {
-				processedData[k] = v
-			}
-		}
-
-		dataBytes, err := json.Marshal(processedData)
+		dataBytes, err := json.Marshal(r.Data)
 		if err != nil {
 			return "", err
 		}
