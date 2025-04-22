@@ -131,7 +131,7 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
-	partitionedPath := p.getPartitionedFilePath(record.Data)
+	partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
 
 	partitionFolder, exists := p.partitionedFiles[partitionedPath]
 	if !exists {
@@ -279,11 +279,11 @@ func (p *Parquet) Close() error {
 	return nil
 }
 
-// EvolveSchema updates the schema based on changes.
-func (p *Parquet) EvolveSchema(change, typeChange bool, _ map[string]*types.Property, data types.Record) error {
+// EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
+func (p *Parquet) EvolveSchema(change, typeChange bool, _ map[string]*types.Property, data types.Record, olakeTimestamp time.Time) error {
 	if change || typeChange {
 		// create new file and append at end
-		partitionedPath := p.getPartitionedFilePath(data)
+		partitionedPath := p.getPartitionedFilePath(data, olakeTimestamp)
 		err := p.createNewPartitionFile(partitionedPath)
 		if err != nil {
 			return err
@@ -308,7 +308,7 @@ func (p *Parquet) Normalization() bool {
 	return p.config.Normalization
 }
 
-func (p *Parquet) getPartitionedFilePath(values map[string]any) string {
+func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp time.Time) string {
 	pattern := p.stream.Self().StreamMetadata.PartitionRegex
 	if pattern == "" {
 		return p.basePath
@@ -356,7 +356,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any) string {
 			return fmt.Sprintf("%v", value)
 		}
 		if colName == "now()" {
-			return granularityFunction(time.Now().UTC())
+			return granularityFunction(olakeTimestamp)
 		}
 		value, exists := values[colName]
 		if exists {

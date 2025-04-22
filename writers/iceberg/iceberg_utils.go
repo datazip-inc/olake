@@ -15,18 +15,11 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/writers/iceberg/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
-
-// PartitionField holds information about a partition field
-type PartitionField struct {
-	Transform    string // The transform to apply (e.g., "hour", "day", "month")
-	DefaultValue string // Default value to use if field is missing
-}
 
 // determineMaxBatchSize returns appropriate batch size based on system memory
 // This is assuming that each core might create 2 threads, which might eventually need 4 writer threads
@@ -168,18 +161,17 @@ func findAvailablePort(serverHost string) (int, error) {
 
 // parsePartitionRegex parses the partition regex and populates the partitionInfo map
 func (i *Iceberg) parsePartitionRegex(pattern string) error {
-	// path pattern example: /{col_name, default_value_if_not_present, partition_transform}/{col_name, default_value_if_not_present, partition_transform}
-	// This strictly identifies column name, default value, and partition transform entries
-	patternRegex := regexp.MustCompile(`\{([^,]+),\s*([^,]*),\s*([^}]+)\}`)
+	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
+	// This strictly identifies column name and partition transform entries
+	patternRegex := regexp.MustCompile(`\{([^,]+),\s*([^}]+)\}`)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
 	for _, match := range matches {
-		if len(match) < 4 {
-			continue // We need at least 4 matches: full match, column name, default value, transform
+		if len(match) < 3 {
+			continue // We need at least 3 matches: full match, column name, transform
 		}
 
 		colName := strings.TrimSpace(strings.Trim(match[1], `'"`))
-		defaultValue := strings.TrimSpace(strings.Trim(match[2], `'"`))
-		transform := strings.TrimSpace(strings.Trim(match[3], `'"`))
+		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
 		// Special handling for now() function
 		if colName == "now()" {
@@ -187,20 +179,14 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 			// We'll use _olake_timestamp which is present in all records
 			field := constants.OlakeTimestamp
 
-			i.partitionInfo[field] = &PartitionField{
-				Transform:    transform,
-				DefaultValue: "", // No default value needed for timestamp field
-			}
+			i.partitionInfo[field] = transform
 
 			logger.Infof("Added timestamp partition field: %s with transform: %s (from now() function)", field, transform)
 			continue
 		}
 
-		// Store both transform and default value for this field
-		i.partitionInfo[colName] = &PartitionField{
-			Transform:    transform,
-			DefaultValue: defaultValue,
-		}
+		// Store transform for this field
+		i.partitionInfo[colName] = transform
 	}
 
 	return nil
@@ -221,9 +207,9 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	}
 
 	// Add partition fields if defined
-	for field, info := range i.partitionInfo {
+	for field, transform := range i.partitionInfo {
 		partitionKey := fmt.Sprintf("partition.field.%s", field)
-		serverConfig[partitionKey] = info.Transform
+		serverConfig[partitionKey] = transform
 	}
 
 	// Configure catalog implementation based on the selected type
@@ -692,34 +678,6 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
 		len(validRecords),
 		res.GetResult())
-
-	return nil
-}
-
-// applyPartitionDefaults adds default values for missing partition fields and validates required fields
-// Returns an error if a required field is missing with no default value
-func applyPartitionDefaults(record *types.RawRecord, partitionInfo map[string]*PartitionField) error {
-	if len(partitionInfo) == 0 {
-		return nil
-	}
-	for field, info := range partitionInfo {
-		// Skip validation for internal fields like _olake_timestamp which are automatically added
-		if strings.HasPrefix(field, "_") {
-			continue
-		}
-
-		_, exists := record.Data[field]
-		if !exists {
-			// If field doesn't exist, check if we have a default value
-			if info.DefaultValue != "" {
-				// Add the default value to the record
-				record.Data[field] = info.DefaultValue
-			} else {
-				// No default value available, must error
-				return fmt.Errorf("required partition field '%s' not found in record and no default value provided", field)
-			}
-		}
-	}
 
 	return nil
 }

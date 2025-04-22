@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -26,7 +27,7 @@ type Iceberg struct {
 	port          int
 	backfill      bool
 	configHash    string
-	partitionInfo map[string]*PartitionField // map of field names to partition information
+	partitionInfo map[string]string // map of field names to partition transform
 }
 
 func (i *Iceberg) GetConfigRef() protocol.Config {
@@ -42,7 +43,7 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 	i.options = options
 	i.stream = stream
 	i.backfill = options.Backfill
-	i.partitionInfo = make(map[string]*PartitionField)
+	i.partitionInfo = make(map[string]string)
 
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -57,9 +58,19 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
-	// Add default values for missing partition fields and validate required fields
-	if err := applyPartitionDefaults(&record, i.partitionInfo); err != nil {
-		return err
+	// Set "null" for missing or nil partition fields
+	for field := range i.partitionInfo {
+		// Skip internal Olake fields which are automatically added
+		if field == constants.OlakeID || field == constants.OlakeTimestamp ||
+			field == constants.OpType || field == constants.CdcTimestamp ||
+			field == constants.DBName {
+			continue
+		}
+
+		_, exists := record.Data[field]
+		if !exists {
+			record.Data[field] = nil
+		}
 	}
 
 	// Convert record to Debezium format
@@ -105,7 +116,7 @@ func (i *Iceberg) Check() error {
 
 	// Temporarily set stream to nil and clear partition fields to force a new server for the check
 	i.stream = nil
-	i.partitionInfo = make(map[string]*PartitionField)
+	i.partitionInfo = make(map[string]string)
 
 	// Create a temporary setup for checking
 	err := i.SetupIcebergClient(false)
@@ -163,7 +174,7 @@ func (i *Iceberg) Normalization() bool {
 	return i.config.Normalization
 }
 
-func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record) error {
+func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record, _ time.Time) error {
 	// Schema evolution is handled by Iceberg
 	return nil
 }

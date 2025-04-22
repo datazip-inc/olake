@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/goccy/go-json"
@@ -30,12 +31,12 @@ type Record map[string]any
 type RawRecord struct {
 	Data           map[string]any `parquet:"data,json"`
 	OlakeID        string         `parquet:"_olake_id"`
-	OlakeTimestamp int64          `parquet:"_olake_timestamp"`
+	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
 	OperationType  string         `parquet:"_op_type"` // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
-	CdcTimestamp   int64          `parquet:"_cdc_timestamp"`
+	CdcTimestamp   time.Time      `parquet:"_cdc_timestamp"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp int64) RawRecord {
+func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
@@ -58,9 +59,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	if normalization {
 		// Copy the data fields but remove olake_id if present
 		for key, value := range r.Data {
-			if key != constants.OlakeID {
-				payload[key] = value
-			}
+			payload[key] = value
 		}
 	} else {
 		// For non-normalized mode, add data as a single JSON string

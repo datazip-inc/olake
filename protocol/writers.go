@@ -136,7 +136,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			w.tmu.Lock()
 			stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
 			w.tmu.Unlock()
-			err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData)
+			err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData, rawRecord.OlakeTimestamp)
 			if err != nil {
 				return nil, fmt.Errorf("failed to evolve schema: %s", err)
 			}
@@ -180,7 +180,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 							return nil
 						}
 						// add insert time
-						record.OlakeTimestamp = time.Now().UTC().UnixMilli()
+						record.OlakeTimestamp = time.Now().UTC()
 						// check for normalization
 						if thread.Normalization() {
 							normalizedData, err := normalizeFunc(record)

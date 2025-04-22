@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
@@ -20,6 +21,7 @@ type CDCDocument struct {
 	OperationType string              `json:"operationType"`
 	FullDocument  map[string]any      `json:"fullDocument"`
 	ClusterTime   primitive.Timestamp `json:"clusterTime"`
+	WallTime      primitive.DateTime  `json:"wallTime"`
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
@@ -103,11 +105,18 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		handleObjectID(record.FullDocument)
 		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
 
+		var ts time.Time
+		if record.WallTime != 0 {
+			ts = record.WallTime.Time() // millisecond precision
+		} else {
+			ts = time.UnixMilli(int64(record.ClusterTime.T)*1000 + int64(record.ClusterTime.I)) // seconds only
+		}
+
 		rawRecord := types.CreateRawRecord(
 			utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
 			record.FullDocument,
 			opType,
-			int64(record.ClusterTime.T)*1000,
+			ts,
 		)
 		err := insert.Insert(rawRecord)
 		if err != nil {
