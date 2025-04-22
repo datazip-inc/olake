@@ -1,15 +1,18 @@
 package logger
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -223,4 +226,115 @@ func Init() {
 
 	// Create global logger (immutable after init)
 	logger = zerolog.New(multiWriter).With().Timestamp().Logger()
+}
+
+// ProcessOutputReader is a struct that manages reading output from a process
+// and forwarding it to the logger
+type ProcessOutputReader struct {
+	Name      string // Name to identify the process in logs
+	IsError   bool   // Whether this reader handles error output
+	reader    *bufio.Scanner
+	closeFn   func() error
+	closeOnce sync.Once
+}
+
+// NewProcessOutputReader creates a new ProcessOutputReader for a given process
+// name is a prefix to identify the process in logs
+// isError determines whether to log as Error (true) or Info (false)
+// returns the reader and a write end that should be connected to the process output
+func NewProcessLogger(name string, isError bool) (*ProcessOutputReader, *os.File, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create pipe: %v", err)
+	}
+
+	reader := &ProcessOutputReader{
+		Name:    name,
+		IsError: isError,
+		reader:  bufio.NewScanner(r),
+		closeFn: r.Close,
+	}
+
+	return reader, w, nil
+}
+
+// StartReading starts reading from the process output in a goroutine
+// and logging each line with the appropriate log level
+func (p *ProcessOutputReader) StartReading() {
+	go func() {
+		defer p.Close()
+		for p.reader.Scan() {
+			if p.IsError {
+				Error(fmt.Sprintf("[%s] %s", p.Name, p.reader.Text()))
+			} else {
+				Info(fmt.Sprintf("[%s] %s", p.Name, p.reader.Text()))
+			}
+		}
+	}()
+}
+
+// Close closes the reader
+func (p *ProcessOutputReader) Close() {
+	p.closeOnce.Do(func() {
+		if p.closeFn != nil {
+			if err := p.closeFn(); err != nil {
+				fmt.Printf("Error closing ProcessOutputReader: %v\n", err)
+			}
+		}
+	})
+}
+
+// SetupProcessLogger creates stdout and stderr readers for a process
+// and returns write-ends that should be connected to the process stdout and stderr
+func SetupProcessLogger(processName string) (*ProcessOutputReader, *ProcessOutputReader, *os.File, *os.File, error) {
+	// Setup stdout reader
+	stdoutReader, stdoutWriter, err := NewProcessLogger(processName, false)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stdout reader: %v", err)
+	}
+
+	// Setup stderr reader
+	stderrReader, stderrWriter, err := NewProcessLogger(processName, true)
+	if err != nil {
+		stdoutReader.Close()
+		if stdoutWriter != nil {
+			stdoutWriter.Close()
+		}
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stderr reader: %v", err)
+	}
+
+	return stdoutReader, stderrReader, stdoutWriter, stderrWriter, nil
+}
+
+// SetupAndStartProcess creates and starts a process with stdout and stderr logged via the logger.
+// It handles the complete process lifecycle including starting the command and managing pipes.
+func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
+	// Set up process output capture using the logger utility
+	stdoutReader, stderrReader, stdoutWriter, stderrWriter, err := SetupProcessLogger(processName)
+	if err != nil {
+		return fmt.Errorf("failed to set up process output capture: %v", err)
+	}
+
+	// Set the command's stdout and stderr to our pipes
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
+
+	if err := cmd.Start(); err != nil {
+		stdoutReader.Close()
+		stderrReader.Close()
+		stdoutWriter.Close()
+		stderrWriter.Close()
+		return fmt.Errorf("failed to start process: %v", err)
+	}
+
+	// Start reading from the process output
+	stdoutReader.StartReading()
+	stderrReader.StartReading()
+
+	// Close the write end of the pipes in the parent process
+	// since they're only needed by the child process
+	stdoutWriter.Close()
+	stderrWriter.Close()
+
+	return nil
 }

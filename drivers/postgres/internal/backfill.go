@@ -51,14 +51,14 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 		defer tx.Rollback()
 		splitColumn := stream.Self().StreamMetadata.SplitColumn
 		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
-		stmt := jdbc.BuildSplitScanQuery(stream, splitColumn, chunk)
+		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
 
 		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.Query(query, args...)
 		})
 		batchStartTime := time.Now()
 		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(backfillCtx, stream, protocol.WithErrorChannel(waitChannel))
+		insert, err := pool.NewThread(backfillCtx, stream, protocol.WithErrorChannel(waitChannel), protocol.WithBackfill(true))
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
@@ -87,7 +87,7 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 			// generate olake id
 			olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			// insert record
-			err = insert.Insert(types.CreateRawRecord(olakeID, record, 0))
+			err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0).UnixNano()))
 			if err != nil {
 				return err
 			}
@@ -162,7 +162,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 	splitColumn := stream.Self().StreamMetadata.SplitColumn
 	if splitColumn != "" {
 		var minValue, maxValue interface{}
-		minMaxRowCountQuery := jdbc.PostgresMinMaxQuery(stream, splitColumn)
+		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, splitColumn)
 		// TODO: Fails on UUID type (Good First Issue)
 		err := p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {
@@ -192,7 +192,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 
 func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, splitColumn string) (interface{}, error) {
 	var chunkEnd interface{}
-	nextChunkEnd := jdbc.NextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize)
+	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)

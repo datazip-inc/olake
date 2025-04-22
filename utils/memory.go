@@ -1,7 +1,11 @@
 package utils
 
 import (
+	"os/exec"
 	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
 	"unsafe"
 )
 
@@ -132,4 +136,55 @@ func sizeOf(v reflect.Value, cache map[uintptr]bool) int {
 		return sizeOf(v.Elem(), cache) + int(v.Type().Size())
 	}
 	return -1
+}
+
+// DetermineSystemMemoryGB returns the total system memory in GB.
+// Returns -1 if unable to determine memory.
+func DetermineSystemMemoryGB() int64 {
+	var memCmd *exec.Cmd
+	var memOutput []byte
+	var err error
+
+	if runtime.GOOS == "linux" {
+		// On Linux, use /proc/meminfo
+		memCmd = exec.Command("grep", "MemTotal", "/proc/meminfo")
+		memOutput, err = memCmd.Output()
+		if err == nil {
+			// Parse output like "MemTotal:       16384000 kB"
+			parts := strings.Fields(string(memOutput))
+			if len(parts) >= 2 {
+				totalKb, err := strconv.ParseInt(parts[1], 10, 64)
+				if err == nil {
+					return totalKb / 1024 / 1024 // Convert KB to GB
+				}
+			}
+		}
+	} else if runtime.GOOS == "darwin" {
+		// On macOS, use sysctl
+		memCmd = exec.Command("sysctl", "-n", "hw.memsize")
+		memOutput, err = memCmd.Output()
+		if err == nil {
+			totalBytes, err := strconv.ParseInt(strings.TrimSpace(string(memOutput)), 10, 64)
+			if err == nil {
+				return totalBytes / 1024 / 1024 / 1024 // Convert bytes to GB
+			}
+		}
+	} else if runtime.GOOS == "windows" {
+		// On Windows, use wmic
+		memCmd = exec.Command("wmic", "OS", "get", "TotalVisibleMemorySize", "/Value")
+		memOutput, err = memCmd.Output()
+		if err == nil {
+			// Parse output like "TotalVisibleMemorySize=16384000"
+			outputStr := string(memOutput)
+			parts := strings.Split(outputStr, "=")
+			if len(parts) >= 2 {
+				totalKb, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+				if err == nil {
+					return totalKb / 1024 / 1024 // Convert KB to GB
+				}
+			}
+		}
+	}
+
+	return -1 // Unable to determine
 }

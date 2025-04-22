@@ -216,15 +216,15 @@ func (s *State) LogState() {
 		return
 	}
 
-	message := Message{
-		Type:  StateMessage,
-		State: s,
-	}
+	// message := Message{
+	// 	Type:  StateMessage,
+	// 	State: s,
+	// }
 	// TODO: Only Log in logs file, not in CLI
-	logger.Info(message)
+	// logger.Info(message)
 
-	// log to file
-	err := logger.FileLogger(message.State, "state", ".json")
+	// log to state file
+	err := logger.FileLogger(s, "state", ".json")
 	if err != nil {
 		logger.Fatalf("failed to create state file: %s", err)
 	}

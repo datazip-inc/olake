@@ -25,6 +25,7 @@ type Options struct {
 	Identifier   string
 	Number       int64
 	errorChannel chan error
+	Backfill     bool
 }
 
 type ThreadOptions func(opt *Options)
@@ -44,6 +45,12 @@ func WithNumber(number int64) ThreadOptions {
 func WithErrorChannel(errChan chan error) ThreadOptions {
 	return func(opt *Options) {
 		opt.errorChannel = errChan
+	}
+}
+
+func WithBackfill(backfill bool) ThreadOptions {
+	return func(opt *Options) {
+		opt.Backfill = backfill
 	}
 }
 
@@ -109,16 +116,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	fields.FromSchema(stream.Schema())
 
 	initNewWriter := func() error {
+		w.tmu.Lock() // lock for concurrent access of w.config
+		defer w.tmu.Unlock()
 		thread = w.init() // set the thread variable
-		err := func() error {
-			w.tmu.Lock() // lock for concurrent access of w.config
-			defer w.tmu.Unlock()
-			if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
-				return err
-			}
-			return nil
-		}()
-		if err != nil {
+		if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
 			return err
 		}
 		return thread.Setup(stream, opts)
@@ -133,8 +134,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 		// add constants key fields
 		flattenedData[constants.OlakeID] = rawRecord.OlakeID
 		flattenedData[constants.OlakeTimestamp] = rawRecord.OlakeTimestamp
-		if rawRecord.DeleteTime != 0 {
-			flattenedData[constants.CDCDeletedAt] = rawRecord.DeleteTime
+		if rawRecord.OperationType == "d" {
+			flattenedData[constants.CDCDeletedAt] = rawRecord.CdcTimestamp
 		}
 
 		// schema evolution
@@ -158,7 +159,15 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	w.group.Go(func() error {
 		err := func() error {
 			w.threadCounter.Add(1)
+			// init writer first
+			if err := initNewWriter(); err != nil {
+				return err
+			}
+
 			defer func() {
+				// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
+				w.tmu.Lock()
+				defer w.tmu.Unlock()
 				childCancel() // no more inserts
 				// if wait channel is provided, close it
 				if opts.errorChannel != nil {
@@ -167,10 +176,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				thread.Close() // close it after closing inserts
 				w.threadCounter.Add(-1)
 			}()
-			// init writer first
-			if err := initNewWriter(); err != nil {
-				return err
-			}
 
 			return func() error {
 				for {

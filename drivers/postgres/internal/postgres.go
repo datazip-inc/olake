@@ -208,6 +208,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 			datatype = val
 		} else {
 			logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
+			datatype = types.String
 		}
 
 		stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
