@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
 )
@@ -107,7 +106,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	if err != nil {
 		return "", err
 	}
-	logger.Debugf("Debezium JSON: %s", string(jsonBytes))
+
 	return string(jsonBytes), nil
 }
 
