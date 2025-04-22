@@ -48,7 +48,6 @@ func ReformatRecord(fields Fields, record types.Record) error {
 		if !found {
 			return fmt.Errorf("missing field [%s]", key)
 		}
-
 		updated, err := ReformatValue(field.getType(), val)
 		if err != nil && err != ErrNullValue {
 			return fmt.Errorf("failed to reformat value[%s] to datatype[%s] for key[%s]: %s", val, field.getType(), key, err)
@@ -94,6 +93,8 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 	case types.Int64:
 		return ReformatInt64(v)
+	case types.Int32:
+		return ReformatInt32(v)
 	case types.Timestamp:
 		return ReformatDate(v)
 	case types.String:
@@ -115,6 +116,8 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		}
 	case types.Float64:
 		return ReformatFloat64(v)
+	case types.Float32:
+		return ReformatFloat32(v)
 	case types.Array:
 		if value, isArray := v.([]any); isArray {
 			return value, nil
@@ -245,6 +248,42 @@ func ReformatInt64(v any) (int64, error) {
 	return int64(0), fmt.Errorf("failed to change %v (type:%T) to int64", v, v)
 }
 
+func ReformatInt32(v any) (int32, error) {
+	switch v := v.(type) {
+	case float32:
+		return int32(v), nil
+	case float64:
+		return int32(v), nil
+	case int:
+		return int32(v), nil
+	case int16:
+		return int32(v), nil
+	case int32:
+		return v, nil
+	case int64:
+		return int32(v), nil
+	case uint:
+		//nolint:gosec,G115
+		return int32(v), nil
+	case uint8:
+		return int32(v), nil
+	case uint16:
+		return int32(v), nil
+	case uint32:
+		return int32(v), nil
+	case uint64:
+		//nolint:gosec,G115
+		return int32(v), nil
+	case bool:
+		// Matches ReformatInt64: always returns 1 for bool
+		return 1, nil
+	case *any:
+		return ReformatInt32(*v)
+	}
+
+	return int32(0), fmt.Errorf("failed to change %v (type:%T) to int32", v, v)
+}
+
 func ReformatFloat64(v interface{}) (interface{}, error) {
 	switch v := v.(type) {
 	case float32:
@@ -282,6 +321,45 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 	}
 
 	return float64(0), fmt.Errorf("failed to change %v (type:%T) to float64", v, v)
+}
+
+func ReformatFloat32(v interface{}) (interface{}, error) {
+	switch v := v.(type) {
+	case float32:
+		return v, nil
+	case float64:
+		return float32(v), nil
+	case int:
+		return float32(v), nil
+	case int8:
+		return float32(v), nil
+	case int16:
+		return float32(v), nil
+	case int32:
+		return float32(v), nil
+	case int64:
+		return float32(v), nil
+	case uint:
+		return float32(v), nil
+	case uint8:
+		return float32(v), nil
+	case uint16:
+		return float32(v), nil
+	case uint32:
+		return float32(v), nil
+	case uint64:
+		return float32(v), nil
+	case bool:
+		return float32(1.0), nil
+	case string:
+		f64, err := strconv.ParseFloat(v, 32)
+		if err != nil {
+			return float32(0), fmt.Errorf("failed to change string %q to float32: %v", v, err)
+		}
+		return float32(f64), nil
+	}
+
+	return float32(0), fmt.Errorf("failed to change %v (type:%T) to float32", v, v)
 }
 
 func ReformatByteArraysToString(data map[string]any) map[string]any {

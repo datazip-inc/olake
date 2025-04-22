@@ -18,10 +18,18 @@ type typeNode struct {
 var typecastTree = &typeNode{
 	t: types.String,
 	left: &typeNode{
-		t: types.Float64,
+		t: types.Int64,
 		left: &typeNode{
-			t:    types.Int64,
-			left: &typeNode{t: types.Bool},
+			t: types.Int64,
+			left: &typeNode{
+				t: types.Int32,
+				left: &typeNode{
+					t: types.Bool,
+				},
+			},
+		},
+		right: &typeNode{
+			t: types.Float32,
 		},
 	},
 	right: &typeNode{

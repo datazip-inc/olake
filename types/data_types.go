@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
 )
@@ -12,7 +13,9 @@ type DataType string
 
 const (
 	Null           DataType = "null"
+	Int32          DataType = "integer_small"
 	Int64          DataType = "integer"
+	Float32        DataType = "number_small"
 	Float64        DataType = "number"
 	String         DataType = "string"
 	Bool           DataType = "boolean"
@@ -104,6 +107,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	if err != nil {
 		return "", err
 	}
+	logger.Debugf("Debezium JSON: %s", string(jsonBytes))
 	return string(jsonBytes), nil
 }
 
@@ -194,6 +198,10 @@ func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 
 	switch d {
+	case Int32:
+		n = parquet.Leaf(parquet.Int32Type)
+	case Float32:
+		n = parquet.Leaf(parquet.FloatType)
 	case Int64:
 		n = parquet.Leaf(parquet.Int64Type)
 	case Float64:
