@@ -1,2 +1,0 @@
-{"level":"info","time":"2025-04-21T13:49:05Z","message":"System has 16GB RAM, setting iceberg writer batch size to 419430400 bytes"}
-{"level":"fatal","time":"2025-04-21T13:49:05Z","message":"/Users/dukedhal/olake/drivers/myjson does not exist: stat /Users/dukedhal/olake/drivers/myjson: no such file or directory"}

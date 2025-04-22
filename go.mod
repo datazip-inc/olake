@@ -85,7 +85,6 @@ require (
 	github.com/mitchellh/hashstructure v1.1.0
 	github.com/oklog/ulid v1.3.1
 	github.com/spf13/pflag v1.0.6 // indirect
-	go.starlark.net v0.0.0-20250417143717-f57e51f710eb
 	golang.org/x/sync v0.12.0
 )
 

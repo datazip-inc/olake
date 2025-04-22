@@ -240,7 +240,16 @@ func ReformatInt64(v any) (int64, error) {
 		//nolint:gosec,G115
 		return int64(v), nil
 	case bool:
-		return 1, nil
+		if v {
+			return 1, nil
+		}
+		return 0, nil
+	case string:
+		intValue, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return int64(0), fmt.Errorf("failed to change string %v to int64: %v", v, err)
+		}
+		return intValue, nil
 	case *any:
 		return ReformatInt64(*v)
 	}
@@ -258,6 +267,8 @@ func ReformatInt32(v any) (int32, error) {
 		return int32(v), nil
 	case int32:
 		return v, nil
+	case int64:
+		return int32(v), nil
 	case uint:
 		//nolint:gosec,G115
 		return int32(v), nil
@@ -269,8 +280,16 @@ func ReformatInt32(v any) (int32, error) {
 		//nolint:gosec,G115
 		return int32(v), nil
 	case bool:
-		// Matches ReformatInt64: always returns 1 for bool
-		return 1, nil
+		if v {
+			return int32(1), nil
+		}
+		return int32(0), nil
+	case string:
+		intValue, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("failed to change string %v to int64: %v", v, err)
+		}
+		return int32(intValue), nil
 	case *any:
 		return ReformatInt32(*v)
 	}
@@ -305,7 +324,10 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 	case uint64:
 		return float64(v), nil
 	case bool:
-		return 1.0, nil
+		if v {
+			return float64(1.0), nil
+		}
+		return 0.0, nil
 	case string:
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -344,11 +366,14 @@ func ReformatFloat32(v interface{}) (interface{}, error) {
 	case uint64:
 		return float32(v), nil
 	case bool:
-		return float32(1.0), nil
+		if v {
+			return float32(1.0), nil
+		}
+		return float32(0.0), nil
 	case string:
 		f64, err := strconv.ParseFloat(v, 32)
 		if err != nil {
-			return float32(0), fmt.Errorf("failed to change string %q to float32: %v", v, err)
+			return float32(0), fmt.Errorf("failed to change string %s to float32: %v", v, err)
 		}
 		return float32(f64), nil
 	}
