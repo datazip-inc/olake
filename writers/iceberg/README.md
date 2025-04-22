@@ -83,24 +83,24 @@ Create a json for writer config (Works for S3 as storage and AWS Glue as a catal
     "type": "ICEBERG",
     "writer": {
       "normalization": false,
-      "s3_path": "s3://bucket_name/olake_iceberg/test_olake",
+      "iceberg_s3_path": "s3://bucket_name/olake_iceberg/test_olake",
       "aws_region": "ap-south-1",
       "aws_access_key": "XXX",
       "aws_secret_key": "XXX",
-      "database": "olake_iceberg",
+      "iceberg_db": "olake_iceberg",
       "grpc_port": 50051,
-      "server_host": "localhost"
+      "sink_rpc_server_host": "localhost"
     }
   }  
 ```
 
 And run the sync normally as mentioned in the getting started doc.
 
-* s3_path -> Stores the relevant iceberg data/metadata files
-* aws_region -> Region for AWS bucket and catalog
-* aws_access_key -> AWS access key which has full access to glue & AWS S3
-* aws_secret_key -> AWS secret key
-* database -> database you want to create in glue.
+* `iceberg_s3_path` -> Stores the relevant iceberg data/metadata files
+* `aws_region` -> Region for AWS bucket and catalog
+* `aws_access_key` -> AWS access key which has full access to glue & AWS S3
+* `aws_secret_key` -> AWS secret key
+* `iceberg_db` -> database you want to create in glue.
 
 ### REST Catalog
 Create a json for writer config (writer.json)
