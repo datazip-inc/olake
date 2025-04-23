@@ -144,8 +144,6 @@ Please change the above to real credentials to make it work.
 
 For detailed catalog configs and usage, refer [here.](https://olake.io/docs/category/catalogs)
 
-Please change the above to real credentials to make it work.
-
 ## Partitioning Support
 
 The Iceberg writer supports partitioning data based on field values, which can significantly improve query performance when filtering on partition columns. Partitioning is configured at the stream level using the `PartitionRegex` field in `StreamMetadata`.
