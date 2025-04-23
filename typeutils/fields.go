@@ -246,19 +246,26 @@ func (f *Field) Merge(anotherField *Field) {
 
 // GetCommonAncestorType returns lowest common ancestor type
 func GetCommonAncestorType(t1, t2 types.DataType) types.DataType {
-	return lowestCommonAncestor(typecastTree, t1, t2)
+	return lowestCommonAncestor(typecastTree, t1, t2, types.DataTypeComparator)
 }
 
-func lowestCommonAncestor(root *typeNode, t1, t2 types.DataType) types.DataType {
+func lowestCommonAncestor(
+	root *typeNode,
+	t1, t2 types.DataType,
+	compare func(a, b types.DataType) int,
+) types.DataType {
 	// Start from the root node of the tree
 	node := root
 
 	// Traverse the tree
 	for node != nil {
-		if t1 > node.t && t2 > node.t {
+		cmp1 := compare(t1, node.t)
+		cmp2 := compare(t2, node.t)
+
+		if cmp1 == 1 && cmp2 == 1 {
 			// If both t1 and t2 are greater than parent
 			node = node.right
-		} else if t1 < node.t && t2 < node.t {
+		} else if cmp1 == -1 && cmp2 == -1 {
 			// If both t1 and t2 are lesser than parent
 			node = node.left
 		} else {

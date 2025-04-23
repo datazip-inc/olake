@@ -27,6 +27,48 @@ const (
 	TimestampNano  DataType = "timestamp_nano"  // storing datetime up to 9 precisions
 )
 
+// Tree Representation of TypeWeights
+//
+//                                5 (String)
+//                               /       	 \
+//                3 (Float64)  /              \ 9 (TimestampNano)
+//                           /  \             /
+//             2 (Int64)   /     \ 4(Float32)/ 8 (TimestampMicro)
+//                        /                 /
+//            1 (Int32) /                  / 7 (TimestampMilli)
+//                     /                  /
+//        0 (Bool)   /                   / 6 (Timestamp)
+//
+
+var TypeWeights = map[DataType]int{
+	Bool:           0,
+	Int32:          1,
+	Int64:          2,
+	Float64:        3,
+	Float32:        4,
+	String:         5,
+	TimestampNano:  9,
+	TimestampMicro: 8,
+	TimestampMilli: 7,
+	Timestamp:      6,
+}
+
+func DataTypeComparator(t1, t2 DataType) int {
+	weight1, check1 := TypeWeights[t1]
+	weight2, check2 := TypeWeights[t2]
+
+	if !check1 || !check2 {
+		return 0 // If either of the types is not found in weights map, return 0
+	}
+
+	if weight1 < weight2 {
+		return -1
+	} else if weight1 > weight2 {
+		return 1
+	}
+	return 0
+}
+
 type Record map[string]any
 
 // TODO: change Olake column names to _ prefixed.
