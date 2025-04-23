@@ -4,20 +4,22 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/goccy/go-json"
-
 	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/goccy/go-json"
 	"github.com/jackc/pglogrepl"
 )
 
 type ChangeFilter struct {
-	tables map[string]protocol.Stream
+	tables    map[string]protocol.Stream
+	converter func(value interface{}, columnType string) (interface{}, error)
 }
 
-func NewChangeFilter(streams ...protocol.Stream) ChangeFilter {
+func NewChangeFilter(typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...protocol.Stream) ChangeFilter {
 	filter := ChangeFilter{
-		tables: make(map[string]protocol.Stream),
+		converter: typeConverter,
+		tables:    make(map[string]protocol.Stream),
 	}
 
 	for _, stream := range streams {
@@ -32,30 +34,43 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
 		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
 	}
-
 	if len(changes.Change) == 0 {
 		return nil
 	}
 
-	// TODO: Parallel process changes
+	buildChangesMap := func(values []interface{}, types []string, names []string) (map[string]any, error) {
+		data := make(map[string]any)
+		for i, val := range values {
+			colType := types[i]
+			conv, err := c.converter(val, colType)
+			if err != nil && err != typeutils.ErrNullValue {
+				return nil, err
+			}
+			data[names[i]] = conv
+		}
+		return data, nil
+	}
+
 	for _, ch := range changes.Change {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
 			continue
 		}
 
-		changesMap := map[string]any{}
+		var changesMap map[string]any
+		var err error
+
 		if ch.Kind == "delete" {
-			for i, changedValue := range ch.Oldkeys.Keyvalues {
-				changesMap[ch.Oldkeys.Keynames[i]] = changedValue
-			}
+			changesMap, err = buildChangesMap(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
 		} else {
-			for i, changedValue := range ch.Columnvalues {
-				changesMap[ch.Columnnames[i]] = changedValue
-			}
+			changesMap, err = buildChangesMap(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
 		}
 
-		err := OnFiltered(CDCChange{
+		if err != nil {
+			return fmt.Errorf("failed to convert change data: %s", err)
+		}
+
+		if err := OnFiltered(CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,
 			Schema:    ch.Schema,
@@ -63,12 +78,9 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 			Timestamp: changes.Timestamp,
 			LSN:       lsn,
 			Data:      changesMap,
-		})
-
-		if err != nil {
-			return fmt.Errorf("failed to write filtered changed: %s", err)
+		}); err != nil {
+			return fmt.Errorf("failed to write filtered change: %s", err)
 		}
 	}
-
 	return nil
 }

@@ -2,7 +2,7 @@
 
 # Run golangci-lint on staged files
 echo "Running golangci-lint..."
-golangci-lint run --fix
+make golangci
 
 # Check if the linter passed
 if [ $? -ne 0 ]; then

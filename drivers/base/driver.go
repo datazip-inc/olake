@@ -19,7 +19,7 @@ type Driver struct {
 }
 
 var DefaultColumns = map[string]types.DataType{
-	constants.CDCDeletedAt:   types.Timestamp,
+	constants.CDCTimestamp:   types.Timestamp,
 	constants.OlakeID:        types.String,
 	constants.OlakeTimestamp: types.Int64,
 }

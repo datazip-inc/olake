@@ -80,7 +80,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 			record := make(types.Record)
 
 			// Scan the row into the map
-			err := utils.MapScan(rows, record)
+			err := jdbc.MapScan(rows, record, p.dataTypeConverter)
 			if err != nil {
 				return fmt.Errorf("failed to mapScan record data: %s", err)
 			}
