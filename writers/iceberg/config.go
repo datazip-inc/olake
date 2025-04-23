@@ -45,7 +45,7 @@ type Config struct {
 
 	// Hive specific configuration
 	HiveURI         string `json:"hive_uri,omitempty"`
-	HiveClients     string `json:"hive_clients,omitempty"`
+	HiveClients     int    `json:"hive_clients,omitempty"`
 	HiveSaslEnabled bool   `json:"hive_sasl_enabled,omitempty"`
 
 	// Rest Catalog Configuration

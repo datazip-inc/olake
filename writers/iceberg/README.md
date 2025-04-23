@@ -27,7 +27,7 @@ Its based in the directory debezium-server-iceberg-sink. Read more ./debezium-se
 
 ## How to run 
 
-### Local Minio + JDBC (Local test setup):
+### Local Minio + JDBC Catalog (Local test setup):
 
 Make sure you have docker installed before you run this
 
@@ -76,30 +76,70 @@ select * from olake_iceberg.olake_iceberg.table_name;
 ```
 
 
-### AWS S3 + Glue
+### AWS S3 + Glue Catalog
 Create a json for writer config (Works for S3 as storage and AWS Glue as a catalog) : 
 ```json
 {
     "type": "ICEBERG",
     "writer": {
       "normalization": false,
-      "s3_path": "s3://bucket_name/olake_iceberg/test_olake",
+      "iceberg_s3_path": "s3://bucket_name/olake_iceberg/test_olake",
       "aws_region": "ap-south-1",
       "aws_access_key": "XXX",
       "aws_secret_key": "XXX",
-      "database": "olake_iceberg",
+      "iceberg_db": "olake_iceberg",
       "grpc_port": 50051,
-      "server_host": "localhost"
+      "sink_rpc_server_host": "localhost"
     }
   }  
 ```
 
 And run the sync normally as mentioned in the getting started doc.
 
-* s3_path -> Stores the relevant iceberg data/metadata files
-* aws_region -> Region for AWS bucket and catalog
-* aws_access_key -> AWS access key which has full access to glue & AWS S3
-* aws_secret_key -> AWS secret key
-* database -> database you want to create in glue.
+* `iceberg_s3_path` -> Stores the relevant iceberg data/metadata files
+* `aws_region` -> Region for AWS bucket and catalog
+* `aws_access_key` -> AWS access key which has full access to glue & AWS S3
+* `aws_secret_key` -> AWS secret key
+* `iceberg_db` -> database you want to create in glue.
+
+### REST Catalog
+Create a json for writer config (writer.json)
+```json
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "rest",
+    "normalization": false,
+    "rest_catalog_url": "http://localhost:8181/catalog",
+    "iceberg_s3_path": "warehouse",
+    "iceberg_db": "ICEBERG_DATABASE_NAME"
+  }
+}
+```
+
+### Hive Catalog
+Create a json for writer config (writer.json)
+```json
+{
+    "type": "ICEBERG",
+    "writer": {
+        "catalog_type": "hive",
+        "normalization": false,
+        "iceberg_s3_path": "s3a://warehouse/",
+        "aws_region": "us-east-1",
+        "aws_access_key": "admin",
+        "aws_secret_key": "password",
+        "s3_endpoint": "http://localhost:9000",
+        "hive_uri": "http://localhost:9083",
+        "s3_use_ssl": false,
+        "s3_path_style": true,
+        "hive_clients": 5,
+        "hive_sasl_enabled": false,
+        "iceberg_db": "olake_iceberg"
+    }
+}
+```
 
 Please change the above to real credentials to make it work.
+
+For detailed catalog configs and usage, refer [here.](https://olake.io/docs/category/catalogs)
