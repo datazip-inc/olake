@@ -288,7 +288,7 @@ func ReformatInt32(v any) (int32, error) {
 	case string:
 		intValue, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
-			return 0, fmt.Errorf("failed to change string %v to int64: %v", v, err)
+			return 0, fmt.Errorf("failed to change string %v to int32: %v", v, err)
 		}
 		return int32(intValue), nil
 	case *any:

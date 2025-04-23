@@ -28,7 +28,6 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 
 	return filter
 }
-
 func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered OnMessage) error {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
