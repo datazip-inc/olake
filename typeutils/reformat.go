@@ -268,6 +268,7 @@ func ReformatInt32(v any) (int32, error) {
 	case int32:
 		return v, nil
 	case int64:
+		//nolint:gosec,G115
 		return int32(v), nil
 	case uint:
 		//nolint:gosec,G115
