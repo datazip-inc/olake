@@ -113,34 +113,33 @@ The Iceberg writer supports partitioning data based on field values, which can s
 Partitions are specified using the following format:
 
 ```
-/{field_name, default_value, transform}/{another_field, default_value, transform}
+/{field_name, transform}/{another_field, transform}
 ```
 
 Where:
 - `field_name`: Name of the column to partition by
-- `default_value`: Value to use if the column is missing in a record (can be empty)
 - `transform`: Iceberg partition transform to apply (e.g., `identity`, `hour`, `day`, `month`, `year`, `bucket[N]`, `truncate[N]`)
 
 ### Example Partition Configurations
 
 1. Partition by year from a timestamp column:
 ```
-/{created_at, '', year}
+/{created_at, year}
 ```
 
-2. Partition by day with a default value for missing data:
+2. Partition by day:
 ```
-/{event_date, '2023-01-01', day}
+/{event_date, day}
 ```
 
 3. Multiple partitions (by customer ID and month):
 ```
-/{customer_id, 'unknown', identity}/{event_time, '', month}
+/{customer_id, identity}/{event_time, month}
 ```
 
 4. Using a current timestamp (special case):
 ```
-/{now(), '', day}
+/{now(), day}
 ```
 
 ### Supported Transforms
@@ -151,13 +150,9 @@ The Iceberg writer supports the following transforms:
 - `bucket[N]`: Hash the value into N buckets (for high-cardinality fields)
 - `truncate[N]`: Truncate the string to N characters (for string fields)
 
-### Using Default Values
+### Handling Missing Partition Fields
 
-When a partition field is missing from a record, the writer will:
-1. Use the specified default value if one is provided
-2. Return an error if no default value is specified
-
-Default values are useful for handling missing data or ensuring backward compatibility when adding new partition fields.
+When a partition field is missing from a record, the writer will automatically set the field to `nil`, which Iceberg treats as a null value. This ensures that records with missing partition fields can still be processed correctly.
 
 ### Example Usage
 
@@ -170,7 +165,7 @@ To include partitioning in your sync:
     "my_namespace": [
       {
         "stream_name": "my_stream",
-        "partition_regex": "/{timestamp_col, '', day}/{region, 'unknown', identity}"
+        "partition_regex": "/{timestamp_col, day}/{region, identity}"
       }
     ]
   }
