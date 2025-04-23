@@ -122,7 +122,6 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 	if normalization {
 		// Add individual data fields
 		for key, value := range r.Data {
-
 			field := map[string]interface{}{
 				"optional": true,
 				"field":    key,
