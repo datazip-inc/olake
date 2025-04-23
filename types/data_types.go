@@ -122,10 +122,6 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 	if normalization {
 		// Add individual data fields
 		for key, value := range r.Data {
-			// Skip olake_id for normalized mode
-			if key == constants.OlakeID {
-				continue
-			}
 
 			field := map[string]interface{}{
 				"optional": true,
