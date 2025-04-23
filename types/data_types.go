@@ -13,7 +13,9 @@ type DataType string
 
 const (
 	Null           DataType = "null"
+	Int32          DataType = "integer_small"
 	Int64          DataType = "integer"
+	Float32        DataType = "number_small"
 	Float64        DataType = "number"
 	String         DataType = "string"
 	Bool           DataType = "boolean"
@@ -57,12 +59,10 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 
 	// Handle data based on normalization flag
 	if normalization {
-		// Copy the data fields but remove olake_id if present
 		for key, value := range r.Data {
 			payload[key] = value
 		}
 	} else {
-		// For non-normalized mode, add data as a single JSON string
 		dataBytes, err := json.Marshal(r.Data)
 		if err != nil {
 			return "", err
@@ -105,6 +105,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	if err != nil {
 		return "", err
 	}
+
 	return string(jsonBytes), nil
 }
 
@@ -131,7 +132,6 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 				"field":    key,
 			}
 
-			// Determine type based on the value
 			switch value.(type) {
 			case bool:
 				field["type"] = "boolean"
@@ -143,6 +143,8 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 				field["type"] = "float32"
 			case float64:
 				field["type"] = "float64"
+			case time.Time:
+				field["type"] = "timestamptz" // use with timezone as we use default utc
 			default:
 				field["type"] = "string"
 			}
@@ -194,6 +196,10 @@ func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 
 	switch d {
+	case Int32:
+		n = parquet.Leaf(parquet.Int32Type)
+	case Float32:
+		n = parquet.Leaf(parquet.FloatType)
 	case Int64:
 		n = parquet.Leaf(parquet.Int64Type)
 	case Float64:
