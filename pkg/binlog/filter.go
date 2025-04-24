@@ -175,6 +175,6 @@ func mysqlTypeName(t byte) string {
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return "GEOMETRY"
 	default:
-		return fmt.Sprintf("UNKNOWN_TYPE_%d", t)
+		return fmt.Sprintf("UNKNOWN_TYPE: %d", t)
 	}
 }
