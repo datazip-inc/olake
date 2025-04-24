@@ -126,7 +126,7 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	defer conn.Close()
 
 	// Create change filter for all streams
-	filter := binlog.NewChangeFilter(streams...)
+	filter := binlog.NewChangeFilter(m.dataTypeConverter, streams...)
 	// Stream and process events
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", gs.State.Position.Name, gs.State.Position.Pos)
 	return conn.StreamMessages(ctx, filter, func(change binlog.CDCChange) error {
