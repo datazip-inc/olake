@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -58,21 +57,6 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
-	// Set "null" for missing or nil partition fields
-	for field := range i.partitionInfo {
-		// Skip internal Olake fields which are automatically added
-		if field == constants.OlakeID || field == constants.OlakeTimestamp ||
-			field == constants.OpType || field == constants.CdcTimestamp ||
-			field == constants.DBName {
-			continue
-		}
-
-		_, exists := record.Data[field]
-		if !exists {
-			record.Data[field] = nil
-		}
-	}
-
 	// Convert record to Debezium format
 	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.config.Normalization)
 

@@ -190,6 +190,8 @@ The Iceberg writer supports the following transforms:
 - `bucket[N]`: Hash the value into N buckets (for high-cardinality fields)
 - `truncate[N]`: Truncate the string to N characters (for string fields)
 
+For more details on partition transforms, see the [Iceberg Partition Transform Specification](https://iceberg.apache.org/spec/#partition-transforms).
+
 ### Handling Missing Partition Fields
 
 When a partition field is missing from a record, the writer will automatically set the field to `nil`, which Iceberg treats as a null value. This ensures that records with missing partition fields can still be processed correctly.

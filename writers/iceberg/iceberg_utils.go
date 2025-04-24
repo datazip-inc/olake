@@ -170,20 +170,8 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 			continue // We need at least 3 matches: full match, column name, transform
 		}
 
-		colName := strings.TrimSpace(strings.Trim(match[1], `'"`))
+		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
-
-		// Special handling for now() function
-		if colName == "now()" {
-			// Create a special field for timestamps in Iceberg
-			// We'll use _olake_timestamp which is present in all records
-			field := constants.OlakeTimestamp
-
-			i.partitionInfo[field] = transform
-
-			logger.Infof("Added timestamp partition field: %s with transform: %s (from now() function)", field, transform)
-			continue
-		}
 
 		// Store transform for this field
 		i.partitionInfo[colName] = transform

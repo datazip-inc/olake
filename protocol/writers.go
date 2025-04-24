@@ -181,6 +181,9 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						}
 						// add insert time
 						record.OlakeTimestamp = time.Now().UTC()
+
+						//TODO: we need to capture error on thread.Close()
+
 						// check for normalization
 						if thread.Normalization() {
 							normalizedData, err := normalizeFunc(record)

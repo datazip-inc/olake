@@ -105,12 +105,10 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 		handleObjectID(record.FullDocument)
 		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
 
-		var ts time.Time
-		if record.WallTime != 0 {
-			ts = record.WallTime.Time() // millisecond precision
-		} else {
-			ts = time.UnixMilli(int64(record.ClusterTime.T)*1000 + int64(record.ClusterTime.I)) // seconds only
-		}
+		ts := utils.Ternary(record.WallTime != 0,
+			record.WallTime.Time(), // millisecond precision
+			time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
+		).(time.Time)
 
 		rawRecord := types.CreateRawRecord(
 			utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
