@@ -118,8 +118,6 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		return ReformatFloat32(v)
 	case types.Float64:
 		return ReformatFloat64(v)
-	case types.Float32:
-		return ReformatFloat32(v)
 	case types.Array:
 		if value, isArray := v.([]any); isArray {
 			return value, nil
