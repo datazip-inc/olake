@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 
 	// MySQL driver
@@ -141,6 +142,16 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	}
 
 	return m.GetStreams(), nil
+}
+
+func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
+	if value == nil {
+		return nil, typeutils.ErrNullValue
+	}
+	// (e.g., varchar(50) -> varchar)
+	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
+	olakeType := mysqlTypeToDataTypes[baseType]
+	return typeutils.ReformatValue(olakeType, value)
 }
 
 // Read handles different sync modes for data retrieval
