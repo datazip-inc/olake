@@ -67,6 +67,18 @@ public class OlakeRpcServer {
 
         if (configMap.get("upsert") != null) {
             upsert_records = Boolean.parseBoolean(configMap.get("upsert"));
+        }       
+
+        // Parse partition fields and their transforms
+        // Format: "partition.field.<fieldName>=<transform>"
+        // Example: "partition.field.ts_ms=day" or "partition.field.id=identity"
+        for (Map.Entry<String, String> entry : configMap.entrySet()) {
+            if (entry.getKey().startsWith("partition.field.")) {
+                String fieldName = entry.getKey().substring("partition.field.".length());
+                String transform = entry.getValue();
+                partitionTransforms.put(fieldName, transform);
+                LOGGER.info("Adding partition field: {} with transform: {}", fieldName, transform);
+            }
         }
 
         // Parse partition fields and their transforms
