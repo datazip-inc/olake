@@ -143,3 +143,82 @@ Create a json for writer config (writer.json)
 Please change the above to real credentials to make it work.
 
 For detailed catalog configs and usage, refer [here.](https://olake.io/docs/category/catalogs)
+
+## Partitioning Support
+
+The Iceberg writer supports partitioning data based on field values, which can significantly improve query performance when filtering on partition columns. Partitioning is configured at the stream level using the `PartitionRegex` field in `StreamMetadata`.
+
+### Partition Configuration Format
+
+Partitions are specified using the following format:
+
+```
+/{field_name, transform}/{another_field, transform}
+```
+
+Where:
+- `field_name`: Name of the column to partition by
+- `transform`: Iceberg partition transform to apply (e.g., `identity`, `hour`, `day`, `month`, `year`, `bucket[N]`, `truncate[N]`)
+
+### Example Partition Configurations
+
+1. Partition by year from a timestamp column:
+```
+/{created_at, year}
+```
+
+2. Partition by day:
+```
+/{event_date, day}
+```
+
+3. Multiple partitions (by customer ID and month):
+```
+/{customer_id, identity}/{event_time, month}
+```
+
+4. Using a current timestamp (special case):
+```
+/{now(), day}
+```
+
+### Supported Transforms
+
+The Iceberg writer supports the following transforms:
+- `identity`: Use the raw value (good for categorical data)
+- `year`, `month`, `day`, `hour`: Time-based transforms (good for timestamp columns)
+- `bucket[N]`: Hash the value into N buckets (for high-cardinality fields)
+- `truncate[N]`: Truncate the string to N characters (for string fields)
+
+For more details on partition transforms, see the [Iceberg Partition Transform Specification](https://iceberg.apache.org/spec/#partition-transforms).
+
+### Handling Missing Partition Fields
+
+When a partition field is missing from a record, the writer will automatically set the field to `nil`, which Iceberg treats as a null value. This ensures that records with missing partition fields can still be processed correctly.
+
+### Example Usage
+
+To include partitioning in your sync:
+
+1. Specify the partitioning in your stream configuration:
+```json
+{
+  "selected_streams": {
+    "my_namespace": [
+      {
+        "stream_name": "my_stream",
+        "partition_regex": "/{timestamp_col, day}/{region, identity}"
+      }
+    ]
+  }
+}
+
+2. Run your sync as usual, and the Iceberg writer will create the appropriate partitioned table structure.
+
+After syncing, you can query the data efficiently by filtering on partition columns:
+
+```sql
+-- This query will only scan relevant partitions
+select * from olake_iceberg.olake_iceberg.my_stream 
+where timestamp_col = '2023-05-01' and region = 'us-east';
+```

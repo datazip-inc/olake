@@ -88,7 +88,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 			// generate olake id
 			olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			// insert record
-			err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0).UnixNano()))
+			err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0)))
 			if err != nil {
 				return err
 			}

@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.HashMap;
 
 // This class is used to receive rows from the Olake Golang project and dump it into iceberg using prebuilt code here.
 @Dependent
@@ -28,6 +29,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private final IcebergTableOperator icebergTableOperator;
     // Create a single reusable ObjectMapper instance
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    // Map to store partition fields and their transforms
+    private Map<String, String> partitionTransforms = new HashMap<>();
 
     public OlakeRowsIngester() {
         icebergTableOperator = new IcebergTableOperator();
@@ -43,6 +46,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
     public void setIcebergCatalog(Catalog icebergCatalog) {
         this.icebergCatalog = icebergCatalog;
+    }
+
+    public void setPartitionTransforms(Map<String, String> partitionTransforms) {
+        this.partitionTransforms = partitionTransforms;
     }
 
     @Override
@@ -113,7 +120,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     public Table loadIcebergTable(TableIdentifier tableId, RecordConverter sampleEvent) {
         return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
             try {
-                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(true), "parquet");
+                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(true), "parquet", partitionTransforms);
             } catch (Exception e) {
                 String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", tableId, e.getMessage());
                 LOGGER.error(errorMessage, e);

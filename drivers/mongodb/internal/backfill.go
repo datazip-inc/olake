@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -102,8 +103,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 					return fmt.Errorf("backfill decoding document: %s", err)
 				}
 
-				handleObjectID(doc)
-				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, "r", time.Unix(0, 0).UnixNano()))
+				handleMongoObject(doc)
+				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, "r", time.Unix(0, 0)))
 				if err != nil {
 					return fmt.Errorf("failed to finish backfill chunk: %s", err)
 				}
@@ -396,7 +397,26 @@ func generateMinObjectID(t time.Time) *primitive.ObjectID {
 	return &objectID
 }
 
-func handleObjectID(doc bson.M) {
-	objectID := doc[constants.MongoPrimaryID].(primitive.ObjectID).String()
-	doc[constants.MongoPrimaryID] = strings.TrimRight(strings.TrimLeft(objectID, constants.MongoPrimaryIDPrefix), constants.MongoPrimaryIDSuffix)
+func handleMongoObject(doc bson.M) {
+	for key, value := range doc {
+		// first make key small case as data being typeresolved with small case keys
+		delete(doc, key)
+		key = typeutils.Reformat(key)
+		switch value := value.(type) {
+		case primitive.Timestamp:
+			doc[key] = value.T
+		case primitive.DateTime:
+			doc[key] = value.Time()
+		case primitive.Null:
+			doc[key] = nil
+		case primitive.Binary:
+			doc[key] = fmt.Sprintf("%x", value.Data)
+		case primitive.Decimal128:
+			doc[key] = value.String()
+		case primitive.ObjectID:
+			doc[key] = value.Hex()
+		default:
+			doc[key] = value
+		}
+	}
 }
