@@ -457,10 +457,13 @@ public class RecordConverter {
           return Types.UUIDType.get();
         case "bytes":
           return Types.BinaryType.get();
+        case "timestamp":
+            return Types.TimestampType.withoutZone();
+        case "timestamptz":
+            return Types.TimestampType.withZone();
         default:
           // default to String type
           return Types.StringType.get();
-        //throw new RuntimeException("'" + fieldName + "' has "+fieldType+" type, "+fieldType+" not supported!");
       }
     }
 

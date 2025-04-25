@@ -5,7 +5,7 @@ go 1.23.0
 toolchain go1.23.7
 
 require (
-	github.com/datazip-inc/olake v0.0.0-20230630130252-054496f39abb
+	github.com/datazip-inc/olake v0.0.0-20250414061859-a168ad00bb4b
 	github.com/jackc/pglogrepl v0.0.0-20250322012620-f1e2b1498ed6
 	github.com/lib/pq v1.10.9
 )

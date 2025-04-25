@@ -50,7 +50,6 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
-
 	// Add the record to the batch
 	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
 	if err != nil {
@@ -69,7 +68,7 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 func (i *Iceberg) Close() error {
 	err := flushBatch(i.configHash, i.client)
 	if err != nil {
-		logger.Infof("Error flushing batch on close: %v", err)
+		logger.Errorf("Error flushing batch on close: %v", err)
 		return err
 	}
 
