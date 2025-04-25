@@ -204,8 +204,7 @@ func (d DataType) ToNewParquet() parquet.Node {
 	case Bool:
 		n = parquet.Leaf(parquet.BooleanType)
 	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
-		n = parquet.Leaf(parquet.Int64Type)
-		n = parquet.Encoded(n, &parquet.Plain)
+		n = parquet.Timestamp(parquet.Microsecond)
 	case Object, Array:
 		// Ensure proper handling of nested structures
 		n = parquet.String()

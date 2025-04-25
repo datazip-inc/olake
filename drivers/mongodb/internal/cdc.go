@@ -102,7 +102,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			// replace full document(null) with documentKey
 			record.FullDocument = record.DocumentKey
 		}
-		handleObjectID(record.FullDocument)
+		handleMongoObject(record.FullDocument)
 		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
 
 		ts := utils.Ternary(record.WallTime != 0,
