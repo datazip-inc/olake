@@ -5,12 +5,16 @@ import "github.com/datazip-inc/olake/types"
 // Define a mapping of MySQL data types to internal data types
 var mysqlTypeToDataTypes = map[string]types.DataType{
 	// Integer types
-	"tinyint":   types.Int32,
-	"smallint":  types.Int32,
-	"mediumint": types.Int32,
-	"int":       types.Int32,
-	"integer":   types.Int32,
-	"bigint":    types.Int64,
+	"tinyint":            types.Int32,
+	"smallint":           types.Int32,
+	"mediumint":          types.Int32,
+	"int":                types.Int32,
+	"integer":            types.Int32,
+	"unsigned int":       types.Int32,
+	"unsigned smallint":  types.Int32,
+	"unsigned tinyint":   types.Int32,
+	"unsigned mediumint": types.Int32,
+	"bigint":             types.Int64,
 
 	// Floating point types
 	"float":   types.Float32,
