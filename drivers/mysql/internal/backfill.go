@@ -88,7 +88,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 				//crrate a map to hold column names and values
 				record := make(types.Record)
 				//scan the row into map
-				err := utils.MapScan(rows, record)
+				err := jdbc.MapScan(rows, record, nil)
 				if err != nil {
 					return fmt.Errorf("failed to mapScan record data: %s", err)
 				}

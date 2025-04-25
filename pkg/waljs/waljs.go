@@ -41,7 +41,7 @@ type Socket struct {
 	initialWaitTime time.Duration
 }
 
-func NewConnection(ctx context.Context, db *sqlx.DB, config *Config) (*Socket, error) {
+func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Socket, error) {
 	// Build PostgreSQL connection config
 	connURL := config.Connection
 	q := connURL.Query()
@@ -81,7 +81,7 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config) (*Socket, e
 	// Create and return final connection object
 	return &Socket{
 		pgConn:            pgConn,
-		changeFilter:      NewChangeFilter(config.Tables.Array()...),
+		changeFilter:      NewChangeFilter(typeConverter, config.Tables.Array()...),
 		ConfirmedFlushLSN: slot.LSN,
 		ClientXLogPos:     slot.LSN,
 		replicationSlot:   config.ReplicationSlotName,
