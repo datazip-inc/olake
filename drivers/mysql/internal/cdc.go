@@ -19,6 +19,11 @@ func (m *MySQL) prepareBinlogConfig(serverID uint32) (*binlog.Config, error) {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
+	// validate global state
+	if serverID == 0 {
+		return nil, fmt.Errorf("invalid global state; server_id is missing")
+	}
+
 	return &binlog.Config{
 		ServerID:        serverID,
 		Flavor:          "mysql",
@@ -35,58 +40,49 @@ func (m *MySQL) prepareBinlogConfig(serverID uint32) (*binlog.Config, error) {
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
 type MySQLGlobalState struct {
-	ServerID uint32             `json:"server_id"`
-	State    binlog.Binlog      `json:"state"`
-	Streams  *types.Set[string] `json:"streams"`
+	ServerID uint32        `json:"server_id"`
+	State    binlog.Binlog `json:"state"`
 }
 
 // RunChangeStream implements the CDC functionality for multiple streams using a single binlog connection.
-func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
-	ctx := context.TODO()
-
+func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
 	// Load or initialize global state
-	gs := &MySQLGlobalState{
-		State:   binlog.Binlog{Position: mysql.Position{}},
-		Streams: types.NewSet[string](),
-	}
-	if m.State.Global != nil {
-		if err = utils.Unmarshal(m.State.Global, gs); err != nil {
-			return fmt.Errorf("failed to unmarshal global state: %s", err)
-		}
-	}
-
-	// Get current binlog position if state is empty
-	if gs.ServerID == 0 || gs.State.Position.Name == "" {
-		pos, err := m.getCurrentBinlogPosition()
+	globalState := m.State.GetGlobal()
+	if globalState == nil || globalState.State == nil {
+		binlogPos, err := m.getCurrentBinlogPosition()
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
-		gs.Streams = types.NewSet[string]()
-		gs.State.Position = pos
-		gs.ServerID = uint32(1000 + time.Now().UnixNano()%9000)
-		m.State.SetGlobalState(gs)
-		// Reset streams for creating chunks again
+		m.State.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%9000), State: binlog.Binlog{Position: binlogPos}})
 		m.State.ResetStreams()
+		// reinit state
+		globalState = m.State.GetGlobal()
 	}
 
-	config, err := m.prepareBinlogConfig(gs.ServerID)
+	var MySQLGlobalState MySQLGlobalState
+	if err = utils.Unmarshal(globalState.State, &MySQLGlobalState); err != nil {
+		return fmt.Errorf("failed to unmarshal global state: %s", err)
+	}
+
+	config, err := m.prepareBinlogConfig(MySQLGlobalState.ServerID)
 	if err != nil {
 		return fmt.Errorf("failed to prepare binlog config: %s", err)
 	}
+
 	// Backfill streams that haven't been processed yet
 	var needsBackfill []protocol.Stream
 	for _, s := range streams {
-		if !gs.Streams.Exists(s.ID()) {
+		if globalState.Streams == nil || !globalState.Streams.Exists(s.ID()) {
+			logger.Infof("backfill required for stream: %s", s.ID())
 			needsBackfill = append(needsBackfill, s)
 		}
 	}
 
 	if err := utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(_ context.Context, s protocol.Stream, _ int) error {
-		if err := m.backfill(pool, s); err != nil {
+		if err := m.backfill(ctx, pool, s); err != nil {
 			return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
 		}
-		gs.Streams.Insert(s.ID())
-		m.State.SetGlobalState(gs)
+		m.State.SetGlobal(MySQLGlobalState, s.ID())
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed concurrent backfill: %s", err)
@@ -112,24 +108,22 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 				}
 			}
 			if err == nil {
-				m.State.SetGlobalState(gs)
+				m.State.SetGlobal(MySQLGlobalState)
 				// TODO: Research about acknowledgment of binlogs in mysql
 			}
 		}
 	}()
 
 	// Start binlog connection
-	conn, err := binlog.NewConnection(ctx, config, gs.State.Position)
+	conn, err := binlog.NewConnection(ctx, config, MySQLGlobalState.State.Position)
 	if err != nil {
 		return fmt.Errorf("failed to create binlog connection: %s", err)
 	}
 	defer conn.Close()
 
-	// Create change filter for all streams
-	filter := binlog.NewChangeFilter(streams...)
 	// Stream and process events
-	logger.Infof("Starting MySQL CDC from binlog position %s:%d", gs.State.Position.Name, gs.State.Position.Pos)
-	return conn.StreamMessages(ctx, filter, func(change binlog.CDCChange) error {
+	logger.Infof("Starting MySQL CDC from binlog position %s:%d", MySQLGlobalState.State.Position.Name, MySQLGlobalState.State.Position.Pos)
+	return conn.StreamMessages(ctx, binlog.NewChangeFilter(streams...), func(change binlog.CDCChange) error {
 		stream := change.Stream
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
@@ -143,7 +137,7 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 			return fmt.Errorf("failed to insert record for stream[%s]: %s", stream.ID(), err)
 		}
 		// Update global state with the new position
-		gs.State.Position = change.Position
+		MySQLGlobalState.State.Position = change.Position
 		return nil
 	})
 }

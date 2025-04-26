@@ -15,10 +15,7 @@ import (
 )
 
 // backfill implements full refresh sync mode for MySQL
-func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) error {
-	// Use a context for the backfill operation
-	backfillCtx := context.TODO()
-
+func (m *MySQL) backfill(backfillCtx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
 	// Get approximate row count and inform the pool
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.MySQLTableRowsQuery()

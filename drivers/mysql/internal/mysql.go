@@ -144,12 +144,12 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 }
 
 // Read handles different sync modes for data retrieval
-func (m *MySQL) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
+func (m *MySQL) Read(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
 	switch stream.GetSyncMode() {
 	case types.FULLREFRESH:
-		return m.backfill(pool, stream)
+		return m.backfill(ctx, pool, stream)
 	case types.CDC:
-		return m.RunChangeStream(pool, stream)
+		return m.RunChangeStream(ctx, pool, stream)
 	}
 
 	return nil
