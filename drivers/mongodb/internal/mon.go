@@ -192,7 +192,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 				return err
 			}
 
-			handleObjectID(row)
+			handleMongoObject(row)
 			if err := typeutils.Resolve(stream, row); err != nil {
 				return err
 			}

@@ -34,6 +34,8 @@ public class OlakeRpcServer {
     static Deserializer<JsonNode> keyDeserializer;
     static boolean upsert_records = true;
     static boolean createIdFields = true;
+    // Map to store partition fields and their transforms
+    static Map<String, String> partitionTransforms = new ConcurrentHashMap<>();
 
 
     public static void main(String[] args) throws Exception {
@@ -65,6 +67,18 @@ public class OlakeRpcServer {
 
         if (configMap.get("upsert") != null) {
             upsert_records = Boolean.parseBoolean(configMap.get("upsert"));
+        }       
+
+        // Parse partition fields and their transforms
+        // Format: "partition.field.<fieldName>=<transform>"
+        // Example: "partition.field.ts_ms=day" or "partition.field.id=identity"
+        for (Map.Entry<String, String> entry : configMap.entrySet()) {
+            if (entry.getKey().startsWith("partition.field.")) {
+                String fieldName = entry.getKey().substring("partition.field.".length());
+                String transform = entry.getValue();
+                partitionTransforms.put(fieldName, transform);
+                LOGGER.info("Adding partition field: {} with transform: {}", fieldName, transform);
+            }
         }
 
         icebergCatalog = CatalogUtil.buildIcebergCatalog(catalogName, icebergProperties, hadoopConf);
@@ -83,6 +97,8 @@ public class OlakeRpcServer {
         ori = new OlakeRowsIngester(upsert_records);
         ori.setIcebergNamespace(configMap.get("table-namespace"));
         ori.setIcebergCatalog(icebergCatalog);
+        // Pass partition transforms to the ingester
+        ori.setPartitionTransforms(partitionTransforms);
 
 
         // Build the server to listen on port 50051

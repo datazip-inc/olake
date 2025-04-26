@@ -79,7 +79,7 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 			record := make(types.Record)
 
 			// Scan the row into the map
-			err := utils.MapScan(rows, record)
+			err := jdbc.MapScan(rows, record, p.dataTypeConverter)
 			if err != nil {
 				return fmt.Errorf("failed to mapScan record data: %s", err)
 			}
@@ -87,7 +87,7 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 			// generate olake id
 			olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			// insert record
-			err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0).UnixNano()))
+			err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0)))
 			if err != nil {
 				return err
 			}

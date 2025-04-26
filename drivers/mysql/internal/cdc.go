@@ -131,7 +131,7 @@ func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, 
 			utils.GetKeysHash(change.Data, pkColumn),
 			change.Data,
 			opType,
-			change.Timestamp.UnixMilli(),
+			change.Timestamp,
 		)
 		if err := inserters[stream].Insert(record); err != nil {
 			return fmt.Errorf("failed to insert record for stream[%s]: %s", stream.ID(), err)

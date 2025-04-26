@@ -20,8 +20,16 @@ var typecastTree = &typeNode{
 	left: &typeNode{
 		t: types.Float64,
 		left: &typeNode{
-			t:    types.Int64,
-			left: &typeNode{t: types.Bool},
+			t: types.Int64,
+			left: &typeNode{
+				t: types.Int32,
+				left: &typeNode{
+					t: types.Bool,
+				},
+			},
+		},
+		right: &typeNode{
+			t: types.Float32,
 		},
 	},
 	right: &typeNode{
