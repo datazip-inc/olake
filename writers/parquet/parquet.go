@@ -314,7 +314,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 		return p.basePath
 	}
 	// path pattern example /{col_name, 'fallback', granularity}/random_string/{col_name, fallback, granularity}
-	patternRegex := regexp.MustCompile(`\{([^}]+)\}`)
+	patternRegex := regexp.MustCompile(constants.PartitionRegex)
 
 	// Replace placeholders
 	result := patternRegex.ReplaceAllStringFunc(pattern, func(match string) string {

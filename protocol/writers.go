@@ -161,11 +161,15 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				w.tmu.Lock()
 				defer w.tmu.Unlock()
 				childCancel() // no more inserts
+				// capture error on thread close
+				threadCloseErr := thread.Close()
+				if len(opts.errorChannel) == 0 && threadCloseErr != nil {
+					opts.errorChannel <- threadCloseErr
+				}
 				// if wait channel is provided, close it
 				if opts.errorChannel != nil {
 					close(opts.errorChannel)
 				}
-				thread.Close() // close it after closing inserts
 				w.threadCounter.Add(-1)
 			}()
 
@@ -182,8 +186,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						// add insert time
 						record.OlakeTimestamp = time.Now().UTC()
 
-						//TODO: we need to capture error on thread.Close()
-
 						// check for normalization
 						if thread.Normalization() {
 							normalizedData, err := normalizeFunc(record)
@@ -197,7 +199,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 							return err
 						}
 						w.recordCount.Add(1) // increase the record count
-
 						if w.SyncedRecords()%batchSize == 0 {
 							state.LogWithLock()
 						}

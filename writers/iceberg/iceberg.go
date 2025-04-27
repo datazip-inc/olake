@@ -105,9 +105,6 @@ func (i *Iceberg) Check() error {
 	// Create a temporary setup for checking
 	err := i.SetupIcebergClient(false)
 	if err != nil {
-		// Restore original stream and partition info before returning
-		i.stream = originalStream
-		i.partitionInfo = originalPartitionInfo
 		return fmt.Errorf("failed to setup iceberg: %v", err)
 	}
 
