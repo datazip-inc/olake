@@ -28,7 +28,7 @@
         <skipITs>true</skipITs>
         
         <!-- Iceberg -->
-        <version.iceberg>1.7.1</version.iceberg>
+        <version.iceberg>1.7.2</version.iceberg>
         <!-- Following two properties defines which version of iceberg-spark-runtime is used -->
         <version.spark.major>4.0</version.spark.major>
         <version.spark.major.iceebrgtemp>3.5</version.spark.major.iceebrgtemp>

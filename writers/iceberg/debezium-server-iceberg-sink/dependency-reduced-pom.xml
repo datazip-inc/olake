@@ -359,7 +359,7 @@
     <dependency>
       <groupId>org.apache.iceberg</groupId>
       <artifactId>iceberg-spark-3.5_2.13</artifactId>
-      <version>1.7.1</version>
+      <version>1.7.2</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
@@ -375,7 +375,7 @@
     <dependency>
       <groupId>org.apache.iceberg</groupId>
       <artifactId>iceberg-spark-extensions-3.5_2.13</artifactId>
-      <version>1.7.1</version>
+      <version>1.7.2</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
@@ -585,15 +585,21 @@
         <type>pom</type>
         <scope>test</scope>
       </dependency>
+      <dependency>
+        <groupId>org.apache.httpcomponents.client5</groupId>
+        <artifactId>httpclient5</artifactId>
+        <version>${version.httpclient5}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <version.snappy>1.1.10.4</version.snappy>
     <version.jose4j>0.9.4</version.jose4j>
-    <version.iceberg>1.7.1</version.iceberg>
+    <version.iceberg>1.7.2</version.iceberg>
     <version.googlebigdataoss>2.2.20</version.googlebigdataoss>
     <version.log4j2>2.21.1</version.log4j2>
+    <version.httpclient5>5.4.3</version.httpclient5>
     <version.testcontainers>1.20.4</version.testcontainers>
     <version.vertx>4.5.3</version.vertx>
     <version.spark.major>4.0</version.spark.major>
