@@ -15,7 +15,7 @@ The MySql Driver enables data synchronization from MySql to your desired destina
 To run the MySql Driver, configure the following files with your specific credentials and settings:
 
 - **`config.json`**: MySql connection details.  
-- **`catalog.json`**: List of collections and fields to sync (generated using the *Discover* command).  
+- **`streams.json`**: List of collections and fields to sync (generated using the *Discover* command).  
 - **`write.json`**: Configuration for the destination where the data will be written.
 
 Place these files in your project directory before running the commands.
@@ -44,7 +44,7 @@ Add MySql credentials in following format in `config.json` file. [More details.]
 
 ### Discover Command
 
-The *Discover* command generates json content for `catalog.json` file, which defines the schema of the collections to be synced.
+The *Discover* command generates json content for `streams.json` file, which defines the schema of the collections to be synced.
 
 #### Usage
 To run the Discover command, use the following syntax
@@ -80,8 +80,8 @@ After executing the Discover command, a formatted response will look like this:
 }
 ```
 
-#### Configure Catalog
-Before running the Sync command, the generated `catalog.json` file must be configured. Follow these steps:
+#### Configure Streams
+Before running the Sync command, the generated `streams.json` file must be configured. Follow these steps:
 - Remove Unnecessary Streams:<br>
    Remove streams from selected streams.
 - Add Partition based on Column Value
@@ -97,7 +97,7 @@ Before running the Sync command, the generated `catalog.json` file must be confi
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
-- Final Catalog Example
+- Final Streams Example
    ```json
    {
       "selected_streams": {
@@ -194,12 +194,12 @@ Find more about writer docs [here.](https://olake.io/docs/category/destinations-
 The *Sync* command fetches data from MySql and ingests it into the destination.
 
 ```bash
-./build.sh driver-mysql sync --config /mysql/examples/config.json --catalog /mysql/examples/catalog.json --destination /mysql/examples/write.json
+./build.sh driver-mysql sync --config /mysql/examples/config.json --catalog /mysql/examples/streams.json --destination /mysql/examples/write.json
 ```
 
 To run sync with state 
 ```bash
-./build.sh driver-mysql sync --config /mysql/examples/config.json --catalog /mysql/examples/catalog.json --destination /mysql/examples/write.json --state /mysql/examples/state.json
+./build.sh driver-mysql sync --config /mysql/examples/config.json --catalog /mysql/examples/streams.json --destination /mysql/examples/write.json --state /mysql/examples/state.json
 ```
 
 
