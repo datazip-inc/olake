@@ -131,10 +131,9 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", gs.State.Position.Name, gs.State.Position.Pos)
 	return conn.StreamMessages(ctx, filter, func(change binlog.CDCChange) error {
 		stream := change.Stream
-		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 		record := types.CreateRawRecord(
-			utils.GetKeysHash(change.Data, pkColumn),
+			utils.GetKeysHash(change.Data, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
 			change.Data,
 			opType,
 			change.Timestamp.UnixMilli(),
