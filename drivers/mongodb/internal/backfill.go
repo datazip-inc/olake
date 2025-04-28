@@ -113,7 +113,7 @@ func (m *Mongo) backfill(backfillCtx context.Context, pool *protocol.WriterPool,
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
 
-	return utils.Concurrent(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, chunk types.Chunk, number int) error {
+	return utils.ConcurrentReader(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, chunk types.Chunk, number int) error {
 		batchStartTime := time.Now()
 		err := processChunk(backfillCtx, chunk, number)
 		if err != nil {
