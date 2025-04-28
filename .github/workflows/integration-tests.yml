@@ -3,7 +3,7 @@ name: Integration Tests
 on:
   push:
     branches:
-      - "test/branch_spark"
+      - "feat/testing_framework"
   pull_request:
     branches:
       - "*"
