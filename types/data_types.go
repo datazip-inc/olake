@@ -2,7 +2,9 @@ package types
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
 )
@@ -11,7 +13,9 @@ type DataType string
 
 const (
 	Null           DataType = "null"
+	Int32          DataType = "integer_small"
 	Int64          DataType = "integer"
+	Float32        DataType = "number_small"
 	Float64        DataType = "number"
 	String         DataType = "string"
 	Bool           DataType = "boolean"
@@ -26,16 +30,15 @@ const (
 
 type Record map[string]any
 
-// TODO: change Olake column names to _ prefixed.
 type RawRecord struct {
 	Data           map[string]any `parquet:"data,json"`
 	OlakeID        string         `parquet:"_olake_id"`
-	OlakeTimestamp int64          `parquet:"_olake_insert_time"`
+	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
 	OperationType  string         `parquet:"_op_type"` // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
-	CdcTimestamp   int64          `parquet:"_cdc_timestamp"`
+	CdcTimestamp   time.Time      `parquet:"_cdc_timestamp"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp int64) RawRecord {
+func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
@@ -52,18 +55,14 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	payload := make(map[string]interface{})
 
 	// Add olake_id to payload
-	payload["olake_id"] = r.OlakeID
+	payload[constants.OlakeID] = r.OlakeID
 
 	// Handle data based on normalization flag
 	if normalization {
-		// Copy the data fields but remove olake_id if present
 		for key, value := range r.Data {
-			if key != "olake_id" {
-				payload[key] = value
-			}
+			payload[key] = value
 		}
 	} else {
-		// For non-normalized mode, add data as a single JSON string
 		dataBytes, err := json.Marshal(r.Data)
 		if err != nil {
 			return "", err
@@ -72,10 +71,10 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	}
 
 	// Add the metadata fields
-	payload["__deleted"] = r.OperationType == "delete"
-	payload["__op"] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
-	payload["__db"] = db
-	payload["__source_ts_ms"] = r.CdcTimestamp
+	payload[constants.OpType] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
+	payload[constants.DBName] = db
+	payload[constants.CdcTimestamp] = r.CdcTimestamp
+	payload[constants.OlakeTimestamp] = r.OlakeTimestamp
 
 	// Create Debezium format
 	debeziumRecord := map[string]interface{}{
@@ -87,13 +86,13 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 					{
 						"type":     "string",
 						"optional": true,
-						"field":    "olake_id",
+						"field":    constants.OlakeID,
 					},
 				},
 				"optional": false,
 			},
 			"payload": map[string]interface{}{
-				"olake_id": r.OlakeID,
+				constants.OlakeID: r.OlakeID,
 			},
 		},
 		"value": map[string]interface{}{
@@ -106,6 +105,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	if err != nil {
 		return "", err
 	}
+
 	return string(jsonBytes), nil
 }
 
@@ -116,23 +116,17 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 	fields = append(fields, map[string]interface{}{
 		"type":     "string",
 		"optional": true,
-		"field":    "olake_id",
+		"field":    constants.OlakeID,
 	})
 
 	if normalization {
 		// Add individual data fields
 		for key, value := range r.Data {
-			// Skip olake_id for normalized mode
-			if key == "olake_id" {
-				continue
-			}
-
 			field := map[string]interface{}{
 				"optional": true,
 				"field":    key,
 			}
 
-			// Determine type based on the value
 			switch value.(type) {
 			case bool:
 				field["type"] = "boolean"
@@ -144,6 +138,8 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 				field["type"] = "float32"
 			case float64:
 				field["type"] = "float64"
+			case time.Time:
+				field["type"] = "timestamptz" // use with timezone as we use default utc
 			default:
 				field["type"] = "string"
 			}
@@ -162,24 +158,24 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 	// Add metadata fields
 	fields = append(fields, []map[string]interface{}{
 		{
-			"type":     "boolean",
+			"type":     "string",
 			"optional": true,
-			"field":    "__deleted",
+			"field":    constants.OpType,
 		},
 		{
 			"type":     "string",
 			"optional": true,
-			"field":    "__op",
+			"field":    constants.DBName,
 		},
 		{
-			"type":     "string",
+			"type":     "timestamptz",
 			"optional": true,
-			"field":    "__db",
+			"field":    constants.CdcTimestamp,
 		},
 		{
-			"type":     "int64",
+			"type":     "timestamptz",
 			"optional": true,
-			"field":    "__source_ts_ms",
+			"field":    constants.OlakeTimestamp,
 		},
 	}...)
 
@@ -195,6 +191,10 @@ func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 
 	switch d {
+	case Int32:
+		n = parquet.Leaf(parquet.Int32Type)
+	case Float32:
+		n = parquet.Leaf(parquet.FloatType)
 	case Int64:
 		n = parquet.Leaf(parquet.Int64Type)
 	case Float64:
@@ -204,8 +204,7 @@ func (d DataType) ToNewParquet() parquet.Node {
 	case Bool:
 		n = parquet.Leaf(parquet.BooleanType)
 	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
-		n = parquet.Leaf(parquet.Int64Type)
-		n = parquet.Encoded(n, &parquet.Plain)
+		n = parquet.Timestamp(parquet.Microsecond)
 	case Object, Array:
 		// Ensure proper handling of nested structures
 		n = parquet.String()

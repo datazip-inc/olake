@@ -88,7 +88,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 				//crrate a map to hold column names and values
 				record := make(types.Record)
 				//scan the row into map
-				err := utils.MapScan(rows, record)
+				err := jdbc.MapScan(rows, record, nil)
 				if err != nil {
 					return fmt.Errorf("failed to mapScan record data: %s", err)
 				}
@@ -96,7 +96,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 				//genrate olake id
 				olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				//insert record
-				err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0).UnixNano()))
+				err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0)))
 				if err != nil {
 					return err
 				}
