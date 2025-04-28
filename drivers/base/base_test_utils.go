@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/writers/iceberg"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TODO : verify iceberg sync
 // TestHelper defines database-specific helper functions
 type TestHelper struct {
 	CreateTable func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
@@ -129,13 +130,16 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
+
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
 		}
 	}
+
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
+		VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
 	})
 	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
@@ -143,13 +147,49 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
+			time.Sleep(180 * time.Second)
+			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
 			})
+			VerifyIcebergSync(t, tableName, "6", "after update", "olake_id", "col1", "col2")
 			t.Run("delete operation", func(t *testing.T) {
 				helper.DeleteOp(ctx, t, conn, tableName)
 			})
+			VerifyIcebergSync(t, tableName, "6", "after delete", "olake_id", "col1", "col2")
 		})
+
 	})
 
+}
+
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, verifyColumns ...string) {
+	t.Helper()
+	ctx := context.Background()
+	var sparkConnectAddress = "sc://localhost:15002" // Default value
+
+	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+	require.NoError(t, err, "Failed to connect to Spark Connect server")
+	defer spark.Stop()
+
+	// Query for unique olake_id records
+	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
+	t.Logf("Executing query: %s", query)
+
+	// Add retry for query execution
+	countDf, err := spark.Sql(ctx, query)
+	require.NoError(t, err, "Failed to query unique count from the table")
+
+	// Collect the count result
+	countRows, err := countDf.Collect(ctx)
+	require.NoError(t, err, "Failed to collect count data from Iceberg")
+	require.NotEmpty(t, countRows, "Count result is empty")
+
+	// Extract the count value using the correct method
+	countValue := countRows[0].Value("unique_count")
+	require.NotNil(t, countValue, "Count value is nil")
+
+	// Verify unique count
+	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg (%s)", message)
+	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s - %s", countValue, tableName, message)
 }

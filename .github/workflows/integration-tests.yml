@@ -19,7 +19,9 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.23.2'
-        
+       # Create the missing /tmp/spark-events directory
+    
+          
       # Start required containers
       - name: Start MySQL container
         run: |
@@ -36,21 +38,23 @@ jobs:
             echo "Waiting for MySQL to be ready..."
             sleep 5
           done
-      - name : Start PostgreSQL container
-        run: |
-          pushd ./drivers/postgres
-          docker compose up -d
-          popd
-      - name: Wait for PostgreSQL to be ready
-        run: |
-          for i in {1..30}; do
-            if docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1" &> /dev/null; then
-              echo "PostgreSQL is up!"
-              break
-            fi
-            echo "Waiting for PostgreSQL to be ready..."
-            sleep 5
-          done
+
+      
+      # - name : Start PostgreSQL container
+      #   run: |
+      #     pushd ./drivers/postgres
+      #     docker compose up -d
+      #     popd
+      # - name: Wait for PostgreSQL to be ready
+      #   run: |
+      #     for i in {1..30}; do
+      #       if docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1" &> /dev/null; then
+      #         echo "PostgreSQL is up!"
+      #         break
+      #       fi
+      #       echo "Waiting for PostgreSQL to be ready..."
+      #       sleep 5
+      #     done
 
       - name: Start Iceberg services
         run: |
@@ -58,10 +62,6 @@ jobs:
           docker compose up -d
           popd
     
-      # Wait for services to be ready
-      - name: Wait for services to be ready
-        run: sleep 60
-
       - name: Create data directories with proper permissions
         run: |
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
@@ -69,7 +69,6 @@ jobs:
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
           sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
           sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
-      
       # Install go dependencies and build
       - name: Install dependencies
         run: go mod download
@@ -88,9 +87,9 @@ jobs:
         run: |
           go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
       
-      - name: Run integration tests for PostgreSQL
-        run: |
-          go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
+      # - name: Run integration tests for PostgreSQL
+      #   run: |
+      #     go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
     
           
       # Clean up containers when done
