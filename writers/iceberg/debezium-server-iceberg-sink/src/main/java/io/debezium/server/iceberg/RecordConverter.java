@@ -44,7 +44,7 @@ public class RecordConverter {
 
   protected static final ObjectMapper mapper = new ObjectMapper();
   protected static final Logger LOGGER = LoggerFactory.getLogger(RecordConverter.class);
-  public static final List<String> TS_MS_FIELDS = List.of("__ts_ms", "__source_ts_ms");
+  public static final List<String> TS_MS_FIELDS = List.of("_olake_timestamp", "_cdc_timestamp");
   // static final boolean eventsAreUnwrapped = IcebergUtil.configIncludesUnwrapSmt();
   static final boolean eventsAreUnwrapped = true;
   protected final String destination;

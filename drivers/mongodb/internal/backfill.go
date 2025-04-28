@@ -104,7 +104,7 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 				}
 
 				handleMongoObject(doc)
-				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, "r", time.Unix(0, 0).UnixNano()))
+				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, "r", time.Unix(0, 0)))
 				if err != nil {
 					return fmt.Errorf("failed to finish backfill chunk: %s", err)
 				}
@@ -415,6 +415,12 @@ func handleMongoObject(doc bson.M) {
 			doc[key] = value.String()
 		case primitive.ObjectID:
 			doc[key] = value.Hex()
+		case float64:
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				doc[key] = nil
+			} else {
+				doc[key] = value
+			}
 		default:
 			doc[key] = value
 		}
