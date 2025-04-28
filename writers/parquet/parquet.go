@@ -90,7 +90,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	}
 
 	writer := func() any {
-		if p.stream.Self().StreamMetadata.Normalization {
+		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
 		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
@@ -149,7 +149,7 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 	// get last written file
 	fileMetadata := &partitionFolder[len(partitionFolder)-1]
 	var err error
-	if p.stream.Self().StreamMetadata.Normalization {
+	if p.stream.Self().NormalizationEnabled() {
 		record.Data[constants.OlakeID] = record.OlakeID
 		record.Data[constants.OlakeTimestamp] = record.OlakeTimestamp
 		record.Data[constants.OpType] = record.OperationType
@@ -231,7 +231,7 @@ func (p *Parquet) Close() error {
 
 			// Close writers
 			var err error
-			if p.stream.Self().StreamMetadata.Normalization {
+			if p.stream.Self().NormalizationEnabled() {
 				err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Close()
 			} else {
 				err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()

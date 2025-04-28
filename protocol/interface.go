@@ -72,6 +72,7 @@ type Stream interface {
 	SupportedSyncModes() *types.Set[types.SyncMode]
 	Cursor() string
 	Validate(source *types.Stream) error
+	NormalizationEnabled() bool
 }
 
 type State interface {
