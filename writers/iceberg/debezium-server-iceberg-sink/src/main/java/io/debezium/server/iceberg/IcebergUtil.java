@@ -13,6 +13,7 @@ import com.google.common.primitives.Ints;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.literal.NamedLiteral;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
@@ -33,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -118,6 +120,11 @@ public class IcebergUtil {
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
                                          Schema schema, String writeFormat) {
+    return createIcebergTable(icebergCatalog, tableIdentifier, schema, writeFormat, Collections.emptyMap());
+  }
+
+  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
+                                         Schema schema, String writeFormat, Map<String, String> partitionTransforms) {
 
     LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
         schema.identifierFieldNames());
@@ -127,11 +134,76 @@ public class IcebergUtil {
       LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
     }
 
-    return icebergCatalog.buildTable(tableIdentifier, schema)
-        .withProperty(FORMAT_VERSION, "2")
-        .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-        .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
-        .create();
+    // If we have partition transforms, create a PartitionSpec
+    if (partitionTransforms.isEmpty()) {
+      // No partitioning - create a table as before
+      return icebergCatalog.buildTable(tableIdentifier, schema)
+          .withProperty(FORMAT_VERSION, "2")
+          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+          .create();
+    } else {
+      // Create a table with partitioning
+      LOGGER.info("Creating table with partitioning: {}", partitionTransforms);
+      
+      // Start building the table
+      PartitionSpec.Builder specBuilder = PartitionSpec.builderFor(schema);
+      
+      // Apply each partition transform
+      for (Map.Entry<String, String> entry : partitionTransforms.entrySet()) {
+        String field = entry.getKey();
+        String transform = entry.getValue().toLowerCase(Locale.ENGLISH);
+        
+        // Apply the appropriate transform based on the specified type
+        switch (transform) {
+          case "identity":
+            specBuilder.identity(field);
+            break;
+          case "year":
+            specBuilder.year(field);
+            break;
+          case "month":
+            specBuilder.month(field);
+            break;
+          case "day":
+            specBuilder.day(field);
+            break;
+          case "hour":
+            specBuilder.hour(field);
+            break;
+          default:
+            // Handle more complex transforms like bucket[N] or truncate[N]
+            if (transform.startsWith("bucket[") && transform.endsWith("]")) {
+              try {
+                int numBuckets = Integer.parseInt(transform.substring(7, transform.length() - 1));
+                specBuilder.bucket(field, numBuckets);
+              } catch (NumberFormatException e) {
+                LOGGER.warn("Invalid bucket transform: {}. Using identity transform instead.", transform);
+                specBuilder.identity(field);
+              }
+            } else if (transform.startsWith("truncate[") && transform.endsWith("]")) {
+              try {
+                int width = Integer.parseInt(transform.substring(9, transform.length() - 1));
+                specBuilder.truncate(field, width);
+              } catch (NumberFormatException e) {
+                LOGGER.warn("Invalid truncate transform: {}. Using identity transform instead.", transform);
+                specBuilder.identity(field);
+              }
+            } else {
+              LOGGER.warn("Unknown transform: {}. Using identity transform instead.", transform);
+              specBuilder.identity(field);
+            }
+        }
+      }
+      
+      // Create the table with the partition spec
+      return icebergCatalog.buildTable(tableIdentifier, schema)
+          .withProperty(FORMAT_VERSION, "2")
+          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+          .withPartitionSpec(specBuilder.build())
+          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+          .create();
+    }
   }
 
   private static SortOrder getIdentifierFieldsAsSortOrder(Schema schema) {

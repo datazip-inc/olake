@@ -16,16 +16,17 @@ import (
 )
 
 type Iceberg struct {
-	options    *protocol.Options
-	config     *Config
-	stream     protocol.Stream
-	records    atomic.Int64
-	cmd        *exec.Cmd
-	client     proto.RecordIngestServiceClient
-	conn       *grpc.ClientConn
-	port       int
-	backfill   bool
-	configHash string
+	options       *protocol.Options
+	config        *Config
+	stream        protocol.Stream
+	records       atomic.Int64
+	cmd           *exec.Cmd
+	client        proto.RecordIngestServiceClient
+	conn          *grpc.ClientConn
+	port          int
+	backfill      bool
+	configHash    string
+	partitionInfo map[string]string // map of field names to partition transform
 }
 
 func (i *Iceberg) GetConfigRef() protocol.Config {
@@ -41,12 +42,24 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 	i.options = options
 	i.stream = stream
 	i.backfill = options.Backfill
+	i.partitionInfo = make(map[string]string)
+
+	// Parse partition regex from stream metadata
+	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
+	if partitionRegex != "" {
+		err := i.parsePartitionRegex(partitionRegex)
+		if err != nil {
+			return fmt.Errorf("failed to parse partition regex: %v", err)
+		}
+	}
+
 	return i.SetupIcebergClient(!options.Backfill)
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	// Convert record to Debezium format
-	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.config.Normalization)
+	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.Self().StreamMetadata.Normalization)
+
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
@@ -83,19 +96,27 @@ func (i *Iceberg) Close() error {
 func (i *Iceberg) Check() error {
 	// Save the current stream reference
 	originalStream := i.stream
+	originalPartitionInfo := i.partitionInfo
 
-	// Temporarily set stream to nil to force a new server for the check
+	// Temporarily set stream to nil and clear partition fields to force a new server for the check
 	i.stream = nil
+	i.partitionInfo = make(map[string]string)
 
 	// Create a temporary setup for checking
 	err := i.SetupIcebergClient(false)
 	if err != nil {
-		// Restore original stream before returning
+		// Restore original stream and partition info before returning
 		i.stream = originalStream
+		i.partitionInfo = originalPartitionInfo
 		return fmt.Errorf("failed to setup iceberg: %v", err)
 	}
 
-	defer i.Close()
+	defer func() {
+		i.Close()
+		// Restore original stream and partition info
+		i.stream = originalStream
+		i.partitionInfo = originalPartitionInfo
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -108,14 +129,10 @@ func (i *Iceberg) Check() error {
 	// Call the remote procedure
 	res, err := i.client.SendRecords(ctx, req)
 	if err != nil {
-		i.stream = originalStream
 		return fmt.Errorf("error sending record to Iceberg RPC Server: %v", err)
 	}
 	// Print the response from the server
 	logger.Infof("Server Response: %s", res.GetResult())
-
-	// Restore original stream
-	i.stream = originalStream
 
 	return nil
 }
@@ -137,11 +154,7 @@ func (i *Iceberg) Flattener() protocol.FlattenFunction {
 	return flattener.Flatten
 }
 
-func (i *Iceberg) Normalization() bool {
-	return i.stream.Self().StreamMetadata.Normalization
-}
-
-func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record) error {
+func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record, _ time.Time) error {
 	// Schema evolution is handled by Iceberg
 	return nil
 }

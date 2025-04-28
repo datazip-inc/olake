@@ -127,7 +127,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 			utils.GetKeysHash(msg.Data, pkFields...),
 			msg.Data,
 			opType,
-			msg.Timestamp.UnixMilli(),
+			msg.Timestamp.Time,
 		))
 	})
 }
