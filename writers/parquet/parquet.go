@@ -73,7 +73,43 @@ func (p *Parquet) initS3Writer() error {
 	return nil
 }
 
+// closePartitionFile closes the writer and file for a given partition
+func (p *Parquet) closePartitionFile(basePath string, fileMetadata *FileMetadata) error {
+	if fileMetadata == nil {
+		return nil
+	}
+
+	// Close writer
+	var err error
+	if p.config.Normalization {
+		err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Close()
+	} else {
+		err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to close writer: %s", err)
+	}
+
+	// Close file
+	if err := fileMetadata.parquetFile.Close(); err != nil {
+		return fmt.Errorf("failed to close file: %s", err)
+	}
+
+	filePath := filepath.Join(p.config.Path, basePath, fileMetadata.fileName)
+	logger.Infof("Closed file [%s] with %d records.", filePath, fileMetadata.recordCount)
+
+	return nil
+}
+
 func (p *Parquet) createNewPartitionFile(basePath string) error {
+	// Close existing file in this partition if it exists
+	if files, exists := p.partitionedFiles[basePath]; exists && len(files) > 0 {
+		lastFile := &files[len(files)-1]
+		if err := p.closePartitionFile(basePath, lastFile); err != nil {
+			return err
+		}
+	}
+
 	// construct directory path
 	directoryPath := filepath.Join(p.config.Path, basePath)
 
@@ -230,18 +266,8 @@ func (p *Parquet) Close() error {
 			}
 
 			// Close writers
-			var err error
-			if p.config.Normalization {
-				err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Close()
-			} else {
-				err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
-			}
-			if err != nil {
-				return fmt.Errorf("failed to close writer: %s", err)
-			}
-			// Close file
-			if err := fileMetadata.parquetFile.Close(); err != nil {
-				return fmt.Errorf("failed to close file: %s", err)
+			if err := p.closePartitionFile(basePath, &fileMetadata); err != nil {
+				return err
 			}
 
 			logger.Infof("Finished writing file [%s] with %d records.", filePath, fileMetadata.recordCount)
