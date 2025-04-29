@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/jmoiron/sqlx"
 )
@@ -171,6 +172,16 @@ func (p *Postgres) Type() string {
 	return "Postgres"
 }
 
+func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
+	if value == nil {
+		return nil, typeutils.ErrNullValue
+	}
+	// (e.g., varchar(50) -> varchar)
+	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
+	olakeType := pgTypeToDataTypes[baseType]
+	return typeutils.ReformatValue(olakeType, value)
+}
+
 func (p *Postgres) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 	switch stream.GetSyncMode() {
 	case types.FULLREFRESH:
@@ -211,7 +222,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 			datatype = types.String
 		}
 
-		stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
+		stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
 	}
 
 	// cdc additional fields

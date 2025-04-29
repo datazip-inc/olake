@@ -1,6 +1,49 @@
 version: "3"
 
 services:
+  lakekeeper:
+    image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
+    pull_policy: &lakekeeper-pull-policy always
+    environment: &lakekeeper-environment
+      - LAKEKEEPER__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
+      - LAKEKEEPER__PG_DATABASE_URL_READ=postgresql://iceberg:password@postgres:5432/iceberg
+      - LAKEKEEPER__PG_DATABASE_URL_WRITE=postgresql://iceberg:password@postgres:5432/iceberg
+      - LAKEKEEPER__AUTHZ_BACKEND=allowall
+      # Externally taken from environment variables if set
+      - LAKEKEEPER__OPENID_PROVIDER_URI
+      - LAKEKEEPER__OPENID_AUDIENCE
+      - LAKEKEEPER__OPENID_ADDITIONAL_ISSUERS
+      - LAKEKEEPER__UI__OPENID_CLIENT_ID
+      - LAKEKEEPER__UI__OPENID_SCOPE
+    command: [ "serve" ]
+    healthcheck:
+      test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
+      interval: 1s
+      timeout: 10s
+      retries: 3
+      start_period: 3s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8181:8181"
+    networks:
+      iceberg_net:
+
+
+  migrate:
+    image: *lakekeeper-image
+    pull_policy: *lakekeeper-pull-policy
+    environment: *lakekeeper-environment
+    restart: "no"
+    command: [ "migrate" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      iceberg_net:
+
+
   spark-iceberg:
     image: tabulario/spark-iceberg
     container_name: spark-iceberg
@@ -39,8 +82,8 @@ services:
       - 9000:9000
     volumes:
       - ./data/minio-data:/data
-    command: ["server", "/data", "--console-address", ":9001"]
-  
+    command: [ "server", "/data", "--console-address", ":9001" ]
+
   mc:
     depends_on:
       - minio
@@ -61,9 +104,9 @@ services:
       fi;
       tail -f /dev/null
       "
-  
+
   postgres:
-    image: postgres:13
+    image: postgres:15
     container_name: iceberg-postgres
     networks:
       iceberg_net:
@@ -71,13 +114,69 @@ services:
       - POSTGRES_USER=iceberg
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=iceberg
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "iceberg", "-d", "iceberg" ]
+      interval: 2s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     ports:
       - 5432:5432
     volumes:
       - ./data/postgres-data:/var/lib/postgresql/data
 
+  hive-metastore:
+    image: apache/hive:4.0.0
+    container_name: hive-metastore
+    networks:
+      iceberg_net:
+    ports:
+      - "9083:9083"
+    environment:
+        - SERVICE_NAME=metastore
+    depends_on:
+      - postgres
+      - spark-iceberg
+    user: root
+    volumes:
+        - ./data/ivy-cache:/root/.ivy2
+        - ./hive-site.conf:/opt/hive/conf/hive-site.xml
+    entrypoint: |
+      /bin/sh -c "
+      # Wait for Spark to download JARs
+      echo 'Waiting for Spark to download JARs...'
+      while [ ! -f /root/.ivy2/jars/org.apache.hadoop_hadoop-aws-3.3.4.jar ] || \
+            [ ! -f /root/.ivy2/jars/com.amazonaws_aws-java-sdk-bundle-1.12.262.jar ] || \
+            [ ! -f /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar ]; do
+        echo 'Waiting for JARs to be available...'
+        sleep 5
+      done
+      
+      echo 'JARs found. Copying to Hive lib directory...'
+      
+      # Copy the JAR files to Hive's lib directory
+      cp /root/.ivy2/jars/org.apache.hadoop_hadoop-aws-3.3.4.jar /opt/hive/lib/hadoop-aws-3.3.4.jar || { echo 'Failed to copy hadoop-aws-3.3.4.jar'; exit 1; }
+      cp /root/.ivy2/jars/com.amazonaws_aws-java-sdk-bundle-1.12.262.jar /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar || { echo 'Failed to copy aws-java-sdk-bundle-1.12.262.jar'; exit 1; }
+      cp /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar /opt/hive/lib/postgresql-42.5.4.jar || { echo 'Failed to copy postgresql-42.5.4.jar'; exit 1; }
+      
+      # Verify files were copied successfully
+      if [ ! -f /opt/hive/lib/hadoop-aws-3.3.4.jar ] || [ ! -f /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar ] || [ ! -f /opt/hive/lib/postgresql-42.5.4.jar ]; then
+        echo 'JAR files not found in Hive lib directory. Exiting.'
+        exit 1
+      fi
+      
+      # Fix permissions for Hive directories
+      chown -R hive:hive /opt/hive/lib
+      
+      echo 'JAR files copied to Hive lib directory. Starting hive-metastore...'
+      
+      # Start the hive metastore service
+      sh -c "/entrypoint.sh"
+      "
+
 networks:
   iceberg_net:
+
 
 volumes:
   postgres-data:

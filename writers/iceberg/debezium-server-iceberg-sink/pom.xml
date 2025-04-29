@@ -28,7 +28,7 @@
         <skipITs>true</skipITs>
         
         <!-- Iceberg -->
-        <version.iceberg>1.7.1</version.iceberg>
+        <version.iceberg>1.7.2</version.iceberg>
         <!-- Following two properties defines which version of iceberg-spark-runtime is used -->
         <version.spark.major>4.0</version.spark.major>
         <version.spark.major.iceebrgtemp>3.5</version.spark.major.iceebrgtemp>
@@ -55,6 +55,7 @@
         <version.jetty>9.4.51.v20230217</version.jetty>
         <version.logback>1.5.13</version.logback>
         <version.kafka>3.7.1</version.kafka>
+        <version.httpclient5>5.4.3</version.httpclient5>
     </properties>
 
     <dependencyManagement>
@@ -87,6 +88,12 @@
                 <version>${version.testcontainers}</version>
                 <type>pom</type>
                 <scope>test</scope>
+            </dependency>
+            <!-- Fix for CVE-2025-27820 vulnerability in httpclient5 -->
+            <dependency>
+                <groupId>org.apache.httpcomponents.client5</groupId>
+                <artifactId>httpclient5</artifactId>
+                <version>${version.httpclient5}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -265,10 +272,6 @@
                 <exclusion>
                     <groupId>log4j</groupId>
                     <artifactId>log4j</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.thrift</groupId>
-                    <artifactId>libthrift</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>org.apache.derby</groupId>
@@ -684,12 +687,6 @@
             <version>${version.kafka}</version>
         </dependency>
         
-        <!-- Updated vulnerable transitive dependencies -->
-        <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libthrift</artifactId>
-            <version>0.17.0</version>
-        </dependency>
         <dependency>
             <groupId>org.apache.derby</groupId>
             <artifactId>derby</artifactId>
@@ -699,6 +696,13 @@
             <groupId>org.codehaus.jettison</groupId>
             <artifactId>jettison</artifactId>
             <version>1.5.4</version>
+        </dependency>
+        
+        <!-- Fix for CVE-2025-27820 vulnerability -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <version>${version.httpclient5}</version>
         </dependency>
     </dependencies>
     <build>

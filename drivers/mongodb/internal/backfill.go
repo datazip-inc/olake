@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -43,7 +44,11 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		pool.AddRecordsToSync(recordCount)
 
 		// Generate and update chunks
-		chunksArray, err = m.splitChunks(backfillCtx, collection, stream)
+		var retryErr error
+		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
+			return retryErr
+		})
 		if err != nil {
 			return err
 		}
@@ -98,8 +103,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 					return fmt.Errorf("backfill decoding document: %s", err)
 				}
 
-				handleObjectID(doc)
-				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, "r", time.Unix(0, 0).UnixNano()))
+				handleMongoObject(doc)
+				err := insert.Insert(types.CreateRawRecord(utils.GetKeysHash(doc, constants.MongoPrimaryID), doc, "r", time.Unix(0, 0)))
 				if err != nil {
 					return fmt.Errorf("failed to finish backfill chunk: %s", err)
 				}
@@ -269,13 +274,15 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	default:
 		chunks, err := splitVectorStrategy()
 		// check if authorization error occurs
-		if err != nil && strings.Contains(err.Error(), "not authorized") {
+		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
+			strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
 			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
 			return bucketAutoStrategy()
 		}
 		return chunks, err
 	}
 }
+
 func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
 	var countResult bson.M
 	command := bson.D{{
@@ -390,7 +397,32 @@ func generateMinObjectID(t time.Time) *primitive.ObjectID {
 	return &objectID
 }
 
-func handleObjectID(doc bson.M) {
-	objectID := doc[constants.MongoPrimaryID].(primitive.ObjectID).String()
-	doc[constants.MongoPrimaryID] = strings.TrimRight(strings.TrimLeft(objectID, constants.MongoPrimaryIDPrefix), constants.MongoPrimaryIDSuffix)
+func handleMongoObject(doc bson.M) {
+	for key, value := range doc {
+		// first make key small case as data being typeresolved with small case keys
+		delete(doc, key)
+		key = typeutils.Reformat(key)
+		switch value := value.(type) {
+		case primitive.Timestamp:
+			doc[key] = value.T
+		case primitive.DateTime:
+			doc[key] = value.Time()
+		case primitive.Null:
+			doc[key] = nil
+		case primitive.Binary:
+			doc[key] = fmt.Sprintf("%x", value.Data)
+		case primitive.Decimal128:
+			doc[key] = value.String()
+		case primitive.ObjectID:
+			doc[key] = value.Hex()
+		case float64:
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				doc[key] = nil
+			} else {
+				doc[key] = value
+			}
+		default:
+			doc[key] = value
+		}
+	}
 }

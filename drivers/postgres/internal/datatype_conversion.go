@@ -7,27 +7,27 @@ import (
 var pgTypeToDataTypes = map[string]types.DataType{
 	// TODO: add proper types (not only int64)
 	"bigint":      types.Int64,
-	"tinyint":     types.Int64,
-	"integer":     types.Int64,
-	"smallint":    types.Int64,
-	"smallserial": types.Int64,
-	"int":         types.Int64,
-	"int2":        types.Int64,
-	"int4":        types.Int64,
-	"serial":      types.Int64,
-	"serial2":     types.Int64,
-	"serial4":     types.Int64,
+	"tinyint":     types.Int32,
+	"integer":     types.Int32,
+	"smallint":    types.Int32,
+	"smallserial": types.Int32,
+	"int":         types.Int32,
+	"int2":        types.Int32,
+	"int4":        types.Int32,
+	"serial":      types.Int32,
+	"serial2":     types.Int32,
+	"serial4":     types.Int32,
 	"serial8":     types.Int64,
 	"bigserial":   types.Int64,
 
 	// numbers
-	"decimal":          types.Float64,
-	"numeric":          types.Float64,
+	"decimal":          types.Float32,
+	"numeric":          types.Float32,
 	"double precision": types.Float64,
-	"float":            types.Float64,
-	"float4":           types.Float64,
+	"float":            types.Float32,
+	"float4":           types.Float32,
 	"float8":           types.Float64,
-	"real":             types.Float64,
+	"real":             types.Float32,
 
 	// boolean
 	"bool":    types.Bool,
@@ -71,12 +71,12 @@ var pgTypeToDataTypes = map[string]types.DataType{
 	"tsrange":           types.String,
 
 	// date/time
-	"time":                        types.Timestamp,
-	"timez":                       types.Timestamp,
+	"time":                        types.String,
+	"timez":                       types.String,
+	"interval":                    types.String,
 	"date":                        types.Timestamp,
 	"timestamp":                   types.Timestamp,
 	"timestampz":                  types.Timestamp,
-	"interval":                    types.Int64,
 	"timestamp with time zone":    types.Timestamp,
 	"timestamp without time zone": types.Timestamp,
 
