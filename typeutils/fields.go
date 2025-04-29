@@ -246,33 +246,35 @@ func (f *Field) Merge(anotherField *Field) {
 
 // GetCommonAncestorType returns lowest common ancestor type
 func GetCommonAncestorType(t1, t2 types.DataType) types.DataType {
-	return lowestCommonAncestor(typecastTree, t1, t2, types.DataTypeComparator)
+	return lowestCommonAncestor(typecastTree, t1, t2)
 }
 
 func lowestCommonAncestor(
 	root *typeNode,
 	t1, t2 types.DataType,
-	compare func(a, b types.DataType) int,
 ) types.DataType {
-	// Start from the root node of the tree
 	node := root
 
-	// Traverse the tree
 	for node != nil {
-		cmp1 := compare(t1, node.t)
-		cmp2 := compare(t2, node.t)
+		weight1, exists1 := types.TypeWeights[t1]
+		weight2, exists2 := types.TypeWeights[t2]
+		nodeWeight, existsNode := types.TypeWeights[node.t]
 
-		if cmp1 == 1 && cmp2 == 1 {
-			// If both t1 and t2 are greater than parent
+		// If any type is not found in weights map, return Unknown
+		if !exists1 || !exists2 || !existsNode {
+			return types.Unknown
+		}
+
+		if weight1 > nodeWeight && weight2 > nodeWeight {
+			// If both t1 and t2 have greater weights than parent
 			node = node.right
-		} else if cmp1 == -1 && cmp2 == -1 {
-			// If both t1 and t2 are lesser than parent
+		} else if weight1 < nodeWeight && weight2 < nodeWeight {
+			// If both t1 and t2 have lesser weights than parent
 			node = node.left
 		} else {
 			// We have found the split point, i.e. the LCA node.
 			return node.t
 		}
 	}
-
 	return types.Unknown
 }

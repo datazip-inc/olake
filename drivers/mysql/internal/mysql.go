@@ -148,9 +148,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
-	// (e.g., varchar(50) -> varchar)
-	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
-	olakeType := mysqlTypeToDataTypes[baseType]
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
 
