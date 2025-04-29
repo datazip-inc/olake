@@ -220,7 +220,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 			datatype = types.String
 		}
 
-		stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
+		stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
 	}
 
 	// cdc additional fields
