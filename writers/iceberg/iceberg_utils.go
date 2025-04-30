@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/writers/iceberg/proto"
@@ -109,6 +111,7 @@ func getConfigHash(namespace string, streamID string, upsert bool) string {
 	return strings.Join(hashComponents, "-")
 }
 
+// findAvailablePort finds an available port for the RPC server
 func findAvailablePort(serverHost string) (int, error) {
 	for p := 50051; p <= 59051; p++ {
 		// Try to store port in map - returns false if already exists
@@ -156,6 +159,27 @@ func findAvailablePort(serverHost string) (int, error) {
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
 }
 
+// parsePartitionRegex parses the partition regex and populates the partitionInfo map
+func (i *Iceberg) parsePartitionRegex(pattern string) error {
+	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
+	// This strictly identifies column name and partition transform entries
+	patternRegex := regexp.MustCompile(`\{([^,]+),\s*([^}]+)\}`)
+	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue // We need at least 3 matches: full match, column name, transform
+		}
+
+		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
+		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
+
+		// Store transform for this field
+		i.partitionInfo[colName] = transform
+	}
+
+	return nil
+}
+
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
 func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	// Create the server configuration map
@@ -168,6 +192,12 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 		"upsert":               strconv.FormatBool(upsert),
 		"upsert-keep-deletes":  "true",
 		"write.format.default": "parquet",
+	}
+
+	// Add partition fields if defined
+	for field, transform := range i.partitionInfo {
+		partitionKey := fmt.Sprintf("partition.field.%s", field)
+		serverConfig[partitionKey] = transform
 	}
 
 	// Configure catalog implementation based on the selected type
@@ -186,7 +216,7 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	case HiveCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.hive.HiveCatalog"
 		serverConfig["uri"] = i.config.HiveURI
-		serverConfig["clients"] = i.config.HiveClients
+		serverConfig["clients"] = strconv.Itoa(i.config.HiveClients)
 		serverConfig["hive.metastore.sasl.enabled"] = strconv.FormatBool(i.config.HiveSaslEnabled)
 		serverConfig["engine.hive.enabled"] = "true"
 	case RestCatalog:
@@ -367,12 +397,12 @@ func getTestDebeziumRecord() string {
 						"fields" : [ {
 							"type" : "string",
 							"optional" : true,
-							"field" : "_id"
+							"field" : "` + constants.OlakeID + `"
 						} ],
 						"optional" : false
 					},
 					"payload" : {
-						"_id" : "` + randomID + `"
+						"` + constants.OlakeID + `" : "` + randomID + `"
 					}
 				}
 				,
@@ -382,33 +412,28 @@ func getTestDebeziumRecord() string {
 					"fields" : [ {
 					"type" : "string",
 					"optional" : true,
-					"field" : "_id"
-					}, {
-					"type" : "boolean",
-					"optional" : true,
-					"field" : "__deleted"
+					"field" : "` + constants.OlakeID + `"
 					}, {
 					"type" : "string",
 					"optional" : true,
-					"field" : "__op"
+					"field" : "` + constants.OpType + `"
 					}, {
 					"type" : "string",
 					"optional" : true,
-					"field" : "__db"
+					"field" : "` + constants.DBName + `"
 					}, {
 					"type" : "int64",
 					"optional" : true,
-					"field" : "__source_ts_ms"
+					"field" : "` + constants.OlakeTimestamp + `"
 					} ],
 					"optional" : false,
 					"name" : "dbz_.incr.incr1"
 				},
 				"payload" : {
-					"_id" : "` + randomID + `",
-					"__deleted" : false,
-					"__op" : "r",
-					"__db" : "incr",
-					"__source_ts_ms" : 1738502494009
+					"` + constants.OlakeID + `" : "` + randomID + `",
+					"` + constants.OpType + `" : "r",
+					"` + constants.DBName + `" : "incr",
+					"` + constants.OlakeTimestamp + `" : 1738502494009
 				}
 			}
 		}`
@@ -634,7 +659,8 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 	// Send the batch to the server
 	res, err := client.SendRecords(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to send batch: %v", err)
+		logger.Errorf("failed to send batch: %v", err)
+		return err
 	}
 
 	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",

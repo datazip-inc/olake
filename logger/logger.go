@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -259,13 +260,35 @@ func NewProcessLogger(name string, isError bool) (*ProcessOutputReader, *os.File
 // StartReading starts reading from the process output in a goroutine
 // and logging each line with the appropriate log level
 func (p *ProcessOutputReader) StartReading() {
+	// Compile regex patterns for Java error detection
+	errorLinePattern := regexp.MustCompile(`(?i)(ERROR|FATAL|Exception|Error:|Failed to|java\.lang\.\w+Exception|^\s*Caused by:)`)
+	stackTraceLinePattern := regexp.MustCompile(`^\s*at\s+[\w$.]+\([\w$]+\.java:\d+\)`)
+
 	go func() {
 		defer p.Close()
+		// Track if we're in an error stack trace
+		inStackTrace := false
+
 		for p.reader.Scan() {
-			if p.IsError {
-				Error(fmt.Sprintf("[%s] %s", p.Name, p.reader.Text()))
+			line := p.reader.Text()
+
+			// Check if this is an error line
+			isErrorLine := p.IsError || errorLinePattern.MatchString(line)
+			isStackTraceLine := stackTraceLinePattern.MatchString(line)
+
+			// Determine if we're starting or continuing an error
+			if isErrorLine || isStackTraceLine {
+				inStackTrace = true
+			} else if inStackTrace && !strings.HasPrefix(strings.TrimSpace(line), "at ") {
+				// If this is not a stack trace line and doesn't start with "at ",
+				// we're likely out of the stack trace
+				inStackTrace = false
+			}
+
+			if isErrorLine || isStackTraceLine || inStackTrace {
+				Error(fmt.Sprintf("[%s] %s", p.Name, line))
 			} else {
-				Info(fmt.Sprintf("[%s] %s", p.Name, p.reader.Text()))
+				Info(fmt.Sprintf("[%s] %s", p.Name, line))
 			}
 		}
 	}()

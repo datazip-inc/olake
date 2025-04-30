@@ -19,9 +19,10 @@ type Driver struct {
 }
 
 var DefaultColumns = map[string]types.DataType{
-	constants.CDCDeletedAt:   types.Timestamp,
 	constants.OlakeID:        types.String,
 	constants.OlakeTimestamp: types.Int64,
+	constants.OpType:         types.String,
+	constants.CdcTimestamp:   types.Int64,
 }
 
 func (d *Driver) ChangeStreamSupported() bool {

@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
@@ -131,20 +130,13 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			return nil, err
 		}
 
-		// add constants key fields
-		flattenedData[constants.OlakeID] = rawRecord.OlakeID
-		flattenedData[constants.OlakeTimestamp] = rawRecord.OlakeTimestamp
-		if rawRecord.OperationType == "delete" {
-			flattenedData[constants.CDCDeletedAt] = rawRecord.CdcTimestamp
-		}
-
 		// schema evolution
 		change, typeChange, mutations := fields.Process(flattenedData)
 		if change || typeChange {
 			w.tmu.Lock()
 			stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
 			w.tmu.Unlock()
-			err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData)
+			err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData, rawRecord.OlakeTimestamp)
 			if err != nil {
 				return nil, fmt.Errorf("failed to evolve schema: %s", err)
 			}
@@ -188,7 +180,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 							return nil
 						}
 						// add insert time
-						record.OlakeTimestamp = time.Now().UTC().UnixMilli()
+						record.OlakeTimestamp = time.Now().UTC()
+
+						//TODO: we need to capture error on thread.Close()
+
 						// check for normalization
 						if thread.Normalization() {
 							normalizedData, err := normalizeFunc(record)
