@@ -53,11 +53,11 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 		}
 	}
 
-	upsert := !options.Backfill
 	if i.stream.Self().StreamMetadata.AppendMode {
-		upsert = false
+		// marking upsert mode to false
+		return i.SetupIcebergClient(false)
 	}
-	return i.SetupIcebergClient(upsert)
+	return i.SetupIcebergClient(!options.Backfill)
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
