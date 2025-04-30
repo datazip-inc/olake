@@ -260,8 +260,12 @@ func lowestCommonAncestor(
 		wt2, t2Exist := types.TypeWeights[t2]
 		rootW, rootExist := types.TypeWeights[node.t]
 
+		if !rootExist {
+			return types.Unknown
+		}
+
 		// If any type is not found in weights map, return Unknown
-		if !t1Exist || !t2Exist || !rootExist {
+		if !t1Exist || !t2Exist {
 			return node.t
 		}
 
