@@ -256,19 +256,19 @@ func lowestCommonAncestor(
 	node := root
 
 	for node != nil {
-		weight1, exists1 := types.TypeWeights[t1]
-		weight2, exists2 := types.TypeWeights[t2]
-		nodeWeight, existsNode := types.TypeWeights[node.t]
+		wt1, t1Exist := types.TypeWeights[t1]
+		wt2, t2Exist := types.TypeWeights[t2]
+		rootW, rootExist := types.TypeWeights[node.t]
 
 		// If any type is not found in weights map, return Unknown
-		if !exists1 || !exists2 || !existsNode {
-			return types.Unknown
+		if !t1Exist || !t2Exist || !rootExist {
+			return node.t
 		}
 
-		if weight1 > nodeWeight && weight2 > nodeWeight {
+		if wt1 > rootW && wt2 > rootW {
 			// If both t1 and t2 have greater weights than parent
 			node = node.right
-		} else if weight1 < nodeWeight && weight2 < nodeWeight {
+		} else if wt1 < rootW && wt2 < rootW {
 			// If both t1 and t2 have lesser weights than parent
 			node = node.left
 		} else {

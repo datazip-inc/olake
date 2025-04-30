@@ -6,6 +6,7 @@ import (
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 )
@@ -101,11 +102,10 @@ func convertRowToMap(row []interface{}, columns []string, columnTypes []string, 
 	record := make(map[string]interface{})
 	for i, val := range row {
 		convertedVal, err := converter(val, columnTypes[i])
-		if err != nil {
-			record[columns[i]] = val // Fallback to original value
-		} else {
-			record[columns[i]] = convertedVal
+		if err != nil && err != typeutils.ErrNullValue {
+			return nil, err
 		}
+		record[columns[i]] = convertedVal
 	}
 	return record, nil
 }
@@ -140,18 +140,10 @@ func mysqlTypeName(t byte) string {
 		return "DATETIME"
 	case mysql.MYSQL_TYPE_YEAR:
 		return "YEAR"
-	case mysql.MYSQL_TYPE_NEWDATE:
-		return "NEWDATE"
 	case mysql.MYSQL_TYPE_VARCHAR:
 		return "VARCHAR"
 	case mysql.MYSQL_TYPE_BIT:
 		return "BIT"
-	case mysql.MYSQL_TYPE_TIMESTAMP2:
-		return "TIMESTAMP2"
-	case mysql.MYSQL_TYPE_DATETIME2:
-		return "DATETIME2"
-	case mysql.MYSQL_TYPE_TIME2:
-		return "TIME2"
 	case mysql.MYSQL_TYPE_JSON:
 		return "JSON"
 	case mysql.MYSQL_TYPE_NEWDECIMAL:
@@ -162,14 +154,12 @@ func mysqlTypeName(t byte) string {
 		return "SET"
 	case mysql.MYSQL_TYPE_TINY_BLOB:
 		return "TINYBLOB"
+	case mysql.MYSQL_TYPE_BLOB:
+		return "BLOB"
 	case mysql.MYSQL_TYPE_MEDIUM_BLOB:
 		return "MEDIUMBLOB"
 	case mysql.MYSQL_TYPE_LONG_BLOB:
 		return "LONGBLOB"
-	case mysql.MYSQL_TYPE_BLOB:
-		return "BLOB"
-	case mysql.MYSQL_TYPE_VAR_STRING:
-		return "VAR_STRING"
 	case mysql.MYSQL_TYPE_STRING:
 		return "STRING"
 	case mysql.MYSQL_TYPE_GEOMETRY:

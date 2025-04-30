@@ -30,7 +30,6 @@ var DateTimeFormats = []string{
 	"2020-08-17T05:50:22.895Z",
 	"2006-01-02 15:04:05.999999-07",
 	"2006-01-02 15:04:05.999999+00",
-	"15:04:05",
 }
 
 func getFirstNotNullType(datatypes []types.DataType) types.DataType {

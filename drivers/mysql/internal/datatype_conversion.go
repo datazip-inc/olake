@@ -41,10 +41,12 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 
 	// Date and time types
 	"date":      types.Timestamp,
-	"time":      types.Timestamp,
-	"datetime":  types.Timestamp,
 	"timestamp": types.Timestamp,
 	"year":      types.Int64,
+
+	// time and datetime types treated as string for now
+	"time":     types.String,
+	"datetime": types.String,
 
 	// JSON type
 	"json": types.String,
