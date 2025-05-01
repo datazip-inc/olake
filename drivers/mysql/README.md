@@ -63,7 +63,8 @@ After executing the Discover command, a formatted response will look like this:
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "split_column":""
+                  "split_column":"",
+                  "normalization": false
                }
          ]
       },
@@ -105,7 +106,8 @@ Before running the Sync command, the generated `streams.json` file must be confi
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "split_column":""
+                  "split_column":"",
+                  "normalization": false
                }
          ]
       },
@@ -130,7 +132,6 @@ Example (For Local):
    {
       "type": "PARQUET",
       "writer": {
-         "normalization":true,
          "local_path": "./examples/reader"
       }
    }
@@ -140,7 +141,6 @@ Example (For S3):
    {
       "type": "PARQUET",
       "writer": {
-         "normalization":false,
          "s3_bucket": "olake",  
          "s3_region": "",
          "s3_access_key": "", 
@@ -155,7 +155,6 @@ Example (For AWS S3 + Glue Configuration)
   {
       "type": "ICEBERG",
       "writer": {
-        "normalization": false,
         "s3_path": "s3://{bucket_name}/{path_prefix}/",
         "aws_region": "ap-south-1",
         "aws_access_key": "XXX",
@@ -176,7 +175,6 @@ Example (Local Test Configuration (JDBC + Minio))
       "jdbc_url": "jdbc:postgresql://localhost:5432/iceberg",
       "jdbc_username": "iceberg",
       "jdbc_password": "password",
-      "normalization": false,
       "iceberg_s3_path": "s3a://warehouse",
       "s3_endpoint": "http://localhost:9000",
       "s3_use_ssl": false,
