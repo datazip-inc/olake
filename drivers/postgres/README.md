@@ -104,6 +104,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
 - Final Streams Example
+`normalization` determines that level 1 flattening is required. <br>
    ```json
    {
       "selected_streams": {
