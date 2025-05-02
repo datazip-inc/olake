@@ -6,7 +6,6 @@ import (
 
 type Config struct {
 	Path          string `json:"local_path,omitempty"` // Local file path (for local file system usage)
-	Normalization bool   `json:"normalization,omitempty"`
 	Bucket        string `json:"s3_bucket,omitempty"`
 	Region        string `json:"s3_region,omitempty"`
 	AccessKey     string `json:"s3_access_key,omitempty"`

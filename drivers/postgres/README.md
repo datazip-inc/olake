@@ -112,7 +112,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "partition_regex": "",
                   "stream_name": "table_1",
                   "split_column":"",
-                  "normalization": true
+                  "normalization": false
                }
          ]
       },
@@ -131,7 +131,6 @@ Before running the Sync command, the generated `streams.json` file must be confi
 
 ### Writer File 
 The Writer file defines the configuration for the destination where data needs to be added.<br>
-`normalization` determine that Level 1 flattening is required. <br>
 Example (For Local):
    ```
    {
