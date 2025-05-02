@@ -150,8 +150,10 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 
 			dataFields = append(dataFields, field)
 		}
-
-		// Sort dataFields by field name
+		
+		// Sorting basis on field names is needed because 
+		// Iceberg writer detects different schemas for 
+		// schema evolution based on order columns passed
 		sort.Slice(dataFields, func(i, j int) bool {
 			return dataFields[i]["field"].(string) < dataFields[j]["field"].(string)
 		})
