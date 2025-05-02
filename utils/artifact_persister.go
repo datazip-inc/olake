@@ -1,111 +1,116 @@
 package utils
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager" // Using s3manager for potential uploads
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+
 	"github.com/datazip-inc/olake/logger"
+	"github.com/spf13/viper"
 )
 
 const artifactSubDir = "_olake_runtime" // Directory within the base path for artifacts
 
-// S3ArtifactConfig holds the necessary configuration parameters for the ArtifactPersister.
+// S3ArtifactConfig holds the necessary S3 configuration parameters.
+// This should be populated by the calling code based on the primary writer config.
 type S3ArtifactConfig struct {
-	Bucket       string // Target S3 bucket name
-	Region       string // AWS Region for the bucket
-	BasePath     string // Base path prefix within the bucket (derived from writer config)
-	AccessKey    string // Optional: Explicit AWS Access Key
-	SecretKey    string // Optional: Explicit AWS Secret Key
-	SessionToken string // Optional: AWS Session Token
-	Endpoint     string // Optional: Custom S3 endpoint (for S3-compatible storage)
-	UseSSL       bool   // Optional: Use SSL for custom endpoint
-	PathStyle    bool   // Optional: Use path-style access for custom endpoint
+	Bucket       string
+	Region       string
+	BasePath     string // The base S3 path from the writer config (e.g., prefix or parsed path)
+	AccessKey    string
+	SecretKey    string
+	SessionToken string
+	Endpoint     string
+	UseSSL       bool
+	PathStyle    bool
 }
 
 // ArtifactPersister handles uploading runtime artifacts (state, logs, etc.) to S3.
 type ArtifactPersister struct {
-	s3Client         *s3.S3
-	s3Uploader       *s3manager.Uploader // Useful for efficient uploads
-	bucket           string
-	fullBasePath     string // Combined BasePath + artifactSubDir
-	isExternalConfig bool   // Flag if external S3 config is used (future use maybe)
+	s3Client     *s3.S3
+	s3Uploader   *s3manager.Uploader
+	bucket       string
+	fullBasePath string // Combined BasePath + artifactSubDir
 }
 
-// NewArtifactPersister creates and initializes a new ArtifactPersister.
-// It configures the AWS session and S3 client based on the provided config.
-// It prioritizes explicit credentials, then falls back to the default AWS credential chain.
-func NewArtifactPersister(cfg S3ArtifactConfig) (*ArtifactPersister, error) {
-	if cfg.Bucket == "" {
-		return nil, fmt.Errorf("S3 bucket name is required for ArtifactPersister")
+// NewArtifactPersister creates and initializes an ArtifactPersister using pre-extracted
+// S3 configuration. It returns the persister and any error during setup.
+// The 'isActive' flag should be determined by the caller based on whether S3
+// was configured in the primary writer.
+func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersister, error) {
+	// If S3 is not active based on the caller's determination, return early
+	if !isActive {
+		return nil, nil // Not an error, just inactive
 	}
 
-	// --- AWS Session Configuration ---
-	awsCfg := aws.Config{}
+	// --- Proceed with S3 Client Initialization ---
+	if cfg.Bucket == "" {
+		return nil, fmt.Errorf("S3 bucket name cannot be empty for ArtifactPersister when active")
+	}
 
-	// Region
+	awsCfg := aws.NewConfig()
+
 	if cfg.Region != "" {
-		awsCfg.Region = aws.String(cfg.Region)
+		awsCfg.WithRegion(cfg.Region)
 	} else if cfg.Endpoint == "" {
-		// Only warn if using AWS S3 (no custom endpoint) and region isn't explicit
-		// Region might still be picked up from env (AWS_REGION) or shared config
 		logger.Warn("S3 region not explicitly provided for artifact persistence, attempting to use default AWS credential chain resolution")
 	}
 
-	// Credentials - Prioritize explicit keys
 	if cfg.AccessKey != "" && cfg.SecretKey != "" {
 		logger.Info("Using explicit S3 credentials for artifact persistence")
-		awsCfg.Credentials = credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretKey, cfg.SessionToken)
+		awsCfg.WithCredentials(credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretKey, cfg.SessionToken))
 	} else {
-		logger.Info("Explicit S3 credentials not provided for artifact persistence, using default AWS credential chain (Env Vars, Shared Config/Credentials, IAM Role/Instance Profile)")
-		// If keys aren't provided, the SDK will automatically use the default chain
+		logger.Info("Explicit S3 credentials not provided for artifact persistence, using default AWS credential chain")
 	}
 
-	// Custom Endpoint (for S3-compatible storage like MinIO)
 	if cfg.Endpoint != "" {
 		logger.Infof("Using custom S3 endpoint for artifact persistence: %s", cfg.Endpoint)
-		awsCfg.Endpoint = aws.String(cfg.Endpoint)
-		awsCfg.S3ForcePathStyle = aws.Bool(cfg.PathStyle) // Often needed for custom endpoints
+		awsCfg.WithEndpoint(cfg.Endpoint)
+		awsCfg.WithS3ForcePathStyle(cfg.PathStyle)
 		if !cfg.UseSSL {
-			awsCfg.DisableSSL = aws.Bool(true)
+			awsCfg.WithDisableSSL(true)
 		}
 	}
-	// --- End AWS Session Configuration ---
 
-	// Create AWS Session
 	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            awsCfg,
-		SharedConfigState: session.SharedConfigEnable, // Enable loading from ~/.aws/config
+		Config:            *awsCfg,
+		SharedConfigState: session.SharedConfigEnable,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS session for artifact persistence: %w", err)
+		logger.Warnf("Failed to create AWS session with potentially explicit config: %v. Will rely solely on default chain.", err)
+		sess, err = session.NewSessionWithOptions(session.Options{
+			SharedConfigState: session.SharedConfigEnable,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create AWS session for artifact persistence even with default chain: %w", err)
+		}
 	}
 
-	// Verify credentials are loaded if not explicitly provided
-	// This helps fail fast if the default chain doesn't resolve anything
-	if cfg.AccessKey == "" && cfg.SecretKey == "" {
-		if _, err := sess.Config.Credentials.Get(); err != nil {
-			return nil, fmt.Errorf("failed to get AWS credentials using default chain for artifact persistence: %w."+
-				" Ensure credentials are configured via ENV vars, shared files, or IAM role/profile", err)
-		}
+	// Verify credentials
+	if _, err := sess.Config.Credentials.Get(); err != nil {
+		return nil, fmt.Errorf("failed to get AWS credentials using effective chain for artifact persistence: %w", err)
 	}
 
 	s3Client := s3.New(sess)
-	s3Uploader := s3manager.NewUploaderWithClient(s3Client)
+	s3Uploader := s3manager.NewUploader(sess)
 
-	// Construct the full path including the artifact subdirectory
-	// Trim leading/trailing slashes from base path for clean joining
 	trimmedBasePath := strings.Trim(cfg.BasePath, "/")
-	fullBasePath := artifactSubDir // Start with the artifact dir
+	fullBasePath := artifactSubDir
 	if trimmedBasePath != "" {
-		fullBasePath = strings.Join([]string{trimmedBasePath, artifactSubDir}, "/")
+		fullBasePath = filepath.Join(trimmedBasePath, artifactSubDir)
 	}
+	fullBasePath = filepath.ToSlash(fullBasePath) // Ensure forward slashes for S3
 
-	// Simple S3 write check (optional but recommended)
+	// S3 write check
 	testKey := strings.Join([]string{fullBasePath, ".olake_write_test"}, "/")
 	_, err = s3Client.PutObject(&s3.PutObjectInput{
 		Bucket: aws.String(cfg.Bucket),
@@ -113,24 +118,111 @@ func NewArtifactPersister(cfg S3ArtifactConfig) (*ArtifactPersister, error) {
 		Body:   strings.NewReader("Olake artifact persister write test"),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("S3 write check failed for artifact persister (bucket: %s, key: %s): %w. Check bucket/path existence and permissions", cfg.Bucket, testKey, err)
+		return nil, fmt.Errorf("S3 write check failed for artifact persister (bucket: %s, key: %s): %w", cfg.Bucket, testKey, err)
 	} else {
-		// Clean up test file (best effort)
 		_, _ = s3Client.DeleteObject(&s3.DeleteObjectInput{
 			Bucket: aws.String(cfg.Bucket),
 			Key:    aws.String(testKey),
 		})
 	}
 
-	return &ArtifactPersister{
+	persister := &ArtifactPersister{
 		s3Client:     s3Client,
 		s3Uploader:   s3Uploader,
 		bucket:       cfg.Bucket,
 		fullBasePath: fullBasePath,
-		// isExternalConfig: false, // Set appropriately if separate config introduced
-	}, nil
+	}
+
+	logger.Infof("ArtifactPersister initialized. Target: s3://%s/%s/", cfg.Bucket, fullBasePath)
+
+	return persister, nil // Return initialized persister, no error
 }
 
-// --- Placeholder for Upload methods ---
-// func (ap *ArtifactPersister) UploadFile(...) error { ... }
+// UploadFile uploads a single local file to the configured S3 path.
+func (ap *ArtifactPersister) UploadFile(ctx context.Context, localPath string, s3KeySuffix string) error {
+	if ap == nil || ap.s3Uploader == nil {
+		// Don't log here, the caller might know it's inactive
+		// logger.Warnf("Attempted to upload artifact %s but ArtifactPersister is not initialized.", localPath)
+		return fmt.Errorf("ArtifactPersister not initialized") // Indicate error
+	}
+
+	file, err := os.Open(localPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Warnf("Local artifact file not found for upload: %s", localPath)
+			return nil // Don't fail hard
+		}
+		return fmt.Errorf("failed to open local artifact file %s: %w", localPath, err)
+	}
+	defer file.Close()
+
+	s3Key := filepath.Join(ap.fullBasePath, s3KeySuffix)
+	s3Key = filepath.ToSlash(s3Key) // Ensure forward slashes
+
+	logger.Debugf("Uploading artifact %s to s3://%s/%s", localPath, ap.bucket, s3Key)
+
+	_, err = ap.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
+		Bucket: aws.String(ap.bucket),
+		Key:    aws.String(s3Key),
+		Body:   file,
+	})
+
+	if err != nil {
+		logger.Warnf("Failed to upload artifact %s to S3: %v", localPath, err)
+		return fmt.Errorf("failed to upload artifact %s to s3://%s/%s: %w", localPath, ap.bucket, s3Key, err)
+	}
+
+	logger.Debugf("Successfully uploaded artifact %s to s3://%s/%s", localPath, ap.bucket, s3Key)
+	return nil
+}
+
+// RunPeriodicStateUploader periodically uploads the state.json file.
+func RunPeriodicStateUploader(ctx context.Context, persister *ArtifactPersister, interval time.Duration) {
+	if persister == nil {
+		// This is expected if S3 isn't configured, don't log Warn
+		return
+	}
+
+	configDir := viper.GetString("CONFIG_FOLDER")
+	if configDir == "" {
+		logger.Error("CONFIG_FOLDER not set, cannot determine path for state.json periodic upload.")
+		return
+	}
+	localStatePath := filepath.Join(configDir, "state.json")
+	s3KeySuffix := "state.json"
+
+	logger.Infof("Starting periodic state uploader. Interval: %v. Target: s3://%s/%s", interval, persister.bucket, filepath.ToSlash(filepath.Join(persister.fullBasePath, s3KeySuffix)))
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Stopping periodic state uploader due to context cancellation.")
+			// Final upload attempt on cancellation
+			finalUploadCtx, finalCancel := context.WithTimeout(context.Background(), 30*time.Second) // Use background context for final attempt
+			logger.Infof("Attempting final state upload to S3 before shutdown...")
+			err := persister.UploadFile(finalUploadCtx, localStatePath, s3KeySuffix)
+			finalCancel()
+			if err != nil {
+				logger.Errorf("Final state upload to S3 failed: %v", err)
+			} else {
+				logger.Info("Final state upload to S3 successful.")
+			}
+			return
+		case <-ticker.C:
+			uploadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := persister.UploadFile(uploadCtx, localStatePath, s3KeySuffix)
+			cancel()
+			if err != nil {
+				// Already logged within UploadFile
+			} else {
+				logger.Debugf("Periodic state upload successful for %s", localStatePath)
+			}
+		}
+	}
+}
+
+// --- Placeholder for Log Directory Uploader ---
 // func (ap *ArtifactPersister) UploadLogDirectory(...) error { ... }
