@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -146,6 +147,9 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 	})
 
 	if normalization {
+		// Collect data fields for sorting
+		dataFields := make([]map[string]interface{}, 0, len(r.Data))
+
 		// Add individual data fields
 		for key, value := range r.Data {
 			field := map[string]interface{}{
@@ -170,8 +174,17 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 				field["type"] = "string"
 			}
 
-			fields = append(fields, field)
+			dataFields = append(dataFields, field)
 		}
+
+		// Sorting basis on field names is needed because
+		// Iceberg writer detects different schemas for
+		// schema evolution based on order columns passed
+		sort.Slice(dataFields, func(i, j int) bool {
+			return dataFields[i]["field"].(string) < dataFields[j]["field"].(string)
+		})
+
+		fields = append(fields, dataFields...)
 	} else {
 		// For non-normalized mode, add a single data field as string
 		fields = append(fields, map[string]interface{}{

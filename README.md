@@ -73,7 +73,7 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 | BigLake Metastore          | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 
 ## Core
-Core or framework is the component/logic that has been abstracted out from Connectors to follow DRY. This includes base CLI commands, State logic, Validation logic, Type detection for unstructured data, handling Config, State, Catalog, and Writer config file, logging etc.
+Core or framework is the component/logic that has been abstracted out from Connectors to follow DRY. This includes base CLI commands, State logic, Validation logic, Type detection for unstructured data, handling Config, State, Streams, and Writer config file, logging etc.
 
 Core includes http server that directly exposes live stats about running sync such as:
 - Possible finish time
@@ -82,7 +82,7 @@ Core includes http server that directly exposes live stats about running sync su
 
 Core handles the commands to interact with a driver via these:
 - `spec` command: Returns render-able JSON Schema that can be consumed by rjsf libraries in frontend
-- `check` command: performs all necessary checks on the Config, Catalog, State and Writer config
+- `check` command: performs all necessary checks on the Config, Streams, State and Writer config
 - `discover` command: Returns all streams and their schema
 - `sync` command: Extracts data out of Source and writes into destinations
 
