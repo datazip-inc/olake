@@ -19,14 +19,34 @@ func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) str
 	return fmt.Sprintf(`SELECT MAX(%[1]s) FROM (SELECT %[1]s FROM %[2]s.%[3]s WHERE %[1]s > ? ORDER BY %[1]s LIMIT %[4]d) AS subquery`, column, stream.Namespace(), stream.Name(), chunkSize)
 }
 
-// buildChunkCondition builds the condition for a chunk
-func buildChunkCondition(filterColumn string, chunk types.Chunk) string {
-	if chunk.Min != nil && chunk.Max != nil {
-		return fmt.Sprintf("%s >= %v AND %s <= %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
-	} else if chunk.Min != nil {
-		return fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
+// buildChunkCondition creates SQL conditions for filtering based on chunk boundaries
+// with formatting determined by the provided formatter function
+func buildChunkCondition(
+	filterColumn string,
+	chunk types.Chunk,
+	formatter func(column string, operator string, value interface{}) string,
+) string {
+	// If formatter is nil, use default formatting
+	if formatter == nil {
+		formatter = func(column string, operator string, value interface{}) string {
+			return fmt.Sprintf("%s %s %v", column, operator, value)
+		}
 	}
-	return fmt.Sprintf("%s <= %v", filterColumn, chunk.Max)
+
+	// Only Min condition
+	if chunk.Min != nil && chunk.Max == nil {
+		return formatter(filterColumn, ">=", chunk.Min)
+	}
+
+	// Only Max condition
+	if chunk.Min == nil && chunk.Max != nil {
+		return formatter(filterColumn, "<=", chunk.Max)
+	}
+
+	// Both Min and Max conditions
+	return fmt.Sprintf("%s AND %s",
+		formatter(filterColumn, ">=", chunk.Min),
+		formatter(filterColumn, "<=", chunk.Max))
 }
 
 // PostgreSQL-Specific Queries
@@ -80,37 +100,21 @@ func PostgresMinQuery(stream protocol.Stream, filterColumn string, filterValue i
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
 func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk, filterColumnType types.DataType) string {
-	condition := buildPostgresChunkCondition(filterColumn, chunk, filterColumnType)
-	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
-}
-
-func buildPostgresChunkCondition(filterColumn string, chunk types.Chunk, filterColumnType types.DataType) string {
-	formatCondition := func(operator string, value interface{}) string {
+	postgresFormatter := func(column string, operator string, value interface{}) string {
 		if filterColumnType == types.String {
-			return fmt.Sprintf("%s::text %s $$%v$$", filterColumn, operator, value)
+			return fmt.Sprintf("%s::text %s $$%v$$", column, operator, value)
 		}
-		return fmt.Sprintf("%s %s %v", filterColumn, operator, value)
+		return fmt.Sprintf("%s %s %v", column, operator, value)
 	}
-
-	// Only Min condition
-	if chunk.Min != nil && chunk.Max == nil {
-		return formatCondition(">=", chunk.Min)
-	}
-
-	// Only Max condition
-	if chunk.Min == nil && chunk.Max != nil {
-		return formatCondition("<=", chunk.Max)
-	}
-
-	// Both Min and Max conditions
-	return fmt.Sprintf("%s AND %s", formatCondition(">=", chunk.Min), formatCondition("<=", chunk.Max))
+	condition := buildChunkCondition(filterColumn, chunk, postgresFormatter)
+	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
 }
 
 // MySQL-Specific Queries
 
 // MySQLWithoutState builds a chunk scan query for MySql
 func MysqlChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
-	condition := buildChunkCondition(filterColumn, chunk)
+	condition := buildChunkCondition(filterColumn, chunk, nil)
 	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
 }
 
