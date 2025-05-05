@@ -1,4 +1,4 @@
-# Contributing to Olake
+# Contributing to Iceberg Java Writer
 
 Thanks for taking the time and for your help in improving this project!
 

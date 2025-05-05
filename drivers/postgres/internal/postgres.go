@@ -76,11 +76,11 @@ func (p *Postgres) Setup() error {
 
 		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
 		if err != nil {
-			return fmt.Errorf("failed to check replication slot: %s", err)
+			return fmt.Errorf("failed to check if provided replication slot %s exists: %s", cdc.ReplicationSlot, err)
 		}
 
 		if !exists {
-			return fmt.Errorf("replication slot %s does not exist", cdc.ReplicationSlot)
+			return fmt.Errorf("provided replication slot %s does not exist", cdc.ReplicationSlot)
 		}
 		if cdc.InitialWaitTime == 0 {
 			// default set 10 sec
