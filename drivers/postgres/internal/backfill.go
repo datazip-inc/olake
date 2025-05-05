@@ -150,7 +150,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 				return nil, fmt.Errorf("failed to split chunks based on next query size: %s", err)
 			}
 			if chunkEnd == nil || chunkEnd == chunkStart {
-				// No more new chunks
+				splits = append(splits, types.Chunk{Min: chunkStart, Max: nil})
 				break
 			}
 
