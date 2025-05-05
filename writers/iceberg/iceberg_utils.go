@@ -319,7 +319,8 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	}
 
 	// Start the Java server process
-	i.cmd = exec.Command("java", "-jar", i.config.JarPath, string(configJSON))
+	// If debug mode is enabled and stream is available (stream is nil for check operations), start the server with debug options
+	i.cmd = utils.Ternary(i.config.DebugMode && i.stream != nil, exec.Command("java", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", i.config.JarPath, string(configJSON)), exec.Command("java", "-jar", i.config.JarPath, string(configJSON))).(*exec.Cmd)
 
 	// Set environment variables for AWS credentials and region when using Glue catalog
 	// Get current environment

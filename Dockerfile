@@ -20,7 +20,7 @@ COPY --from=base /olake /home/olake
 
 # Copy the pre-built JAR file from Maven
 # First try to copy from the source location (works after Maven build)
-COPY writers/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar /home/debezium-server-iceberg-sink.jar
+COPY writers/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
 
 
 ARG DRIVER_VERSION=dev
