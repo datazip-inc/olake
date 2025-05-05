@@ -1,0 +1,63 @@
+name: Draft Release Approval
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      driver:
+        description: "Driver to build"
+        required: true
+      version:
+        description: "Version to release"
+        required: true
+
+jobs:
+  build_all_drivers:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+    name: Build and Release Drivers
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        driver: [mongodb] # Add new drivers here as they become available
+    env:
+      DOCKER_LOGIN: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      DHID: ${{ secrets.DOCKER_REPO || 'olakego' }}
+      DRIVER: ${{ github.event.inputs.driver || matrix.driver }}
+      VERSION: ${{ github.event.inputs.version || github.event.release.tag_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_LOGIN }}
+          password: ${{ env.DOCKER_PASSWORD }}
+          
+      - name: Set Driver 
+        run: echo "DRIVER=${{ env.DRIVER }}" >> $GITHUB_ENV
+        
+      - name: Set VERSION
+        run: echo "VERSION=${{ env.VERSION }}" >> $GITHUB_ENV
+        
+      - name: Show VERSION
+        run: echo "Building driver $DRIVER with version $VERSION"
+        
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            DRIVER_NAME=${{ env.DRIVER }}
+            DRIVER_VERSION=${{ env.VERSION }}
+          tags: |
+            ${{ env.DHID }}/source-${{ env.DRIVER }}:${{ env.VERSION }}
+          platforms: linux/amd64,linux/arm64
