@@ -36,6 +36,7 @@ public class OlakeRpcServer {
     static boolean createIdFields = true;
     // Map to store partition fields and their transforms
     static Map<String, String> partitionTransforms = new ConcurrentHashMap<>();
+    static OlakeRowsIngester ori;
 
 
     public static void main(String[] args) throws Exception {
@@ -65,6 +66,10 @@ public class OlakeRpcServer {
             throw new Exception("Iceberg table namespace not found");
         }
 
+        if (configMap.get("table-name") == null) {
+            throw new Exception("Iceberg table name not found");
+        }
+
         if (configMap.get("upsert") != null) {
             upsert_records = Boolean.parseBoolean(configMap.get("upsert"));
         }       
@@ -90,12 +95,13 @@ public class OlakeRpcServer {
         keySerde.configure(Collections.emptyMap(), true);
         keyDeserializer = keySerde.deserializer();
 
-        OlakeRowsIngester ori;
+        
 
 
         // Retrieve a CDI-managed bean from the container
         ori = new OlakeRowsIngester(upsert_records);
         ori.setIcebergNamespace(configMap.get("table-namespace"));
+        ori.setIcebergTableName(configMap.get("table-name"));
         ori.setIcebergCatalog(icebergCatalog);
         // Pass partition transforms to the ingester
         ori.setPartitionTransforms(partitionTransforms);

@@ -7,7 +7,6 @@ import (
 	"net"
 	"os/exec"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,95 +20,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// determineMaxBatchSize returns appropriate batch size based on system memory
-// This is assuming that each core might create 2 threads, which might eventually need 4 writer threads
-func determineMaxBatchSize() int64 {
-	ramGB := utils.DetermineSystemMemoryGB()
-
-	var batchSize int64
-
-	switch {
-	case ramGB <= 8:
-		batchSize = 200 * 1024 * 1024 // 200MB
-	case ramGB <= 16:
-		batchSize = 400 * 1024 * 1024 // 400MB
-	case ramGB <= 32:
-		batchSize = 800 * 1024 * 1024 // 800MB
-	default:
-		batchSize = 1600 * 1024 * 1024 // 1600MB
-	}
-
-	logger.Infof("System has %dGB RAM, setting iceberg writer batch size to %d bytes", ramGB, batchSize)
-	return batchSize
-}
-
 // portMap tracks which ports are in use
 var portMap sync.Map
-
-// serverRegistry keeps track of Iceberg server instances to enable reuse
-type serverInstance struct {
-	port       int
-	cmd        *exec.Cmd
-	client     proto.RecordIngestServiceClient
-	conn       *grpc.ClientConn
-	refCount   int    // Tracks how many clients are using this server instance to manage shared resources. Comes handy when we need to close the server after all clients are done.
-	configHash string // Hash representing the server config
-	upsert     bool
-	streamID   string // Store the stream ID
-}
-
-// recordBatch represents a collection of records for a specific server configuration
-type recordBatch struct {
-	records []string   // Collected Debezium records
-	size    int64      // Estimated size in bytes
-	mu      sync.Mutex // Mutex for thread-safe access
-}
-
-// LocalBuffer represents a thread-local buffer for collecting records
-// before adding them to the shared batch
-type LocalBuffer struct {
-	records []string
-	size    int64
-}
-
-// getGoroutineID returns a unique ID for the current goroutine
-// This is a simple implementation that uses the string address of a local variable
-// which will be unique per goroutine
-func getGoroutineID() string {
-	var buf [64]byte
-	n := runtime.Stack(buf[:], false)
-	id := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
-	return id
-}
-
-// batchRegistry tracks batches of records per server configuration
-var (
-	// Maximum batch size before flushing (dynamically set based on system memory)
-	maxBatchSize = determineMaxBatchSize()
-	// Local buffer threshold before pushing to shared batch (5MB)
-	localBufferThreshold int64 = 50 * 1024 * 1024
-	// Thread-local buffer cache using sync.Map to avoid locks
-	// Key is configHash + goroutine ID, value is *LocalBuffer
-	localBuffers sync.Map
-	// batchRegistry tracks batches of records per server configuration
-	// Key is configHash, value is *recordBatch
-	batchRegistry sync.Map
-)
-
-// serverRegistry manages active server instances with proper concurrency control
-var (
-	serverRegistry = make(map[string]*serverInstance)
-)
-
-// getConfigHash generates a unique identifier for server configuration per stream
-func getConfigHash(namespace string, streamID string, upsert bool) string {
-	hashComponents := []string{
-		streamID,
-		namespace,
-		fmt.Sprintf("%t", upsert),
-	}
-	return strings.Join(hashComponents, "-")
-}
 
 // findAvailablePort finds an available port for the RPC server
 func findAvailablePort(serverHost string) (int, error) {
@@ -183,10 +95,15 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
 func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	// Create the server configuration map
+	streamName := "olake_test_table"
+	if i.stream != nil {
+		streamName = i.stream.Name()
+	}
 	serverConfig := map[string]string{
 		"port":                 fmt.Sprintf("%d", port),
 		"warehouse":            i.config.IcebergS3Path,
 		"table-namespace":      i.config.IcebergDatabase,
+		"table-name":           streamName,
 		"catalog-name":         "olake_iceberg",
 		"table-prefix":         "",
 		"upsert":               strconv.FormatBool(upsert),
@@ -286,24 +203,6 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	var streamID, namespace string
-	if i.stream == nil {
-		// For check operations or when stream isn't available
-		streamID, namespace = "check_"+utils.ULID(), "check"
-	} else {
-		streamID, namespace = i.stream.ID(), i.stream.Namespace()
-	}
-	configHash := getConfigHash(namespace, streamID, upsert)
-	i.configHash = configHash
-	// Check if a server with matching config already exists
-	if server, exists := serverRegistry[configHash]; exists {
-		// Reuse existing server
-		i.port, i.client, i.conn, i.cmd = server.port, server.client, server.conn, server.cmd
-		server.refCount++
-		logger.Infof("Reusing existing Iceberg server on port %d for stream %s, refCount %d", i.port, streamID, server.refCount)
-		return nil
-	}
-
 	// No matching server found, create a new one
 	port, err := findAvailablePort(i.config.ServerHost)
 	if err != nil {
@@ -371,20 +270,6 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	}
 
 	i.port, i.conn, i.client = port, conn, proto.NewRecordIngestServiceClient(conn)
-
-	// Register the new server instance
-	serverRegistry[configHash] = &serverInstance{
-		port:       i.port,
-		cmd:        i.cmd,
-		client:     i.client,
-		conn:       i.conn,
-		refCount:   1,
-		configHash: configHash,
-		upsert:     upsert,
-		streamID:   streamID,
-	}
-
-	logger.Infof("Connected to new iceberg writer on port %d for stream %s, configHash %s", i.port, streamID, configHash)
 	return nil
 }
 
@@ -442,215 +327,37 @@ func getTestDebeziumRecord() string {
 
 // CloseIcebergClient closes the connection to the Iceberg server
 func (i *Iceberg) CloseIcebergClient() error {
-	// Decrement reference count
-	server := serverRegistry[i.configHash]
-	server.refCount--
-
 	// If this was the last reference, shut down the server
-	if server.refCount <= 0 {
-		logger.Infof("Shutting down Iceberg server on port %d", i.port)
-		server.conn.Close()
-
-		if server.cmd != nil && server.cmd.Process != nil {
-			err := server.cmd.Process.Kill()
-			if err != nil {
-				logger.Errorf("Failed to kill Iceberg server: %v", err)
-			}
-		}
-
-		// Release the port
-		portMap.Delete(i.port)
-
-		// Remove from registry
-		delete(serverRegistry, i.configHash)
-
-		return nil
-	}
-
-	logger.Infof("Decreased reference count for Iceberg server on port %d, refCount %d", i.port, server.refCount)
-
-	return nil
-}
-
-// getOrCreateBatch gets or creates a batch for a specific configuration
-func getOrCreateBatch(configHash string) *recordBatch {
-	// LoadOrStore returns the existing value if present, or stores and returns the new value
-	batch, _ := batchRegistry.LoadOrStore(configHash, &recordBatch{
-		records: make([]string, 0, 1000),
-		size:    0,
-	})
-	return batch.(*recordBatch)
-}
-
-// getLocalBuffer gets or creates a local buffer for the current goroutine
-func getLocalBuffer(configHash string) *LocalBuffer {
-	// Create a unique key for this goroutine + config hash
-	bufferID := fmt.Sprintf("%s-%s", configHash, getGoroutineID())
-
-	// Try to get existing buffer
-	if val, ok := localBuffers.Load(bufferID); ok {
-		return val.(*LocalBuffer)
-	}
-
-	// Create new buffer
-	buffer := &LocalBuffer{
-		records: make([]string, 0, 100),
-		size:    0,
-	}
-	localBuffers.Store(bufferID, buffer)
-	return buffer
-}
-
-// flushLocalBuffer flushes a local buffer to the shared batch
-func flushLocalBuffer(buffer *LocalBuffer, configHash string, client proto.RecordIngestServiceClient) error {
-	if len(buffer.records) == 0 {
-		return nil
-	}
-
-	// TODO: Check if we can remove the below logic as we are locking in java code to iceberg commit already.
-	batch := getOrCreateBatch(configHash)
-
-	// Lock the batch only once when flushing the local buffer
-	batch.mu.Lock()
-
-	// Add all records from local buffer
-	batch.records = append(batch.records, buffer.records...)
-	batch.size += buffer.size
-
-	// Check if we need to flush the batch
-	needsFlush := batch.size >= maxBatchSize
-
-	var recordsToFlush []string
-	if needsFlush {
-		// Copy records to flush
-		recordsToFlush = batch.records
-		// Reset batch
-		batch.records = make([]string, 0, 1000)
-		batch.size = 0
-	}
-
-	// Unlock the batch
-	batch.mu.Unlock()
-
-	// Reset local buffer
-	buffer.records = make([]string, 0, 100)
-	buffer.size = 0
-
-	// Flush if needed
-	if needsFlush && len(recordsToFlush) > 0 {
-		return sendRecords(recordsToFlush, client)
-	}
-
-	return nil
-}
-
-// addToBatch adds a record to the batch for a specific server configuration
-// Returns true if the batch was flushed, false otherwise
-func addToBatch(configHash string, record string, client proto.RecordIngestServiceClient) (bool, error) {
-	// If record is empty, skip it
-	if record == "" {
-		return false, nil
-	}
-
-	recordSize := int64(len(record))
-
-	// Get the local buffer for this goroutine
-	buffer := getLocalBuffer(configHash)
-
-	// Add record to local buffer (no locking needed as it's per-goroutine)
-	buffer.records = append(buffer.records, record)
-	buffer.size += recordSize
-
-	// If local buffer is still small, just return
-	if buffer.size < localBufferThreshold {
-		return false, nil
-	}
-
-	// Local buffer reached threshold, flush it to shared batch
-	err := flushLocalBuffer(buffer, configHash, client)
-	if err != nil {
-		return true, err
-	}
-
-	return buffer.size >= maxBatchSize, nil
-}
-
-// flushBatch forces a flush of all local buffers and the shared batch for a config hash
-func flushBatch(configHash string, client proto.RecordIngestServiceClient) error {
-	// First, flush all local buffers that match this configHash
-	var localBuffersToFlush []*LocalBuffer
-
-	// Collect all local buffers for this config hash
-	localBuffers.Range(func(key, value interface{}) bool {
-		bufferID := key.(string)
-		if strings.HasPrefix(bufferID, configHash+"-") {
-			localBuffersToFlush = append(localBuffersToFlush, value.(*LocalBuffer))
-		}
-		return true
-	})
-
-	// Flush each local buffer
-	for _, buffer := range localBuffersToFlush {
-		err := flushLocalBuffer(buffer, configHash, client)
+	if i.records.Load() > 0 {
+		err := sendRecord(`{"commit": true}`, i.client)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to add record to batch: %v", err)
+		}
+	}
+	i.conn.Close()
+
+	if i.cmd != nil && i.cmd.Process != nil {
+		err := i.cmd.Process.Kill()
+		if err != nil {
+			logger.Errorf("Failed to kill Iceberg server: %v", err)
 		}
 	}
 
-	// Now check if there's anything in the shared batch
-	batchVal, exists := batchRegistry.Load(configHash)
-	if !exists {
-		return nil // Nothing to flush
-	}
-
-	batch := batchVal.(*recordBatch)
-
-	// Lock the batch
-	batch.mu.Lock()
-
-	// Skip if batch is empty
-	if len(batch.records) == 0 {
-		batch.mu.Unlock()
-		return nil
-	}
-
-	// Copy records to flush
-	recordsToFlush := batch.records
-
-	// Reset the batch
-	batch.records = make([]string, 0, 1000)
-	batch.size = 0
-
-	// Unlock the batch
-	batch.mu.Unlock()
-
-	// Send the records
-	return sendRecords(recordsToFlush, client)
+	// Release the port
+	portMap.Delete(i.port)
+	return nil
 }
 
-// sendRecords sends a slice of records to the Iceberg RPC server
-func sendRecords(records []string, client proto.RecordIngestServiceClient) error {
+// sendRecord sends a record to the Iceberg RPC server
+func sendRecord(record string, client proto.RecordIngestServiceClient) error {
 	// Skip if empty
-	if len(records) == 0 {
-		return nil
-	}
-
-	// Filter out any nil strings from records
-	validRecords := make([]string, 0, len(records))
-	for _, record := range records {
-		if record != "" {
-			validRecords = append(validRecords, record)
-		}
-	}
-
-	// Skip if all records were empty after filtering
-	if len(validRecords) == 0 {
+	if record == "" {
 		return nil
 	}
 
 	// Create request with all records
 	req := &proto.RecordIngestRequest{
-		Messages: validRecords,
+		Messages: []string{record},
 	}
 
 	// Send to gRPC server with timeout
@@ -664,8 +371,8 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 		return err
 	}
 
-	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
-		len(validRecords),
+	logger.Infof("Sent record to Iceberg server: %s, response: %s",
+		record,
 		res.GetResult())
 
 	return nil

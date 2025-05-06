@@ -25,7 +25,6 @@ type Iceberg struct {
 	conn          *grpc.ClientConn
 	port          int
 	backfill      bool
-	configHash    string
 	partitionInfo map[string]string // map of field names to partition transform
 }
 
@@ -64,14 +63,9 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
 	// Add the record to the batch
-	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
+	err = sendRecord(debeziumRecord, i.client)
 	if err != nil {
 		return fmt.Errorf("failed to add record to batch: %v", err)
-	}
-
-	// If the batch was flushed, log the event
-	if flushed {
-		logger.Infof("Batch flushed to Iceberg server for stream %s", i.stream.Name())
 	}
 
 	i.records.Add(1)
@@ -79,13 +73,7 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 }
 
 func (i *Iceberg) Close() error {
-	err := flushBatch(i.configHash, i.client)
-	if err != nil {
-		logger.Errorf("Error flushing batch on close: %v", err)
-		return err
-	}
-
-	err = i.CloseIcebergClient()
+	err := i.CloseIcebergClient()
 	if err != nil {
 		return fmt.Errorf("error closing Iceberg client: %v", err)
 	}

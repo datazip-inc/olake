@@ -8,7 +8,6 @@
 
 package io.debezium.server.iceberg.tableoperator;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableMap;
 import io.debezium.server.iceberg.RecordConverter;
 import jakarta.enterprise.context.Dependent;
@@ -26,12 +25,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Wrapper to perform operations on iceberg tables
@@ -42,11 +38,12 @@ import java.util.stream.Collectors;
 public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
-  
-  // Static lock object for synchronizing commits across threads
-  private static final Object COMMIT_LOCK = new Object();
+  Table icebergTable;
+  BaseTaskWriter<Record> writer;
+  Set<Schema> schemaHash;
 
-  public IcebergTableOperator() {
+  public IcebergTableOperator(Table icebergTable) {
+    this.icebergTable = icebergTable;
     createIdentifierFields = true;
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
@@ -55,9 +52,12 @@ public class IcebergTableOperator {
     upsert = true;
     cdcOpField = "_op_type";
     cdcSourceTsMsField = "_cdc_timestamp";
+    writer = writerFactory2.create(icebergTable);
+    schemaHash = new HashSet<>();
   }
 
-  public IcebergTableOperator(boolean upsert_records) {
+  public IcebergTableOperator(boolean upsert_records, Table icebergTable) {
+    this.icebergTable = icebergTable;
     createIdentifierFields = true;
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
@@ -66,6 +66,8 @@ public class IcebergTableOperator {
     upsert = upsert_records;
     cdcOpField = "_op_type";
     cdcSourceTsMsField = "_cdc_timestamp";
+    writer = writerFactory2.create(icebergTable);
+    schemaHash = new HashSet<>();
   }
 
   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1, Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
@@ -83,33 +85,6 @@ public class IcebergTableOperator {
 
   @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
   boolean upsert;
-
-  protected List<RecordConverter> deduplicateBatch(List<RecordConverter> events) {
-
-    ConcurrentHashMap<JsonNode, RecordConverter> deduplicatedEvents = new ConcurrentHashMap<>();
-
-    events.forEach(e -> {
-          if (e.key() == null || e.key().isNull()) {
-            throw new RuntimeException("Cannot deduplicate data with null key! destination:'" + e.destination() + "' event: '" + e.value().toString() + "'");
-          }
-
-      try {
-        // deduplicate using key(PK)
-        deduplicatedEvents.merge(e.key(), e, (oldValue, newValue) -> {
-          if (this.compareByTsThenOp(oldValue, newValue) <= 0) {
-            return newValue;
-          } else {
-            return oldValue;
-          }
-        });
-      } catch (Exception ex) {
-        throw new RuntimeException("Failed to deduplicate events", ex);
-      }
-        }
-    );
-
-    return new ArrayList<>(deduplicatedEvents.values());
-  }
 
   /**
    * This is used to deduplicate events within given batch.
@@ -150,6 +125,14 @@ public class IcebergTableOperator {
    */
   private void applyFieldAddition(Table icebergTable, Schema newSchema) {
 
+    // Check if the new schema is already in the set
+    boolean schemaExists = schemaHash.stream().parallel()
+        .anyMatch(schema -> schema.sameSchema(newSchema));
+
+    if (schemaExists) {
+      return;
+    }
+
     UpdateSchema us = icebergTable.updateSchema().
         unionByNameWith(newSchema).
         setIdentifierFields(newSchema.identifierFieldNames());
@@ -160,6 +143,8 @@ public class IcebergTableOperator {
       LOGGER.warn("Extending schema of {}", icebergTable.name());
       us.commit();
     }
+
+    schemaHash.add(newSchema);
   }
 
   /**
@@ -174,30 +159,16 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTable(Table icebergTable, List<RecordConverter> events) {
-
-    // when operation mode is not upsert deduplicate the events to avoid inserting duplicate row
-    if (upsert && !icebergTable.schema().identifierFieldIds().isEmpty()) {
-      events = deduplicateBatch(events);
-    }
+  public void addToTable(Table icebergTable, RecordConverter event) {
 
     if (!allowFieldAddition) {
       // if field additions not enabled add set of events to table
-      addToTablePerSchema(icebergTable, events);
+      addToTablePerSchema(icebergTable, event);
     } else {
       
-      Map<RecordConverter.SchemaConverter, List<RecordConverter>> eventsGroupedBySchema =
-          events.parallelStream()
-              .collect(Collectors.groupingBy(RecordConverter::schemaConverter));
-      
-      LOGGER.info("Batch got {} records with {} different schema!!", events.size(), eventsGroupedBySchema.keySet().size());
-
-      for (Map.Entry<RecordConverter.SchemaConverter, List<RecordConverter>> schemaEvents : eventsGroupedBySchema.entrySet()) {
-        // extend table schema if new fields found
-        applyFieldAddition(icebergTable, schemaEvents.getValue().get(0).icebergSchema(createIdentifierFields));
+      applyFieldAddition(icebergTable, event.icebergSchema(createIdentifierFields));
         // add set of events to table
-        addToTablePerSchema(icebergTable, schemaEvents.getValue());
-      }
+      addToTablePerSchema(icebergTable, event);
     }
 
   }
@@ -208,46 +179,56 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  private void addToTablePerSchema(Table icebergTable, List<RecordConverter> events) {
-    // Remove retry logic and add synchronization
-    
-    // Initialize the task writer
-    BaseTaskWriter<Record> writer = writerFactory2.create(icebergTable);
+  private void addToTablePerSchema(Table icebergTable, RecordConverter event) {
     try {
+        // Convert record based on upsert mode and table schema
+        RecordWrapper convertedRecord = upsert && !icebergTable.schema().identifierFieldIds().isEmpty()
+                ? event.convert(icebergTable.schema(), cdcOpField)
+                : event.convertAsAppend(icebergTable.schema());
+            
+        // Write converted records sequentially to maintain thread safety with the writer
+        writer.write(convertedRecord);
+        
+    } catch (Exception ex) {
+      LOGGER.error("Failed to write data to table: {}", icebergTable.name(), ex);
       
-      // Write all events
-      // Parallelize the conversion step, then collect and write sequentially for thread safety
-      List<RecordWrapper> convertedRecords = events.parallelStream()
-          .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
-              ? e.convert(icebergTable.schema(), cdcOpField)
-              : e.convertAsAppend(icebergTable.schema()))
-          .collect(Collectors.toList());
-          
-      // Write converted records sequentially to maintain thread safety with the writer
-      for (RecordWrapper record : convertedRecords) {
-          writer.write(record);
+      try {
+        writer.abort();
+        writer.close();
+      } catch (IOException abortEx) {
+        LOGGER.warn("Failed to abort writer", abortEx);
       }
+      
+      throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
+    }
+  }
 
+  /**
+   * Commits pending changes to the Iceberg table.
+   * This method should only be called by OlakeRowIngester when all writes are complete.
+   * 
+   * @return true if commit was successful, false otherwise
+   */
+  public boolean commitTable() {
+    try {
       WriteResult files = writer.complete();
       
-      // Synchronize the commit operation to prevent concurrent commits
-      synchronized(COMMIT_LOCK) {
-        // Refresh table again before committing to get the latest state
-        icebergTable.refresh();
-        
-        if (files.deleteFiles().length > 0) {
-          RowDelta newRowDelta = icebergTable.newRowDelta();
-          Arrays.stream(files.dataFiles()).forEach(newRowDelta::addRows);
-          Arrays.stream(files.deleteFiles()).forEach(newRowDelta::addDeletes);
-          newRowDelta.commit();
-        } else {
-          AppendFiles appendFiles = icebergTable.newAppend();
-          Arrays.stream(files.dataFiles()).forEach(appendFiles::appendFile);
-          appendFiles.commit();
-        }
+      // Refresh table again before committing to get the latest state
+      icebergTable.refresh();
+      
+      if (files.deleteFiles().length > 0) {
+        RowDelta newRowDelta = icebergTable.newRowDelta();
+        Arrays.stream(files.dataFiles()).forEach(newRowDelta::addRows);
+        Arrays.stream(files.deleteFiles()).forEach(newRowDelta::addDeletes);
+        newRowDelta.commit();
+      } else {
+        AppendFiles appendFiles = icebergTable.newAppend();
+        Arrays.stream(files.dataFiles()).forEach(appendFiles::appendFile);
+        appendFiles.commit();
       }
       
-      LOGGER.info("Successfully committed {} events", events.size());
+      LOGGER.info("Successfully committed changes to table");
+      return true;
       
     } catch (org.apache.iceberg.exceptions.CommitFailedException e) {
       String errorMessage = e.getMessage();
@@ -261,7 +242,7 @@ public class IcebergTableOperator {
       
       throw new RuntimeException("Failed to commit", e);
     } catch (Exception ex) {
-      LOGGER.error("Failed to write data to table: {}", icebergTable.name(), ex);
+      LOGGER.error("Failed to commit: {}", ex.getMessage(), ex);
       
       try {
         writer.abort();
@@ -269,13 +250,25 @@ public class IcebergTableOperator {
         LOGGER.warn("Failed to abort writer", abortEx);
       }
       
-      throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
+      return false;
     } finally {
       try {
         writer.close();
       } catch (IOException e) {
         LOGGER.warn("Failed to close writer", e);
       }
+    }
+  }
+
+  /**
+   * Closes writer resources without committing
+   */
+  public void closeWithoutCommit() {
+    try {
+      writer.abort();
+      writer.close();
+    } catch (IOException e) {
+      LOGGER.warn("Failed to close writer resources", e);
     }
   }
 }
