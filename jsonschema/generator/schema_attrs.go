@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/datazip-inc/olake/jsonschema/schema"
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 func (g *JSONSchemaGenerator) shouldReturnRef(decl *declInfo) bool {

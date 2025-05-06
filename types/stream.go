@@ -4,8 +4,8 @@ import (
 	"github.com/goccy/go-json"
 
 	"github.com/datazip-inc/olake/jsonschema/schema"
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // Output Stream Object for dsynk

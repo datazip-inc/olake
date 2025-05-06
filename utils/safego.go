@@ -1,4 +1,4 @@
-package safego
+package utils
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 const defaultRestartTimeout = 2 * time.Second

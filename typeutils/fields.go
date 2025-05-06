@@ -3,8 +3,8 @@ package typeutils
 import (
 	"sort"
 
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type Fields map[string]*Field

@@ -7,10 +7,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/writers/iceberg/proto"
 	"google.golang.org/grpc"
 )
