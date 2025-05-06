@@ -88,57 +88,60 @@ func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, 
 		return fmt.Errorf("failed concurrent backfill: %s", err)
 	}
 
-	// Set up inserters for each stream
-	inserters := make(map[protocol.Stream]*protocol.ThreadEvent)
-	errChans := make(map[protocol.Stream]chan error)
-	for _, stream := range streams {
-		errChan := make(chan error, 1)
-		inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan))
-		if err != nil {
-			return fmt.Errorf("failed to create writer thread for stream[%s]: %s", stream.ID(), err)
+	protocol.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
+		// Set up inserters for each stream
+		inserters := make(map[protocol.Stream]*protocol.ThreadEvent)
+		errChans := make(map[protocol.Stream]chan error)
+		for _, stream := range streams {
+			errChan := make(chan error, 1)
+			inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan))
+			if err != nil {
+				return fmt.Errorf("failed to create writer thread for stream[%s]: %s", stream.ID(), err)
+			}
+			inserters[stream], errChans[stream] = inserter, errChan
 		}
-		inserters[stream], errChans[stream] = inserter, errChan
-	}
-	defer func() {
-		if err == nil {
-			for stream, insert := range inserters {
-				insert.Close()
-				if threadErr := <-errChans[stream]; threadErr != nil {
-					err = fmt.Errorf("failed to write record for stream[%s]: %s", stream.ID(), threadErr)
+		defer func() {
+			if err == nil {
+				for stream, insert := range inserters {
+					insert.Close()
+					if threadErr := <-errChans[stream]; threadErr != nil {
+						err = fmt.Errorf("failed to write record for stream[%s]: %s", stream.ID(), threadErr)
+					}
+				}
+				if err == nil {
+					m.State.SetGlobal(MySQLGlobalState)
+					// TODO: Research about acknowledgment of binlogs in mysql
 				}
 			}
-			if err == nil {
-				m.State.SetGlobal(MySQLGlobalState)
-				// TODO: Research about acknowledgment of binlogs in mysql
+		}()
+
+		// Start binlog connection
+		conn, err := binlog.NewConnection(ctx, config, MySQLGlobalState.State.Position)
+		if err != nil {
+			return fmt.Errorf("failed to create binlog connection: %s", err)
+		}
+		defer conn.Close()
+
+		// Stream and process events
+		logger.Infof("Starting MySQL CDC from binlog position %s:%d", MySQLGlobalState.State.Position.Name, MySQLGlobalState.State.Position.Pos)
+		return conn.StreamMessages(ctx, binlog.NewChangeFilter(streams...), func(change binlog.CDCChange) error {
+			stream := change.Stream
+			opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
+			record := types.CreateRawRecord(
+				utils.GetKeysHash(change.Data, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
+				change.Data,
+				opType,
+				change.Timestamp,
+			)
+			if err := inserters[stream].Insert(record); err != nil {
+				return fmt.Errorf("failed to insert record for stream[%s]: %s", stream.ID(), err)
 			}
-		}
-	}()
-
-	// Start binlog connection
-	conn, err := binlog.NewConnection(ctx, config, MySQLGlobalState.State.Position)
-	if err != nil {
-		return fmt.Errorf("failed to create binlog connection: %s", err)
-	}
-	defer conn.Close()
-
-	// Stream and process events
-	logger.Infof("Starting MySQL CDC from binlog position %s:%d", MySQLGlobalState.State.Position.Name, MySQLGlobalState.State.Position.Pos)
-	return conn.StreamMessages(ctx, binlog.NewChangeFilter(streams...), func(change binlog.CDCChange) error {
-		stream := change.Stream
-		opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-		record := types.CreateRawRecord(
-			utils.GetKeysHash(change.Data, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			change.Data,
-			opType,
-			change.Timestamp,
-		)
-		if err := inserters[stream].Insert(record); err != nil {
-			return fmt.Errorf("failed to insert record for stream[%s]: %s", stream.ID(), err)
-		}
-		// Update global state with the new position
-		MySQLGlobalState.State.Position = change.Position
-		return nil
+			// Update global state with the new position
+			MySQLGlobalState.State.Position = change.Position
+			return nil
+		})
 	})
+	return nil
 }
 
 // getCurrentBinlogPosition retrieves the current binlog position from MySQL.

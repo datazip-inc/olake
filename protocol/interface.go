@@ -26,18 +26,13 @@ type Driver interface {
 	Connector
 	// Sets up client, doesn't performs any Checks
 	Setup() error
+	// max connnection to be used
+	MaxConnections() int
 	// Discover discovers the streams; Returns cached if already discovered
 	Discover(discoverSchema bool) ([]*types.Stream, error)
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
-	Read(ctx context.Context, pool *WriterPool, stream Stream) error
-	ChangeStreamSupported() bool
+	Read(ctx context.Context, pool *WriterPool, standardStreams, cdcStreams []Stream) error
 	SetupState(state *types.State)
-}
-
-// Bulk Read Driver
-type ChangeStreamDriver interface {
-	RunChangeStream(ctx context.Context, pool *WriterPool, streams ...Stream) error
-	StateType() types.StateType
 }
 
 type Write = func(ctx context.Context, channel <-chan types.Record) error

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math/big"
 	"sort"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 )
 
 // Simple Full Refresh Sync; Loads table fully
-func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
+func (p *Postgres) backfill(_ context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
@@ -43,8 +42,8 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 	})
 
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(splitChunks))
-	processChunk := func(ctx context.Context, chunk types.Chunk, number int) (err error) {
-		tx, err := p.client.BeginTx(backfillCtx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	processChunk := func(ctx context.Context, chunk types.Chunk) (err error) {
+		tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 		if err != nil {
 			return err
 		}
@@ -53,12 +52,12 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
 		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
 
-		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.Query(query, args...)
 		})
 		batchStartTime := time.Now()
 		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(backfillCtx, stream, protocol.WithErrorChannel(waitChannel), protocol.WithBackfill(true))
+		insert, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(waitChannel), protocol.WithBackfill(true))
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
@@ -70,7 +69,7 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 			}
 			// no error in writer as well
 			if err == nil {
-				logger.Infof("chunk[%d] with min[%v]-max[%v] completed in %0.2f seconds", number, chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
+				logger.Infof("chunk with min[%v]-max[%v] completed in %0.2f seconds", chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
 				p.State.RemoveChunk(stream.Self(), chunk)
 			}
 		}()
@@ -95,7 +94,8 @@ func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPo
 			return nil
 		})
 	}
-	return utils.Concurrent(backfillCtx, splitChunks, p.config.MaxThreads, processChunk)
+	utils.ConcurrentInGroup(protocol.GlobalConnGroup, splitChunks, processChunk)
+	return nil
 }
 
 func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, error) {
@@ -198,43 +198,4 @@ func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interfa
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
 	}
 	return chunkEnd, nil
-}
-
-func (p *Postgres) calculateDistributionFactor(min, max interface{}, approximateRowCnt int64) (float64, error) {
-	if approximateRowCnt == 0 {
-		return float64(^uint(0) >> 1), nil // Return the maximum float64 value
-	}
-	var minBig, maxBig *big.Float
-	switch min := min.(type) {
-	case int:
-		minBig = big.NewFloat(float64(min))
-	case int64:
-		minBig = big.NewFloat(float64(min))
-	case float32:
-		minBig = big.NewFloat(float64(min))
-	case float64:
-		minBig = big.NewFloat(min)
-	}
-
-	switch max := max.(type) {
-	case int:
-		maxBig = big.NewFloat(float64(max))
-	case int64:
-		maxBig = big.NewFloat(float64(max))
-	case float32:
-		maxBig = big.NewFloat(float64(max))
-	case float64:
-		maxBig = big.NewFloat(max)
-	}
-
-	if minBig == nil || maxBig == nil {
-		return 0.0, fmt.Errorf("failed to convert min or max value to big.Float")
-	}
-	difference := new(big.Float).Sub(maxBig, minBig)
-	subRowCnt := new(big.Float).Add(difference, big.NewFloat(1))
-	approxRowCntBig := new(big.Float).SetInt64(approximateRowCnt)
-	distributionFactor := new(big.Float).Quo(subRowCnt, approxRowCntBig)
-	factor, _ := distributionFactor.Float64()
-
-	return factor, nil
 }

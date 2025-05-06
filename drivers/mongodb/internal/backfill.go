@@ -69,12 +69,9 @@ func (m *Mongo) backfill(backfillCtx context.Context, pool *protocol.WriterPool,
 
 	logger.Infof("Running backfill for %d chunks", len(chunksArray))
 	// notice: err is declared in return, reason: defer call can access it
-	processChunk := func(ctx context.Context, chunk types.Chunk, _ int) (err error) {
-		threadContext, cancelThread := context.WithCancel(ctx)
-		defer cancelThread()
-
-		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(threadContext, stream, protocol.WithErrorChannel(waitChannel), protocol.WithBackfill(true))
+	processChunk := func(ctx context.Context, chunk types.Chunk) (err error) {
+		errorChannel := make(chan error, 1)
+		insert, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errorChannel), protocol.WithBackfill(true))
 		if err != nil {
 			return err
 		}
@@ -82,7 +79,7 @@ func (m *Mongo) backfill(backfillCtx context.Context, pool *protocol.WriterPool,
 			insert.Close()
 			if err == nil {
 				// wait for chunk completion
-				err = <-waitChannel
+				err = <-errorChannel
 			}
 		}()
 
@@ -113,17 +110,18 @@ func (m *Mongo) backfill(backfillCtx context.Context, pool *protocol.WriterPool,
 		return base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, cursorIterationFunc)
 	}
 
-	return utils.ConcurrentReader(backfillCtx, chunksArray, m.config.MaxThreads, func(ctx context.Context, chunk types.Chunk, number int) error {
+	utils.ConcurrentInGroup(protocol.GlobalConnGroup, chunksArray, func(ctx context.Context, chunk types.Chunk) error {
 		batchStartTime := time.Now()
-		err := processChunk(backfillCtx, chunk, number)
+		err := processChunk(ctx, chunk)
 		if err != nil {
 			return err
 		}
 		// remove success chunk from state
 		m.State.RemoveChunk(stream.Self(), chunk)
-		logger.Infof("chunk[%d] with min[%v]-max[%v] completed in %0.2f seconds", number, chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
+		logger.Infof("chunk with min[%v]-max[%v] completed in %0.2f seconds", chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})
+	return nil
 }
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {

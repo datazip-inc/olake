@@ -1,11 +1,9 @@
 package protocol
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
@@ -128,48 +126,26 @@ var syncCmd = &cobra.Command{
 
 		// Setup State for Connector
 		connector.SetupState(state)
+		// init group
 
-		// Execute driver ChangeStreams mode
-		GlobalCxGroup.Add(func(ctx context.Context) error { // context is not used to keep processes mutually exclusive
-			if connector.ChangeStreamSupported() {
-				driver, yes := connector.(ChangeStreamDriver)
-				if !yes {
-					return fmt.Errorf("%s does not implement ChangeStreamDriver", connector.Type())
-				}
-
-				logger.Info("Starting ChangeStream process in driver")
-
-				err := driver.RunChangeStream(ctx, pool, cdcStreams...)
-				if err != nil {
-					return fmt.Errorf("error occurred while reading records: %s", err)
-				}
-			}
-			return nil
-		})
-
-		// Execute streams in Standard Stream mode
-		// TODO: Separate streams with FULL and Incremental here only
-		utils.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(ctx context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
-			logger.Infof("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
-
-			streamStartTime := time.Now()
-			err := connector.Read(ctx, pool, stream)
-			if err != nil {
-				return fmt.Errorf("error occurred while reading records: %s", err)
-			}
-
-			logger.Infof("Finished reading stream %s[%s] in %s", stream.Name(), stream.Namespace(), time.Since(streamStartTime).String())
-
-			return nil
-		})
-
-		if err := GlobalCxGroup.Block(); err != nil {
+		GlobalCtxGroup = utils.NewCGroup(cmd.Context())
+		GlobalConnGroup = utils.NewCGroupWithLimit(cmd.Context(), connector.MaxConnections())
+		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
+		if err != nil {
+			return fmt.Errorf("error occurred while reading records: %s", err)
+		}
+		// wait for all threads to finish
+		if err := GlobalCtxGroup.Block(); err != nil {
 			return err
 		}
-
 		// wait for writer pool to finish
 		if err := pool.Wait(); err != nil {
 			return fmt.Errorf("error occurred in writer pool: %s", err)
+		}
+
+		// wait for all threads to finish
+		if err := GlobalConnGroup.Block(); err != nil {
+			return fmt.Errorf("error occurred while waiting for connections: %s", err)
 		}
 
 		logger.Infof("Total records read: %d", pool.SyncedRecords())

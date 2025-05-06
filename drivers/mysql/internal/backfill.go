@@ -53,11 +53,11 @@ func (m *MySQL) backfill(backfillCtx context.Context, pool *protocol.WriterPool,
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(splitChunks))
 
 	// Process chunks concurrently
-	processChunk := func(ctx context.Context, chunk types.Chunk, number int) (err error) {
+	processChunk := func(ctx context.Context, chunk types.Chunk) (err error) {
 		// Track batch start time for logging
 		batchStartTime := time.Now()
 		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(backfillCtx, stream, protocol.WithErrorChannel(waitChannel))
+		insert, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(waitChannel))
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
@@ -69,30 +69,25 @@ func (m *MySQL) backfill(backfillCtx context.Context, pool *protocol.WriterPool,
 			}
 			// Log completion and update state if successful
 			if err == nil {
-				logger.Infof("chunk[%d] with min[%v]-max[%v] completed in %0.2f seconds", number, chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
+				logger.Infof("chunk with min[%v]-max[%v] completed in %0.2f seconds", chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
 				m.State.RemoveChunk(stream.Self(), chunk)
 			}
 		}()
 		// Begin transaction with repeatable read isolation
-		return jdbc.WithIsolation(backfillCtx, m.client, func(tx *sql.Tx) error {
+		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			// Build query for the chunk
 			stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk)
-			setter := jdbc.NewReader(backfillCtx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+			setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 				return tx.QueryContext(ctx, query, args...)
 			})
 			// Capture and process rows
 			return setter.Capture(func(rows *sql.Rows) error {
-				//crrate a map to hold column names and values
 				record := make(types.Record)
-				//scan the row into map
 				err := jdbc.MapScan(rows, record, nil)
 				if err != nil {
 					return fmt.Errorf("failed to mapScan record data: %s", err)
 				}
-				// TODO : create hash from all keys if primary key not present
-				//genrate olake id
 				olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-				//insert record
 				err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0)))
 				if err != nil {
 					return err
@@ -101,8 +96,8 @@ func (m *MySQL) backfill(backfillCtx context.Context, pool *protocol.WriterPool,
 			})
 		})
 	}
-
-	return utils.Concurrent(backfillCtx, splitChunks, m.config.MaxThreads, processChunk)
+	utils.ConcurrentInGroup(protocol.GlobalConnGroup, splitChunks, processChunk)
+	return nil
 }
 
 func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
