@@ -5,7 +5,7 @@ import (
 	//"fmt"
 	"testing"
 
-	"github.com/datazip-inc/olake/jsonschema/schema"
+	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"

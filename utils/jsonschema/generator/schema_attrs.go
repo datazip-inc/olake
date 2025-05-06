@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/datazip-inc/olake/jsonschema/schema"
+	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 

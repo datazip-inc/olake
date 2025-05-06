@@ -3,8 +3,8 @@ package types
 import (
 	"github.com/goccy/go-json"
 
-	"github.com/datazip-inc/olake/jsonschema/schema"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
