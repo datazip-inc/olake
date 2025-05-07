@@ -1,9 +1,0 @@
-{"level":"info","time":"2025-05-07T05:47:34Z","message":"System has 16GB RAM, setting iceberg writer batch size to 419430400 bytes"}
-{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T05:47:34Z"}
-{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T05:47:35Z"}
-{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T05:47:35Z"}
-{"level":"info","time":"2025-05-07T05:47:35Z","message":"Starting discover for Postgres database postgres"}
-{"level":"warn","time":"2025-05-07T05:47:35Z","message":"failed to get respective type in datatypes for column: col_time[time without time zone]"}
-{"level":"warn","time":"2025-05-07T05:47:35Z","message":"failed to get respective type in datatypes for column: col_time[time without time zone]"}
-{"level":"warn","time":"2025-05-07T05:47:35Z","message":"failed to get respective type in datatypes for column: col_time[time without time zone]"}
-{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T05:47:35Z"}

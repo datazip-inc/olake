@@ -34,14 +34,14 @@ func TestMySQLDiscover(t *testing.T) {
 func TestMySQLRead(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
 	helper := base.TestHelper{
-		CreateTable:  createTestTable,
-		DropTable:    dropTestTable,
-		CleanTable:   cleanTestTable,
-		AddData:      addTestTableData,
-		InsertOp:     insertOp,
-		UpdateOp:     updateOp,
-		DeleteOp:     deleteOp,
-		CompareTypes: comparePostgresAndIcebergTypes,
+		CreateTable: createTestTable,
+		DropTable:   dropTestTable,
+		CleanTable:  cleanTestTable,
+		AddData:     addTestTableData,
+		InsertOp:    insertOp,
+		UpdateOp:    updateOp,
+		DeleteOp:    deleteOp,
+		GetDBSchema: getPostgresSchema,
 	}
 	base.TestRead(t, pClient, client, helper, setupClient)
 }

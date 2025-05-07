@@ -188,16 +188,10 @@ func deleteOp(ctx context.Context, t *testing.T, conn interface{}, tableName str
 	}
 }
 
-func comparePostgresAndIcebergTypes(
-	ctx context.Context,
-	conn interface{},
-	tableName string,
-	icebergSchema map[string]string,
-	verifyColumns ...string,
-) (bool, error) {
+func getPostgresSchema(ctx context.Context, conn interface{}, tableName string) (map[string]string, error) {
 	db, ok := conn.(*sqlx.DB)
 	if !ok {
-		return false, fmt.Errorf("expected *sqlx.DB, got %T", conn)
+		return nil, fmt.Errorf("expected *sqlx.DB, got %T", conn)
 	}
 
 	rows, err := db.QueryxContext(ctx, `
@@ -207,33 +201,21 @@ func comparePostgresAndIcebergTypes(
           AND table_name   = $1
     `, tableName)
 	if err != nil {
-		return false, fmt.Errorf("querying pg schema: %w", err)
+		return nil, fmt.Errorf("querying pg schema: %w", err)
 	}
 	defer rows.Close()
 
-	pgSchema := make(map[string]string, len(verifyColumns))
+	pgSchema := make(map[string]string)
 	for rows.Next() {
 		var col, dt string
 		if err := rows.Scan(&col, &dt); err != nil {
-			return false, fmt.Errorf("scanning pg row: %w", err)
+			return nil, fmt.Errorf("scanning pg row: %w", err)
 		}
 		pgSchema[col] = strings.ToLower(dt)
 	}
 	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("iterating pg rows: %w", err)
+		return nil, fmt.Errorf("iterating pg rows: %w", err)
 	}
 
-	for col, pgDT := range pgSchema {
-		iceDT, found := icebergSchema[col]
-		if !found {
-			return false, fmt.Errorf("column %q present in Postgres but missing in Iceberg schema", col)
-		}
-		if strings.ToLower(iceDT) != pgDT {
-			return false, fmt.Errorf(
-				"datatype mismatch for column %q: postgres=%q, iceberg=%q",
-				col, pgDT, iceDT,
-			)
-		}
-	}
-	return true, nil
+	return pgSchema, nil
 }
