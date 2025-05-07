@@ -28,8 +28,6 @@ type TestHelper struct {
 	InsertOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
 	UpdateOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
 	DeleteOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-
-	GetDBSchema func(ctx context.Context, conn interface{}, tableName string) (map[string]string, error)
 }
 
 // TestSetup tests the driver setup and connection check
@@ -114,14 +112,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		require.Fail(t, "Could not find stream for table %s", tableName)
 		return nil
 	}
-
-	dbSchema, err := helper.GetDBSchema(ctx, conn, tableName)
-	require.NoError(t, err, "Failed to get database schema")
-	t.Logf("Source database schema for %s:", tableName)
-	for col, dtype := range dbSchema {
-		t.Logf("    %s: %s", col, dtype)
-	}
-
 	// Run read test for a given sync mode
 	runReadTest := func(t *testing.T, syncMode types.SyncMode, extraTests func(t *testing.T)) {
 		_, streamDriver := setupClient(t)
@@ -147,8 +137,27 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 	}
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
-		time.Sleep(120 * time.Second)
-		VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
+		time.Sleep(80 * time.Second)
+		schemaMap := VerifyIcebergSync(
+			t, tableName, "5", "after full load",
+			"olake_id", "col1", "col2", "col_int", "col_bigint",
+			"col_float", "col_double", "col_decimal", "col_boolean",
+			"col_timestamp", "col_date", "col_json", "col_uuid", "col_array",
+		)
+
+		if helper.CompareTypes != nil {
+			ok, err := helper.CompareTypes(
+				context.Background(),
+				conn,
+				tableName,
+				schemaMap,
+				"olake_id", "col1", "col2", "col_int", "col_bigint",
+				"col_float", "col_double", "col_decimal", "col_boolean",
+				"col_timestamp", "col_date", "col_json", "col_uuid", "col_array",
+			)
+			require.NoError(t, err, "comparing Postgres vs Iceberg types")
+			assert.True(t, ok, "all datatypes should match")
+		}
 	})
 	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
@@ -156,21 +165,22 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
-			time.Sleep(120 * time.Second)
-			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
+			time.Sleep(180 * time.Second)
+			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2", "col_int", "col_bigint", "col_float", "col_double", "col_decimal", "col_boolean", "col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
+
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
 			})
-			VerifyIcebergSync(t, tableName, dbSchema, "6", "after update", "olake_id", "col1", "col2", "col_int", "col_bigint", "col_float", "col_double", "col_decimal", "col_boolean", "col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
-
+			VerifyIcebergSync(t, tableName, "6", "after update", "olake_id", "col1", "col2")
 			t.Run("delete operation", func(t *testing.T) {
 				helper.DeleteOp(ctx, t, conn, tableName)
 			})
-			VerifyIcebergSync(t, tableName, dbSchema, "6", "after delete", "olake_id", "col1", "col2", "col_int", "col_bigint", "col_float", "col_double", "col_decimal", "col_boolean", "col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
+			VerifyIcebergSync(t, tableName, "6", "after delete", "olake_id", "col1", "col2")
 		})
 	})
 }
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, _ ...string) {
+
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, verifyColumns ...string) map[string]string {
 	t.Helper()
 	ctx := context.Background()
 	var sparkConnectAddress = "sc://localhost:15002"
@@ -203,110 +213,4 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 	// Verify unique count
 	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg (%s)", message)
 	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s - %s", countValue, tableName, message)
-
-	// Print table contents
-	selectQuery := fmt.Sprintf("SELECT * FROM olake_iceberg.olake_iceberg.%s", tableName)
-	t.Logf("Executing SELECT * query: %s", selectQuery)
-
-	selectDf, err := spark.Sql(ctx, selectQuery)
-	require.NoError(t, err, "Failed to query table contents")
-
-	selectRows, err := selectDf.Collect(ctx)
-	require.NoError(t, err, "Failed to collect table data")
-
-	schema, err := selectDf.Schema(ctx)
-	require.NoError(t, err, "Failed to get schema")
-
-	t.Logf("Table contents for %s:", tableName)
-	for i, row := range selectRows {
-		t.Logf("Row %d:", i+1)
-		for _, field := range schema.Fields {
-			val := row.Value(field.Name)
-			t.Logf("    %s: %v", field.Name, val)
-		}
-	}
-
-	dataTypeQuery := fmt.Sprintf("DESCRIBE TABLE olake_iceberg.olake_iceberg.%s", tableName)
-	t.Logf("Executing schema query: %s", dataTypeQuery)
-
-	df, err := spark.Sql(ctx, dataTypeQuery)
-	require.NoError(t, err, "Failed to describe the table")
-
-	rows, err := df.Collect(ctx)
-	require.NoError(t, err, "Failed to collect schema rows")
-
-	icebergSchema := make(map[string]string, len(rows))
-	t.Logf("Iceberg schema for table %s:", tableName)
-	for _, r := range rows {
-		cn := r.Value("col_name")
-		dt := r.Value("data_type")
-		if cn != nil && dt != nil {
-			col := fmt.Sprintf("%v", cn)
-			typ := fmt.Sprintf("%v", dt)
-			icebergSchema[col] = typ
-			t.Logf("    %s: %s", col, typ)
-		}
-	}
-
-	if sourceDBSchema != nil {
-		t.Logf("Comparing source database schema with Iceberg schema...")
-		for col, pgType := range sourceDBSchema {
-			// Check if the column exists in Iceberg schema
-			iceType, found := icebergSchema[col]
-			if !found {
-				t.Logf("WARNING: Column %s from source database not found in Iceberg schema", col)
-				continue
-			}
-			if !compareDataTypes(t, pgType, iceType) {
-				t.Errorf("Data type mismatch for column %s: source=%s, iceberg=%s", col, pgType, iceType)
-			} else {
-				t.Logf("Data type match for column %s: source=%s, iceberg=%s", col, pgType, iceType)
-			}
-		}
-	}
-}
-
-func compareDataTypes(t *testing.T, sourceType, icebergType string) bool {
-	t.Helper()
-
-	// Mapping of PostgreSQL data types to Iceberg data types
-	typeMapping := map[string]string{
-		"integer":           "int",
-		"bigint":            "bigint",
-		"float":             "float",
-		"double precision":  "double",
-		"decimal":           "decimal",
-		"boolean":           "boolean",
-		"timestamp":         "timestamp",
-		"date":              "date",
-		"jsonb":             "string", // Iceberg typically stores JSON as strings
-		"uuid":              "string", // Iceberg typically stores UUID as strings
-		"character varying": "string",
-		"varchar":           "string",
-		"text":              "string",
-		"integer[]":         "array<int>",
-	}
-
-	// Normalize types for comparison
-	sourceTypeLower := strings.ToLower(sourceType)
-	icebergTypeLower := strings.ToLower(icebergType)
-
-	// Check if we have a mapping for this source type
-	expectedIcebergType, found := typeMapping[sourceTypeLower]
-	if !found {
-		t.Logf("No mapping defined for source type %s", sourceTypeLower)
-		return false
-	}
-
-	// Special case for decimal with precision and scale
-	if strings.HasPrefix(sourceTypeLower, "decimal") {
-		return strings.HasPrefix(icebergTypeLower, "decimal")
-	}
-
-	// Special case for arrays
-	if strings.HasSuffix(sourceTypeLower, "[]") {
-		return strings.HasPrefix(icebergTypeLower, "array")
-	}
-
-	return strings.HasPrefix(icebergTypeLower, expectedIcebergType)
 }

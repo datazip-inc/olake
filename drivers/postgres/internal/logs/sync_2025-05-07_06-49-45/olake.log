@@ -1,0 +1,6 @@
+{"level":"info","time":"2025-05-07T06:49:45Z","message":"System has 16GB RAM, setting iceberg writer batch size to 419430400 bytes"}
+{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T06:49:45Z"}
+{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T06:49:45Z"}
+{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T06:49:45Z"}
+{"level":"info","time":"2025-05-07T06:49:45Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","message":"Standard Replication is selected","time":"2025-05-07T06:49:45Z"}
