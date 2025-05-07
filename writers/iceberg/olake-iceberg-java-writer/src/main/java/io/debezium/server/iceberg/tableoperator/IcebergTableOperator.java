@@ -86,6 +86,11 @@ public class IcebergTableOperator {
   @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
   boolean upsert;
 
+  // Add timing metrics
+  private long totalApplyFieldAdditionTime = 0;
+  private long totalAddToTablePerSchemaTime = 0;
+  private long recordCount = 0;
+
   /**
    * This is used to deduplicate events within given batch.
    * <p>
@@ -124,7 +129,8 @@ public class IcebergTableOperator {
    * @param newSchema
    */
   private void applyFieldAddition(Table icebergTable, Schema newSchema) {
-
+    long startTime = System.nanoTime();
+    
     // Check if the new schema is already in the set
     boolean schemaExists = schemaHash.stream().parallel()
         .anyMatch(schema -> schema.sameSchema(newSchema));
@@ -145,6 +151,8 @@ public class IcebergTableOperator {
     }
 
     schemaHash.add(newSchema);
+    
+    totalApplyFieldAdditionTime += (System.nanoTime() - startTime);
   }
 
   /**
@@ -180,6 +188,7 @@ public class IcebergTableOperator {
    * @param events
    */
   private void addToTablePerSchema(Table icebergTable, RecordConverter event) {
+    long startTime = System.nanoTime();
     try {
         // Convert record based on upsert mode and table schema
         RecordWrapper convertedRecord = upsert && !icebergTable.schema().identifierFieldIds().isEmpty()
@@ -188,6 +197,7 @@ public class IcebergTableOperator {
             
         // Write converted records sequentially to maintain thread safety with the writer
         writer.write(convertedRecord);
+        recordCount++;
         
     } catch (Exception ex) {
       LOGGER.error("Failed to write data to table: {}", icebergTable.name(), ex);
@@ -200,6 +210,8 @@ public class IcebergTableOperator {
       }
       
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
+    } finally {
+      totalAddToTablePerSchemaTime += (System.nanoTime() - startTime);
     }
   }
 
@@ -226,6 +238,20 @@ public class IcebergTableOperator {
         Arrays.stream(files.dataFiles()).forEach(appendFiles::appendFile);
         appendFiles.commit();
       }
+      
+      // Print timing metrics
+      if (recordCount > 0) {
+        double avgApplyFieldAdditionTime = totalApplyFieldAdditionTime / (double) recordCount / 1_000_000.0; // Convert to ms
+        double avgAddToTablePerSchemaTime = totalAddToTablePerSchemaTime / (double) recordCount / 1_000_000.0; // Convert to ms
+        LOGGER.info("Batch metrics - Records: {}, Avg applyFieldAddition time: {}ms, Avg addToTablePerSchema time: {}ms, Total applyFieldAddition time: {}ms, Total addToTablePerSchema time: {}ms", 
+            recordCount, String.format("%.4f", avgApplyFieldAdditionTime), String.format("%.4f", avgAddToTablePerSchemaTime),
+            String.format("%.4f", totalApplyFieldAdditionTime / 1_000_000.0), String.format("%.4f", totalAddToTablePerSchemaTime / 1_000_000.0));
+      }
+      
+      // Reset metrics for next batch
+      totalApplyFieldAdditionTime = 0;
+      totalAddToTablePerSchemaTime = 0;
+      recordCount = 0;
       
       LOGGER.info("Successfully committed changes to table");
       return true;

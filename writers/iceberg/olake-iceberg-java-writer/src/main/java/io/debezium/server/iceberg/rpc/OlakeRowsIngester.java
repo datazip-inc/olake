@@ -38,6 +38,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private final Object tableLock = new Object();
 
     private final boolean upsert_records;
+    // Add fields to track metrics
+    private long totalRecords = 0;
+    private long totalParsingTime = 0;
+    // Add fields to track getOrCreateIcebergTable metrics
+    private long totalTableCreationTime = 0;
 
     public OlakeRowsIngester(boolean upsert_records) {
         this.upsert_records = upsert_records;
@@ -75,6 +80,15 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
 
                 if(messageMap.get("commit") != null && (boolean) messageMap.get("commit")) {
+                    // Calculate and log average time per record before committing
+                    if (totalRecords > 0) {
+                        double avgTimePerRecord = (double) totalParsingTime / totalRecords;
+                        double avgTableCreationTime = (double) totalTableCreationTime / totalRecords;
+                        LOGGER.info("{} Average parsing time per record: {} ms (Total records: {}, Total time: {} ms)", 
+                            requestId, String.format("%.2f", avgTimePerRecord), totalRecords, totalParsingTime);
+                        LOGGER.info("{} Average getOrCreateIcebergTable time per record: {} ms (Total time: {} ms)", 
+                            requestId, String.format("%.2f", avgTableCreationTime), totalTableCreationTime);
+                    }
                     commitTable();
                     RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
                     .setResult(requestId + " Commit successful")
@@ -92,6 +106,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 byte[] valueBytes = objectMapper.writeValueAsBytes(value);
 
                 recordConverter = new RecordConverter(icebergTableName, valueBytes, keyBytes);
+                totalParsingTime += (System.currentTimeMillis() - startTime);
             } catch (Exception e) {
                 String errorMessage = String.format("%s Failed to parse message: %s", requestId, message);
                 LOGGER.error(errorMessage, e);
@@ -99,7 +114,9 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             }
 
             try {
+                long tableStartTime = System.currentTimeMillis();
                 Table table = getOrCreateIcebergTable(recordConverter);
+                totalTableCreationTime += (System.currentTimeMillis() - tableStartTime);
                 icebergTableOperator.addToTable(table, recordConverter);
                 
             } catch (Exception e) {
@@ -114,7 +131,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     .build();
             responseObserver.onNext(response);
             responseObserver.onCompleted();
-            LOGGER.info("{} Total time taken: {} ms", requestId, (System.currentTimeMillis() - startTime));
+            
+            // Update metrics
+            totalRecords++;
+            
         } catch (Exception e) {
             String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
             LOGGER.error(errorMessage, e);

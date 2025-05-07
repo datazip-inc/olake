@@ -365,15 +365,11 @@ func sendRecord(record string, client proto.RecordIngestServiceClient) error {
 	defer cancel()
 
 	// Send the batch to the server
-	res, err := client.SendRecords(ctx, req)
+	_, err := client.SendRecords(ctx, req)
 	if err != nil {
 		logger.Errorf("failed to send batch: %v", err)
 		return err
 	}
-
-	logger.Infof("Sent record to Iceberg server: %s, response: %s",
-		record,
-		res.GetResult())
 
 	return nil
 }
