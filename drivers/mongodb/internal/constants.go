@@ -8,8 +8,8 @@ const (
 type IncrementalStrategy string
 
 const (
-	StrategyChangeStream IncrementalStrategy = "change_stream" // default – existing behaviour
-	StrategyTimestamp    IncrementalStrategy = "timestamp"     // new
-	StrategyObjectID     IncrementalStrategy = "objectid"      // new
-	StrategySoftDelete   IncrementalStrategy = "soft_delete"   // new
+	StrategyChangeStream IncrementalStrategy = "change_stream"
+	StrategyTimestamp    IncrementalStrategy = "timestamp"
+	StrategyObjectID     IncrementalStrategy = "objectid"
+	StrategySoftDelete   IncrementalStrategy = "soft_delete"
 )

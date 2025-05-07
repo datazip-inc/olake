@@ -21,8 +21,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	db, collName := stream.Namespace(), stream.Name()
 	coll := m.client.Database(db).Collection(collName)
 
-	// ---- hydrated checkpoint from State ------------
-	cstream := stream.Self() // *types.ConfiguredStream
+	cstream := stream.Self()
 	var lastTS primitive.DateTime
 	var lastID primitive.ObjectID
 
@@ -119,7 +118,6 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				return err
 			}
 
-			// ---- advance in-memory checkpoint safely ----
 			switch cfg.Incremental {
 			case StrategyObjectID:
 				if hex, ok := doc["_id"].(string); ok {
@@ -128,7 +126,6 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 					}
 				}
 			default: // timestamp & soft_delete
-				// handleMongoObject lower-cases keys → use trk in lower case
 				if tsRaw, ok := doc[strings.ToLower(trk)]; ok {
 					switch v := tsRaw.(type) {
 					case primitive.DateTime:

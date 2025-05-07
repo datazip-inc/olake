@@ -208,7 +208,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 	}
 
 	// always offer _id for ObjectId-based tracking
-	cursorFields := []string{"_id"} // always include ObjectId cursor
+	cursorFields := []string{"_id"}
 
 	if m.config.Incremental == StrategyTimestamp {
 		if m.config.TrackingField != "" {
@@ -217,7 +217,6 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 		// fallback: assume typeutils.Resolve stores a value that implements IsTimeLike()
 		stream.Schema.Properties.Range(func(k, v any) bool {
-			// use reflection or interface assertion safely
 			if val, ok := v.(interface{ IsTimeLike() bool }); ok && val.IsTimeLike() {
 				cursorFields = append(cursorFields, strings.ToLower(k.(string)))
 			}
