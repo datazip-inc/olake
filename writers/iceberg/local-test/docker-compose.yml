@@ -129,6 +129,55 @@ services:
     volumes:
       - ./data/postgres-data:/var/lib/postgresql/data
 
+  hive-metastore:
+    image: apache/hive:4.0.0
+    container_name: hive-metastore
+    networks:
+      iceberg_net:
+    ports:
+      - "9083:9083"
+    environment:
+        - SERVICE_NAME=metastore
+    depends_on:
+      - postgres
+      - spark-iceberg
+    user: root
+    volumes:
+        - ./data/ivy-cache:/root/.ivy2
+        - ./hive-site.conf:/opt/hive/conf/hive-site.xml
+    entrypoint: |
+      /bin/sh -c "
+      # Wait for Spark to download JARs
+      echo 'Waiting for Spark to download JARs...'
+      while [ ! -f /root/.ivy2/jars/org.apache.hadoop_hadoop-aws-3.3.4.jar ] || \
+            [ ! -f /root/.ivy2/jars/com.amazonaws_aws-java-sdk-bundle-1.12.262.jar ] || \
+            [ ! -f /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar ]; do
+        echo 'Waiting for JARs to be available...'
+        sleep 5
+      done
+      
+      echo 'JARs found. Copying to Hive lib directory...'
+      
+      # Copy the JAR files to Hive's lib directory
+      cp /root/.ivy2/jars/org.apache.hadoop_hadoop-aws-3.3.4.jar /opt/hive/lib/hadoop-aws-3.3.4.jar || { echo 'Failed to copy hadoop-aws-3.3.4.jar'; exit 1; }
+      cp /root/.ivy2/jars/com.amazonaws_aws-java-sdk-bundle-1.12.262.jar /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar || { echo 'Failed to copy aws-java-sdk-bundle-1.12.262.jar'; exit 1; }
+      cp /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar /opt/hive/lib/postgresql-42.5.4.jar || { echo 'Failed to copy postgresql-42.5.4.jar'; exit 1; }
+      
+      # Verify files were copied successfully
+      if [ ! -f /opt/hive/lib/hadoop-aws-3.3.4.jar ] || [ ! -f /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar ] || [ ! -f /opt/hive/lib/postgresql-42.5.4.jar ]; then
+        echo 'JAR files not found in Hive lib directory. Exiting.'
+        exit 1
+      fi
+      
+      # Fix permissions for Hive directories
+      chown -R hive:hive /opt/hive/lib
+      
+      echo 'JAR files copied to Hive lib directory. Starting hive-metastore...'
+      
+      # Start the hive metastore service
+      sh -c "/entrypoint.sh"
+      "
+
 networks:
   iceberg_net:
 

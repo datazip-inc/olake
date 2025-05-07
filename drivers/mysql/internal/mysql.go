@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/jmoiron/sqlx"
 
@@ -187,7 +188,7 @@ func (m *MySQL) produceTableSchema(ctx context.Context, streamName string) (*typ
 			logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 			datatype = types.String
 		}
-		stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable))
+		stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("yes", isNullable))
 
 		// Mark primary keys
 		if columnKey == "PRI" {

@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
@@ -20,6 +21,8 @@ type CDCDocument struct {
 	OperationType string              `json:"operationType"`
 	FullDocument  map[string]any      `json:"fullDocument"`
 	ClusterTime   primitive.Timestamp `json:"clusterTime"`
+	WallTime      primitive.DateTime  `json:"wallTime"`
+	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
 func (m *Mongo) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) error {
@@ -95,18 +98,23 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 			return fmt.Errorf("error while decoding: %s", err)
 		}
 
-		// in delete operation, fullDocument is not present
-		if record.OperationType != "delete" {
-			handleObjectID(record.FullDocument)
+		if record.OperationType == "delete" {
+			// replace full document(null) with documentKey
+			record.FullDocument = record.DocumentKey
 		}
-
+		handleMongoObject(record.FullDocument)
 		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
+
+		ts := utils.Ternary(record.WallTime != 0,
+			record.WallTime.Time(), // millisecond precision
+			time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
+		).(time.Time)
 
 		rawRecord := types.CreateRawRecord(
 			utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
 			record.FullDocument,
 			opType,
-			int64(record.ClusterTime.T)*1000,
+			ts,
 		)
 		err := insert.Insert(rawRecord)
 		if err != nil {

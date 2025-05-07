@@ -44,7 +44,7 @@ public class RecordConverter {
 
   protected static final ObjectMapper mapper = new ObjectMapper();
   protected static final Logger LOGGER = LoggerFactory.getLogger(RecordConverter.class);
-  public static final List<String> TS_MS_FIELDS = List.of("__ts_ms", "__source_ts_ms");
+  public static final List<String> TS_MS_FIELDS = List.of("_olake_timestamp", "_cdc_timestamp");
   // static final boolean eventsAreUnwrapped = IcebergUtil.configIncludesUnwrapSmt();
   static final boolean eventsAreUnwrapped = true;
   protected final String destination;
@@ -457,10 +457,13 @@ public class RecordConverter {
           return Types.UUIDType.get();
         case "bytes":
           return Types.BinaryType.get();
+        case "timestamp":
+            return Types.TimestampType.withoutZone();
+        case "timestamptz":
+            return Types.TimestampType.withZone();
         default:
           // default to String type
           return Types.StringType.get();
-        //throw new RuntimeException("'" + fieldName + "' has "+fieldType+" type, "+fieldType+" not supported!");
       }
     }
 

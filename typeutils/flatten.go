@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-json"
 
@@ -60,7 +61,12 @@ func (f *FlattenerImpl) flatten(key string, value any, destination types.Record)
 		destination[key] = value
 	default:
 		if !f.omitNilValues || value != nil {
-			destination[key] = fmt.Sprint(value)
+			// Handle time.Time values
+			if tm, ok := value.(time.Time); ok {
+				destination[key] = tm
+			} else {
+				destination[key] = fmt.Sprint(value)
+			}
 		}
 	}
 
