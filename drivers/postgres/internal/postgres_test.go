@@ -41,6 +41,7 @@ func TestMySQLRead(t *testing.T) {
 		InsertOp:    insertOp,
 		UpdateOp:    updateOp,
 		DeleteOp:    deleteOp,
+		GetDBSchema: getPostgresSchema,
 	}
 	base.TestRead(t, pClient, client, helper, setupClient)
 }
