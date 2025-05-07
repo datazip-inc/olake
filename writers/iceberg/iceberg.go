@@ -26,6 +26,11 @@ type Iceberg struct {
 	port          int
 	backfill      bool
 	partitionInfo map[string]string // map of field names to partition transform
+
+	// Timing metrics
+	debeziumFormatTotalTime time.Duration
+	sendRecordTotalTime     time.Duration
+	writeTotalTime          time.Duration
 }
 
 func (i *Iceberg) GetConfigRef() protocol.Config {
@@ -56,14 +61,25 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
+	startWrite := time.Now()
+	defer func() {
+		i.writeTotalTime += time.Since(startWrite)
+	}()
+
 	// Convert record to Debezium format
+	startDebezium := time.Now()
 	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled())
+	i.debeziumFormatTotalTime += time.Since(startDebezium)
 
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
+
 	// Add the record to the batch
+	startSend := time.Now()
 	err = sendRecord(debeziumRecord, i.client)
+	i.sendRecordTotalTime += time.Since(startSend)
+
 	if err != nil {
 		return fmt.Errorf("failed to add record to batch: %v", err)
 	}
@@ -73,7 +89,26 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 }
 
 func (i *Iceberg) Close() error {
+	// Print timing statistics
 	err := i.CloseIcebergClient()
+
+	recordCount := i.records.Load()
+	if recordCount > 0 {
+		avgDebeziumTime := i.debeziumFormatTotalTime.Milliseconds() / recordCount
+		avgSendTime := i.sendRecordTotalTime.Milliseconds() / recordCount
+		avgWriteTime := i.writeTotalTime.Milliseconds() / recordCount
+
+		// Calculate percentages
+		debeziumPct := float64(i.debeziumFormatTotalTime.Nanoseconds()) / float64(i.writeTotalTime.Nanoseconds()) * 100
+		sendPct := float64(i.sendRecordTotalTime.Nanoseconds()) / float64(i.writeTotalTime.Nanoseconds()) * 100
+
+		logger.Infof("Iceberg timing metrics for %d records:", recordCount)
+		logger.Infof("Write - Total: %v, Avg: %dms per record", i.writeTotalTime, avgWriteTime)
+		logger.Infof("ToDebeziumFormat - Total: %v, Avg: %dms per record (%.2f%% of write time)",
+			i.debeziumFormatTotalTime, avgDebeziumTime, debeziumPct)
+		logger.Infof("sendRecord - Total: %v, Avg: %dms per record (%.2f%% of write time)",
+			i.sendRecordTotalTime, avgSendTime, sendPct)
+	}
 	if err != nil {
 		return fmt.Errorf("error closing Iceberg client: %v", err)
 	}
