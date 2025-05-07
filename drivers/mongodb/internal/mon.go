@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
@@ -12,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -214,4 +216,34 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 		return cursor.Err()
 	})
+}
+
+func handleMongoObject(doc bson.M) {
+	for key, value := range doc {
+		// first make key small case as data being typeresolved with small case keys
+		delete(doc, key)
+		key = typeutils.Reformat(key)
+		switch value := value.(type) {
+		case primitive.Timestamp:
+			doc[key] = value.T
+		case primitive.DateTime:
+			doc[key] = value.Time()
+		case primitive.Null:
+			doc[key] = nil
+		case primitive.Binary:
+			doc[key] = fmt.Sprintf("%x", value.Data)
+		case primitive.Decimal128:
+			doc[key] = value.String()
+		case primitive.ObjectID:
+			doc[key] = value.Hex()
+		case float64:
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				doc[key] = nil
+			} else {
+				doc[key] = value
+			}
+		default:
+			doc[key] = value
+		}
+	}
 }
