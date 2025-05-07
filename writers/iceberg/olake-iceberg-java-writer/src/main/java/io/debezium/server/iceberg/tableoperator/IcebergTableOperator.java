@@ -222,6 +222,7 @@ public class IcebergTableOperator {
    * @return true if commit was successful, false otherwise
    */
   public boolean commitTable() {
+    long startCommitTime = System.nanoTime();
     try {
       WriteResult files = writer.complete();
       
@@ -244,8 +245,8 @@ public class IcebergTableOperator {
         double avgApplyFieldAdditionTime = totalApplyFieldAdditionTime / (double) recordCount / 1_000_000.0; // Convert to ms
         double avgAddToTablePerSchemaTime = totalAddToTablePerSchemaTime / (double) recordCount / 1_000_000.0; // Convert to ms
         LOGGER.info("Batch metrics - Records: {}, Avg applyFieldAddition time: {}ms, Avg addToTablePerSchema time: {}ms, Total applyFieldAddition time: {}ms, Total addToTablePerSchema time: {}ms", 
-            recordCount, String.format("%.4f", avgApplyFieldAdditionTime), String.format("%.4f", avgAddToTablePerSchemaTime),
-            String.format("%.4f", totalApplyFieldAdditionTime / 1_000_000.0), String.format("%.4f", totalAddToTablePerSchemaTime / 1_000_000.0));
+            recordCount, String.format("%.2f", avgApplyFieldAdditionTime), String.format("%.2f", avgAddToTablePerSchemaTime),
+            String.format("%.2f", totalApplyFieldAdditionTime / 1_000_000.0), String.format("%.2f", totalAddToTablePerSchemaTime / 1_000_000.0));
       }
       
       // Reset metrics for next batch
@@ -253,7 +254,8 @@ public class IcebergTableOperator {
       totalAddToTablePerSchemaTime = 0;
       recordCount = 0;
       
-      LOGGER.info("Successfully committed changes to table");
+      long totalCommitTime = System.nanoTime() - startCommitTime;
+      LOGGER.info("Successfully committed changes to table. Total commit time: {}ms", String.format("%.2f", totalCommitTime / 1_000_000.0));
       return true;
       
     } catch (org.apache.iceberg.exceptions.CommitFailedException e) {

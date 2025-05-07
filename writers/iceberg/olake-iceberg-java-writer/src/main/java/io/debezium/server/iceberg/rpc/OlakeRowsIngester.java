@@ -43,6 +43,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private long totalParsingTime = 0;
     // Add fields to track getOrCreateIcebergTable metrics
     private long totalTableCreationTime = 0;
+    // Track first record timestamp
+    private volatile long firstRecordTimestamp = 0;
 
     public OlakeRowsIngester(boolean upsert_records) {
         this.upsert_records = upsert_records;
@@ -69,6 +71,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     public void sendRecords(RecordIngest.RecordIngestRequest request, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
         String requestId = String.format("[Thread-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
         long startTime = System.currentTimeMillis();
+        
+        // Initialize firstRecordTimestamp if this is the first record
+        if (totalRecords == 0 && firstRecordTimestamp == 0) {
+            firstRecordTimestamp = startTime;
+        }
+        
         // Retrieve the array of strings from the request
         String message = request.getMessagesList().get(0);
 
@@ -88,6 +96,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                             requestId, String.format("%.2f", avgTimePerRecord), totalRecords, totalParsingTime);
                         LOGGER.info("{} Average getOrCreateIcebergTable time per record: {} ms (Total time: {} ms)", 
                             requestId, String.format("%.2f", avgTableCreationTime), totalTableCreationTime);
+                        
+                        // Calculate and log total time from first record to commit
+                        long totalTimeMs = System.currentTimeMillis() - firstRecordTimestamp;
+                        LOGGER.info("{} Total time from first record to commit: {} ms ({} seconds)", 
+                            requestId, totalTimeMs, String.format("%.2f", totalTimeMs / 1000.0));
                     }
                     commitTable();
                     RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
