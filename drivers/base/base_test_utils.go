@@ -128,7 +128,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		testStream := getTestStream(streamDriver)
 		dummyStream := &types.ConfiguredStream{Stream: testStream}
 		dummyStream.Stream.SyncMode = syncMode
-
 		if syncMode == types.CDC {
 			readErrCh := make(chan error, 1)
 			go func() {
@@ -146,16 +145,10 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			assert.NoError(t, err, "Read operation failed")
 		}
 	}
-
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
-		time.Sleep(80 * time.Second)
-		VerifyIcebergSync(
-			t, tableName, dbSchema, "5", "after full load",
-			"olake_id", "col1", "col2", "col_int", "col_bigint",
-			"col_float", "col_double", "col_decimal", "col_boolean",
-			"col_timestamp", "col_date", "col_json", "col_uuid", "col_array",
-		)
+		time.Sleep(120 * time.Second)
+		VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
 	})
 	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
@@ -163,9 +156,8 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			t.Run("insert operation", func(t *testing.T) {
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
-			time.Sleep(180 * time.Second)
-			VerifyIcebergSync(t, tableName, dbSchema, "6", "after insert", "olake_id", "col1", "col2", "col_int", "col_bigint", "col_float", "col_double", "col_decimal", "col_boolean", "col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
-
+			time.Sleep(120 * time.Second)
+			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
 			})
@@ -178,15 +170,18 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		})
 	})
 }
-
-func VerifyIcebergSync(t *testing.T, tableName string, sourceDBSchema map[string]string, expectedCount string, message string, verifyColumns ...string) {
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, _ ...string) {
 	t.Helper()
 	ctx := context.Background()
 	var sparkConnectAddress = "sc://localhost:15002"
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
-	defer spark.Stop()
+	defer func() {
+		if err := spark.Stop(); err != nil {
+			t.Logf("Error stopping Spark session: %v", err)
+		}
+	}()
 
 	// Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT _olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)

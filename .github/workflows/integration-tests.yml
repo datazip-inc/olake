@@ -40,21 +40,21 @@ jobs:
           done
 
       
-      # - name : Start PostgreSQL container
-      #   run: |
-      #     pushd ./drivers/postgres
-      #     docker compose up -d
-      #     popd
-      # - name: Wait for PostgreSQL to be ready
-      #   run: |
-      #     for i in {1..30}; do
-      #       if docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1" &> /dev/null; then
-      #         echo "PostgreSQL is up!"
-      #         break
-      #       fi
-      #       echo "Waiting for PostgreSQL to be ready..."
-      #       sleep 5
-      #     done
+      - name : Start PostgreSQL container
+        run: |
+          pushd ./drivers/postgres
+          docker compose up -d
+          popd
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          for i in {1..30}; do
+            if docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1" &> /dev/null; then
+              echo "PostgreSQL is up!"
+              break
+            fi
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 5
+          done
 
       - name: Start Iceberg services
         run: |
@@ -87,9 +87,9 @@ jobs:
         run: |
           go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
       
-      # - name: Run integration tests for PostgreSQL
-      #   run: |
-      #     go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
+      - name: Run integration tests for PostgreSQL
+        run: |
+          go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
     
           
       # Clean up containers when done
