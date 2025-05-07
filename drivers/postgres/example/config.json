@@ -1,0 +1,20 @@
+{
+    "host": "stag-postgres.postgres.database.azure.com",
+    "port": 5432,
+    "database": "postgres",
+    "username": "postgres",
+    "password": "th8VMIAis3fl",
+    "jdbc_url_params": {},
+    "ssl": {
+        "mode": "require"
+    },
+    "update_method": {
+        "replication_slot": "duke1_slot",
+        "intial_wait_time":10
+    },
+    "reader_batch_size": 1,
+    "default_mode":"cdc",
+    "max_threads" :5,
+    "split_column":"",
+    "aws_region": "us-east-1"
+}

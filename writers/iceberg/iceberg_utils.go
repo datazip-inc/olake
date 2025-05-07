@@ -390,7 +390,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 func getTestDebeziumRecord() string {
 	randomID := utils.ULID()
 	return `{
-			"destination_table": "olake_test_table",
+			"destination_table": "olake_test_table_duke",
 			"key": {
 				"schema" : {
 						"type" : "struct",

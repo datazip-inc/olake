@@ -27,6 +27,8 @@ type TestHelper struct {
 	InsertOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
 	UpdateOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
 	DeleteOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
+
+	CompareTypes func(ctx context.Context, conn interface{}, tableName string, icebergSchema map[string]string, verifyColumns ...string) (bool, error)
 }
 
 // TestSetup tests the driver setup and connection check
@@ -65,7 +67,7 @@ func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, help
 func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHelper, setupClient func(t *testing.T) (interface{}, protocol.Driver)) {
 	t.Helper()
 	ctx := context.Background()
-	conn := client.(*sqlx.DB) // Adjust based on driver
+	conn := client.(*sqlx.DB)
 
 	// Setup table and initial data
 	helper.CreateTable(ctx, t, conn, tableName)
@@ -85,7 +87,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			"jdbc_url":        "jdbc:postgresql://localhost:5432/iceberg",
 			"jdbc_username":   "iceberg",
 			"jdbc_password":   "password",
-			"normalization":   false,
+			"normalization":   true,
 			"iceberg_s3_path": "s3a://warehouse",
 			"s3_endpoint":     "http://localhost:9000",
 			"s3_use_ssl":      false,
@@ -97,6 +99,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		},
 	})
 	require.NoError(t, err, "Failed to create writer pool")
+
 	// Get test stream
 	getTestStream := func(d protocol.Driver) *types.Stream {
 		streams, err := d.Discover(true)
@@ -110,6 +113,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		require.Fail(t, "Could not find stream for table %s", tableName)
 		return nil
 	}
+
 	// Run read test for a given sync mode
 	runReadTest := func(t *testing.T, syncMode types.SyncMode, extraTests func(t *testing.T)) {
 		_, streamDriver := setupClient(t)
@@ -127,10 +131,8 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				extraTests(t)
 			}
 			time.Sleep(3 * time.Second) // Wait for CDC to process
-			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
-
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
@@ -139,7 +141,27 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
-		VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
+		time.Sleep(80 * time.Second)
+		schemaMap := VerifyIcebergSync(
+			t, tableName, "5", "after full load",
+			"olake_id", "col1", "col2", "col_int", "col_bigint",
+			"col_float", "col_double", "col_decimal", "col_boolean",
+			"col_timestamp", "col_date", "col_json", "col_uuid", "col_array",
+		)
+
+		if helper.CompareTypes != nil {
+			ok, err := helper.CompareTypes(
+				context.Background(),
+				conn,
+				tableName,
+				schemaMap,
+				"olake_id", "col1", "col2", "col_int", "col_bigint",
+				"col_float", "col_double", "col_decimal", "col_boolean",
+				"col_timestamp", "col_date", "col_json", "col_uuid", "col_array",
+			)
+			require.NoError(t, err, "comparing Postgres vs Iceberg types")
+			assert.True(t, ok, "all datatypes should match")
+		}
 	})
 	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
@@ -148,32 +170,32 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
 			time.Sleep(180 * time.Second)
-			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2", "col_int", "col_bigint", "col_float", "col_double", "col_decimal", "col_boolean", "col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
+
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
 			})
-			VerifyIcebergSync(t, tableName, "6", "after update", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "6", "after update", "olake_id", "col1", "col2", "col_int", "col_bigint", "col_float", "col_double", "col_decimal", "col_boolean", "col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
+
 			t.Run("delete operation", func(t *testing.T) {
 				helper.DeleteOp(ctx, t, conn, tableName)
 			})
-			VerifyIcebergSync(t, tableName, "6", "after delete", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "6", "after delete", "olake_id", "col1", "col2", "col_int", "col_bigint", "col_float", "col_double", "col_decimal", "col_boolean", "col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
 		})
-
 	})
-
 }
 
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, verifyColumns ...string) {
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, verifyColumns ...string) map[string]string {
 	t.Helper()
 	ctx := context.Background()
-	var sparkConnectAddress = "sc://localhost:15002" // Default value
+	var sparkConnectAddress = "sc://localhost:15002"
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 	defer spark.Stop()
 
 	// Query for unique olake_id records
-	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
+	query := fmt.Sprintf("SELECT COUNT(DISTINCT _olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
 	t.Logf("Executing query: %s", query)
 
 	// Add retry for query execution
@@ -192,4 +214,50 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 	// Verify unique count
 	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg (%s)", message)
 	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s - %s", countValue, tableName, message)
+
+	// Print table contents
+	selectQuery := fmt.Sprintf("SELECT * FROM olake_iceberg.olake_iceberg.%s", tableName)
+	t.Logf("Executing SELECT * query: %s", selectQuery)
+
+	selectDf, err := spark.Sql(ctx, selectQuery)
+	require.NoError(t, err, "Failed to query table contents")
+
+	selectRows, err := selectDf.Collect(ctx)
+	require.NoError(t, err, "Failed to collect table data")
+
+	schema, err := selectDf.Schema(ctx)
+	require.NoError(t, err, "Failed to get schema")
+
+	t.Logf("Table contents for %s:", tableName)
+	for i, row := range selectRows {
+		t.Logf("Row %d:", i+1)
+		for _, field := range schema.Fields {
+			val := row.Value(field.Name)
+			t.Logf("    %s: %v", field.Name, val)
+		}
+	}
+
+	dataTypeQuery := fmt.Sprintf("DESCRIBE TABLE olake_iceberg.olake_iceberg.%s", tableName)
+	t.Logf("Executing schema query: %s", dataTypeQuery)
+
+	df, err := spark.Sql(ctx, dataTypeQuery)
+	require.NoError(t, err, "Failed to describe the table")
+
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err, "Failed to collect schema rows")
+
+	schemaMap := make(map[string]string, len(rows))
+	t.Logf("Iceberg schema for table %s:", tableName)
+	for _, r := range rows {
+		cn := r.Value("col_name")
+		dt := r.Value("data_type")
+		if cn != nil && dt != nil {
+			col := fmt.Sprintf("%v", cn)
+			typ := fmt.Sprintf("%v", dt)
+			schemaMap[col] = typ
+			t.Logf("    %s: %s", col, typ)
+		}
+	}
+
+	return schemaMap
 }

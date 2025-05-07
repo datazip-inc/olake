@@ -1,0 +1,1 @@
+{"type":"GLOBAL","global":{"state":{"lsn":"5F4/A400B6D7"},"streams":["public.postgres_test"]},"streams":[{"stream":"postgres_test","namespace":"public","sync_mode":"","state":{"chunks":[]}}]}

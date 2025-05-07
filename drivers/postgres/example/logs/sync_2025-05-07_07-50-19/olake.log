@@ -1,0 +1,2 @@
+{"level":"info","time":"2025-05-07T07:50:19Z","message":"System has 16GB RAM, setting iceberg writer batch size to 419430400 bytes"}
+{"level":"fatal","time":"2025-05-07T07:50:19Z","message":"/Users/dukedhal/Desktop/olake/drivers/postgres/example/catalog.json does not exist: stat /Users/dukedhal/Desktop/olake/drivers/postgres/example/catalog.json: no such file or directory"}

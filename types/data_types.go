@@ -186,7 +186,7 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 			"field":    constants.CdcTimestamp,
 		},
 		{
-			"type":     "timestamptz",
+			"type":     "int64",
 			"optional": true,
 			"field":    constants.OlakeTimestamp,
 		},
