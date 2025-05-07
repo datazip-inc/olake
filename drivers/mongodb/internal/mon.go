@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
@@ -142,9 +143,12 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 		return m.backfill(stream, pool)
 	case types.CDC:
 		return m.changeStreamSync(stream, pool)
+	case types.INCREMENTAL:
+		return m.incrementalSync(stream, pool)
+	default:
+		return fmt.Errorf("unsupported sync mode: %s", stream.GetSyncMode())
 	}
 
-	return nil
 }
 
 // fetch schema types from mongo for streamName
@@ -153,7 +157,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 	// initialize stream
 	collection := db.Collection(streamName)
-	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC, types.INCREMENTAL)
 
 	// find primary keys
 	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
@@ -178,7 +182,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 	}
 
-	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+	if err := utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
 		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 		if err != nil {
 			return err
@@ -199,5 +203,29 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		}
 
 		return cursor.Err()
-	})
+	}); err != nil {
+		return nil, err
+	}
+
+	// always offer _id for ObjectId-based tracking
+	cursorFields := []string{"_id"} // always include ObjectId cursor
+
+	if m.config.Incremental == StrategyTimestamp {
+		if m.config.TrackingField != "" {
+			cursorFields = append(cursorFields, strings.ToLower(m.config.TrackingField))
+		}
+
+		// fallback: assume typeutils.Resolve stores a value that implements IsTimeLike()
+		stream.Schema.Properties.Range(func(k, v any) bool {
+			// use reflection or interface assertion safely
+			if val, ok := v.(interface{ IsTimeLike() bool }); ok && val.IsTimeLike() {
+				cursorFields = append(cursorFields, strings.ToLower(k.(string)))
+			}
+			return true
+		})
+	}
+
+	stream.AvailableCursorFields = types.NewSet[string](cursorFields...)
+
+	return stream, nil
 }
