@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -24,7 +23,23 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	cstream := stream.Self()
 	var lastTS primitive.DateTime
 	var lastID primitive.ObjectID
-
+	trk := cfg.TrackingField
+	if cfg.Incremental == StrategyTimestamp && trk == "" {
+		ac := stream.GetStream().AvailableCursorFields.Array()
+		logger.Warnf(
+			"strategy=timestamp but no tracking_field set and available_cursor_fields=%v is ambiguous; falling back to FULL_REFRESH",
+			ac,
+		)
+		return m.backfill(stream, pool)
+	}
+	if trk == "" {
+		ac := stream.GetStream().AvailableCursorFields.Array()
+		if len(ac) == 1 {
+			trk = ac[0]
+		} else {
+			trk = "_id"
+		}
+	}
 	if raw := m.State.GetCursor(cstream, cursorLastTS); raw != nil {
 		switch t := raw.(type) {
 		case primitive.DateTime:
@@ -58,15 +73,6 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	if batch == 0 {
 		batch = 5000
 	}
-	trk := cfg.TrackingField
-	if trk == "" {
-		ac := stream.GetStream().AvailableCursorFields.Array()
-		if len(ac) == 1 {
-			trk = ac[0]
-		} else {
-			trk = "_id"
-		}
-	}
 
 	logger.Infof("incremental sync started on %s.%s (strategy=%s, batch=%d)", db, collName, cfg.Incremental, batch)
 
@@ -86,19 +92,17 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				{Key: trk, Value: 1},
 				{Key: "_id", Value: 1},
 			})
-
 		case StrategyObjectID:
 			filter = bson.M{"_id": bson.M{"$gt": lastID}}
 			findOpts.SetSort(bson.D{{Key: "_id", Value: 1}})
-
 		case StrategySoftDelete:
 			filter = bson.M{
 				"$or": []bson.M{
 					{trk: bson.M{"$gt": lastTS}},
 					{"deleted": true, "deletedAt": bson.M{"$gt": lastTS}},
-				}}
+				},
+			}
 			findOpts.SetSort(bson.D{{Key: trk, Value: 1}})
-
 		default:
 			return fmt.Errorf("unknown incremental strategy %q", cfg.Incremental)
 		}
@@ -129,7 +133,6 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 			if oidVal, ok := doc["_id"].(primitive.ObjectID); ok {
 				lastID = oidVal
 				lastTS = primitive.NewDateTimeFromTime(oidVal.Timestamp())
-
 			} else if hex, ok := doc["_id"].(string); ok {
 				if oid, err := primitive.ObjectIDFromHex(hex); err == nil {
 					lastID = oid
@@ -137,7 +140,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				}
 			}
 
-			if tsRaw, ok := doc[strings.ToLower(trk)]; ok {
+			if tsRaw, ok := doc[trk]; ok {
 				switch v := tsRaw.(type) {
 				case primitive.DateTime:
 					lastTS = v
