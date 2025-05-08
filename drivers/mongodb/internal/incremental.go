@@ -128,9 +128,12 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 
 			if oidVal, ok := doc["_id"].(primitive.ObjectID); ok {
 				lastID = oidVal
+				lastTS = primitive.NewDateTimeFromTime(oidVal.Timestamp())
+
 			} else if hex, ok := doc["_id"].(string); ok {
 				if oid, err := primitive.ObjectIDFromHex(hex); err == nil {
 					lastID = oid
+					lastTS = primitive.NewDateTimeFromTime(oid.Timestamp())
 				}
 			}
 
