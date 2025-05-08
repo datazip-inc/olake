@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
@@ -142,9 +143,12 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 		return m.backfill(stream, pool)
 	case types.CDC:
 		return m.changeStreamSync(stream, pool)
+	case types.INCREMENTAL:
+		return m.incrementalSync(stream, pool)
+	default:
+		return fmt.Errorf("unsupported sync mode: %s", stream.GetSyncMode())
 	}
 
-	return nil
 }
 
 // fetch schema types from mongo for streamName
@@ -153,7 +157,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 	// initialize stream
 	collection := db.Collection(streamName)
-	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC, types.INCREMENTAL)
 
 	// find primary keys
 	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
@@ -178,7 +182,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 	}
 
-	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+	if err := utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
 		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 		if err != nil {
 			return err
@@ -199,5 +203,41 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		}
 
 		return cursor.Err()
-	})
+	}); err != nil {
+		return nil, err
+	}
+
+	cursorFields := []string{"_id"}
+
+	if m.config.Incremental == StrategyTimestamp {
+		if m.config.TrackingField != "" {
+			cursorFields = append(cursorFields, strings.ToLower(m.config.TrackingField))
+		}
+
+		stream.Schema.Properties.Range(func(k, v any) bool {
+			if val, ok := v.(interface{ IsTimeLike() bool }); ok && val.IsTimeLike() {
+				cursorFields = append(cursorFields, strings.ToLower(k.(string)))
+			}
+			return true
+		})
+	}
+
+	oldSet := stream.AvailableCursorFields
+	newSet := types.NewSet(cursorFields...)
+	added := newSet.Difference(oldSet)
+	removed := oldSet.Difference(newSet)
+	if added.Len() > 0 || removed.Len() > 0 {
+		logger.Warnf("cursor-field schema change on %s.%s: added=%v removed=%v",
+			stream.Namespace, stream.Name,
+			added.Array(), removed.Array(),
+		)
+		if removed.Exists(strings.ToLower(m.config.TrackingField)) {
+			logger.Warn("tracking field no longer in schema; switching to full_refresh")
+			stream.SyncMode = types.FULLREFRESH
+		}
+	}
+
+	stream.AvailableCursorFields = newSet
+
+	return stream, nil
 }
