@@ -53,8 +53,8 @@ public class IcebergTableOperator {
     writerFactory2.upsert = true;
     allowFieldAddition = true;
     upsert = true;
-    cdcOpField = "__op";
-    cdcSourceTsMsField = "__source_ts_ms";
+    cdcOpField = "_op_type";
+    cdcSourceTsMsField = "_cdc_timestamp";
   }
 
   public IcebergTableOperator(boolean upsert_records) {
@@ -64,15 +64,15 @@ public class IcebergTableOperator {
     writerFactory2.upsert = upsert_records;
     allowFieldAddition = true;
     upsert = upsert_records;
-    cdcOpField = "__op";
-    cdcSourceTsMsField = "__source_ts_ms";
+    cdcOpField = "_op_type";
+    cdcSourceTsMsField = "_cdc_timestamp";
   }
 
   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1, Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "__source_ts_ms")
+  @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
   String cdcSourceTsMsField;
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "__op")
+  @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
   String cdcOpField;
   @ConfigProperty(name = "debezium.sink.iceberg.allow-field-addition", defaultValue = "true")
   boolean allowFieldAddition;

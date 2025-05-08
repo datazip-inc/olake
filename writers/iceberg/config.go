@@ -45,7 +45,7 @@ type Config struct {
 
 	// Hive specific configuration
 	HiveURI         string `json:"hive_uri,omitempty"`
-	HiveClients     string `json:"hive_clients,omitempty"`
+	HiveClients     int    `json:"hive_clients,omitempty"`
 	HiveSaslEnabled bool   `json:"hive_sasl_enabled,omitempty"`
 
 	// Rest Catalog Configuration
@@ -57,7 +57,6 @@ type Config struct {
 	JarPath         string `json:"sink_jar_path,omitempty"`        // Path to the Iceberg sink JAR
 	ServerHost      string `json:"sink_rpc_server_host,omitempty"` // gRPC server host
 
-	Normalization bool `json:"normalization,omitempty"`
 }
 
 func (c *Config) Validate() error {
