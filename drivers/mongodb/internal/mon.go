@@ -224,7 +224,22 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		})
 	}
 
-	stream.AvailableCursorFields = types.NewSet[string](cursorFields...)
+	oldSet := stream.AvailableCursorFields
+	newSet := types.NewSet(cursorFields...)
+	added := newSet.Difference(oldSet)
+	removed := oldSet.Difference(newSet)
+	if added.Len() > 0 || removed.Len() > 0 {
+		logger.Warnf("cursor-field schema change on %s.%s: added=%v removed=%v",
+			stream.Namespace, stream.Name,
+			added.Array(), removed.Array(),
+		)
+		if removed.Exists(strings.ToLower(m.config.TrackingField)) {
+			logger.Warn("tracking field no longer in schema; switching to full_refresh")
+			stream.SyncMode = types.FULLREFRESH
+		}
+	}
+
+	stream.AvailableCursorFields = newSet
 
 	return stream, nil
 }
