@@ -88,7 +88,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			"jdbc_url":        "jdbc:postgresql://localhost:5432/iceberg",
 			"jdbc_username":   "iceberg",
 			"jdbc_password":   "password",
-			"normalization":   false,
+			"normalization":   true,
 			"iceberg_s3_path": "s3a://warehouse",
 			"s3_endpoint":     "http://localhost:9000",
 			"s3_use_ssl":      false,
@@ -138,8 +138,10 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				extraTests(t)
 			}
 			time.Sleep(3 * time.Second) // Wait for CDC to process
+			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
+
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
@@ -187,9 +189,10 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				"col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
 		})
 	})
+
 }
 
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, sourceDBSchema map[string]string, verifyColumns ...string) map[string]string {
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, sourceDBSchema map[string]string, verifyColumns ...string) {
 	t.Helper()
 	ctx := context.Background()
 	var sparkConnectAddress = "sc://localhost:15002"
@@ -199,7 +202,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 	defer spark.Stop()
 
 	// Query for unique olake_id records
-	query := fmt.Sprintf("SELECT COUNT(DISTINCT _olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
+	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
 	t.Logf("Executing query: %s", query)
 
 	// Add retry for query execution
@@ -273,7 +276,6 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 				t.Logf("WARNING: Column %s from source database not found in Iceberg schema", col)
 				continue
 			}
-
 			// Verify data type mappings
 			if !compareDataTypes(t, col, pgType, iceType) {
 				t.Errorf("Data type mismatch for column %s: source=%s, iceberg=%s", col, pgType, iceType)
@@ -282,8 +284,6 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 			}
 		}
 	}
-
-	return icebergSchema
 }
 
 func compareDataTypes(t *testing.T, column, sourceType, icebergType string) bool {
@@ -304,7 +304,7 @@ func compareDataTypes(t *testing.T, column, sourceType, icebergType string) bool
 		"character varying": "string",
 		"varchar":           "string",
 		"text":              "string",
-		"integer[]":         "string",
+		"integer[]":         "array<int>",
 	}
 
 	// Normalize types for comparison
