@@ -76,8 +76,16 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 
 		switch cfg.Incremental {
 		case StrategyTimestamp:
-			filter = bson.M{trk: bson.M{"$gt": lastTS}}
-			findOpts.SetSort(bson.D{{Key: trk, Value: 1}})
+			filter = bson.M{
+				"$or": []bson.M{
+					{trk: bson.M{"$gt": lastTS}},
+					{trk: lastTS, "_id": bson.M{"$gt": lastID}},
+				},
+			}
+			findOpts.SetSort(bson.D{
+				{Key: trk, Value: 1},
+				{Key: "_id", Value: 1},
+			})
 
 		case StrategyObjectID:
 			filter = bson.M{"_id": bson.M{"$gt": lastID}}
@@ -118,23 +126,23 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				return err
 			}
 
-			switch cfg.Incremental {
-			case StrategyObjectID:
-				if hex, ok := doc["_id"].(string); ok {
-					if oid, err := primitive.ObjectIDFromHex(hex); err == nil {
-						lastID = oid
-					}
-				}
-			default: // timestamp & soft_delete
-				if tsRaw, ok := doc[strings.ToLower(trk)]; ok {
-					switch v := tsRaw.(type) {
-					case primitive.DateTime:
-						lastTS = v
-					case time.Time:
-						lastTS = primitive.NewDateTimeFromTime(v)
-					}
+			if oidVal, ok := doc["_id"].(primitive.ObjectID); ok {
+				lastID = oidVal
+			} else if hex, ok := doc["_id"].(string); ok {
+				if oid, err := primitive.ObjectIDFromHex(hex); err == nil {
+					lastID = oid
 				}
 			}
+
+			if tsRaw, ok := doc[strings.ToLower(trk)]; ok {
+				switch v := tsRaw.(type) {
+				case primitive.DateTime:
+					lastTS = v
+				case time.Time:
+					lastTS = primitive.NewDateTimeFromTime(v)
+				}
+			}
+
 			processed++
 		}
 		cur.Close(context.TODO())
@@ -142,12 +150,11 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 
 		if processed > 0 {
 			m.State.SetCursor(cstream, cursorLastTS, lastTS)
-			if cfg.Incremental == StrategyObjectID || cfg.Incremental == StrategySoftDelete {
-				m.State.SetCursor(cstream, cursorLastID, lastID)
-			}
+			m.State.SetCursor(cstream, cursorLastID, lastID)
 			m.State.LogState()
 		} else {
 			return nil
 		}
+
 	}
 }
