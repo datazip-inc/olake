@@ -141,7 +141,6 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
-
 		} else {
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
@@ -189,17 +188,19 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				"col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
 		})
 	})
-
 }
 
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, sourceDBSchema map[string]string, verifyColumns ...string) {
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, sourceDBSchema map[string]string, verifyColumns ...string) { //nolint:revive
 	t.Helper()
 	ctx := context.Background()
 	var sparkConnectAddress = "sc://localhost:15002"
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
-	defer spark.Stop()
+	defer func() {
+		err := spark.Stop()
+		require.NoError(t, err, "Failed to stop Spark session")
+	}()
 
 	// Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
@@ -277,7 +278,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 				continue
 			}
 			// Verify data type mappings
-			if !compareDataTypes(t, col, pgType, iceType) {
+			if !compareDataTypes(t, pgType, iceType) {
 				t.Errorf("Data type mismatch for column %s: source=%s, iceberg=%s", col, pgType, iceType)
 			} else {
 				t.Logf("Data type match for column %s: source=%s, iceberg=%s", col, pgType, iceType)
@@ -286,7 +287,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 	}
 }
 
-func compareDataTypes(t *testing.T, column, sourceType, icebergType string) bool {
+func compareDataTypes(t *testing.T, sourceType, icebergType string) bool {
 	t.Helper()
 
 	// Mapping of PostgreSQL data types to Iceberg data types
