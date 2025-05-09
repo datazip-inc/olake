@@ -50,7 +50,6 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 
 	// JSON type
 	"json": types.String,
-
 	// Enum and Set types
 	"enum": types.String,
 	"set":  types.String,
