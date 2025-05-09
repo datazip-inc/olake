@@ -65,7 +65,7 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 | Catalog                 | Status                                                                                                  |
 | -------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Glue Catalog               | Supported                                                                                                      |
-| Hive Meta Store            | Upcoming                                                                                                 |
+| Hive Meta Store            | Supported                                                                                                 |
 | JDBC Catalogue             | Supported                                                                                                 |
 | REST Catalogue             | Supported                                                                                                 |
 | Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
