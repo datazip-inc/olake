@@ -144,6 +144,7 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
 	// start change streams
 	if m.CDCSupport {
+		// TODO: can we run it with globalCtxGroup?
 		err := m.RunChangeStream(ctx, pool, cdcStreams...)
 		if err != nil {
 			return fmt.Errorf("failed to run change stream: %s", err)
