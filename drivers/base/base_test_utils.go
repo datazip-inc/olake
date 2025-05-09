@@ -29,7 +29,8 @@ type TestHelper struct {
 	UpdateOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
 	DeleteOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
 
-	GetDBSchema func(ctx context.Context, conn interface{}, tableName string) (map[string]string, error)
+	GetDBSchema  func(ctx context.Context, conn interface{}, tableName string) (map[string]string, error)
+	DatabaseType string
 }
 
 // TestSetup tests the driver setup and connection check
@@ -154,7 +155,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 		// Call VerifyIcebergSync with the database schema for comparison
 		VerifyIcebergSync(
-			t, tableName, "5", "after full load", dbSchema,
+			t, helper.DatabaseType, tableName, "5", "after full load", dbSchema,
 			"olake_id", "col1", "col2", "col_int", "col_bigint",
 			"col_float", "col_double", "col_decimal", "col_boolean",
 			"col_timestamp", "col_date", "col_json", "col_uuid", "col_array",
@@ -167,7 +168,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
 			time.Sleep(40 * time.Second)
-			VerifyIcebergSync(t, tableName, "6", "after insert", dbSchema,
+			VerifyIcebergSync(t, helper.DatabaseType, tableName, "6", "after insert", dbSchema,
 				"olake_id", "col1", "col2", "col_int", "col_bigint",
 				"col_float", "col_double", "col_decimal", "col_boolean",
 				"col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
@@ -176,7 +177,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				helper.UpdateOp(ctx, t, conn, tableName)
 			})
 			time.Sleep(20 * time.Second)
-			VerifyIcebergSync(t, tableName, "6", "after update", dbSchema,
+			VerifyIcebergSync(t, helper.DatabaseType, tableName, "6", "after update", dbSchema,
 				"olake_id", "col1", "col2", "col_int", "col_bigint",
 				"col_float", "col_double", "col_decimal", "col_boolean",
 				"col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
@@ -185,7 +186,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				helper.DeleteOp(ctx, t, conn, tableName)
 			})
 			time.Sleep(20 * time.Second)
-			VerifyIcebergSync(t, tableName, "6", "after delete", dbSchema,
+			VerifyIcebergSync(t, helper.DatabaseType, tableName, "6", "after delete", dbSchema,
 				"olake_id", "col1", "col2", "col_int", "col_bigint",
 				"col_float", "col_double", "col_decimal", "col_boolean",
 				"col_timestamp", "col_date", "col_json", "col_uuid", "col_array")
@@ -193,7 +194,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 	})
 }
 
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, sourceDBSchema map[string]string, _ ...string) {
+func VerifyIcebergSync(t *testing.T, databaseType string, tableName string, expectedCount string, message string, sourceDBSchema map[string]string, _ ...string) {
 	t.Helper()
 	ctx := context.Background()
 	var sparkConnectAddress = "sc://localhost:15002" // Default value
@@ -260,7 +261,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 				continue
 			}
 			// Verify data type mappings
-			if !compareDataTypes(t, pgType, iceType) {
+			if !compareDataTypes(t, pgType, iceType, databaseType) {
 				t.Errorf("Data type mismatch for column %s: source=%s, iceberg=%s", col, pgType, iceType)
 			} else {
 				t.Logf("Data type match for column %s: source=%s, iceberg=%s", col, pgType, iceType)
@@ -269,59 +270,86 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 	}
 }
 
-func compareDataTypes(t *testing.T, sourceType, icebergType string) bool {
+func compareDataTypes(t *testing.T, sourceType, icebergType string, databaseType string) bool {
 	t.Helper()
 	// Comprehensive mapping of PostgreSQL to Iceberg data types
-	typeMapping := map[string]string{
-		// Core numeric types
-		"integer":          "int",
-		"bigint":           "bigint",
-		"smallint":         "int",
-		"double precision": "double",
-		"real":             "float",
-		"numeric":          "float",
-		"decimal":          "float",
-		"float4":           "float",
-		"float8":           "double",
-
-		// Boolean
-		"boolean": "boolean",
-
-		// Date/time types
-		"date":                        "timestamp",
-		"timestamp without time zone": "timestamp",
-		"timestamp with time zone":    "timestamp",
-		"time without time zone":      "string",
-		"time with time zone":         "string",
-		"interval":                    "string",
-
-		// String types
-		"tid":               "string",
-		"character varying": "string",
-		"varchar":           "string",
-		"text":              "string",
-		"character":         "string",
-		"bpchar":            "string",
-		"name":              "string",
-		"uuid":              "string",
-		"jsonb":             "string",
-		"xml":               "string",
-		"inet":              "string",
-		"bit":               "string",
-		"bit varying":       "string",
-		"tsvector":          "string",
-		"tsquery":           "string",
-		"path":              "string",
-		"box":               "string",
-		"line":              "string",
-		"circle":            "string",
-		"int4range":         "string",
-		"numrange":          "string",
-		"tsrange":           "string",
-		"tstzrange":         "string",
-		"daterange":         "string",
-		"array":             "string",
-		"int2vector":        "string",
+	var typeMapping map[string]string
+	if databaseType == "postgres" {
+		typeMapping = map[string]string{
+			// Core numeric types
+			"integer":          "int",
+			"bigint":           "bigint",
+			"smallint":         "int",
+			"double precision": "double",
+			"real":             "float",
+			"numeric":          "float",
+			"decimal":          "float",
+			"float4":           "float",
+			"float8":           "double",
+			// Boolean
+			"boolean": "boolean",
+			// Date/time types
+			"date":                        "timestamp",
+			"timestamp without time zone": "timestamp",
+			"timestamp with time zone":    "timestamp",
+			"time without time zone":      "string",
+			"time with time zone":         "string",
+			"interval":                    "string",
+			// String types
+			"tid":               "string",
+			"character varying": "string",
+			"varchar":           "string",
+			"text":              "string",
+			"character":         "string",
+			"bpchar":            "string",
+			"name":              "string",
+			"uuid":              "string",
+			"jsonb":             "string",
+			"xml":               "string",
+			"inet":              "string",
+			"bit":               "string",
+			"bit varying":       "string",
+			"tsvector":          "string",
+			"tsquery":           "string",
+			"path":              "string",
+			"box":               "string",
+			"line":              "string",
+			"circle":            "string",
+			"int4range":         "string",
+			"numrange":          "string",
+			"tsrange":           "string",
+			"tstzrange":         "string",
+			"daterange":         "string",
+			"array":             "string",
+			"int2vector":        "string",
+		}
+	} else if databaseType == "mysql" {
+		typeMapping = map[string]string{
+			"tinyint":   "int",
+			"smallint":  "int",
+			"mediumint": "int",
+			"int":       "int",
+			"integer":   "int",
+			"bigint":    "bigint",
+			"float":     "float",
+			"double":    "double",
+			"decimal":   "double",
+			"char":      "string",
+			"varchar":   "string",
+			"text":      "string",
+			"date":      "timestamp",
+			"datetime":  "timestamp",
+			"timestamp": "timestamp",
+			"time":      "string",
+			"year":      "int",
+			"json":      "string",
+			"enum":      "string",
+			"set":       "string",
+			"blob":      "string",
+			"binary":    "string",
+			"varbinary": "string",
+			"boolean":   "boolean",
+		}
 	}
 
 	// Normalize types for comparison
