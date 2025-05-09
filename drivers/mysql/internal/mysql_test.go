@@ -34,13 +34,15 @@ func TestMySQLDiscover(t *testing.T) {
 func TestMySQLRead(t *testing.T) {
 	client, _, mClient := testMySQLClient(t)
 	helper := base.TestHelper{
-		CreateTable: createTestTable,
-		DropTable:   dropTestTable,
-		CleanTable:  cleanTestTable,
-		AddData:     addTestTableData,
-		InsertOp:    insertOp,
-		UpdateOp:    updateOp,
-		DeleteOp:    deleteOp,
+		CreateTable:  createTestTable,
+		DropTable:    dropTestTable,
+		CleanTable:   cleanTestTable,
+		AddData:      addTestTableData,
+		InsertOp:     insertOp,
+		UpdateOp:     updateOp,
+		DeleteOp:     deleteOp,
+		GetDBSchema:  getMySQLSchema,
+		DatabaseType: "mysql",
 	}
 	base.TestRead(t, mClient, client, helper, setupClient)
 }
