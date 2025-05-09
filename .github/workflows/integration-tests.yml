@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - "feat/testing_framework"
+      - "feat/datatypes_testing"
   pull_request:
     branches:
       - "*"
+      - "feat/datatypes_testing"
 
 jobs:
   test:
