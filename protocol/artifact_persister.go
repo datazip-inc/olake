@@ -1,4 +1,4 @@
-package utils
+package protocol
 
 import (
 	"context"
@@ -15,17 +15,32 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
 	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/spf13/viper"
 )
 
 const artifactSubDir = "_olake_runtime" // Directory within the base path for artifacts
 
+// PersistenceConfig holds configuration for artifact persistence
+type PersistenceConfig struct {
+	Type         string `json:"type"`          // "s3" (only option currently)
+	Bucket       string `json:"bucket"`        // S3 bucket name
+	Region       string `json:"region"`        // AWS region
+	BasePath     string `json:"base_path"`     // Base path in bucket
+	AccessKey    string `json:"access_key"`    // AWS access key (optional)
+	SecretKey    string `json:"secret_key"`    // AWS secret key (optional)
+	SessionToken string `json:"session_token"` // AWS session token (optional)
+	Endpoint     string `json:"endpoint"`      // Custom S3 endpoint (optional)
+	UseSSL       bool   `json:"use_ssl"`       // Use SSL for S3 (default: true)
+	PathStyle    bool   `json:"path_style"`    // Use path-style addressing (optional)
+	Interval     string `json:"interval"`      // Upload interval (e.g. "5m", default: "5m")
+}
+
 // S3ArtifactConfig holds the necessary S3 configuration parameters.
-// This should be populated by the calling code based on the primary writer config.
 type S3ArtifactConfig struct {
 	Bucket       string
 	Region       string
-	BasePath     string // The base S3 path from the writer config (e.g., prefix or parsed path)
+	BasePath     string // The base S3 path (e.g., prefix or parsed path)
 	AccessKey    string
 	SecretKey    string
 	SessionToken string
@@ -42,19 +57,17 @@ type ArtifactPersister struct {
 	fullBasePath string // Combined BasePath + artifactSubDir
 }
 
-// NewArtifactPersister creates and initializes an ArtifactPersister using pre-extracted
-// S3 configuration. It returns the persister and any error during setup.
-// The 'isActive' flag should be determined by the caller based on whether S3
-// was configured in the primary writer.
+// NewArtifactPersister creates and initializes an ArtifactPersister
 func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersister, error) {
-	// If S3 is not active based on the caller's determination, return early
+	// Early return if inactive
 	if !isActive {
-		return nil, nil // Not an error, just inactive
+		return nil, nil
 	}
 
-	// --- Proceed with S3 Client Initialization ---
+	// Basic validation - log and return inactive for missing bucket
 	if cfg.Bucket == "" {
-		return nil, fmt.Errorf("S3 bucket name cannot be empty for ArtifactPersister when active")
+		logger.Error("S3 bucket name cannot be empty for ArtifactPersister - persistence disabled")
+		return nil, nil
 	}
 
 	awsCfg := aws.NewConfig()
@@ -86,23 +99,20 @@ func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersist
 		SharedConfigState: session.SharedConfigEnable,
 	})
 	if err != nil {
-		logger.Warnf("Failed to create AWS session with potentially explicit config: %v. Will rely solely on default chain.", err)
-		sess, err = session.NewSessionWithOptions(session.Options{
-			SharedConfigState: session.SharedConfigEnable,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create AWS session for artifact persistence even with default chain: %w", err)
-		}
+		logger.Errorf("Failed to create AWS session: %v - artifact persistence disabled", err)
+		return nil, nil
 	}
 
-	// Verify credentials
+	// Verify credentials - log and return inactive if failed
 	if _, err := sess.Config.Credentials.Get(); err != nil {
-		return nil, fmt.Errorf("failed to get AWS credentials using effective chain for artifact persistence: %w", err)
+		logger.Errorf("Failed to get AWS credentials: %v - artifact persistence disabled", err)
+		return nil, nil
 	}
 
 	s3Client := s3.New(sess)
 	s3Uploader := s3manager.NewUploader(sess)
 
+	// Prepare paths
 	trimmedBasePath := strings.Trim(cfg.BasePath, "/")
 	fullBasePath := artifactSubDir
 	if trimmedBasePath != "" {
@@ -110,7 +120,7 @@ func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersist
 	}
 	fullBasePath = filepath.ToSlash(fullBasePath) // Ensure forward slashes for S3
 
-	// S3 write check
+	// S3 write check - log and return inactive if failed
 	testKey := strings.Join([]string{fullBasePath, ".olake_write_test"}, "/")
 	_, err = s3Client.PutObject(&s3.PutObjectInput{
 		Bucket: aws.String(cfg.Bucket),
@@ -118,8 +128,10 @@ func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersist
 		Body:   strings.NewReader("Olake artifact persister write test"),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("S3 write check failed for artifact persister (bucket: %s, key: %s): %w", cfg.Bucket, testKey, err)
+		logger.Errorf("S3 write check failed: %v - artifact persistence disabled", err)
+		return nil, nil
 	} else {
+		// Clean up test object
 		_, _ = s3Client.DeleteObject(&s3.DeleteObjectInput{
 			Bucket: aws.String(cfg.Bucket),
 			Key:    aws.String(testKey),
@@ -134,16 +146,99 @@ func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersist
 	}
 
 	logger.Infof("ArtifactPersister initialized. Target: s3://%s/%s/", cfg.Bucket, fullBasePath)
-
-	return persister, nil // Return initialized persister, no error
+	return persister, nil
 }
 
-// UploadFile uploads a single local file to the configured S3 path.
+// InitializePersister loads config and creates a persister
+func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
+	// Check if persistence is enabled
+	if !viper.GetBool("PERSISTENCE_ENABLED") {
+		return nil, nil
+	}
+
+	// Get config file path
+	configPath := viper.GetString("PERSISTENCE_CONFIG")
+	if configPath == "" {
+		msg := "Artifact persistence is enabled but no config file specified (use --persistence-config)"
+		if viper.GetBool("PERSISTENCE_REQUIRED") {
+			return nil, fmt.Errorf(msg)
+		}
+		logger.Error(msg)
+		return nil, nil
+	}
+
+	// Load config file
+	var config PersistenceConfig
+	if err := utils.UnmarshalFile(configPath, &config); err != nil {
+		msg := fmt.Sprintf("Failed to load persistence config file: %v", err)
+		if viper.GetBool("PERSISTENCE_REQUIRED") {
+			return nil, fmt.Errorf(msg)
+		}
+		logger.Error(msg)
+		return nil, nil
+	}
+
+	// Validate config
+	if config.Type != "s3" {
+		logger.Errorf("Unsupported persistence type: %s (only s3 supported)", config.Type)
+		return nil, nil
+	}
+
+	if config.Bucket == "" {
+		msg := "S3 bucket name cannot be empty in persistence config"
+		if viper.GetBool("PERSISTENCE_REQUIRED") {
+			return nil, fmt.Errorf(msg)
+		}
+		logger.Error(msg)
+		return nil, nil
+	}
+
+	// Convert to S3ArtifactConfig
+	s3Config := S3ArtifactConfig{
+		Bucket:       config.Bucket,
+		Region:       config.Region,
+		BasePath:     config.BasePath,
+		AccessKey:    config.AccessKey,
+		SecretKey:    config.SecretKey,
+		SessionToken: config.SessionToken,
+		Endpoint:     config.Endpoint,
+		UseSSL:       config.UseSSL,
+		PathStyle:    config.PathStyle,
+	}
+
+	// Create persister
+	persister, err := NewArtifactPersister(s3Config, true)
+	if err != nil || persister == nil {
+		msg := fmt.Sprintf("Failed to initialize artifact persister: %v", err)
+		if viper.GetBool("PERSISTENCE_REQUIRED") {
+			return nil, fmt.Errorf(msg)
+		}
+		logger.Error(msg)
+		return nil, nil
+	}
+
+	// Parse interval
+	interval := 5 * time.Minute // default
+	if config.Interval != "" {
+		customInterval, err := time.ParseDuration(config.Interval)
+		if err == nil && customInterval > 0 {
+			interval = customInterval
+		} else {
+			logger.Warnf("Invalid interval format in config (%s), using default (5m)", config.Interval)
+		}
+	}
+
+	// Start periodic uploader
+	go RunPeriodicStateUploader(ctx, persister, interval)
+	logger.Infof("S3 artifact persistence enabled. Uploading state.json every %v", interval)
+
+	return persister, nil
+}
+
+// UploadFile uploads a single local file to the configured S3 path
 func (ap *ArtifactPersister) UploadFile(ctx context.Context, localPath string, s3KeySuffix string) error {
 	if ap == nil || ap.s3Uploader == nil {
-		// Don't log here, the caller might know it's inactive
-		// logger.Warnf("Attempted to upload artifact %s but ArtifactPersister is not initialized.", localPath)
-		return fmt.Errorf("ArtifactPersister not initialized") // Indicate error
+		return fmt.Errorf("ArtifactPersister not initialized")
 	}
 
 	file, err := os.Open(localPath)
@@ -176,10 +271,9 @@ func (ap *ArtifactPersister) UploadFile(ctx context.Context, localPath string, s
 	return nil
 }
 
-// RunPeriodicStateUploader periodically uploads the state.json file.
+// RunPeriodicStateUploader periodically uploads the state.json file
 func RunPeriodicStateUploader(ctx context.Context, persister *ArtifactPersister, interval time.Duration) {
 	if persister == nil {
-		// This is expected if S3 isn't configured, don't log Warn
 		return
 	}
 
@@ -191,7 +285,10 @@ func RunPeriodicStateUploader(ctx context.Context, persister *ArtifactPersister,
 	localStatePath := filepath.Join(configDir, "state.json")
 	s3KeySuffix := "state.json"
 
-	logger.Infof("Starting periodic state uploader. Interval: %v. Target: s3://%s/%s", interval, persister.bucket, filepath.ToSlash(filepath.Join(persister.fullBasePath, s3KeySuffix)))
+	logger.Infof("Starting periodic state uploader. Interval: %v. Target: s3://%s/%s",
+		interval,
+		persister.bucket,
+		filepath.ToSlash(filepath.Join(persister.fullBasePath, s3KeySuffix)))
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -201,7 +298,7 @@ func RunPeriodicStateUploader(ctx context.Context, persister *ArtifactPersister,
 		case <-ctx.Done():
 			logger.Info("Stopping periodic state uploader due to context cancellation.")
 			// Final upload attempt on cancellation
-			finalUploadCtx, finalCancel := context.WithTimeout(context.Background(), 30*time.Second) // Use background context for final attempt
+			finalUploadCtx, finalCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			logger.Infof("Attempting final state upload to S3 before shutdown...")
 			err := persister.UploadFile(finalUploadCtx, localStatePath, s3KeySuffix)
 			finalCancel()
@@ -223,6 +320,3 @@ func RunPeriodicStateUploader(ctx context.Context, persister *ArtifactPersister,
 		}
 	}
 }
-
-// --- Placeholder for Log Directory Uploader ---
-// func (ap *ArtifactPersister) UploadLogDirectory(...) error { ... }
