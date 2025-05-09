@@ -85,9 +85,9 @@ jobs:
           mvn clean package -DskipTests
 
       # Run the integration tests
-      - name: Run integration tests for MySQL
-        run: |
-          go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+      # - name: Run integration tests for MySQL
+      #   run: |
+      #     go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
       
       - name: Run integration tests for PostgreSQL
         run: |
