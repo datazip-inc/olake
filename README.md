@@ -57,11 +57,10 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 ## Writer Functionalities
 | Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
 | ------------------------------- | ---------------- | ------ | -------------- |
-| Flattening & Normalization (L1) | ✅                | ✅      |  ✅              |
-| Partitioning                    | ✅                | ✅      |                |
-| Schema Changes                  | ✅                | ✅      |                |
-| Schema Evolution                | ✅                | ✅      |                |
-
+| Flattening & Normalization (L1) | ✅                      | ✅             |     ✅        |
+| Partitioning                    | ✅                      | ✅             |      ✅       |
+| Schema Changes                  | ✅                      | ✅             |       WIP      |
+| Schema Evolution                | ✅                      | ✅             |          ✅   |
 ## Supported Catalogs For Iceberg Writer
 | Catalog                 | Status                                                                                                  |
 | -------------------------- | -------------------------------------------------------------------------------------------------------- |
