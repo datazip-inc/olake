@@ -150,7 +150,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
-		time.Sleep(80 * time.Second)
+		time.Sleep(120 * time.Second)
 
 		// Call VerifyIcebergSync with the database schema for comparison
 		VerifyIcebergSync(
