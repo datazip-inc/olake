@@ -99,6 +99,20 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
+   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "incr",
+                     "normalization": false,
+                     "append_only": true
+                  }
+            ]
+         },
+      ```
+   
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
    ```json
