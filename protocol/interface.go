@@ -49,7 +49,6 @@ type Writer interface {
 	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
 	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
 	// schema update with an Alter Query
-	Normalization() bool
 	Flattener() FlattenFunction
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
@@ -68,6 +67,7 @@ type Stream interface {
 	SupportedSyncModes() *types.Set[types.SyncMode]
 	Cursor() string
 	Validate(source *types.Stream) error
+	NormalizationEnabled() bool
 }
 
 type State interface {

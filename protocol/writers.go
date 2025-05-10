@@ -187,7 +187,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						record.OlakeTimestamp = time.Now().UTC()
 
 						// check for normalization
-						if thread.Normalization() {
+						if stream.NormalizationEnabled() {
 							normalizedData, err := normalizeFunc(record)
 							if err != nil {
 								return err
