@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
@@ -26,12 +25,10 @@ var (
 
 	commands  = []*cobra.Command{}
 	connector Driver
-
-	concurrentStreamExecution = 6
-	// Global Stream concurrency group;
-	//
-	// Not to confuse with individual stream level concurrency
-	GlobalCxGroup = utils.NewCGroupWithLimit(context.Background(), concurrentStreamExecution)
+	// GlobalConGroup is a global variable to hold max concurrent connections
+	GlobalCtxGroup *utils.CxGroup
+	// manages total database connections
+	GlobalConnGroup *utils.CxGroup
 )
 
 // RootCmd represents the base command when called without any subcommands

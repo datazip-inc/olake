@@ -42,7 +42,7 @@ func (m *Mongo) Setup() error {
 	opts := options.Client()
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
-	opts.SetMaxPoolSize(1000)
+	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
 
 	connectCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
@@ -63,6 +63,7 @@ func (m *Mongo) Setup() error {
 		// add 1 for first run
 		m.config.RetryCount += 1
 	}
+
 	return nil
 }
 
@@ -84,6 +85,10 @@ func (m *Mongo) Close() error {
 
 func (m *Mongo) Type() string {
 	return "Mongo"
+}
+
+func (m *Mongo) MaxConnections() int {
+	return m.config.MaxThreads
 }
 
 // TODO: utilize discoverSchema boolean
@@ -136,12 +141,22 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	return m.GetStreams(), nil
 }
 
-func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
-	switch stream.GetSyncMode() {
-	case types.FULLREFRESH:
-		return m.backfill(ctx, pool, stream)
-	case types.CDC:
-		return m.RunChangeStream(ctx, pool, stream)
+func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
+	// start change streams
+	if m.CDCSupport {
+		// TODO: can we run it with globalCtxGroup?
+		err := m.RunChangeStream(ctx, pool, cdcStreams...)
+		if err != nil {
+			return fmt.Errorf("failed to run change stream: %s", err)
+		}
+	} else {
+		return fmt.Errorf("MongoDB does not support change streams, make sure all stream run full refresh")
+	}
+	// start backfill for standard streams
+	for _, stream := range standardStreams {
+		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
+			return m.backfill(ctx, pool, stream)
+		})
 	}
 
 	return nil

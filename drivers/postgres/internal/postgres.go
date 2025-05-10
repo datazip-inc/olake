@@ -55,7 +55,7 @@ func (p *Postgres) Setup() error {
 	if err != nil {
 		return fmt.Errorf("failed to connect database: %s", err)
 	}
-
+	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -89,6 +89,8 @@ func (p *Postgres) Setup() error {
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
+		// init pg connection required for cdc
+
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
@@ -172,6 +174,10 @@ func (p *Postgres) Type() string {
 	return "Postgres"
 }
 
+func (p *Postgres) MaxConnections() int {
+	return p.config.MaxThreads
+}
+
 func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
 		return nil, typeutils.ErrNullValue
@@ -182,14 +188,20 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	return typeutils.ReformatValue(olakeType, value)
 }
 
-func (p *Postgres) Read(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
-	switch stream.GetSyncMode() {
-	case types.FULLREFRESH:
-		return p.backfill(ctx, pool, stream)
-	case types.CDC:
-		return p.RunChangeStream(ctx, pool, stream)
+func (p *Postgres) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
+	if p.CDCSupport {
+		if err := p.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+			return fmt.Errorf("failed to run change stream: %s", err)
+		}
+	} else {
+		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
 	}
-
+	// start backfill for standard streams
+	for _, stream := range standardStreams {
+		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
+			return p.backfill(ctx, pool, stream)
+		})
+	}
 	return nil
 }
 

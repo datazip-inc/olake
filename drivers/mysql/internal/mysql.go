@@ -65,7 +65,8 @@ func (m *MySQL) Setup() error {
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
+	// Set connection pool size
+	client.SetMaxOpenConns(m.config.MaxThreads)
 	if err := client.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -97,6 +98,10 @@ func (m *MySQL) Check() error {
 // Type returns the database type
 func (m *MySQL) Type() string {
 	return "MySQL"
+}
+
+func (m *MySQL) MaxConnections() int {
+	return m.config.MaxThreads
 }
 
 // Discover finds and catalogs database tables
@@ -145,12 +150,19 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 }
 
 // Read handles different sync modes for data retrieval
-func (m *MySQL) Read(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
-	switch stream.GetSyncMode() {
-	case types.FULLREFRESH:
-		return m.backfill(ctx, pool, stream)
-	case types.CDC:
-		return m.RunChangeStream(ctx, pool, stream)
+func (m *MySQL) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
+	if m.CDCSupport {
+		if err := m.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+			return fmt.Errorf("failed to run change stream: %s", err)
+		}
+	} else {
+		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
+	}
+	// start backfill for standard streams
+	for _, stream := range standardStreams {
+		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
+			return m.backfill(ctx, pool, stream)
+		})
 	}
 
 	return nil
