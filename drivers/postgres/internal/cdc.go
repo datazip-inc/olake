@@ -28,15 +28,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config
 	}, nil
 }
 
-func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
-	ctx := context.TODO()
-	gs := types.NewGlobalState(&waljs.WALState{})
-	if p.State.Global != nil {
-		if err = utils.Unmarshal(p.State.Global, gs); err != nil {
-			return fmt.Errorf("failed to unmarshal global state: %s", err)
-		}
-	}
-
+func (p *Postgres) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
 		return fmt.Errorf("failed to prepare wal config: %s", err)
@@ -49,37 +41,45 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	defer socket.Cleanup(ctx)
 
 	currentLSN := socket.ConfirmedFlushLSN
-	if gs.State.IsEmpty() {
-		gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
-		p.State.SetGlobalState(gs)
-		// reset streams for creating chunks again
+	globalState := p.State.GetGlobal()
+
+	if globalState == nil || globalState.State == nil {
+		p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
 		p.State.ResetStreams()
 	} else {
-		parsed, err := pglogrepl.ParseLSN(gs.State.LSN)
-		if err != nil {
-			return fmt.Errorf("failed to parse stored lsn[%s]: %s", gs.State.LSN, err)
+		// global state exist check for cursor and cursor mismatch
+		var postgresGlobalState waljs.WALState
+		if err = utils.Unmarshal(globalState.State, &postgresGlobalState); err != nil {
+			return fmt.Errorf("failed to unmarshal global state: %s", err)
 		}
-		if parsed != currentLSN {
-			logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
-			gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
-			p.State.SetGlobalState(gs)
-			// reset streams for creating chunks again
+		if postgresGlobalState.LSN == "" {
+			p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
 			p.State.ResetStreams()
+		} else {
+			parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
+			if err != nil {
+				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
+			}
+			if parsed != currentLSN {
+				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
+				p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
+				p.State.ResetStreams()
+			}
 		}
+
 	}
 
 	var needsBackfill []protocol.Stream
 	for _, s := range streams {
-		if !gs.Streams.Exists(s.ID()) {
+		if globalState == nil || !globalState.Streams.Exists(s.ID()) {
 			needsBackfill = append(needsBackfill, s)
 		}
 	}
 	if err = utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(ctx context.Context, s protocol.Stream, _ int) error {
-		if err := p.backfill(pool, s); err != nil {
+		if err := p.backfill(ctx, pool, s); err != nil {
 			return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
 		}
-		gs.Streams.Insert(s.ID())
-		p.State.SetGlobalState(gs)
+		p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()}, s.ID())
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed concurrent backfill: %s", err)
@@ -110,8 +110,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 			// no write error
 			if err == nil {
 				// first save state
-				gs.State.LSN = socket.ClientXLogPos.String()
-				p.State.SetGlobalState(gs)
+				p.State.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
 				// mark lsn for wal logs drop
 				// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
 				err = socket.AcknowledgeLSN(ctx)

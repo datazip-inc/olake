@@ -22,10 +22,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) error {
+func (m *Mongo) backfill(backfillCtx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	chunks := m.State.GetChunks(stream.Self())
-	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
 	if chunks == nil || chunks.Len() == 0 {
 		// Full load case
