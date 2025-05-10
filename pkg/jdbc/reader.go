@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/typeutils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 type Reader[T types.Iterable] struct {

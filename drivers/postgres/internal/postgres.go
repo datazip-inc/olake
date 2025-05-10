@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
 )
 

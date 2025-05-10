@@ -3,9 +3,9 @@ package olake
 import (
 	"os"
 
-	"github.com/datazip-inc/olake/logger"
 	protocol "github.com/datazip-inc/olake/protocol"
-	"github.com/datazip-inc/olake/safego"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/safego"
 	_ "github.com/datazip-inc/olake/writers/iceberg" // registering local parquet writer
 	_ "github.com/datazip-inc/olake/writers/parquet" // registering local parquet writer
 )

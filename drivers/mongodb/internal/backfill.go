@@ -10,11 +10,10 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -392,34 +391,4 @@ func generateMinObjectID(t time.Time) *primitive.ObjectID {
 	}
 
 	return &objectID
-}
-
-func handleMongoObject(doc bson.M) {
-	for key, value := range doc {
-		// first make key small case as data being typeresolved with small case keys
-		delete(doc, key)
-		key = typeutils.Reformat(key)
-		switch value := value.(type) {
-		case primitive.Timestamp:
-			doc[key] = value.T
-		case primitive.DateTime:
-			doc[key] = value.Time()
-		case primitive.Null:
-			doc[key] = nil
-		case primitive.Binary:
-			doc[key] = fmt.Sprintf("%x", value.Data)
-		case primitive.Decimal128:
-			doc[key] = value.String()
-		case primitive.ObjectID:
-			doc[key] = value.Hex()
-		case float64:
-			if math.IsNaN(value) || math.IsInf(value, 0) {
-				doc[key] = nil
-			} else {
-				doc[key] = value
-			}
-		default:
-			doc[key] = value
-		}
-	}
 }

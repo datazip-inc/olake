@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jmoiron/sqlx"
 )

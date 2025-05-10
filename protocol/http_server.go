@@ -6,7 +6,7 @@ import (
 	"net/http/pprof"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/felixge/fgprof"
 	"github.com/gorilla/mux"
 )
