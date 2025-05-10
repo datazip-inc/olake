@@ -67,7 +67,6 @@ After executing the Discover command, a formatted response will look like this:
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "split_column":"",
                   "normalization": false
                }
          ]
@@ -103,6 +102,22 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
+   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration. \
+      Similarly, for `split_column`, ensure it is defined in the stream settings as required.
+      ```json
+         "selected_streams": {
+            "public": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "table_1",
+                     "split_column":"",         //column name to be specified
+                     "normalization": false,
+                     "append_only": true
+                  }
+            ]
+         },
+      ```
+
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
    ```json
@@ -112,7 +127,6 @@ Before running the Sync command, the generated `streams.json` file must be confi
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "split_column":"",
                   "normalization": false
                }
          ]

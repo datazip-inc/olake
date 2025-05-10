@@ -52,7 +52,7 @@
         <version.jose4j>0.9.4</version.jose4j>
         <version.zookeeper>3.9.2</version.zookeeper>
         <version.vertx>4.5.3</version.vertx>
-        <version.jetty>9.4.51.v20230217</version.jetty>
+        <version.jetty>9.4.57.v20241219</version.jetty>
         <version.logback>1.5.13</version.logback>
         <version.kafka>3.7.1</version.kafka>
         <version.httpclient5>5.4.3</version.httpclient5>
