@@ -53,6 +53,10 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 		}
 	}
 
+	if i.stream.Self().StreamMetadata.AppendMode {
+		// marking upsert mode to false
+		return i.SetupIcebergClient(false)
+	}
 	return i.SetupIcebergClient(!options.Backfill)
 }
 
