@@ -137,7 +137,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
 		time.Sleep(120 * time.Second)
-		VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
+		VerifyIcebergSync(t, tableName, "5")
 	})
 	time.Sleep(60 * time.Second)
 	t.Run("cdc read", func(t *testing.T) {
@@ -146,30 +146,26 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				helper.InsertOp(ctx, t, conn, tableName)
 			})
 			time.Sleep(120 * time.Second)
-			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "6")
 			t.Run("update operation", func(t *testing.T) {
 				helper.UpdateOp(ctx, t, conn, tableName)
 			})
-			VerifyIcebergSync(t, tableName, "6", "after update", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "6")
 			t.Run("delete operation", func(t *testing.T) {
 				helper.DeleteOp(ctx, t, conn, tableName)
 			})
-			VerifyIcebergSync(t, tableName, "6", "after delete", "olake_id", "col1", "col2")
+			VerifyIcebergSync(t, tableName, "6")
 		})
 	})
 }
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, _ ...string) {
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 	t.Helper()
 	ctx := context.Background()
 	var sparkConnectAddress = "sc://localhost:15002" // Default value
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
-	defer func() {
-		if err := spark.Stop(); err != nil {
-			t.Logf("Error stopping Spark session: %v", err)
-		}
-	}()
+	defer spark.Stop()
 
 	// Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT _olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
@@ -189,6 +185,6 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, mes
 	require.NotNil(t, countValue, "Count value is nil")
 
 	// Verify unique count
-	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg (%s)", message)
-	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s - %s", countValue, tableName, message)
+	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg")
+	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s", countValue, tableName)
 }

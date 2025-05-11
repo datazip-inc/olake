@@ -19,7 +19,6 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.23.2'
-       # Create the missing /tmp/spark-events directory
     
           
       # Start required containers
@@ -67,7 +66,6 @@ jobs:
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
           sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
-          sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
           sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
       # Install go dependencies and build
       - name: Install dependencies

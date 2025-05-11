@@ -7,12 +7,6 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 )
 
-// SetupClient adapter for base package
-func setupClient(t *testing.T) (interface{}, protocol.Driver) {
-	client, _, mClient := testPostgresClient(t)
-	return client, mClient
-}
-
 // Test functions using base utilities
 func TestMySQLSetup(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
@@ -42,5 +36,8 @@ func TestMySQLRead(t *testing.T) {
 		UpdateOp:    updateOp,
 		DeleteOp:    deleteOp,
 	}
-	base.TestRead(t, pClient, client, helper, setupClient)
+	base.TestRead(t, pClient, client, helper, func(t *testing.T) (interface{}, protocol.Driver) {
+		client, _, mClient := testPostgresClient(t)
+		return client, mClient
+	})
 }
