@@ -65,7 +65,8 @@ After executing the Discover command, a formatted response will look like this:
                {
                   "partition_regex": "",
                   "stream_name": "incr",
-                  "normalization": false
+                  "normalization": false,
+                  "append_only": false
                }
          ]
       },
@@ -107,7 +108,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "incr",
                      "normalization": false,
-                     "append_only": true
+                     "append_only": false
                   }
             ]
          },
@@ -115,6 +116,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
    
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
+<br> The `append_only` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file<br>
    ```json
    {
       "selected_streams": {
@@ -122,7 +124,8 @@ Before running the Sync command, the generated `streams.json` file must be confi
                {
                   "partition_regex": "",
                   "stream_name": "incr",
-                  "normalization": false
+                  "normalization": false,
+                  "append_only": false
                }
          ]
       },
