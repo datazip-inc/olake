@@ -3,6 +3,7 @@ package waljs
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/datazip-inc/olake/protocol"
@@ -44,26 +45,58 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		for i, val := range values {
 			colType := types[i]
 
-			// Special handling for bigint to preserve int64
+			// Handle bigint values with special type conversion rules to preserve int64 precision.
+			// This ensures that numeric values maintain their exact representation during CDC operations.
 			if colType == "bigint" {
 				switch v := val.(type) {
 				case string:
+					// Validate string format according to PostgreSQL bigint rules:
+					// - No empty strings
+					// - No leading plus signs
+					// - No leading zeros (except single zero)
+					if len(v) == 0 {
+						break
+					}
+					if v[0] == '+' || (len(v) > 1 && v[0] == '0' && v[1] != '.') {
+						break
+					}
+					// Convert string to int64, preserving exact value
 					if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
 						data[names[i]] = parsed
 						continue
 					}
 				case float64:
-					if float64(int64(v)) == v {
-						data[names[i]] = int64(v)
+					// Handle special float64 cases and ensure precision safety:
+					// - Reject NaN and Infinity
+					// - Enforce JavaScript's safe integer limit (2^53)
+					// - Ensure whole number values only
+					if math.IsNaN(v) || math.IsInf(v, 0) {
+						break
+					}
+
+					const safeIntegerLimit = 1 << 53
+					if math.Abs(v) >= safeIntegerLimit {
+						break
+					}
+
+					if math.Floor(v) != v {
+						break
+					}
+
+					// Verify lossless conversion to int64
+					i64 := int64(v)
+					if float64(i64) == v {
+						data[names[i]] = i64
 						continue
 					}
 				case int64:
+					// Direct int64 values can be used as-is
 					data[names[i]] = v
 					continue
 				}
 			}
 
-			// For other types, use the standard converter
+			// For non-bigint types or failed conversions, use standard converter
 			conv, err := c.converter(val, colType)
 			if err != nil && err != typeutils.ErrNullValue {
 				return nil, err

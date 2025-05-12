@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/datazip-inc/olake/types"
@@ -81,6 +83,31 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	for i, col := range columns {
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
+			// Special handling for bigint values
+			if types[i].DatabaseTypeName() == "bigint" {
+				switch v := rawData.(type) {
+				case string:
+					if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+						dest[col] = parsed
+						continue
+					}
+				case float64:
+					if !math.IsNaN(v) && !math.IsInf(v, 0) {
+						if math.Floor(v) == v {
+							i64 := int64(v)
+							if float64(i64) == v {
+								dest[col] = i64
+								continue
+							}
+						}
+					}
+				case int64:
+					dest[col] = v
+					continue
+				}
+			}
+
+			// For non-bigint types or failed conversions, use standard converter
 			conv, err := converter(rawData, types[i].DatabaseTypeName())
 			if err != nil && err != typeutils.ErrNullValue {
 				return err
