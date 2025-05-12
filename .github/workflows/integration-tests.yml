@@ -24,6 +24,9 @@ jobs:
     
           
       # Start required containers
+      - name: Ensure olake-test network exists
+        run: |
+          docker network create olake-test || true
       - name: Start MongoDB container
         run: |
           pushd ./drivers/mongodb
@@ -45,8 +48,6 @@ jobs:
           docker exec olake_mongodb-test \
             mongosh -u olake -p olake --authenticationDatabase admin \
             --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
-            sleep 5
-          done
 
       - name: Start MySQL container
         run: |
