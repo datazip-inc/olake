@@ -119,11 +119,11 @@ Before running the Sync command, the generated `catalog.json` file must be confi
       },
       "streams": [
          {
+           "cursor_field": "updatedAt",             
             "stream": {
                "name": "incr2",
                "namespace": "incr",
                ...
-               "sync_mode": "cdc",
                "supported_sync_modes": [
                      "full_refresh",
                      "cdc",
