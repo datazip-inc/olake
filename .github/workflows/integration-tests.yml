@@ -30,6 +30,7 @@ jobs:
       # Start MongoDB container
       - name: Start MongoDB container
         run: |
+          bash ./drivers/mongodb/docker-compose-init.sh  
           pushd ./drivers/mongodb
           docker compose up -d
           popd
