@@ -1,5 +1,5 @@
 function mongosh() {
-	echo "$@" | docker exec -i mongodb-db-1 mongosh -u olake -p olake admin
+	echo "$@" | docker exec -i olake_mongodb-test mongosh -u olake -p olake admin
 }
 
 mongosh 'rs.initiate()'
