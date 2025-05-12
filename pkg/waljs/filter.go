@@ -3,6 +3,7 @@ package waljs
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/typeutils"
@@ -42,6 +43,27 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		data := make(map[string]any)
 		for i, val := range values {
 			colType := types[i]
+
+			// Special handling for bigint to preserve int64
+			if colType == "bigint" {
+				switch v := val.(type) {
+				case string:
+					if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+						data[names[i]] = parsed
+						continue
+					}
+				case float64:
+					if float64(int64(v)) == v {
+						data[names[i]] = int64(v)
+						continue
+					}
+				case int64:
+					data[names[i]] = v
+					continue
+				}
+			}
+
+			// For other types, use the standard converter
 			conv, err := c.converter(val, colType)
 			if err != nil && err != typeutils.ErrNullValue {
 				return nil, err
