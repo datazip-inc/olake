@@ -258,3 +258,27 @@ func RunPeriodicStateUploader(ctx context.Context, persister *ArtifactPersister,
 		}
 	}
 }
+
+// UploadFinalState performs a final upload of the state file before exit
+func (ap *ArtifactPersister) UploadFinalState(ctx context.Context) error {
+	if ap == nil {
+		return nil
+	}
+
+	configDir := viper.GetString("CONFIG_FOLDER")
+	if configDir == "" {
+		return fmt.Errorf("CONFIG_FOLDER not set, cannot determine path for state.json")
+	}
+
+	localStatePath := filepath.Join(configDir, "state.json")
+	logger.Info("Performing final state upload before exit...")
+
+	err := ap.UploadFile(ctx, localStatePath, "state.json")
+	if err != nil {
+		logger.Errorf("Final state upload failed: %v", err)
+		return err
+	}
+
+	logger.Info("Final state upload completed successfully")
+	return nil
+}
