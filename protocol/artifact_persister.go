@@ -127,66 +127,32 @@ func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
 		return nil, nil // No persistence requested
 	}
 
-	// Load config from JSON file as raw map first to handle multiple formats
-	var rawConfig map[string]interface{}
-	if err := utils.UnmarshalFile(artifactStoragePath, &rawConfig); err != nil {
+	// Load config from JSON file
+	var cfg types.ArtifactStorageConfig
+	if err := utils.UnmarshalFile(artifactStoragePath, &cfg); err != nil {
 		logger.Errorf("Failed to load artifact storage config from %s: %v", artifactStoragePath, err)
 		return nil, fmt.Errorf("failed to load artifact storage config: %w", err)
 	}
 
-	// Convert to our config type
-	var cfg types.ArtifactStorageConfig
+	// Extract bucket name from s3:// format
+	if cfg.Bucket != "" {
+		// Strip s3:// prefix and extract bucket name
+		bucketStr := strings.TrimPrefix(cfg.Bucket, "s3://")
+		bucketStr = strings.TrimPrefix(bucketStr, "s3a://")
 
-	// First load standard config
-	if err := utils.UnmarshalFile(artifactStoragePath, &cfg); err != nil {
-		logger.Errorf("Failed to parse artifact storage config from %s: %v", artifactStoragePath, err)
-		return nil, fmt.Errorf("failed to parse artifact storage config: %w", err)
-	}
+		if parts := strings.SplitN(bucketStr, "/", 2); len(parts) > 0 {
+			cfg.Bucket = parts[0] // First part is the bucket name
 
-	// If bucket not explicitly set, try to extract from iceberg_s3_path
-	if cfg.Bucket == "" {
-		if icebergS3Path, ok := rawConfig["iceberg_s3_path"].(string); ok && icebergS3Path != "" {
-			// Extract bucket from s3://bucket-name/path format
-			icebergS3Path = strings.TrimPrefix(icebergS3Path, "s3://")
-			icebergS3Path = strings.TrimPrefix(icebergS3Path, "s3a://")
-
-			if parts := strings.SplitN(icebergS3Path, "/", 2); len(parts) > 0 {
-				cfg.Bucket = parts[0] // First part is the bucket name
-
-				// If path part exists, use it as base path
-				if len(parts) > 1 && cfg.BasePath == "" {
-					cfg.BasePath = parts[1]
-				}
+			// If path part exists and base path not already set, use it as base path
+			if len(parts) > 1 && cfg.BasePath == "" {
+				cfg.BasePath = parts[1]
 			}
-
-			logger.Infof("Using bucket '%s' extracted from iceberg_s3_path", cfg.Bucket)
 		}
+
+		logger.Infof("Using S3 bucket: %s", cfg.Bucket)
 	}
 
-	// If region not set, try AWS region keys
-	if cfg.Region == "" {
-		if awsRegion, ok := rawConfig["aws_region"].(string); ok && awsRegion != "" {
-			cfg.Region = awsRegion
-			logger.Infof("Using region '%s' from aws_region", cfg.Region)
-		} else if region, ok := rawConfig["region"].(string); ok && region != "" {
-			cfg.Region = region
-		}
-	}
-
-	// If credentials not set, try AWS credential keys
-	if cfg.AccessKey == "" {
-		if awsAccessKey, ok := rawConfig["aws_access_key"].(string); ok && awsAccessKey != "" {
-			cfg.AccessKey = awsAccessKey
-		}
-	}
-
-	if cfg.SecretKey == "" {
-		if awsSecretKey, ok := rawConfig["aws_secret_key"].(string); ok && awsSecretKey != "" {
-			cfg.SecretKey = awsSecretKey
-		}
-	}
-
-	// Validate bucket is set after all extraction attempts
+	// Validate bucket is set
 	if cfg.Bucket == "" {
 		logger.Error("S3 bucket name cannot be determined from artifact storage config")
 		return nil, fmt.Errorf("S3 bucket name cannot be determined from artifact storage config")
