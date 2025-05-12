@@ -207,37 +207,28 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		return nil, err
 	}
 
-	cursorFields := []string{"_id"}
-
-	if m.config.Incremental == StrategyTimestamp {
-		if m.config.TrackingField != "" {
-			cursorFields = append(cursorFields, strings.ToLower(m.config.TrackingField))
-		}
-
+	tf := strings.ToLower(m.config.TrackingField)
+	if m.config.DefaultMode == types.INCREMENTAL {
+		cursorFields := []string{"_id"}
 		stream.Schema.Properties.Range(func(k, v any) bool {
 			if val, ok := v.(interface{ IsTimeLike() bool }); ok && val.IsTimeLike() {
 				cursorFields = append(cursorFields, strings.ToLower(k.(string)))
 			}
 			return true
 		})
-	}
+		tmp := types.NewSet(cursorFields...)
 
-	oldSet := stream.AvailableCursorFields
-	newSet := types.NewSet(cursorFields...)
-	added := newSet.Difference(oldSet)
-	removed := oldSet.Difference(newSet)
-	if added.Len() > 0 || removed.Len() > 0 {
-		logger.Warnf("cursor-field schema change on %s.%s: added=%v removed=%v",
-			stream.Namespace, stream.Name,
-			added.Array(), removed.Array(),
-		)
-		if removed.Exists(strings.ToLower(m.config.TrackingField)) {
-			logger.Warn("tracking field no longer in schema; switching to full_refresh")
-			stream.SyncMode = types.FULLREFRESH
+		if !tmp.Exists(tf) {
+			logger.
+				Warnf("tracking_field %q not in discovered fields %v; switching to FULL_REFRESH",
+					tf, tmp.Array())
+			m.config.DefaultMode = types.FULLREFRESH
+			stream.AvailableCursorFields = types.NewSet("_id")
+			return stream, nil
 		}
+		cursorFields = append(cursorFields, tf)
+		stream.AvailableCursorFields = types.NewSet(cursorFields...)
 	}
-
-	stream.AvailableCursorFields = newSet
 
 	return stream, nil
 }
