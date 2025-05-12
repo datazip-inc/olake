@@ -152,7 +152,10 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	rows, err := m.client.Query(jdbc.MySQLMasterStatusQuery())
 	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
+		rows, err = m.client.Query(jdbc.MySQLMasterStatusQueryNew())
+		if err != nil {
+			return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
+		}
 	}
 	defer rows.Close()
 

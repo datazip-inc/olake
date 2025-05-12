@@ -140,6 +140,11 @@ func MySQLMasterStatusQuery() string {
 	return "SHOW MASTER STATUS"
 }
 
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.4 and above
+func MySQLMasterStatusQueryNew() string {
+	return "SHOW BINARY LOG STATUS"
+}
+
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
 func MySQLTableColumnsQuery() string {
 	return `
