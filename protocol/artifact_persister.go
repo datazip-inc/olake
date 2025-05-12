@@ -16,6 +16,7 @@ import (
 
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/spf13/viper"
 )
 
@@ -133,22 +134,26 @@ func testS3Connection(s3Client *s3.S3, bucket, basePath string) error {
 
 // InitializePersister loads config and creates a persister
 func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
-	bucket := viper.GetString(ViperKeyArtifactBucket)
-	if bucket == "" {
-		return nil, nil
+	// Check if artifact storage config path is provided
+	if artifactStoragePath == "" {
+		return nil, nil // No persistence requested
 	}
-	// Optionally load other config from viper/env/config file
-	cfg := types.ArtifactStorageConfig{
-		Bucket:       bucket,
-		Region:       viper.GetString(ViperKeyArtifactRegion),
-		BasePath:     viper.GetString(ViperKeyArtifactBasePath),
-		AccessKey:    viper.GetString(ViperKeyArtifactAccessKey),
-		SecretKey:    viper.GetString(ViperKeyArtifactSecretKey),
-		SessionToken: viper.GetString(ViperKeyArtifactSessionToken),
-		Endpoint:     viper.GetString(ViperKeyArtifactEndpoint),
-		UseSSL:       true, // Always use SSL for security
-		PathStyle:    viper.GetBool(ViperKeyArtifactPathStyle),
+
+	// Load config from JSON file
+	var cfg types.ArtifactStorageConfig
+	if err := utils.UnmarshalFile(artifactStoragePath, &cfg); err != nil {
+		logger.Errorf("Failed to load artifact storage config from %s: %v", artifactStoragePath, err)
+		return nil, fmt.Errorf("failed to load artifact storage config: %w", err)
 	}
+
+	// Validate bucket is set
+	if cfg.Bucket == "" {
+		logger.Error("S3 bucket name cannot be empty in artifact storage config")
+		return nil, fmt.Errorf("S3 bucket name cannot be empty in artifact storage config")
+	}
+
+	// Force UseSSL to true for security
+	cfg.UseSSL = true
 
 	persister, err := NewArtifactPersister(cfg, true)
 	if err != nil {
@@ -167,11 +172,14 @@ func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
 	}
 
 	interval := 5 * time.Minute
-	if s := viper.GetString(ViperKeyArtifactUploadIntvl); s != "" {
-		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+	if cfg.UploadInterval != "" {
+		if d, err := time.ParseDuration(cfg.UploadInterval); err == nil && d > 0 {
 			interval = d
+		} else {
+			logger.Warnf("Invalid upload interval format in config: %s (using default: 5m)", cfg.UploadInterval)
 		}
 	}
+
 	go RunPeriodicStateUploader(ctx, persister, interval)
 	logger.Infof("S3 artifact persistence enabled. Uploading state.json every %v", interval)
 	return persister, nil
