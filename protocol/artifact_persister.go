@@ -20,18 +20,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-const (
-	ViperKeyArtifactBucket       = "ARTIFACT_BUCKET"
-	ViperKeyArtifactRegion       = "ARTIFACT_REGION"
-	ViperKeyArtifactBasePath     = "ARTIFACT_BASE_PATH"
-	ViperKeyArtifactAccessKey    = "ARTIFACT_ACCESS_KEY"
-	ViperKeyArtifactSecretKey    = "ARTIFACT_SECRET_KEY"
-	ViperKeyArtifactSessionToken = "ARTIFACT_SESSION_TOKEN"
-	ViperKeyArtifactEndpoint     = "ARTIFACT_ENDPOINT"
-	ViperKeyArtifactPathStyle    = "ARTIFACT_PATH_STYLE"
-	ViperKeyArtifactUploadIntvl  = "ARTIFACT_UPLOAD_INTERVAL"
-)
-
 const artifactSubDir = "_olake_runtime" // Directory within the base path for artifacts
 
 // ArtifactPersister handles uploading runtime artifacts (state, logs, etc.) to S3.
