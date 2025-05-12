@@ -78,7 +78,7 @@ func NewArtifactPersister(cfg types.ArtifactStorageConfig, isActive bool) (*Arti
 	s3Uploader := s3manager.NewUploader(sess)
 
 	trimmedBasePath := strings.Trim(cfg.BasePath, "/")
-	fullBasePath := artifactSubDir
+	fullBasePath := cfg.GetFullBasePath(artifactSubDir)
 	if trimmedBasePath != "" {
 		fullBasePath = filepath.Join(trimmedBasePath, artifactSubDir)
 	}
