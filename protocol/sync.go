@@ -62,7 +62,24 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// setup conector first
+
+		// Initialize artifact persistence
+		persister, err := InitializePersister(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("artifact persistence initialization failed: %w", err)
+		}
+
+		// deferred upload
+		if persister != nil {
+			defer func() {
+				logger.Info("Running deferred final state upload...")
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				persister.UploadFinalState(ctx)
+			}()
+		}
+
+		// setup connector first
 		err = connector.Setup()
 		if err != nil {
 			return err
@@ -174,21 +191,6 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogWithLock()
-
-		// Initialize artifact persistence if configured
-		persister, err := InitializePersister(cmd.Context())
-		if err != nil {
-			return fmt.Errorf("artifact persistence initialization failed: %w", err)
-		}
-
-		// Ensure a final state upload happens regardless of how sync completes
-		if persister != nil {
-			defer func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				persister.UploadFinalState(ctx) // Let persister handle all the details
-			}()
-		}
 
 		return nil
 	},
