@@ -15,39 +15,23 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
 	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/types"
 	"github.com/spf13/viper"
 )
 
+const (
+	ViperKeyArtifactBucket       = "ARTIFACT_BUCKET"
+	ViperKeyArtifactRegion       = "ARTIFACT_REGION"
+	ViperKeyArtifactBasePath     = "ARTIFACT_BASE_PATH"
+	ViperKeyArtifactAccessKey    = "ARTIFACT_ACCESS_KEY"
+	ViperKeyArtifactSecretKey    = "ARTIFACT_SECRET_KEY"
+	ViperKeyArtifactSessionToken = "ARTIFACT_SESSION_TOKEN"
+	ViperKeyArtifactEndpoint     = "ARTIFACT_ENDPOINT"
+	ViperKeyArtifactPathStyle    = "ARTIFACT_PATH_STYLE"
+	ViperKeyArtifactUploadIntvl  = "ARTIFACT_UPLOAD_INTERVAL"
+)
+
 const artifactSubDir = "_olake_runtime" // Directory within the base path for artifacts
-
-// PersistenceConfig holds configuration for artifact persistence
-type PersistenceConfig struct {
-	Type         string `json:"type"`          // "s3" (only option currently)
-	Bucket       string `json:"bucket"`        // S3 bucket name
-	Region       string `json:"region"`        // AWS region
-	BasePath     string `json:"base_path"`     // Base path in bucket
-	AccessKey    string `json:"access_key"`    // AWS access key (optional)
-	SecretKey    string `json:"secret_key"`    // AWS secret key (optional)
-	SessionToken string `json:"session_token"` // AWS session token (optional)
-	Endpoint     string `json:"endpoint"`      // Custom S3 endpoint (optional)
-	UseSSL       bool   `json:"use_ssl"`       // Use SSL for S3 (default: true)
-	PathStyle    bool   `json:"path_style"`    // Use path-style addressing (optional)
-	Interval     string `json:"interval"`      // Upload interval (e.g. "5m", default: "5m")
-}
-
-// S3ArtifactConfig holds the necessary S3 configuration parameters.
-type S3ArtifactConfig struct {
-	Bucket       string
-	Region       string
-	BasePath     string // The base S3 path (e.g., prefix or parsed path)
-	AccessKey    string
-	SecretKey    string
-	SessionToken string
-	Endpoint     string
-	UseSSL       bool
-	PathStyle    bool
-}
 
 // ArtifactPersister handles uploading runtime artifacts (state, logs, etc.) to S3.
 type ArtifactPersister struct {
@@ -58,33 +42,27 @@ type ArtifactPersister struct {
 }
 
 // NewArtifactPersister creates and initializes an ArtifactPersister
-func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersister, error) {
-	// Early return if inactive
+func NewArtifactPersister(cfg types.ArtifactStorageConfig, isActive bool) (*ArtifactPersister, error) {
 	if !isActive {
 		return nil, nil
 	}
-
-	// Basic validation - log and return inactive for missing bucket
 	if cfg.Bucket == "" {
 		logger.Error("S3 bucket name cannot be empty for ArtifactPersister - persistence disabled")
 		return nil, nil
 	}
 
 	awsCfg := aws.NewConfig()
-
 	if cfg.Region != "" {
 		awsCfg.WithRegion(cfg.Region)
 	} else if cfg.Endpoint == "" {
 		logger.Warn("S3 region not explicitly provided for artifact persistence, attempting to use default AWS credential chain resolution")
 	}
-
 	if cfg.AccessKey != "" && cfg.SecretKey != "" {
 		logger.Info("Using explicit S3 credentials for artifact persistence")
 		awsCfg.WithCredentials(credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretKey, cfg.SessionToken))
 	} else {
 		logger.Info("Explicit S3 credentials not provided for artifact persistence, using default AWS credential chain")
 	}
-
 	if cfg.Endpoint != "" {
 		logger.Infof("Using custom S3 endpoint for artifact persistence: %s", cfg.Endpoint)
 		awsCfg.WithEndpoint(cfg.Endpoint)
@@ -102,8 +80,6 @@ func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersist
 		logger.Errorf("Failed to create AWS session: %v - artifact persistence disabled", err)
 		return nil, nil
 	}
-
-	// Verify credentials - log and return inactive if failed
 	if _, err := sess.Config.Credentials.Get(); err != nil {
 		logger.Errorf("Failed to get AWS credentials: %v - artifact persistence disabled", err)
 		return nil, nil
@@ -112,31 +88,12 @@ func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersist
 	s3Client := s3.New(sess)
 	s3Uploader := s3manager.NewUploader(sess)
 
-	// Prepare paths
 	trimmedBasePath := strings.Trim(cfg.BasePath, "/")
 	fullBasePath := artifactSubDir
 	if trimmedBasePath != "" {
 		fullBasePath = filepath.Join(trimmedBasePath, artifactSubDir)
 	}
 	fullBasePath = filepath.ToSlash(fullBasePath) // Ensure forward slashes for S3
-
-	// S3 write check - log and return inactive if failed
-	testKey := strings.Join([]string{fullBasePath, ".olake_write_test"}, "/")
-	_, err = s3Client.PutObject(&s3.PutObjectInput{
-		Bucket: aws.String(cfg.Bucket),
-		Key:    aws.String(testKey),
-		Body:   strings.NewReader("Olake artifact persister write test"),
-	})
-	if err != nil {
-		logger.Errorf("S3 write check failed: %v - artifact persistence disabled", err)
-		return nil, nil
-	} else {
-		// Clean up test object
-		_, _ = s3Client.DeleteObject(&s3.DeleteObjectInput{
-			Bucket: aws.String(cfg.Bucket),
-			Key:    aws.String(testKey),
-		})
-	}
 
 	persister := &ArtifactPersister{
 		s3Client:     s3Client,
@@ -149,89 +106,74 @@ func NewArtifactPersister(cfg S3ArtifactConfig, isActive bool) (*ArtifactPersist
 	return persister, nil
 }
 
+// testS3Connection performs a simple write/delete check to validate S3 access
+// Returns nil if successful, error otherwise
+func testS3Connection(s3Client *s3.S3, bucket, basePath string) error {
+	testKey := filepath.Join(basePath, ".olake_write_test")
+	testKey = filepath.ToSlash(testKey)
+
+	// Try to write test object
+	_, err := s3Client.PutObject(&s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(testKey),
+		Body:   strings.NewReader("Olake artifact persister write test"),
+	})
+	if err != nil {
+		return err
+	}
+
+	// Clean up (ignore errors here)
+	_, _ = s3Client.DeleteObject(&s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(testKey),
+	})
+
+	return nil
+}
+
 // InitializePersister loads config and creates a persister
 func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
-	// Check if persistence is enabled
-	if !viper.GetBool("PERSISTENCE_ENABLED") {
+	bucket := viper.GetString(ViperKeyArtifactBucket)
+	if bucket == "" {
 		return nil, nil
 	}
-
-	// Get config file path
-	configPath := viper.GetString("PERSISTENCE_CONFIG")
-	if configPath == "" {
-		msg := "Artifact persistence is enabled but no config file specified (use --persistence-config)"
-		if viper.GetBool("PERSISTENCE_REQUIRED") {
-			return nil, fmt.Errorf(msg)
-		}
-		logger.Error(msg)
-		return nil, nil
+	// Optionally load other config from viper/env/config file
+	cfg := types.ArtifactStorageConfig{
+		Bucket:       bucket,
+		Region:       viper.GetString(ViperKeyArtifactRegion),
+		BasePath:     viper.GetString(ViperKeyArtifactBasePath),
+		AccessKey:    viper.GetString(ViperKeyArtifactAccessKey),
+		SecretKey:    viper.GetString(ViperKeyArtifactSecretKey),
+		SessionToken: viper.GetString(ViperKeyArtifactSessionToken),
+		Endpoint:     viper.GetString(ViperKeyArtifactEndpoint),
+		UseSSL:       true, // Always use SSL for security
+		PathStyle:    viper.GetBool(ViperKeyArtifactPathStyle),
 	}
 
-	// Load config file
-	var config PersistenceConfig
-	if err := utils.UnmarshalFile(configPath, &config); err != nil {
-		msg := fmt.Sprintf("Failed to load persistence config file: %v", err)
-		if viper.GetBool("PERSISTENCE_REQUIRED") {
-			return nil, fmt.Errorf(msg)
-		}
-		logger.Error(msg)
-		return nil, nil
+	persister, err := NewArtifactPersister(cfg, true)
+	if err != nil {
+		logger.Errorf("Failed to initialize artifact persister: %v", err)
+		return nil, fmt.Errorf("artifact persister initialization failed: %w", err)
+	}
+	if persister == nil {
+		logger.Error("Failed to initialize artifact persister: returned nil")
+		return nil, fmt.Errorf("artifact persister initialization failed with nil result")
 	}
 
-	// Validate config
-	if config.Type != "s3" {
-		logger.Errorf("Unsupported persistence type: %s (only s3 supported)", config.Type)
-		return nil, nil
+	// Test the connection after initialization
+	if err := testS3Connection(persister.s3Client, persister.bucket, persister.fullBasePath); err != nil {
+		logger.Errorf("S3 connection test failed: %v", err)
+		return nil, fmt.Errorf("S3 connection test failed: %w", err)
 	}
 
-	if config.Bucket == "" {
-		msg := "S3 bucket name cannot be empty in persistence config"
-		if viper.GetBool("PERSISTENCE_REQUIRED") {
-			return nil, fmt.Errorf(msg)
-		}
-		logger.Error(msg)
-		return nil, nil
-	}
-
-	// Convert to S3ArtifactConfig
-	s3Config := S3ArtifactConfig{
-		Bucket:       config.Bucket,
-		Region:       config.Region,
-		BasePath:     config.BasePath,
-		AccessKey:    config.AccessKey,
-		SecretKey:    config.SecretKey,
-		SessionToken: config.SessionToken,
-		Endpoint:     config.Endpoint,
-		UseSSL:       config.UseSSL,
-		PathStyle:    config.PathStyle,
-	}
-
-	// Create persister
-	persister, err := NewArtifactPersister(s3Config, true)
-	if err != nil || persister == nil {
-		msg := fmt.Sprintf("Failed to initialize artifact persister: %v", err)
-		if viper.GetBool("PERSISTENCE_REQUIRED") {
-			return nil, fmt.Errorf(msg)
-		}
-		logger.Error(msg)
-		return nil, nil
-	}
-
-	// Parse interval
-	interval := 5 * time.Minute // default
-	if config.Interval != "" {
-		customInterval, err := time.ParseDuration(config.Interval)
-		if err == nil && customInterval > 0 {
-			interval = customInterval
-		} else {
-			logger.Warnf("Invalid interval format in config (%s), using default (5m)", config.Interval)
+	interval := 5 * time.Minute
+	if s := viper.GetString(ViperKeyArtifactUploadIntvl); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			interval = d
 		}
 	}
-
-	// Start periodic uploader
 	go RunPeriodicStateUploader(ctx, persister, interval)
 	logger.Infof("S3 artifact persistence enabled. Uploading state.json every %v", interval)
-
 	return persister, nil
 }
 
