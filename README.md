@@ -30,13 +30,13 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 ## Getting Started with OLake
 
 ### Source / Connectors
-1. [Getting started Postgres -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/postgres) | [Postgres Docs](https://olake.io/docs/category/postgres)
-2. [Getting started MongoDB -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb) | [MongoDB Docs](https://olake.io/docs/category/mongodb)
-3. [Getting started MySQL -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)  | [MySQL Docs](https://olake.io/docs/category/mysql)
+1. [Getting started Postgres -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/postgres) | [Postgres Docs](https://olake.io/docs/connectors/postgres/overview)
+2. [Getting started MongoDB -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb) | [MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview)
+3. [Getting started MySQL -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)  | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview)
 
 ### Writers / Destination
-1. [Apache Iceberg Docs](https://olake.io/docs/category/apache-iceberg) 
-2. [AWS S3 Docs](https://olake.io/docs/category/aws-s3) 
+1. [Apache Iceberg Docs](https://olake.io/docs/writers/iceberg/overview) 
+2. [AWS S3 Docs](https://olake.io/docs/writers/s3/overview) 
 3. [Local FileSystem Docs](https://olake.io/docs/writers/local) 
 
 
@@ -86,7 +86,7 @@ Core handles the commands to interact with a driver via these:
 - `discover` command: Returns all streams and their schema
 - `sync` command: Extracts data out of Source and writes into destinations
 
-Find more about how OLake works [here.](https://olake.io/docs/category/understanding-olake)
+Find more about how OLake works [here.](https://olake.io/docs)
 
 ## Roadmap
 Checkout [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track and influence the way we build it. 
