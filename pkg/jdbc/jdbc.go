@@ -135,12 +135,12 @@ func MySQLTableRowsQuery() string {
 	`
 }
 
-// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.1 and below
 func MySQLMasterStatusQuery() string {
 	return "SHOW MASTER STATUS"
 }
 
-// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.4 and above
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.2 and above
 func MySQLMasterStatusQueryNew() string {
 	return "SHOW BINARY LOG STATUS"
 }
