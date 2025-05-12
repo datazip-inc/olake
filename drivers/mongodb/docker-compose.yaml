@@ -3,7 +3,7 @@ version: "3.7"
 services:
   db:
     image: 'mongo:latest'
-    container_name: olake_mongo-test
+    container_name: olake_mongodb-test
     environment:
       MONGO_INITDB_ROOT_USERNAME: "olake"
       MONGO_INITDB_ROOT_PASSWORD: "olake"
