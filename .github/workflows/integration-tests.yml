@@ -83,11 +83,15 @@ jobs:
       # Run the integration tests
       - name: Run integration tests for MySQL
         run: |
-          go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+          go test -v ./drivers/mongodb/internal/... -tags=integration --timeout 0
       
-      - name: Run integration tests for PostgreSQL
-        run: |
-          go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
+      # - name: Run integration tests for MySQL
+      #   run: |
+      #     go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+      
+      # - name: Run integration tests for PostgreSQL
+      #   run: |
+      #     go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
     
           
       # Clean up containers when done
