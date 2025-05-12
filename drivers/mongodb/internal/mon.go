@@ -188,7 +188,6 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 			return err
 		}
 		defer cursor.Close(ctx)
-
 		for cursor.Next(ctx) {
 
 			var row bson.M
@@ -209,25 +208,21 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 	tf := strings.ToLower(m.config.TrackingField)
 	if m.config.DefaultMode == types.INCREMENTAL {
-		cursorFields := []string{"_id"}
+		schemaProps := map[string]struct{}{}
 		stream.Schema.Properties.Range(func(k, v any) bool {
-			if val, ok := v.(interface{ IsTimeLike() bool }); ok && val.IsTimeLike() {
-				cursorFields = append(cursorFields, strings.ToLower(k.(string)))
-			}
+			schemaProps[strings.ToLower(k.(string))] = struct{}{}
 			return true
 		})
-		tmp := types.NewSet(cursorFields...)
-
-		if !tmp.Exists(tf) {
-			logger.
-				Warnf("tracking_field %q not in discovered fields %v; switching to FULL_REFRESH",
-					tf, tmp.Array())
+		if _, ok := schemaProps[tf]; !ok {
+			logger.Warnf(
+				"configured tracking_field %q not in schema fields %v; switching to FULL_REFRESH",
+				tf, stream.AvailableCursorFields.Array(),
+			)
 			m.config.DefaultMode = types.FULLREFRESH
 			stream.AvailableCursorFields = types.NewSet("_id")
 			return stream, nil
 		}
-		cursorFields = append(cursorFields, tf)
-		stream.AvailableCursorFields = types.NewSet(cursorFields...)
+		stream.AvailableCursorFields = types.NewSet(tf)
 	}
 
 	return stream, nil
