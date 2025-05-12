@@ -36,12 +36,16 @@ jobs:
       - name: Wait for MongoDB to be ready
         run: |
           for i in {1..30}; do
-            if docker exec olake_mongodb-test \
-                 mongosh --eval "db.adminCommand({ ping: 1 })" &> /dev/null; then
-              echo "MongoDB is up!"
+            STATE=$(docker inspect --format='{{.State.Status}}' olake_mongodb-test)
+            if [ "$STATE" = "running" ] && \
+               docker exec olake_mongodb-test \
+                 mongosh -u olake -polake --authenticationDatabase admin \
+                       --eval "db.adminCommand({ ping: 1 })" &> /dev/null
+            then
+              echo "MongoDB is ready!"
               break
             fi
-            echo "Waiting for MongoDB to be ready..."
+            echo "[$(date +"%T")] MongoDB state=$STATE; still waiting..."
             sleep 5
           done
       - name: Initialize replica set
