@@ -1,5 +1,6 @@
 # MongoDB Driver
-The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
+
+The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh**, **CDC (Change Data Capture)**, and **Query-Based Incremental Sync** modes.
 
 ---
 
@@ -8,6 +9,8 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
    Fetches the complete dataset from MongoDB.
 2. **CDC (Change Data Capture)**  
    Tracks and syncs incremental changes from MongoDB in real time.
+3. **Query-Based Incremental Sync**
+   Fetches only newly inserted or modified documents since the last sync.
 
 ---
 
@@ -40,7 +43,12 @@ Add MongoDB credentials in following format in `config.json` file. To check more
       "max_threads": 50,
       "default_mode" : "cdc",
       "backoff_retry_count": 2,
-      "partition_strategy":""
+      "partition_strategy":"",
+
+      // [Incremental Sync configuration]
+      "incremental_strategy": "timestamp",   // "timestamp" | "objectid" | "soft_delete"
+      "tracking_field": "updatedAt",        // e.g. "updatedAt", "lastModified"
+      "batch_size": 5000                     // docs fetched per internal page
    }
 ```
 
@@ -92,7 +100,7 @@ Before running the Sync command, the generated `catalog.json` file must be confi
    For each stream you want to sync:<br>
    - Add the following properties:
       ```json
-      "sync_mode": "cdc",
+      "sync_mode": "incremental",
       ```
    - Specify the cursor field (only for incremental syncs):
       ```json
@@ -115,7 +123,17 @@ Before running the Sync command, the generated `catalog.json` file must be confi
                "name": "incr2",
                "namespace": "incr",
                ...
-               "sync_mode": "cdc"
+               "sync_mode": "cdc",
+               "supported_sync_modes": [
+                     "full_refresh",
+                     "cdc",
+                     "incremental"
+                  ],
+                  "sync_mode": "incremental",
+                  "available_cursor_fields": [
+                     "updatedAt",
+                     "_id"
+                  ],
             }
          }
       ]
