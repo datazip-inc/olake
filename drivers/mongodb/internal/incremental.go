@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -23,23 +24,6 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	cstream := stream.Self()
 	var lastTS primitive.DateTime
 	var lastID primitive.ObjectID
-	trk := cfg.TrackingField
-	if cfg.Incremental == StrategyTimestamp && trk == "" {
-		ac := stream.GetStream().AvailableCursorFields.Array()
-		logger.Warnf(
-			"strategy=timestamp but no tracking_field set and available_cursor_fields=%v is ambiguous; falling back to FULL_REFRESH",
-			ac,
-		)
-		return m.backfill(stream, pool)
-	}
-	if trk == "" {
-		ac := stream.GetStream().AvailableCursorFields.Array()
-		if len(ac) == 1 {
-			trk = ac[0]
-		} else {
-			trk = "_id"
-		}
-	}
 	if raw := m.State.GetCursor(cstream, cursorLastTS); raw != nil {
 		switch t := raw.(type) {
 		case primitive.DateTime:
@@ -73,6 +57,19 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	if batch == 0 {
 		batch = 5000
 	}
+	trk := cfg.TrackingField
+	if trk == "" {
+		if cfg.Incremental == StrategyTimestamp {
+			err := m.backfill(stream, pool)
+			return err
+		}
+		ac := stream.GetStream().AvailableCursorFields.Array()
+		if len(ac) == 1 {
+			trk = ac[0]
+		} else {
+			trk = "_id"
+		}
+	}
 
 	logger.Infof("incremental sync started on %s.%s (strategy=%s, batch=%d)", db, collName, cfg.Incremental, batch)
 
@@ -100,8 +97,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				"$or": []bson.M{
 					{trk: bson.M{"$gt": lastTS}},
 					{"deleted": true, "deletedAt": bson.M{"$gt": lastTS}},
-				},
-			}
+				}}
 			findOpts.SetSort(bson.D{{Key: trk, Value: 1}})
 		default:
 			return fmt.Errorf("unknown incremental strategy %q", cfg.Incremental)
@@ -140,7 +136,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				}
 			}
 
-			if tsRaw, ok := doc[trk]; ok {
+			if tsRaw, ok := doc[strings.ToLower(trk)]; ok {
 				switch v := tsRaw.(type) {
 				case primitive.DateTime:
 					lastTS = v

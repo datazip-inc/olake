@@ -101,7 +101,14 @@ var syncCmd = &cobra.Command{
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-
+			if elem.Stream.SyncMode == types.INCREMENTAL &&
+				source.SyncMode == types.FULLREFRESH {
+				logger.Warnf(
+					"Configured incremental sync for %s not supported by source (only %v); switching to full_refresh",
+					elem.ID(), source.SupportedSyncModes.Array(),
+				)
+				elem.Stream.SyncMode = types.FULLREFRESH
+			}
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
