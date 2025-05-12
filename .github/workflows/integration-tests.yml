@@ -29,10 +29,10 @@ jobs:
           docker network create olake-test || true
       # Start MongoDB container
       - name: Start MongoDB container
-        run: |
-          bash ./drivers/mongodb/docker-compose-init.sh  
+        run: | 
           pushd ./drivers/mongodb
           docker compose up -d
+          bash ./docker-compose-init.sh 
           popd
       - name: Wait for MongoDB to be ready
         run: |
