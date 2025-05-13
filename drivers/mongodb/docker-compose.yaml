@@ -25,4 +25,4 @@ services:
 networks:
   olake-test:
     name: olake-test
-    external: bridge
+    external: true
