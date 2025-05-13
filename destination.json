@@ -1,7 +1,0 @@
-{
-    "type": "PARQUET",
-    "writer": {
-        "normalization": true,
-        "local_path": "./test_output"
-    }
-}
