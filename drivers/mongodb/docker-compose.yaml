@@ -3,7 +3,7 @@ version: "3.7"
 services:
   db:
     image: 'mongo:latest'
-    container_name: olake_mongo-test
+    container_name: olake_mongodb-test
     environment: {"MONGO_INITDB_ROOT_USERNAME": "olake", "MONGO_INITDB_ROOT_PASSWORD": "olake"}
     command: "mongod --bind_ip_all --replSet rs0 --keyFile /etc/ssl/sample.key"
     entrypoint: ["bash", "-c", "chmod 400 /etc/ssl/sample.key; chown 999:999 /etc/ssl/sample.key; exec docker-entrypoint.sh $@"]
