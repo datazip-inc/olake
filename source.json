@@ -1,0 +1,18 @@
+{
+    "host": "localhost",
+    "port": 5431,
+    "database": "main",
+    "username": "main",
+    "password": "password",
+    "jdbc_url_params": {},
+    "ssl": {
+        "mode": "disable"
+    },
+    "update_method": { 
+        "replication_slot": "int64_test_slot",
+        "initial_wait_time": 10
+    },
+    "reader_batch_size": 100000,
+    "default_sync_mode": "cdc",
+    "max_threads": 5
+}

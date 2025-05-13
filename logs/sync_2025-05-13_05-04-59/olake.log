@@ -1,0 +1,17 @@
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"System has 8GB RAM, setting iceberg writer batch size to 209715200 bytes"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Running sync with state: null"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"local writer configuration found, writing at location[./test_output]"}
+{"level":"info","message":"Found CDC Configuration","time":"2025-05-13T05:04:59Z"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Starting discover for Postgres database main"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Valid selected streams are public.int64_test"}
+{"level":"info","message":"Starting ChangeStream process in driver","time":"2025-05-13T05:04:59Z"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Reading stream[public.int64_test] in full_refresh"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Starting backfill for stream[int64_test] with 1 chunks"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"SystemID:7503462238885716006 Timeline:1 XLogPos:0/1A612A8 Database:main"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"chunk[1] with min['(0,0)']-max['(4294967295,0)'] completed in 0.00 seconds"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Finished reading stream int64_test[public] in 11.178875ms"}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Finished writing file [test_output/public/int64_test/2025-5-13_5-4-59_01JV40G9RCZ07SSV1SQBF6W8MK.parquet] with 8 records."}
+{"level":"info","time":"2025-05-13T05:04:59Z","message":"Started logical replication on slot[int64_test_slot]"}
+{"level":"debug","time":"2025-05-13T05:05:29Z","message":"Idle timeout reached while waiting for new messages"}
+{"level":"debug","time":"2025-05-13T05:05:29Z","message":"sent standby status message at LSN#0/1A611C0"}
+{"level":"info","time":"2025-05-13T05:05:29Z","message":"Total records read: 8"}

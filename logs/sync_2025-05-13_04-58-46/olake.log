@@ -1,0 +1,5 @@
+{"level":"info","time":"2025-05-13T04:58:46Z","message":"System has 8GB RAM, setting iceberg writer batch size to 209715200 bytes"}
+{"level":"info","time":"2025-05-13T04:58:46Z","message":"Running sync with state: null"}
+{"level":"info","time":"2025-05-13T04:58:46Z","message":"local writer configuration found, writing at location[./test_output]"}
+{"level":"info","message":"Found CDC Configuration","time":"2025-05-13T04:58:46Z"}
+{"level":"fatal","time":"2025-05-13T04:58:46Z","message":"failed to check replication slot: sql: no rows in result set"}

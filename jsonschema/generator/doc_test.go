@@ -1,10 +1,9 @@
 package generator
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
-
-	"github.com/goccy/go-json"
 
 	"github.com/brainicorn/ganno"
 	"github.com/datazip-inc/olake/jsonschema/schema"
@@ -102,19 +101,45 @@ func TestNewlineSynopsisDocField(t *testing.T) {
 	opts.LogLevel = VerboseLevel
 
 	jsonSchema, err := GenerateIt(pkg, "NewlineSynopsisDocField", opts)
+	if err != nil {
+		t.Fatalf("Failed to generate schema: %v", err)
+	}
 
-	assert.NoError(t, err)
+	schemaStr := schemaAsString(jsonSchema)
+	if schemaStr == "" {
+		t.Fatal("Generated schema is empty")
+	}
 
-	fmt.Println(schemaAsString(jsonSchema))
+	// Verify the schema contains the required field
+	assert.Contains(t, schemaStr, "DocField")
+	assert.Contains(t, schemaStr, "required")
 }
 
 func GenerateIt(pkg, obj string, opts Options) (schema.JSONSchema, error) {
+	if pkg == "" || obj == "" {
+		return nil, fmt.Errorf("package and object name must be provided")
+	}
 	g := NewJSONSchemaGenerator(pkg, obj, opts)
-	return g.Generate()
+	if g == nil {
+		return nil, fmt.Errorf("failed to create schema generator")
+	}
+	schema, err := g.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate schema: %v", err)
+	}
+	if schema == nil {
+		return nil, fmt.Errorf("generated schema is nil")
+	}
+	return schema, nil
 }
 
 func schemaAsString(s schema.JSONSchema) string {
-	schemaBytes, _ := json.MarshalIndent(s, "", "  ")
-
+	if s == nil {
+		return ""
+	}
+	schemaBytes, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("error marshaling schema: %v", err)
+	}
 	return string(schemaBytes)
 }

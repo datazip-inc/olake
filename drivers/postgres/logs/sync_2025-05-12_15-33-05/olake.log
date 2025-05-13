@@ -1,0 +1,2 @@
+{"level":"info","time":"2025-05-12T15:33:05Z","message":"System has 8GB RAM, setting iceberg writer batch size to 209715200 bytes"}
+{"level":"fatal","time":"2025-05-12T15:33:05Z","message":"source.json does not exist: stat source.json: no such file or directory"}

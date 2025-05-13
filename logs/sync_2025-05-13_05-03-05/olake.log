@@ -1,0 +1,13 @@
+{"level":"info","time":"2025-05-13T05:03:05Z","message":"System has 8GB RAM, setting iceberg writer batch size to 209715200 bytes"}
+{"level":"info","time":"2025-05-13T05:03:05Z","message":"Running sync with state: null"}
+{"level":"info","time":"2025-05-13T05:03:05Z","message":"local writer configuration found, writing at location[./test_output]"}
+{"level":"info","message":"Found CDC Configuration","time":"2025-05-13T05:03:05Z"}
+{"level":"info","time":"2025-05-13T05:03:05Z","message":"Starting discover for Postgres database main"}
+{"level":"warn","time":"2025-05-13T05:03:05Z","message":"Skipping; Configured Stream main.int64_test not found in source"}
+{"level":"info","time":"2025-05-13T05:03:05Z","message":"Valid selected streams are "}
+{"level":"info","message":"Starting ChangeStream process in driver","time":"2025-05-13T05:03:05Z"}
+{"level":"info","time":"2025-05-13T05:03:05Z","message":"SystemID:7503462238885716006 Timeline:1 XLogPos:0/1A612A8 Database:main"}
+{"level":"info","time":"2025-05-13T05:03:05Z","message":"Started logical replication on slot[int64_test_slot]"}
+{"level":"debug","time":"2025-05-13T05:03:35Z","message":"Idle timeout reached while waiting for new messages"}
+{"level":"debug","time":"2025-05-13T05:03:35Z","message":"sent standby status message at LSN#0/1A611C0"}
+{"level":"info","time":"2025-05-13T05:03:35Z","message":"Total records read: 0"}
