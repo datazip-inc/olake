@@ -75,7 +75,11 @@ var syncCmd = &cobra.Command{
 				logger.Info("Running deferred final state upload...")
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				persister.UploadFinalState(ctx)
+				if err := persister.UploadFinalState(ctx); err != nil {
+					logger.Errorf("Final state upload failed: %v", err)
+				} else {
+					logger.Info("Final state upload completed successfully.")
+				}
 			}()
 		}
 

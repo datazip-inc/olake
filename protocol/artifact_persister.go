@@ -14,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
+	"errors"
+
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -21,6 +23,9 @@ import (
 )
 
 const artifactSubDir = "_olake_runtime" // Directory within the base path for artifacts
+
+// ErrArtifactStorageNotConfigured is a sentinel error for when artifact storage is not configured
+var ErrArtifactStorageNotConfigured = errors.New("artifact storage not configured: --artifact-storage flag not provided or path is empty")
 
 // ArtifactPersister handles uploading runtime artifacts (state, logs, etc.) to S3.
 type ArtifactPersister struct {
@@ -121,7 +126,7 @@ func testS3Connection(s3Client *s3.S3, bucket, basePath string) error {
 func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
 	// If flag not provided, artifact persistence is not requested
 	if artifactStoragePath == "" {
-		return nil, nil
+		return nil, ErrArtifactStorageNotConfigured
 	}
 
 	// Load and validate config
@@ -231,13 +236,9 @@ func RunPeriodicStateUploader(ctx context.Context, persister *ArtifactPersister,
 			return
 		case <-ticker.C:
 			uploadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			err := persister.UploadFile(uploadCtx, localStatePath, s3KeySuffix)
+			_ = persister.UploadFile(uploadCtx, localStatePath, s3KeySuffix)
 			cancel()
-			if err != nil {
-				// Already logged within UploadFile
-			} else {
-				logger.Debugf("Periodic state upload successful for %s", localStatePath)
-			}
+			logger.Debugf("Periodic state upload successful for %s", localStatePath)
 		}
 	}
 }
