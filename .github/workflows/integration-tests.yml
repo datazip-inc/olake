@@ -29,36 +29,33 @@ jobs:
           docker network create olake-test || true
       # Start MongoDB container
       - name: Start MongoDB container
-        run: | 
-          pushd ./drivers/mongodb
-          docker compose up -d
-          bash ./docker-compose-init.sh 
-          popd
-          
-      - name: Initialize replica set
+        working-directory: drivers/mongodb
         run: |
-          docker exec olake_mongodb-test \
-            mongosh -u olake -p olake --authenticationDatabase admin \
-            --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
+          docker compose up -d
 
-      - name: Wait for MongoDB to be ready
+      - name: Wait for MongoDB healthcheck
         run: |
           for i in {1..30}; do
-            STATE=$(docker inspect --format='{{.State.Status}}' olake_mongodb-test)
-            if [ "$STATE" = "running" ] && \
-              docker exec olake_mongodb-test \
-                mongosh -u olake -polake --authenticationDatabase admin \
-                      --eval "db.adminCommand({ ping: 1 })" &> /dev/null && \
-              docker exec olake_mongodb-test \
-                mongosh -u olake -p olake --authenticationDatabase admin \
-                      --eval 'rs.status().ok' | grep -q 1
+            if docker inspect --format='{{.State.Status}}' olake_mongo-test | grep -q running \
+               && docker exec olake_mongo-test \
+                  mongosh --username olake --password olake --authenticationDatabase admin \
+                  --eval "db.adminCommand({ ping: 1 })" &> /dev/null
             then
-              echo "MongoDB is ready!"
+              echo "MongoDB is healthy!"
               break
             fi
-            echo "[$(date +"%T")] MongoDB state=$STATE; still waiting..."
+            echo "Waiting for MongoDB…"
             sleep 5
           done
+      
+      - name: Ensure init script is executable
+        working-directory: drivers/mongodb
+        run: chmod +x docker-compose-init.sh
+
+      - name: Initialize replica set
+        working-directory: drivers/mongodb
+        run: |
+          bash ./docker-compose-init.sh
 
       - name: Start MySQL container
         run: |

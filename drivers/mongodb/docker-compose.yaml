@@ -2,27 +2,35 @@ version: "3.7"
 
 services:
   db:
-    image: 'mongo:latest'
-    container_name: olake_mongodb-test
+    image: mongo:latest
+    container_name: olake_mongo-test             # <-- matches below
     environment:
-      MONGO_INITDB_ROOT_USERNAME: "olake"
-      MONGO_INITDB_ROOT_PASSWORD: "olake"
-    command: "mongod --bind_ip_all --replSet rs0 --keyFile /etc/ssl/sample.key"
-    entrypoint: ["bash", "-c", "chmod 400 /etc/ssl/sample.key; chown 999:999 /etc/ssl/sample.key; exec docker-entrypoint.sh \"$@\""]
+      MONGO_INITDB_ROOT_USERNAME: olake
+      MONGO_INITDB_ROOT_PASSWORD: olake
+    command: >
+      mongod --bind_ip_all
+             --replSet rs0
+             --keyFile /etc/ssl/sample.key
+    entrypoint:
+      - bash
+      - -c
+      - |
+        chmod 400 /etc/ssl/sample.key
+        chown 999:999 /etc/ssl/sample.key
+        exec docker-entrypoint.sh "$@"
     ports:
       - "27017:27017"
     networks:
       - olake-test
     volumes:
-      - ./test.key:/etc/ssl/sample.key:ro
+      - ./test.key:/etc/ssl/sample.key:ro     # <-- now mounts the test.key from this folder
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--username", "olake", "--password", "olake", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
       interval: 5s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 5s
 
 networks:
   olake-test:
-    name: olake-test
     external: true
