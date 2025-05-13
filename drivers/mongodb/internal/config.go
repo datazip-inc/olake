@@ -63,11 +63,5 @@ func (c *Config) URI() string {
 
 // TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
-	if c.Incremental == "" {
-		c.Incremental = StrategyChangeStream // preserve current behaviour
-	}
-	if c.BatchSize == 0 {
-		c.BatchSize = 5000
-	}
 	return utils.Validate(c)
 }
