@@ -20,8 +20,8 @@ func testMongoClient(t *testing.T) (*mongo.Client, Config, *Mongo) {
 	t.Helper()
 	config := Config{
 		Hosts:      []string{"localhost:27017"},
-		Username:   "olake",
-		Password:   "olake",
+		Username:   "admin",
+		Password:   "password",
 		Database:   "olake",
 		AuthDB:     "admin",
 		ReplicaSet: "rs0",

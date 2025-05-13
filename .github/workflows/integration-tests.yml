@@ -31,51 +31,22 @@ jobs:
       - name: Start MongoDB container
         run: | 
           pushd ./drivers/mongodb
-          docker compose up -d
+          docker compose up -d --build
           docker ps
           sleep 5
           docker ps
           sleep 5
-          docker ps
-          sleep 5
-          docker ps
-          sleep 5
-          docker ps
-          sleep 5
-          docker ps
-          sleep 5
-          docker ps
-          sleep 5
-          docker ps
-          sleep 5
-          docker ps
-          sleep 5
-          docker ps
-          sleep 5
-          bash ./docker-compose-init.sh
           docker ps
           sleep 5
           popd
-      - name: Wait for MongoDB to be ready
+      - name: Wait for MongoDB to be healthy
         run: |
+          echo "Waiting for MongoDB to be ready..."
           for i in {1..30}; do
-            STATE=$(docker inspect --format='{{.State.Status}}' olake_mongodb-test)
-            if [ "$STATE" = "running" ] && \
-               docker exec olake_mongodb-test \
-                 mongosh -u olake -polake --authenticationDatabase admin \
-                       --eval "db.adminCommand({ ping: 1 })" &> /dev/null
-            then
-              echo "MongoDB is ready!"
-              break
-            fi
-            echo "[$(date +"%T")] MongoDB state=$STATE; still waiting..."
+            docker exec primary_mongo mongosh --port 27017 -u admin -p password --authenticationDatabase admin --eval "db.runCommand({ ping: 1 })" && break
+            echo "Mongo not ready yet..."
             sleep 5
           done
-      - name: Initialize replica set
-        run: |
-          docker exec olake_mongodb-test \
-            mongosh -u olake -p olake --authenticationDatabase admin \
-            --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
 
       - name: Start MySQL container
         run: |
