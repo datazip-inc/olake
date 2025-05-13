@@ -135,6 +135,28 @@ func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
 		return nil, fmt.Errorf("failed to load artifact storage config: %w", err)
 	}
 
+	// Extract bucket name from s3:// format
+	if cfg.Bucket != "" {
+		bucketStr := strings.TrimPrefix(cfg.Bucket, "s3://")
+		bucketStr = strings.TrimPrefix(bucketStr, "s3a://")
+
+		if parts := strings.SplitN(bucketStr, "/", 2); len(parts) > 0 {
+			cfg.Bucket = parts[0]
+
+			// If path part exists and base path not already set, use it as base path
+			if len(parts) > 1 && cfg.BasePath == "" {
+				cfg.BasePath = parts[1]
+				cfg.BasePath = strings.Trim(cfg.BasePath, "/")
+			}
+		}
+		logger.Infof("Using S3 bucket: %s and base path: '%s'", cfg.Bucket, cfg.BasePath)
+	}
+
+	// Validate bucket is set (this uses the already parsed cfg.Bucket)
+	if strings.TrimSpace(cfg.Bucket) == "" {
+		return nil, fmt.Errorf("S3 bucket name cannot be determined or is empty in artifact storage config (from %s)", artifactStoragePath)
+	}
+
 	// Create persister - this will error if config is invalid
 	persister, err := NewArtifactPersister(cfg)
 	if err != nil {
