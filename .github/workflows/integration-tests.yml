@@ -34,7 +34,7 @@ jobs:
           docker compose up -d
           docker ps
           sleep 5
-          bash docker-compose-init.sh
+          bash ./docker-compose-init.sh
           docker ps
           sleep 5
           popd
