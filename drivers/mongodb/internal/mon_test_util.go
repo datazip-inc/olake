@@ -114,6 +114,17 @@ func insertDocOp(ctx context.Context, t *testing.T, conn interface{}, tableName 
 
 	_, err := coll.InsertOne(ctx, newDoc)
 	require.NoError(t, err, "Failed to insert document in CDC test")
+	cursor, err := coll.Find(ctx, bson.M{})
+	require.NoError(t, err, "Failed to retrieve documents from collection")
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var doc bson.M
+		err := cursor.Decode(&doc)
+		require.NoError(t, err, "Failed to decode document")
+		t.Logf("%v", doc)
+	}
+	require.NoError(t, cursor.Err(), "Cursor encountered an error")
 }
 
 func updateDocOp(ctx context.Context, t *testing.T, conn interface{}, tableName string) {
