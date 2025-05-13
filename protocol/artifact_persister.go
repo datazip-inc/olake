@@ -31,13 +31,10 @@ type ArtifactPersister struct {
 }
 
 // NewArtifactPersister creates and initializes an ArtifactPersister
-func NewArtifactPersister(cfg types.ArtifactStorageConfig, isActive bool) (*ArtifactPersister, error) {
-	if !isActive {
-		return nil, nil
-	}
+// It will only return a valid persister or an error, never (nil, error)
+func NewArtifactPersister(cfg types.ArtifactStorageConfig) (*ArtifactPersister, error) {
 	if cfg.Bucket == "" {
-		logger.Error("S3 bucket name cannot be empty for ArtifactPersister - persistence disabled")
-		return nil, nil
+		return nil, fmt.Errorf("S3 bucket name cannot be empty for ArtifactPersister")
 	}
 
 	awsCfg := aws.NewConfig()
@@ -67,11 +64,11 @@ func NewArtifactPersister(cfg types.ArtifactStorageConfig, isActive bool) (*Arti
 	})
 	if err != nil {
 		logger.Errorf("Failed to create AWS session: %v - artifact persistence disabled", err)
-		return nil, nil
+		return nil, err
 	}
 	if _, err := sess.Config.Credentials.Get(); err != nil {
 		logger.Errorf("Failed to get AWS credentials: %v - artifact persistence disabled", err)
-		return nil, nil
+		return nil, err
 	}
 
 	s3Client := s3.New(sess)
@@ -120,63 +117,31 @@ func testS3Connection(s3Client *s3.S3, bucket, basePath string) error {
 	return nil
 }
 
-// InitializePersister loads config and creates a persister
+// InitializePersister loads config and creates a persister if the flag is provided
 func InitializePersister(ctx context.Context) (*ArtifactPersister, error) {
-	// Check if artifact storage config path is provided
+	// If flag not provided, artifact persistence is not requested
 	if artifactStoragePath == "" {
-		return nil, nil // No persistence requested
+		return nil, nil
 	}
 
-	// Load config from JSON file
+	// Load and validate config
 	var cfg types.ArtifactStorageConfig
 	if err := utils.UnmarshalFile(artifactStoragePath, &cfg); err != nil {
-		logger.Errorf("Failed to load artifact storage config from %s: %v", artifactStoragePath, err)
 		return nil, fmt.Errorf("failed to load artifact storage config: %w", err)
 	}
 
-	// Extract bucket name from s3:// format
-	if cfg.Bucket != "" {
-		// Strip s3:// prefix and extract bucket name
-		bucketStr := strings.TrimPrefix(cfg.Bucket, "s3://")
-		bucketStr = strings.TrimPrefix(bucketStr, "s3a://")
-
-		if parts := strings.SplitN(bucketStr, "/", 2); len(parts) > 0 {
-			cfg.Bucket = parts[0] // First part is the bucket name
-
-			// If path part exists and base path not already set, use it as base path
-			if len(parts) > 1 && cfg.BasePath == "" {
-				cfg.BasePath = parts[1]
-			}
-		}
-
-		logger.Infof("Using S3 bucket: %s", cfg.Bucket)
-	}
-
-	// Validate bucket is set
-	if cfg.Bucket == "" {
-		logger.Error("S3 bucket name cannot be determined from artifact storage config")
-		return nil, fmt.Errorf("S3 bucket name cannot be determined from artifact storage config")
-	}
-
-	// Force UseSSL to true for security
-	cfg.UseSSL = true
-
-	persister, err := NewArtifactPersister(cfg, true)
+	// Create persister - this will error if config is invalid
+	persister, err := NewArtifactPersister(cfg)
 	if err != nil {
-		logger.Errorf("Failed to initialize artifact persister: %v", err)
 		return nil, fmt.Errorf("artifact persister initialization failed: %w", err)
 	}
-	if persister == nil {
-		logger.Error("Failed to initialize artifact persister: returned nil")
-		return nil, fmt.Errorf("artifact persister initialization failed with nil result")
-	}
 
-	// Test the connection after initialization
+	// Test connection
 	if err := testS3Connection(persister.s3Client, persister.bucket, persister.fullBasePath); err != nil {
-		logger.Errorf("S3 connection test failed: %v", err)
 		return nil, fmt.Errorf("S3 connection test failed: %w", err)
 	}
 
+	// Start periodic uploader
 	interval := 5 * time.Minute
 	if cfg.UploadInterval != "" {
 		if d, err := time.ParseDuration(cfg.UploadInterval); err == nil && d > 0 {
