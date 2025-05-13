@@ -14,7 +14,6 @@ services:
     networks:
       - olake-test
     volumes:
-      - /Users/dukedhal/olake/drivers/mongodb/test.key:/etc/ssl/sample.key:ro
       - ./test.key:/etc/ssl/sample.key:ro
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
