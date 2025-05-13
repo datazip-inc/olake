@@ -163,7 +163,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 		t.Run("mongo full refresh read", func(t *testing.T) {
 			runReadTest(t, types.FULLREFRESH, nil)
-			time.Sleep(80 * time.Second)
+			time.Sleep(120 * time.Second)
 			VerifyIcebergSync(t, collName, "5")
 		})
 		time.Sleep(60 * time.Second)
@@ -257,7 +257,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		}
 		t.Run("full refresh read", func(t *testing.T) {
 			runReadTest(t, types.FULLREFRESH, nil)
-			time.Sleep(80 * time.Second)
+			time.Sleep(120 * time.Second)
 			VerifyIcebergSync(t, tableName, "5")
 		})
 		time.Sleep(60 * time.Second)
