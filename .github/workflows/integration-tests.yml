@@ -34,11 +34,12 @@ jobs:
           docker compose up -d
           bash ./docker-compose-init.sh 
           popd
+          
       - name: Initialize replica set
         run: |
           docker exec olake_mongodb-test \
             mongosh -u olake -p olake --authenticationDatabase admin \
-            --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"db:27017"}]})'
+            --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
 
       - name: Wait for MongoDB to be ready
         run: |
