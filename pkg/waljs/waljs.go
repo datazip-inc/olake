@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"

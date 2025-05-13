@@ -7,7 +7,7 @@ import (
 	"github.com/goccy/go-json"
 
 	"github.com/brainicorn/ganno"
-	"github.com/datazip-inc/olake/jsonschema/schema"
+	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 
 	"github.com/stretchr/testify/assert"
 )

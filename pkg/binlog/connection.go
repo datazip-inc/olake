@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 )

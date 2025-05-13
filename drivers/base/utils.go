@@ -3,7 +3,7 @@ package base
 import (
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 func RetryOnBackoff(attempts int, sleep time.Duration, f func() error) (err error) {
