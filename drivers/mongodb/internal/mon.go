@@ -181,7 +181,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 	}
 
-	if err := utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
 		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 		if err != nil {
 			return err
@@ -201,9 +201,5 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		}
 
 		return cursor.Err()
-	}); err != nil {
-		return nil, err
-	}
-
-	return stream, nil
+	})
 }
