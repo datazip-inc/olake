@@ -222,7 +222,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 			stream.AvailableCursorFields = types.NewSet("_id")
 			return stream, nil
 		}
-		stream.AvailableCursorFields = types.NewSet(tf)
+		stream.AvailableCursorFields = types.NewSet(m.config.TrackingField)
 	}
 
 	return stream, nil
