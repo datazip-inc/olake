@@ -56,7 +56,7 @@ services:
       echo "Initializing replica set..."
       # Initialize the replica set with a single member and set its host address.
       # Note: host.docker.internal provides a host network reference.
-      mongosh --port 27017 --eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"primary_mongo:27017\"}]})"
+      mongosh --port 27017 --eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"localhost:27017\"}]})"
       
       echo "Waiting for replica set to initialize..."
       # Allow some time for the replica set configuration to propagate.
