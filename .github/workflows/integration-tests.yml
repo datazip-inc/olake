@@ -35,6 +35,7 @@ jobs:
           docker ps
           sleep 5
           bash docker-compose-init.sh
+          docker ps
           sleep 5
           popd
       - name: Wait for MongoDB to be ready
