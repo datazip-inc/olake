@@ -8,8 +8,7 @@ const (
 type IncrementalStrategy string
 
 const (
-	StrategyChangeStream IncrementalStrategy = "change_stream"
-	StrategyTimestamp    IncrementalStrategy = "timestamp"
-	StrategyObjectID     IncrementalStrategy = "objectid"
-	StrategySoftDelete   IncrementalStrategy = "soft_delete"
+	StrategyTimestamp  IncrementalStrategy = "timestamp"
+	StrategyObjectID   IncrementalStrategy = "objectid"
+	StrategySoftDelete IncrementalStrategy = "soft_delete"
 )
