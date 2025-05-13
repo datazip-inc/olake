@@ -32,7 +32,7 @@ jobs:
         run: | 
           pushd ./drivers/mongodb
           docker compose up -d
-          bash ./drivers/mongodb/docker-compose-init.sh 
+          bash docker-compose-init.sh 
           popd
       - name: Wait for MongoDB to be ready
         run: |
