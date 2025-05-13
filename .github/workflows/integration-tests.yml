@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - "feat/testing_framework"
+      - "feat/mongodb_testing"
   pull_request:
     branches:
       - "*"
+      - "feat/mongodb_testing"
 
 jobs:
   test:
@@ -22,6 +24,30 @@ jobs:
     
           
       # Start required containers
+      - name: Ensure olake-test network exists
+        run: |
+          docker network create olake-test || true
+      # Start MongoDB container
+      - name: Start MongoDB container
+        run: | 
+          pushd ./drivers/mongodb
+          docker compose up -d --build
+          docker ps
+          sleep 5
+          docker ps
+          sleep 5
+          docker ps
+          sleep 5
+          popd
+      - name: Wait for MongoDB to be healthy
+        run: |
+          echo "Waiting for MongoDB to be ready..."
+          for i in {1..30}; do
+            docker exec primary_mongo mongosh --port 27017 -u admin -p password --authenticationDatabase admin --eval "db.runCommand({ ping: 1 })" && break
+            echo "Mongo not ready yet..."
+            sleep 5
+          done
+
       - name: Start MySQL container
         run: |
           pushd ./drivers/mysql
@@ -81,6 +107,10 @@ jobs:
           mvn clean package -DskipTests
 
       # Run the integration tests
+      - name: Run integration tests for MongoDB
+        run: |
+          go test -v ./drivers/mongodb/internal/... -tags=integration --timeout 0
+      
       - name: Run integration tests for MySQL
         run: |
           go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0

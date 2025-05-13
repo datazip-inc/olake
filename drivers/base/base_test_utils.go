@@ -14,14 +14,16 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // TestHelper defines database-specific helper functions
 type TestHelper struct {
-	CreateTable func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	DropTable   func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	CleanTable  func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	AddData     func(ctx context.Context, t *testing.T, conn interface{}, tableName string, numItems int, startAtItem int, cols ...string)
+	CreateTable  func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
+	DropTable    func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
+	CleanTable   func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
+	AddData      func(ctx context.Context, t *testing.T, conn interface{}, tableName string, numItems int, startAtItem int, cols ...string)
+	AddMongoData func(ctx context.Context, t *testing.T, conn interface{}, tableName string, numItems int, startAtItem int)
 
 	//CDC operations
 	InsertOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
@@ -31,6 +33,9 @@ type TestHelper struct {
 
 // TestSetup tests the driver setup and connection check
 var tableName = fmt.Sprintf("%s_%d", "test_table_olake", time.Now().Unix())
+
+// For MongoDb tests
+var collName = fmt.Sprintf("%s_%d", "olake_test_collection", time.Now().Unix())
 
 func TestSetup(t *testing.T, driver protocol.Driver, client interface{}) {
 	t.Helper()
@@ -43,15 +48,26 @@ func TestSetup(t *testing.T, driver protocol.Driver, client interface{}) {
 func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, helper TestHelper) {
 	t.Helper()
 	ctx := context.Background()
-	conn := client.(*sqlx.DB) // For Postgres; adjust if MySQL uses *sql.DB
+	isMongo := false
+	switch c := client.(type) {
+	case *mongo.Client:
+		isMongo = true
+		helper.CreateTable(ctx, t, c, collName)
+		defer helper.DropTable(ctx, t, c, collName)
+		helper.CleanTable(ctx, t, c, collName)
+		helper.AddMongoData(ctx, t, c, collName, 5, 1)
+		tableName = collName
+	default:
+		conn := client.(*sqlx.DB) // For Postgres; adjust if MySQL uses *sql.DB
+		helper.CreateTable(ctx, t, conn, tableName)
+		defer helper.DropTable(ctx, t, conn, tableName)
+		helper.CleanTable(ctx, t, conn, tableName)
+		helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
+	}
 
-	helper.CreateTable(ctx, t, conn, tableName)
-	defer helper.DropTable(ctx, t, conn, tableName)
-	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
-
+	prefix := utils.Ternary(isMongo, "mongo ", "sql ").(string)
 	streams, err := driver.Discover(true)
-	assert.NoError(t, err, "Discover failed")
+	assert.NoError(t, err, prefix+"Discover failed")
 	assert.NotEmpty(t, streams, "No streams found")
 	for _, stream := range streams {
 		if stream.Name == tableName {
@@ -65,19 +81,29 @@ func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, help
 func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHelper, setupClient func(t *testing.T) (interface{}, protocol.Driver)) {
 	t.Helper()
 	ctx := context.Background()
-	conn := client.(*sqlx.DB) // Adjust based on driver
+	isMongo := false
+	switch c := client.(type) {
+	case *mongo.Client:
+		isMongo = true
+		helper.CreateTable(ctx, t, c, collName)
+		defer helper.DropTable(ctx, t, c, collName)
+		helper.CleanTable(ctx, t, c, collName)
+		helper.AddMongoData(ctx, t, c, collName, 5, 1)
+		tableName = collName
+	default:
+		conn := client.(*sqlx.DB)
+		helper.CreateTable(ctx, t, conn, tableName)
+		defer helper.DropTable(ctx, t, conn, tableName)
+		helper.CleanTable(ctx, t, conn, tableName)
+		helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
+	}
 
-	// Setup table and initial data
-	helper.CreateTable(ctx, t, conn, tableName)
-	defer helper.DropTable(ctx, t, conn, tableName)
-	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
-
-	// Register Parquet writer
+	// Register Parquet writer - common for both
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
 		return &iceberg.Iceberg{}
 	}
 
+	// Create writer pool - common config for both
 	pool, err := protocol.NewWriter(ctx, &types.WriterConfig{
 		Type: "ICEBERG",
 		WriterConfig: map[string]any{
@@ -97,7 +123,8 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		},
 	})
 	require.NoError(t, err, "Failed to create writer pool")
-	// Get test stream
+
+	// Get test stream - common function for both
 	getTestStream := func(d protocol.Driver) *types.Stream {
 		streams, err := d.Discover(true)
 		require.NoError(t, err, "Discover failed")
@@ -107,26 +134,29 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 				return stream
 			}
 		}
-		require.Fail(t, "Could not find stream for table %s", tableName)
+		require.Fail(t, "Could not find stream for table/collection %s", tableName)
 		return nil
 	}
-	// Run read test for a given sync mode
+
+	// Run read test for a given sync mode - common function for both
 	runReadTest := func(t *testing.T, syncMode types.SyncMode, extraTests func(t *testing.T)) {
 		_, streamDriver := setupClient(t)
 		testStream := getTestStream(streamDriver)
 		dummyStream := &types.ConfiguredStream{Stream: testStream}
+		dummyStream.StreamMetadata.Normalization = true
 		dummyStream.Stream.SyncMode = syncMode
+
 		if syncMode == types.CDC {
 			readErrCh := make(chan error, 1)
 			go func() {
 				readErrCh <- streamDriver.Read(pool, dummyStream)
 			}()
 			time.Sleep(2 * time.Second) // Wait for CDC initialization
+
 			if extraTests != nil {
 				extraTests(t)
 			}
 			time.Sleep(3 * time.Second) // Wait for CDC to process
-			// Directly receive from the channel
 			err := <-readErrCh
 			assert.NoError(t, err, "CDC read operation failed")
 		} else {
@@ -134,30 +164,53 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			assert.NoError(t, err, "Read operation failed")
 		}
 	}
-	t.Run("full refresh read", func(t *testing.T) {
+
+	// Full refresh test - common for both
+	prefix := utils.Ternary(isMongo, "mongo ", "sql ").(string)
+	t.Run(prefix+"full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
 		time.Sleep(120 * time.Second)
 		VerifyIcebergSync(t, tableName, "5")
 	})
 	time.Sleep(60 * time.Second)
-	t.Run("cdc read", func(t *testing.T) {
+
+	// CDC test - specialized for MongoDB vs SQL
+	t.Run(prefix+"cdc read", func(t *testing.T) {
 		runReadTest(t, types.CDC, func(t *testing.T) {
-			t.Run("insert operation", func(t *testing.T) {
-				helper.InsertOp(ctx, t, conn, tableName)
-			})
-			time.Sleep(120 * time.Second)
-			VerifyIcebergSync(t, tableName, "6")
-			t.Run("update operation", func(t *testing.T) {
-				helper.UpdateOp(ctx, t, conn, tableName)
-			})
-			VerifyIcebergSync(t, tableName, "6")
-			t.Run("delete operation", func(t *testing.T) {
-				helper.DeleteOp(ctx, t, conn, tableName)
-			})
-			VerifyIcebergSync(t, tableName, "6")
+			if isMongo {
+				t.Run("insert document operation", func(t *testing.T) {
+					helper.InsertOp(ctx, t, client, tableName)
+					time.Sleep(10 * time.Second)
+					VerifyIcebergSync(t, tableName, "6")
+				})
+				time.Sleep(80 * time.Second)
+				t.Run("update document operation", func(t *testing.T) {
+					helper.UpdateOp(ctx, t, client, tableName)
+					VerifyIcebergSync(t, tableName, "6")
+				})
+				t.Run("delete document operation", func(t *testing.T) {
+					helper.DeleteOp(ctx, t, client, tableName)
+					VerifyIcebergSync(t, tableName, "6")
+				})
+			} else {
+				t.Run("insert operation", func(t *testing.T) {
+					helper.InsertOp(ctx, t, client, tableName)
+				})
+				time.Sleep(80 * time.Second)
+				VerifyIcebergSync(t, tableName, "6")
+				t.Run("update operation", func(t *testing.T) {
+					helper.UpdateOp(ctx, t, client, tableName)
+				})
+				VerifyIcebergSync(t, tableName, "6")
+				t.Run("delete operation", func(t *testing.T) {
+					helper.DeleteOp(ctx, t, client, tableName)
+				})
+				VerifyIcebergSync(t, tableName, "6")
+			}
 		})
 	})
 }
+
 func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 	t.Helper()
 	ctx := context.Background()
@@ -165,7 +218,11 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
-	defer spark.Stop()
+	defer func() {
+		if err := spark.Stop(); err != nil {
+			t.Logf("Error stopping Spark session: %v", err)
+		}
+	}()
 
 	// Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT _olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
