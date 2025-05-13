@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
@@ -204,25 +203,6 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		return cursor.Err()
 	}); err != nil {
 		return nil, err
-	}
-
-	tf := strings.ToLower(m.config.TrackingField)
-	if m.config.DefaultMode == types.INCREMENTAL {
-		schemaProps := map[string]struct{}{}
-		stream.Schema.Properties.Range(func(k, v any) bool {
-			schemaProps[strings.ToLower(k.(string))] = struct{}{}
-			return true
-		})
-		if _, ok := schemaProps[tf]; !ok {
-			logger.Warnf(
-				"configured tracking_field %q not in schema fields %v; switching to FULL_REFRESH",
-				tf, stream.AvailableCursorFields.Array(),
-			)
-			m.config.DefaultMode = types.FULLREFRESH
-			stream.AvailableCursorFields = types.NewSet("_id")
-			return stream, nil
-		}
-		stream.AvailableCursorFields = types.NewSet(m.config.TrackingField)
 	}
 
 	return stream, nil

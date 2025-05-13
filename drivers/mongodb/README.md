@@ -44,11 +44,7 @@ Add MongoDB credentials in following format in `config.json` file. To check more
       "default_mode" : "cdc",
       "backoff_retry_count": 2,
       "partition_strategy":"",
-
-      // [Incremental Sync configuration]
-      "incremental_strategy": "timestamp",   // "timestamp" | "objectid" | "soft_delete"
-      "tracking_field": "updatedAt",        // e.g. "updatedAt", "lastModified"
-      "batch_size": 5000                     // docs fetched per internal page
+      "batch_size": 5000                     // docs fetched per internal page for incremental sync
    }
 ```
 
@@ -134,6 +130,9 @@ Before running the Sync command, the generated `catalog.json` file must be confi
                      "updatedAt",
                      "_id"
                   ],
+                  // [Incremental Sync configuration]
+                  "incremental_strategy": "timestamp",   // "timestamp" | "objectid" | "soft_delete"
+                  "tracking_field": "updatedAt",        // e.g. "updatedAt", "lastModified"
             }
          }
       ]

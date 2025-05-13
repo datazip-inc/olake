@@ -1,9 +1,4 @@
-package driver
-
-const (
-	cursorLastTS = "last_ts"
-	cursorLastID = "last_id"
-)
+package types
 
 type IncrementalStrategy string
 

@@ -16,12 +16,20 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const (
+	cursorLastTS = "last_ts"
+	cursorLastID = "last_id"
+)
+
 func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPool) error {
 	cfg := m.config
 	db, collName := stream.Namespace(), stream.Name()
 	coll := m.client.Database(db).Collection(collName)
 
 	cstream := stream.Self()
+
+	mstream := stream.GetStream()
+
 	var lastTS primitive.DateTime
 	var lastID primitive.ObjectID
 	if raw := m.State.GetCursor(cstream, cursorLastTS); raw != nil {
@@ -57,9 +65,9 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	if batch == 0 {
 		batch = 5000
 	}
-	trk := cfg.TrackingField
+	trk := mstream.TrackingField
 	if trk == "" {
-		if cfg.Incremental == StrategyTimestamp {
+		if mstream.Incremental == types.StrategyTimestamp {
 			err := m.backfill(stream, pool)
 			return err
 		}
@@ -71,14 +79,14 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 		}
 	}
 
-	logger.Infof("incremental sync started on %s.%s (strategy=%s, batch=%d)", db, collName, cfg.Incremental, batch)
+	logger.Infof("incremental sync started on %s.%s (strategy=%s, batch=%d)", db, collName, mstream.Incremental, batch)
 
 	for {
 		var filter bson.M
 		findOpts := options.Find().SetBatchSize(batch)
 
-		switch cfg.Incremental {
-		case StrategyTimestamp:
+		switch mstream.Incremental {
+		case types.StrategyTimestamp:
 			filter = bson.M{
 				"$or": []bson.M{
 					{trk: bson.M{"$gt": lastTS}},
@@ -89,10 +97,10 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				{Key: trk, Value: 1},
 				{Key: "_id", Value: 1},
 			})
-		case StrategyObjectID:
+		case types.StrategyObjectID:
 			filter = bson.M{"_id": bson.M{"$gt": lastID}}
 			findOpts.SetSort(bson.D{{Key: "_id", Value: 1}})
-		case StrategySoftDelete:
+		case types.StrategySoftDelete:
 			filter = bson.M{
 				"$or": []bson.M{
 					{trk: bson.M{"$gt": lastTS}},
@@ -100,7 +108,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				}}
 			findOpts.SetSort(bson.D{{Key: trk, Value: 1}})
 		default:
-			return fmt.Errorf("unknown incremental strategy %q", cfg.Incremental)
+			return fmt.Errorf("unknown incremental strategy %q", mstream.Incremental)
 		}
 
 		cur, err := coll.Find(context.TODO(), filter, findOpts)

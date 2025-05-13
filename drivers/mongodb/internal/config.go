@@ -10,22 +10,20 @@ import (
 )
 
 type Config struct {
-	Hosts             []string            `json:"hosts"`
-	Username          string              `json:"username"`
-	Password          string              `json:"password"`
-	AuthDB            string              `json:"authdb"`
-	ReplicaSet        string              `json:"replica_set"`
-	ReadPreference    string              `json:"read_preference"`
-	Srv               bool                `json:"srv"`
-	ServerRAM         uint                `json:"server_ram"`
-	MaxThreads        int                 `json:"max_threads"`
-	Database          string              `json:"database"`
-	DefaultMode       types.SyncMode      `json:"default_mode"`
-	RetryCount        int                 `json:"backoff_retry_count"`
-	PartitionStrategy string              `json:"partition_strategy"`
-	Incremental       IncrementalStrategy `json:"incremental_strategy,omitempty" mapstructure:"incremental_strategy"`
-	TrackingField     string              `json:"tracking_field,omitempty"       mapstructure:"tracking_field"`
-	BatchSize         int32               `json:"batch_size,omitempty"           mapstructure:"batch_size"`
+	Hosts             []string       `json:"hosts"`
+	Username          string         `json:"username"`
+	Password          string         `json:"password"`
+	AuthDB            string         `json:"authdb"`
+	ReplicaSet        string         `json:"replica_set"`
+	ReadPreference    string         `json:"read_preference"`
+	Srv               bool           `json:"srv"`
+	ServerRAM         uint           `json:"server_ram"`
+	MaxThreads        int            `json:"max_threads"`
+	Database          string         `json:"database"`
+	DefaultMode       types.SyncMode `json:"default_mode"`
+	RetryCount        int            `json:"backoff_retry_count"`
+	PartitionStrategy string         `json:"partition_strategy"`
+	BatchSize         int32          `json:"batch_size,omitempty"`
 }
 
 func (c *Config) URI() string {
