@@ -33,14 +33,23 @@ jobs:
           pushd ./drivers/mongodb
           docker compose up -d
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
+          sleep 5
           docker ps
           sleep 5
           bash ./docker-compose-init.sh
