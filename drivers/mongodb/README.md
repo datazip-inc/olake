@@ -100,7 +100,7 @@ Before running the Sync command, the generated `catalog.json` file must be confi
       ```
    - Specify the cursor field (only for incremental syncs):
       ```json
-      "cursor_field": "<cursor field>"
+      "cursor_field": "<cursor field from available_cursor_fields>"
       ```
 - Final Catalog Example
    ```json
