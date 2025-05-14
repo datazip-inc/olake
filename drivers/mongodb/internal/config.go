@@ -22,7 +22,7 @@ type Config struct {
 	Database          string         `json:"database"`
 	DefaultMode       types.SyncMode `json:"default_mode"`
 	RetryCount        int            `json:"backoff_retry_count"`
-	PartitionStrategy string         `json:"partition_strategy"`
+	ChunkingStrategy  string         `json:"chunking_strategy"`
 }
 
 func (c *Config) URI() string {
