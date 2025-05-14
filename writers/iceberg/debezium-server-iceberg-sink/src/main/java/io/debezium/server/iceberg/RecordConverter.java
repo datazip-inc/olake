@@ -425,7 +425,17 @@ public class RecordConverter {
         throw new RuntimeException("Failed to get schema from debezium event, event schema has no fields!");
       }
 
-      // @TODO validate key fields are correctly set!?
+      // Validate key fields
+      if (createIdentifierFields && !schemaData.identifierFieldIds().isEmpty()) {
+        LOGGER.debug("Validating key fields in schema: {}", schemaData.identifierFieldIds());
+        for (int keyFieldId : schemaData.identifierFieldIds()) {
+            boolean fieldExists = schemaData.fields().stream()
+                .anyMatch(field -> field.fieldId() == keyFieldId);
+            if (!fieldExists) {
+                throw new RuntimeException("Key field with ID " + keyFieldId + " is not present in the schema fields!");
+            }
+        }
+      }
       return new Schema(schemaData.fields(), schemaData.identifierFieldIds());
 
     }
