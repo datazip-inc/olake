@@ -29,7 +29,6 @@ type Stream struct {
 	AdditionalPropertiesSchema schema.JSONSchema   `json:"additional_properties_schema,omitempty"`
 	SyncMode                   SyncMode            `json:"sync_mode,omitempty"` // Mode being used for syncing data
 	Incremental                IncrementalStrategy `json:"incremental_strategy,omitempty"`
-	TrackingField              string              `json:"tracking_field,omitempty"`
 }
 
 func NewStream(name, namespace string) *Stream {

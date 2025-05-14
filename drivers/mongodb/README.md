@@ -100,7 +100,7 @@ Before running the Sync command, the generated `catalog.json` file must be confi
       ```
    - Specify the cursor field (only for incremental syncs):
       ```json
-      "cursor_field": "<cursor field from available_cursor_fields>"
+      "cursor_field": "<cursor field>"
       ```
 - Final Catalog Example
    ```json
@@ -115,7 +115,7 @@ Before running the Sync command, the generated `catalog.json` file must be confi
       },
       "streams": [
          {
-           "cursor_field": "updatedAt",             
+           "cursor_field": "updatedAt",             // e.g. "updatedAt", "lastModified"
             "stream": {
                "name": "incr2",
                "namespace": "incr",
@@ -126,13 +126,7 @@ Before running the Sync command, the generated `catalog.json` file must be confi
                      "incremental"
                   ],
                   "sync_mode": "incremental",
-                  "available_cursor_fields": [
-                     "updatedAt",
-                     "_id"
-                  ],
-                  // [Incremental Sync configuration]
                   "incremental_strategy": "timestamp",   // "timestamp" | "objectid" | "soft_delete"
-                  "tracking_field": "updatedAt",        // e.g. "updatedAt", "lastModified"
             }
          }
       ]

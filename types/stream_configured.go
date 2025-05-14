@@ -88,7 +88,7 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 }
 func (s *ConfiguredStream) ValidateTrackingFieldInSchema(source *Stream) error {
 	if s.Stream.SyncMode == INCREMENTAL {
-		tf := strings.ToLower(s.Stream.TrackingField)
+		tf := strings.ToLower(s.CursorField)
 		schemaProps := map[string]struct{}{}
 		var schemaFields []string
 		source.Schema.Properties.Range(func(k, _ any) bool {
@@ -102,7 +102,7 @@ func (s *ConfiguredStream) ValidateTrackingFieldInSchema(source *Stream) error {
 			source.AvailableCursorFields = NewSet("_id")
 			return fmt.Errorf("invalid tracking field %q: not present in schema fields. "+"Available fields for cursor are: [%s]", tf, strings.Join(schemaFields, ", "))
 		}
-		source.AvailableCursorFields = NewSet(s.Stream.TrackingField)
+		source.AvailableCursorFields = NewSet(s.CursorField)
 	}
 
 	return nil

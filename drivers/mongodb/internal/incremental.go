@@ -27,7 +27,6 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	coll := m.client.Database(db).Collection(collName)
 
 	cstream := stream.Self()
-
 	mstream := stream.GetStream()
 
 	var lastTS primitive.DateTime
@@ -65,7 +64,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 	if batch == 0 {
 		batch = 5000
 	}
-	trk := mstream.TrackingField
+	trk := cstream.CursorField
 	if trk == "" {
 		if mstream.Incremental == types.StrategyTimestamp {
 			err := m.backfill(stream, pool)
