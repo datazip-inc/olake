@@ -53,12 +53,16 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 		}
 	}
 
+	if i.stream.Self().StreamMetadata.AppendMode {
+		// marking upsert mode to false
+		return i.SetupIcebergClient(false)
+	}
 	return i.SetupIcebergClient(!options.Backfill)
 }
 
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	// Convert record to Debezium format
-	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.config.Normalization)
+	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled())
 
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
@@ -152,10 +156,6 @@ func (i *Iceberg) Type() string {
 func (i *Iceberg) Flattener() protocol.FlattenFunction {
 	flattener := typeutils.NewFlattener()
 	return flattener.Flatten
-}
-
-func (i *Iceberg) Normalization() bool {
-	return i.config.Normalization
 }
 
 func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record, _ time.Time) error {
