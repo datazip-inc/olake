@@ -9,14 +9,10 @@ import (
 
 // pgTypeToDataTypes maps PostgreSQL data types to olake's internal data types.
 // For numeric types:
-// - bigint/serial8/bigserial are mapped to Int64 with exact precision:
-//   * String values are safely converted using strconv.ParseInt
-//   * Float values are validated for whole numbers and precision limits
-//   * Direct int64 values are preserved
-// - Other integer types (int, int2, int4, etc.) are mapped to Int32
-// - Floating point types use Float32/Float64 based on precision needs
+// - bigint/serial8/bigserial -> Int64 (exact precision)
+// - Other integers -> Int32
+// - Floating point -> Float32/Float64 based on precision
 var pgTypeToDataTypes = map[string]types.DataType{
-	// TODO: add proper types (not only int64)
 	"bigint":      types.Int64,
 	"tinyint":     types.Int32,
 	"integer":     types.Int32,

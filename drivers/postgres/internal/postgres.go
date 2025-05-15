@@ -17,8 +17,7 @@ import (
 
 const (
 	discoverTime = 5 * time.Minute
-	// TODO: make these queries Postgres version specific
-	// get all schemas and table
+	// Query to get all accessible schemas and tables
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
 		relname as table_name
 		FROM pg_class c
