@@ -16,10 +16,7 @@ func TestMySQLSetup(t *testing.T) {
 func TestMySQLDiscover(t *testing.T) {
 	client, _, mClient := testMySQLClient(t)
 	helper := base.TestHelper{
-		CreateTable: createTestTable,
-		DropTable:   dropTestTable,
-		CleanTable:  cleanTestTable,
-		AddData:     addTestTableData,
+		ExecuteQuery: ExecuteQuery,
 	}
 	base.TestDiscover(t, mClient, client, helper)
 	// TODO : Add MySQL-specific schema verification if needed
@@ -28,13 +25,7 @@ func TestMySQLDiscover(t *testing.T) {
 func TestMySQLRead(t *testing.T) {
 	client, _, mClient := testMySQLClient(t)
 	helper := base.TestHelper{
-		CreateTable: createTestTable,
-		DropTable:   dropTestTable,
-		CleanTable:  cleanTestTable,
-		AddData:     addTestTableData,
-		InsertOp:    insertOp,
-		UpdateOp:    updateOp,
-		DeleteOp:    deleteOp,
+		ExecuteQuery: ExecuteQuery,
 	}
 	base.TestRead(t, mClient, client, helper, func(t *testing.T) (interface{}, protocol.Driver) {
 		client, _, mClient := testMySQLClient(t)

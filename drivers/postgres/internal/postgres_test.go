@@ -16,25 +16,15 @@ func TestMySQLSetup(t *testing.T) {
 func TestMySQLDiscover(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
 	helper := base.TestHelper{
-		CreateTable: createTestTable,
-		DropTable:   dropTestTable,
-		CleanTable:  cleanTestTable,
-		AddData:     addTestTableData,
+		ExecuteQuery: ExecuteQuery,
 	}
 	base.TestDiscover(t, pClient, client, helper)
-	// TODO : Add Postgres-specific schema verification if needed
 }
 
 func TestMySQLRead(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
 	helper := base.TestHelper{
-		CreateTable: createTestTable,
-		DropTable:   dropTestTable,
-		CleanTable:  cleanTestTable,
-		AddData:     addTestTableData,
-		InsertOp:    insertOp,
-		UpdateOp:    updateOp,
-		DeleteOp:    deleteOp,
+		ExecuteQuery: ExecuteQuery,
 	}
 	base.TestRead(t, pClient, client, helper, func(t *testing.T) (interface{}, protocol.Driver) {
 		client, _, mClient := testPostgresClient(t)

@@ -4,7 +4,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/datazip-inc/olake/drivers/base"
@@ -14,6 +13,60 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
+
+// ExecuteQuery for MySQL
+func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string) {
+	t.Helper()
+	db := conn.(*sqlx.DB)
+	var query string
+
+	switch operation {
+	case "create":
+		query = fmt.Sprintf(`
+        CREATE TABLE IF NOT EXISTS %s (
+            id INTEGER PRIMARY KEY,
+            col1 VARCHAR(255),
+            col2 VARCHAR(255)
+        )`, tableName)
+	case "drop":
+		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+	case "clean":
+		query = fmt.Sprintf("DELETE FROM %s", tableName)
+	case "add":
+		for i := 1; i <= 5; i++ {
+			query = fmt.Sprintf("INSERT INTO %s (id,col1, col2) VALUES (%d,'value%d_col1', 'value%d_col2')", tableName, i, i, i)
+			_, err := db.ExecContext(ctx, query)
+			require.NoError(t, err, "Failed to add data")
+		}
+		return
+	case "insert":
+		query = fmt.Sprintf("INSERT INTO %s (id, col1, col2) VALUES (10, 'new val', 'new val')", tableName)
+	case "update":
+		query = fmt.Sprintf(`
+		UPDATE %s 
+		SET col1 = 'updated val' 
+		WHERE id = (
+			SELECT * FROM (
+				SELECT id FROM %s ORDER BY RAND() LIMIT 1
+			) AS subquery
+		)
+	`, tableName, tableName)
+	case "delete":
+		query = fmt.Sprintf(`
+		DELETE FROM %s 
+		WHERE id = (
+			SELECT * FROM (
+				SELECT id FROM %s ORDER BY RAND() LIMIT 1
+			) AS subquery
+		)
+	`, tableName, tableName)
+	default:
+		t.Fatalf("Unsupported operation: %s", operation)
+	}
+
+	_, err := db.ExecContext(ctx, query)
+	require.NoError(t, err, "Failed to execute query for operation: %s", operation)
+}
 
 func testMySQLClient(t *testing.T) (*sqlx.DB, Config, *MySQL) {
 	t.Helper()
@@ -41,102 +94,9 @@ func testMySQLClient(t *testing.T) (*sqlx.DB, Config, *MySQL) {
 	state := types.NewState(types.GlobalType)
 	d.SetupState(state)
 
-	_ = protocol.ChangeStreamDriver(d) 
+	_ = protocol.ChangeStreamDriver(d)
 	err := d.Setup()
 	require.NoError(t, err)
 
 	return d.client, *d.config, d
-}
-
-// MySQL-specific helpers
-func createTestTable(ctx context.Context, t *testing.T, conn interface{}, tableName string) {
-	db := conn.(*sqlx.DB)
-	query := fmt.Sprintf(`
-        CREATE TABLE IF NOT EXISTS %s (
-            id INTEGER PRIMARY KEY,
-            col1 VARCHAR(255),
-            col2 VARCHAR(255)
-        )`, tableName)
-	_, err := db.ExecContext(ctx, query)
-	require.NoError(t, err, "Failed to create test table")
-}
-
-func dropTestTable(ctx context.Context, t *testing.T, conn interface{}, tableName string) {
-	db := conn.(*sqlx.DB)
-	query := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
-	_, err := db.ExecContext(ctx, query)
-	require.NoError(t, err, "Failed to drop test table")
-}
-
-func cleanTestTable(ctx context.Context, t *testing.T, conn interface{}, tableName string) {
-	db := conn.(*sqlx.DB)
-	query := fmt.Sprintf("DELETE FROM %s", tableName)
-	_, err := db.ExecContext(ctx, query)
-	require.NoError(t, err, "Failed to clean test table")
-}
-
-func addTestTableData(ctx context.Context, t *testing.T, conn interface{}, table string, numItems int, startAtItem int, cols ...string) {
-	db := conn.(*sqlx.DB)
-	allCols := append([]string{"id"}, cols...)
-	for idx := startAtItem; idx < startAtItem+numItems; idx++ {
-		values := make([]string, len(allCols))
-		values[0] = fmt.Sprintf("%d", idx)
-		for i, col := range cols {
-			values[i+1] = fmt.Sprintf("'%s val %d'", col, idx)
-		}
-		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);",
-			table, strings.Join(allCols, ", "), strings.Join(values, ", "))
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err)
-	}
-}
-func insertOp(ctx context.Context, t *testing.T, conn interface{}, tableName string) {
-	db := conn.(*sqlx.DB)
-	query := fmt.Sprintf("INSERT INTO %s (id, col1, col2) VALUES (10, 'new val', 'new val')", tableName)
-	_, err := db.ExecContext(ctx, query)
-	require.NoError(t, err)
-}
-func updateOp(ctx context.Context, t *testing.T, conn interface{}, tableName string) {
-	db := conn.(*sqlx.DB)
-
-	// Use a derived table to select a random ID
-	query := fmt.Sprintf(`
-		UPDATE %s 
-		SET col1 = 'updated val' 
-		WHERE id = (
-			SELECT * FROM (
-				SELECT id FROM %s ORDER BY RAND() LIMIT 1
-			) AS subquery
-		)
-	`, tableName, tableName)
-
-	result, err := db.ExecContext(ctx, query)
-	require.NoError(t, err)
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		t.Log("No rows found, skipping update.")
-	}
-}
-
-func deleteOp(ctx context.Context, t *testing.T, conn interface{}, tableName string) {
-	db := conn.(*sqlx.DB)
-
-	// Use a derived table to select a random ID
-	query := fmt.Sprintf(`
-		DELETE FROM %s 
-		WHERE id = (
-			SELECT * FROM (
-				SELECT id FROM %s ORDER BY RAND() LIMIT 1
-			) AS subquery
-		)
-	`, tableName, tableName)
-
-	result, err := db.ExecContext(ctx, query)
-	require.NoError(t, err)
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		t.Log("No rows found, skipping delete.")
-	}
 }

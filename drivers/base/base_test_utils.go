@@ -18,15 +18,7 @@ import (
 
 // TestHelper defines database-specific helper functions
 type TestHelper struct {
-	CreateTable func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	DropTable   func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	CleanTable  func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	AddData     func(ctx context.Context, t *testing.T, conn interface{}, tableName string, numItems int, startAtItem int, cols ...string)
-
-	//CDC operations
-	InsertOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	UpdateOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	DeleteOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
+	ExecuteQuery func(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string)
 }
 
 // TestSetup tests the driver setup and connection check
@@ -45,10 +37,10 @@ func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, help
 	ctx := context.Background()
 	conn := client.(*sqlx.DB) // For Postgres; adjust if MySQL uses *sql.DB
 
-	helper.CreateTable(ctx, t, conn, tableName)
-	defer helper.DropTable(ctx, t, conn, tableName)
-	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
+	helper.ExecuteQuery(ctx, t, conn, tableName, "create")
+	defer helper.ExecuteQuery(ctx, t, conn, tableName, "drop")
+	helper.ExecuteQuery(ctx, t, conn, tableName, "clean")
+	helper.ExecuteQuery(ctx, t, conn, tableName, "add")
 
 	streams, err := driver.Discover(true)
 	assert.NoError(t, err, "Discover failed")
@@ -68,10 +60,10 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 	conn := client.(*sqlx.DB) // Adjust based on driver
 
 	// Setup table and initial data
-	helper.CreateTable(ctx, t, conn, tableName)
-	defer helper.DropTable(ctx, t, conn, tableName)
-	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
+	helper.ExecuteQuery(ctx, t, conn, tableName, "create")
+	defer helper.ExecuteQuery(ctx, t, conn, tableName, "drop")
+	helper.ExecuteQuery(ctx, t, conn, tableName, "clean")
+	helper.ExecuteQuery(ctx, t, conn, tableName, "add")
 
 	// Register Parquet writer
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
@@ -116,20 +108,24 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 		testStream := getTestStream(streamDriver)
 		dummyStream := &types.ConfiguredStream{Stream: testStream}
 		dummyStream.Stream.SyncMode = syncMode
+
 		if syncMode == types.CDC {
-			readErrCh := make(chan error, 1)
-			go func() {
-				readErrCh <- streamDriver.Read(pool, dummyStream)
-			}()
-			time.Sleep(2 * time.Second) // Wait for CDC initialization
+			// Start CDC read operation
+			err := streamDriver.Read(pool, dummyStream)
+			assert.NoError(t, err, "CDC read operation failed")
+
+			// Wait for CDC initialization
+			time.Sleep(2 * time.Second)
+
+			// Run extra tests if provided
 			if extraTests != nil {
 				extraTests(t)
 			}
-			time.Sleep(3 * time.Second) // Wait for CDC to process
-			// Directly receive from the channel
-			err := <-readErrCh
-			assert.NoError(t, err, "CDC read operation failed")
+
+			// Wait for CDC to process
+			time.Sleep(3 * time.Second)
 		} else {
+			// Handle full refresh read
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "Read operation failed")
 		}
@@ -143,16 +139,16 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 	t.Run("cdc read", func(t *testing.T) {
 		runReadTest(t, types.CDC, func(t *testing.T) {
 			t.Run("insert operation", func(t *testing.T) {
-				helper.InsertOp(ctx, t, conn, tableName)
+				helper.ExecuteQuery(ctx, t, conn, tableName, "insert")
 			})
 			time.Sleep(120 * time.Second)
 			VerifyIcebergSync(t, tableName, "6")
 			t.Run("update operation", func(t *testing.T) {
-				helper.UpdateOp(ctx, t, conn, tableName)
+				helper.ExecuteQuery(ctx, t, conn, tableName, "update")
 			})
 			VerifyIcebergSync(t, tableName, "6")
 			t.Run("delete operation", func(t *testing.T) {
-				helper.DeleteOp(ctx, t, conn, tableName)
+				helper.ExecuteQuery(ctx, t, conn, tableName, "delete")
 			})
 			VerifyIcebergSync(t, tableName, "6")
 		})
