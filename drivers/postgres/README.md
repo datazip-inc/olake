@@ -1,6 +1,14 @@
 # Postgres Driver
 The Postgres Driver enables data synchronization from Postgres to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
 
+### Data Type Handling
+The driver ensures precise handling of PostgreSQL data types:
+- **bigint/serial8/bigserial**: Mapped to int64 with exact precision in both CDC and Full Sync modes
+  - String representations are safely converted to int64
+  - Float values are validated for whole numbers and precision limits
+  - Direct int64 values are preserved
+- Other numeric types use appropriate mappings (int32, float32, float64)
+
 ---
 
 ## Supported Modes

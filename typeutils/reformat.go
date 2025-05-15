@@ -1,3 +1,6 @@
+// Package typeutils provides utilities for type conversion and reformatting
+// in the olake data pipeline. It handles conversions between different data types
+// while maintaining data integrity and precision.
 package typeutils
 
 import (
@@ -10,14 +13,17 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// StringInterface defines an interface for types that can be converted to string.
 type StringInterface interface {
 	String() string
 }
 
 var (
+	// ErrNullValue is returned when a null value is encountered during conversion.
 	ErrNullValue = fmt.Errorf("null value")
 )
 
+// DateTimeFormats defines the supported datetime format strings for parsing.
 var DateTimeFormats = []string{
 	"2006-01-02",
 	"2006-01-02 15:04:05",
@@ -213,11 +219,27 @@ func parseStringTimestamp(value string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 }
 
+// ReformatInt64 converts various input types to int64 according to PostgreSQL rules.
+// It handles:
+// - Direct numeric types (int*, uint*, float*)
+// - String representations of integers
+// - Boolean values (true=1, false=0)
+// - Pointers to values
+//
+// The function ensures that float values represent whole numbers before conversion
+// and validates string formats according to PostgreSQL's bigint rules.
+// Returns an error if the conversion is not possible or would lose precision.
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
 	case float32:
+		if float32(int64(v)) != v {
+			return 0, fmt.Errorf("cannot convert non-integer float32 %v to int64", v)
+		}
 		return int64(v), nil
 	case float64:
+		if float64(int64(v)) != v {
+			return 0, fmt.Errorf("cannot convert non-integer float64 %v to int64", v)
+		}
 		return int64(v), nil
 	case int:
 		return int64(v), nil

@@ -1,0 +1,28 @@
+{
+    "selected_streams": {
+        "public": [
+            {
+                "stream_name": "int64_test"
+            }
+        ]
+    },
+    "streams": [
+        {
+            "stream": {
+                "name": "int64_test",
+                "namespace": "public",
+                "type_schema": {
+                    "properties": {
+                        "id": {"type": ["integer"]},
+                        "big_value": {"type": ["integer"]},
+                        "description": {"type": ["string"]}
+                    }
+                },
+                "supported_sync_modes": ["full_refresh", "cdc"],
+                "source_defined_primary_key": ["id"],
+                "available_cursor_fields": [],
+                "sync_mode": "full_refresh"
+            }
+        }
+    ]
+}
