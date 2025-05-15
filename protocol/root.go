@@ -66,7 +66,7 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 }
 
 func init() {
-	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
+	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd, checkDestinationCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "", "(Required) Config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")

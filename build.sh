@@ -103,6 +103,54 @@ function build_and_run() {
     ./olake $joined_arguments
 }
 
+function handle_check_destination() {
+    # Find the destination config file
+    local writer_file=""
+    local using_iceberg=false
+    
+    # Parse the arguments to find the writer.json file path
+    local previous_arg=""
+    for arg in $joined_arguments; do
+        if [[ "$previous_arg" == "--destination" || "$previous_arg" == "-d" ]]; then
+            writer_file="$arg"
+            break
+        fi
+        previous_arg="$arg"
+    done
+
+    if [[ -z "$writer_file" ]]; then
+        fail "No destination config file specified"
+    fi
+
+    # If writer file was found, check if it contains iceberg
+    if [[ -n "$writer_file" && -f "$writer_file" ]]; then
+        echo "Checking writer file: $writer_file for iceberg destination..."
+        if grep -qi "iceberg" "$writer_file"; then
+            echo "Iceberg destination detected in writer file."
+            using_iceberg=true
+        fi
+    fi
+    
+    # If using iceberg, check and potentially build the JAR
+    if [[ "$using_iceberg" == true ]]; then
+        check_and_build_jar "iceberg"
+    fi
+
+    echo "============================== Building check-destination command =============================="
+    
+    # Store current directory
+    local current_dir=$(pwd)
+    
+    # Build from the cmd/check_destination directory
+    cd cmd/check_destination || fail "Failed to navigate to cmd/check_destination directory"
+    go mod tidy
+    go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
+    
+    # Return to root directory and run the command
+    cd "$current_dir"
+    ./cmd/check_destination/olake check-destination $joined_arguments
+}
+
 if [ $# -gt 0 ]; then
     argument="$1"
 
@@ -121,6 +169,8 @@ if [ $# -gt 0 ]; then
         adapter="${argument#adapter-}"
         echo "============================== Building adapter: $adapter =============================="
         build_and_run "$adapter" "adapter" "$joined_arguments"
+    elif [[ $argument == check-destination ]]; then
+        handle_check_destination
     else
         fail "The argument does not have a recognized prefix."
     fi
