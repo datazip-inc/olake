@@ -94,10 +94,6 @@ Before running the Sync command, the generated `catalog.json` file must be confi
 
 - Modify Each Stream:<br>
    For each stream you want to sync:<br>
-   - Add the following properties:
-      ```json
-      "sync_mode": "incremental",
-      ```
    - Specify the cursor field (only for incremental syncs):
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
@@ -115,18 +111,11 @@ Before running the Sync command, the generated `catalog.json` file must be confi
       },
       "streams": [
          {
-           "cursor_field": "updatedAt",             // e.g. "updatedAt", "lastModified"
             "stream": {
                "name": "incr2",
                "namespace": "incr",
                ...
-               "supported_sync_modes": [
-                     "full_refresh",
-                     "cdc",
-                     "incremental"
-                  ],
-                  "sync_mode": "incremental",
-                  "incremental_strategy": "timestamp",   // "timestamp" | "objectid" | "soft_delete"
+                  "sync_mode": "cdc",
             }
          }
       ]
