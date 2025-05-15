@@ -1,2 +1,0 @@
-{"level":"info","time":"2025-05-13T04:55:11Z","message":"System has 8GB RAM, setting iceberg writer batch size to 209715200 bytes"}
-{"level":"fatal","time":"2025-05-13T04:55:11Z","message":"failed to unmarshal file[catalog.json]: invalid character '=' looking for beginning of value"}
