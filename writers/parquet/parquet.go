@@ -29,26 +29,22 @@ type FileMetadata struct {
 	recordCount int
 	writer      any
 	parquetFile source.ParquetFile
-	currentSize int64 // Current file size in bytes
+	currentSize int64
 }
 
-// Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
 type Parquet struct {
 	options          *protocol.Options
 	config           *Config
 	stream           protocol.Stream
-	basePath         string                    // construct with streamNamespace/streamName
-	partitionedFiles map[string][]FileMetadata // mapping of basePath/{regex} -> pqFiles
+	basePath         string
+	partitionedFiles map[string][]FileMetadata
 	s3Client         *s3.S3
 }
 
-// GetConfigRef returns the config reference for the parquet writer.
 func (p *Parquet) GetConfigRef() protocol.Config {
 	p.config = &Config{}
 	return p.config
 }
-
-// Spec returns a new Config instance.
 func (p *Parquet) Spec() any {
 	return Config{}
 }
