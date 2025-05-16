@@ -111,17 +111,14 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 
 		if syncMode == types.CDC {
 			// Start CDC read operation
-			err := streamDriver.Read(pool, dummyStream)
-			assert.NoError(t, err, "CDC read operation failed")
-
-			// Wait for CDC initialization
-			time.Sleep(2 * time.Second)
-
 			// Run extra tests if provided
 			if extraTests != nil {
 				extraTests(t)
 			}
-
+			// Wait for CDC initialization
+			time.Sleep(2 * time.Second)
+			err := streamDriver.Read(pool, dummyStream)
+			assert.NoError(t, err, "CDC read operation failed")
 			// Wait for CDC to process
 			time.Sleep(3 * time.Second)
 		} else {
@@ -161,7 +158,11 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
-	defer spark.Stop()
+	defer func() {
+		if stopErr := spark.Stop(); stopErr != nil {
+			t.Errorf("Failed to stop Spark session: %v", stopErr)
+		}
+	}()
 
 	// Query for unique olake_id records
 	query := fmt.Sprintf("SELECT COUNT(DISTINCT _olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)

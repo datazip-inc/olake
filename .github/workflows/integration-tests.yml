@@ -1,12 +1,8 @@
 name: Integration Tests
 
 on:
-  push:
-    branches:
-      - "feat/testing_framework"
   pull_request:
-    branches:
-      - "*"
+    types: [opened, edited, reopened, synchronize]
 
 jobs:
   test:

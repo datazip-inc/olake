@@ -15,18 +15,18 @@ func TestMySQLSetup(t *testing.T) {
 
 func TestMySQLDiscover(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
-	helper := base.TestHelper{
+	postgresHelper := base.TestHelper{
 		ExecuteQuery: ExecuteQuery,
 	}
-	base.TestDiscover(t, pClient, client, helper)
+	base.TestDiscover(t, pClient, client, postgresHelper)
 }
 
 func TestMySQLRead(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
-	helper := base.TestHelper{
+	postgresHelper := base.TestHelper{
 		ExecuteQuery: ExecuteQuery,
 	}
-	base.TestRead(t, pClient, client, helper, func(t *testing.T) (interface{}, protocol.Driver) {
+	base.TestRead(t, pClient, client, postgresHelper, func(t *testing.T) (interface{}, protocol.Driver) {
 		client, _, mClient := testPostgresClient(t)
 		return client, mClient
 	})
