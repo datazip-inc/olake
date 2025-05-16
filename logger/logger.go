@@ -16,57 +16,90 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/telemetry"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-var logger zerolog.Logger
+var (
+	logger          zerolog.Logger
+	telemetryClient = telemetry.GetInstance()
+	initialized     bool
+	initMutex       sync.Mutex
+)
 
 // Info writes record into os.stdout with log level INFO
 func Info(v ...interface{}) {
+	var message string
 	if len(v) == 1 {
 		logger.Info().Interface("message", v[0]).Send()
+		message = fmt.Sprintf("%v", v[0])
 	} else {
 		logger.Info().Msgf("%s", v...)
+		message = fmt.Sprint(v...)
 	}
+	sendTelemetry("INFO", message)
 }
 
 // Info writes record into os.stdout with log level INFO
 func Infof(format string, v ...interface{}) {
+	message := fmt.Sprintf(format, v...)
 	logger.Info().Msgf(format, v...)
+	sendTelemetry("INFO", message)
 }
 
 // Debug writes record into os.stdout with log level DEBUG
 func Debug(v ...interface{}) {
+	message := fmt.Sprint(v...)
 	logger.Debug().Msgf("%s", v...)
+	sendTelemetry("DEBUG", message)
 }
 
 // Debugf writes record into os.stdout with log level DEBUG
 func Debugf(format string, v ...interface{}) {
+	message := fmt.Sprintf(format, v...)
 	logger.Debug().Msgf(format, v...)
+	sendTelemetry("DEBUG", message)
 }
 
 // Error writes record into os.stdout with log level ERROR
 func Error(v ...interface{}) {
+	message := fmt.Sprint(v...)
 	logger.Error().Msgf("%s", v...)
+	sendTelemetry("ERROR", message)
 }
 
 // Fatal writes record into os.stdout with log level ERROR and exits
 func Fatal(v ...interface{}) {
+	message := fmt.Sprint(v...)
 	logger.Fatal().Msgf("%s", v...)
-	os.Exit(1)
+	sendTelemetry("FATAL", message)
+	flushAndExit()
 }
 
 // Fatal writes record into os.stdout with log level ERROR
 func Fatalf(format string, v ...interface{}) {
 	logger.Fatal().Msgf(format, v...)
+	message := fmt.Sprintf(format, v...)
+	sendTelemetry("FATAL", message)
+	flushAndExit()
+}
+
+func flushAndExit() {
+	if telemetryClient != nil {
+		fmt.Println("Flushing telemetry before exit...")
+		telemetryClient.Flush()
+		time.Sleep(2 * time.Second) // Give time for flush to complete
+	}
 	os.Exit(1)
 }
 
 // Error writes record into os.stdout with log level ERROR
 func Errorf(format string, v ...interface{}) {
 	logger.Error().Msgf(format, v...)
+	message := fmt.Sprintf(format, v...)
+	sendTelemetry("ERROR", message)
 }
 
 // Warn writes record into os.stdout with log level WARN
@@ -95,6 +128,24 @@ func LogRequest(req *http.Request) {
 	}
 
 	fmt.Println(string(requestDump))
+}
+
+func sendTelemetry(level string, message string) {
+	if telemetryClient == nil {
+		fmt.Printf("WARNING: Cannot send telemetry for '%s' log, telemetry client is nil\n", level)
+		return
+	}
+
+	properties := map[string]interface{}{
+		"log_level": level,
+		"message":   message,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+
+	err := telemetryClient.SendEvent("LogEvent", properties)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to send telemetry event: %v\n", err)
+	}
 }
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
@@ -166,6 +217,13 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 }
 
 func Init() {
+	initMutex.Lock()
+	defer initMutex.Unlock()
+
+	if initialized {
+		return
+	}
+	telemetryClient = telemetry.GetInstance()
 	// Configure lumberjack for log rotation
 	currentTimestamp := time.Now().UTC()
 	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d", currentTimestamp.Year(), currentTimestamp.Month(), currentTimestamp.Day(), currentTimestamp.Hour(), currentTimestamp.Minute(), currentTimestamp.Second())
@@ -225,6 +283,20 @@ func Init() {
 	multiwriter := zerolog.MultiLevelWriter(console, rotatingFile)
 
 	logger = zerolog.New(multiwriter).With().Timestamp().Logger()
+	if telemetryClient != nil {
+		properties := map[string]interface{}{
+			"log_level": "INFO",
+			"message":   "Logger initialized successfully",
+		}
+		if err := telemetryClient.SendEvent("LoggerInitialized", properties); err != nil {
+			fmt.Printf("Error sending logger telemetry event: %v\n", err)
+		}
+		fmt.Println("Sent logger initialization event")
+	} else {
+		fmt.Println("WARNING: Telemetry client is nil after initialization")
+	}
+
+	initialized = true
 }
 
 // ProcessOutputReader is a struct that manages reading output from a process
