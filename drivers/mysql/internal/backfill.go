@@ -79,9 +79,14 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 		// Begin transaction with repeatable read isolation
 		return jdbc.WithIsolation(backfillCtx, m.client, func(tx *sql.Tx) error {
 			// Build query for the chunk
-			stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk)
+			stmt := jdbc.MySQLChunkScanQuery(stream, pkColumn, chunk)
 			setter := jdbc.NewReader(backfillCtx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-				return tx.QueryContext(ctx, query, args...)
+				if chunk.Min != nil && chunk.Max != nil {
+					return tx.QueryContext(ctx, query, chunk.Min, chunk.Max)
+				} else if chunk.Min != nil {
+					return tx.QueryContext(ctx, query, chunk.Min)
+				}
+				return tx.QueryContext(ctx, query, chunk.Max)
 			})
 			// Capture and process rows
 			return setter.Capture(func(rows *sql.Rows) error {
@@ -134,7 +139,7 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 		}
 
 		// Generate chunks based on range
-		query := jdbc.NextChunkEndQuery(stream, pkColumn, chunkSize)
+		query := jdbc.NextChunkEndQuery(stream, pkColumn)
 
 		currentVal := minVal
 		for {
