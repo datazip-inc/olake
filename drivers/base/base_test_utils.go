@@ -138,7 +138,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			t.Run("insert operation", func(t *testing.T) {
 				helper.ExecuteQuery(ctx, t, conn, tableName, "insert")
 			})
-			time.Sleep(120 * time.Second)
+			time.Sleep(180 * time.Second)
 			VerifyIcebergSync(t, tableName, "6")
 			t.Run("update operation", func(t *testing.T) {
 				helper.ExecuteQuery(ctx, t, conn, tableName, "update")
