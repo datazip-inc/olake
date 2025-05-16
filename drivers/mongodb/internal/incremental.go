@@ -120,7 +120,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 				}
 
 				processed++
-				if processed%defaultChkEvery == 0 { // So the checkpointing is lightweight
+				if processed%defaultChkEvery == 0 {
 					m.State.SetCursor(cstream, bmkVal, lastSeen)
 					m.State.LogState()
 				}

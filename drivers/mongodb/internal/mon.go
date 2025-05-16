@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -132,7 +133,6 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return m.GetStreams(), nil
 }
 
@@ -179,6 +179,20 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 	findOpts := []*options.FindOptions{
 		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
 		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
+	}
+
+	//populate available cursors
+	if stream.AvailableCursorFields == nil {
+		stream.AvailableCursorFields = types.NewSet[string]()
+	}
+	var sampleDoc bson.M
+	if err := collection.FindOne(ctx, bson.D{}).Decode(&sampleDoc); err == nil {
+		for key, val := range sampleDoc {
+			switch val.(type) {
+			case primitive.ObjectID, primitive.DateTime, time.Time:
+				stream.AvailableCursorFields.Insert(key)
+			}
+		}
 	}
 
 	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {

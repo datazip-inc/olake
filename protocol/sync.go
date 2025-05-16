@@ -100,11 +100,6 @@ var syncCmd = &cobra.Command{
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-			err := elem.ValidateTrackingFieldInSchema(source)
-			if err != nil {
-				logger.Warnf("Switching; %s. Sync mode switched to FULL_REFRESH", err)
-				// No return as it would break the below checks and elem.ID() won't be appened to selectedStreams
-			}
 			err = elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
