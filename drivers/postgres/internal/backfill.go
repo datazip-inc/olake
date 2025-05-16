@@ -20,7 +20,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 	backfillCtx := context.TODO()
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
-	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
+	err := p.client.QueryRow(approxRowCountQuery, stream.Name(), stream.Namespace()).Scan(&approxRowCount)
 	if err != nil {
 		return fmt.Errorf("failed to get approx row count: %s", err)
 	}
@@ -55,7 +55,12 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
 
 		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-			return tx.Query(query, args...)
+			if chunk.Min != nil && chunk.Max != nil {
+				return tx.Query(query, chunk.Min, chunk.Max)
+			} else if chunk.Min != nil {
+				return tx.Query(query, chunk.Min)
+			}
+			return tx.Query(query, chunk.Max)
 		})
 		batchStartTime := time.Now()
 		waitChannel := make(chan error, 1)
@@ -103,7 +108,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 	generateCTIDRanges := func(stream protocol.Stream) ([]types.Chunk, error) {
 		var relPages uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
-		err := p.client.QueryRow(relPagesQuery).Scan(&relPages)
+		err := p.client.QueryRow(relPagesQuery, stream.Name(), stream.Namespace()).Scan(&relPages)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get relPages: %s", err)
 		}
@@ -193,8 +198,8 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 
 func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, splitColumn string) (interface{}, error) {
 	var chunkEnd interface{}
-	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize)
-	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
+	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn)
+	err := p.client.QueryRow(nextChunkEnd, previousChunkEnd, p.config.BatchSize).Scan(&chunkEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
 	}
