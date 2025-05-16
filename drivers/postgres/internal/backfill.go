@@ -19,7 +19,7 @@ import (
 func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) error {
 	backfillCtx := context.TODO()
 	var approxRowCount int64
-	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
+	approxRowCountQuery := jdbc.PostgresRowCountQuery()
 	err := p.client.QueryRow(approxRowCountQuery, stream.Name(), stream.Namespace()).Scan(&approxRowCount)
 	if err != nil {
 		return fmt.Errorf("failed to get approx row count: %s", err)
@@ -107,7 +107,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, error) {
 	generateCTIDRanges := func(stream protocol.Stream) ([]types.Chunk, error) {
 		var relPages uint32
-		relPagesQuery := jdbc.PostgresRelPageCount(stream)
+		relPagesQuery := jdbc.PostgresRelPageCount()
 		err := p.client.QueryRow(relPagesQuery, stream.Name(), stream.Namespace()).Scan(&relPages)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get relPages: %s", err)

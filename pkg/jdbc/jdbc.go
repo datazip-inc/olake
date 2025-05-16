@@ -57,7 +57,7 @@ func PostgresWithState(stream protocol.Stream) string {
 // args to be passed:
 // $1: stream name,
 // $2: stream namespace
-func PostgresRowCountQuery(stream protocol.Stream) string {
+func PostgresRowCountQuery() string {
 	return `SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = $1 AND n.nspname = $2;`
 }
 
@@ -65,7 +65,7 @@ func PostgresRowCountQuery(stream protocol.Stream) string {
 // args to be passed:
 // $1: stream name,
 // $2: stream namespace
-func PostgresRelPageCount(stream protocol.Stream) string {
+func PostgresRelPageCount() string {
 	return `SELECT relpages FROM pg_class WHERE relname = $1 AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2);`
 }
 
