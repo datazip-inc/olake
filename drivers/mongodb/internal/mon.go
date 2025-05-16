@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -132,7 +133,6 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return m.GetStreams(), nil
 }
 
@@ -142,9 +142,12 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 		return m.backfill(stream, pool)
 	case types.CDC:
 		return m.changeStreamSync(stream, pool)
+	case types.INCREMENTAL:
+		return m.incrementalSync(stream, pool)
+	default:
+		return fmt.Errorf("unsupported sync mode: %s", stream.GetSyncMode())
 	}
 
-	return nil
 }
 
 // fetch schema types from mongo for streamName
@@ -153,7 +156,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 	// initialize stream
 	collection := db.Collection(streamName)
-	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC, types.INCREMENTAL)
 
 	// find primary keys
 	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
@@ -178,13 +181,26 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 	}
 
+	//populate available cursors
+	if stream.AvailableCursorFields == nil {
+		stream.AvailableCursorFields = types.NewSet[string]()
+	}
+	var sampleDoc bson.M
+	if err := collection.FindOne(ctx, bson.D{}).Decode(&sampleDoc); err == nil {
+		for key, val := range sampleDoc {
+			switch val.(type) {
+			case primitive.ObjectID, primitive.DateTime, time.Time:
+				stream.AvailableCursorFields.Insert(key)
+			}
+		}
+	}
+
 	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
 		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 		if err != nil {
 			return err
 		}
 		defer cursor.Close(ctx)
-
 		for cursor.Next(ctx) {
 
 			var row bson.M
