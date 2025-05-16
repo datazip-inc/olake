@@ -120,7 +120,7 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "CDC read operation failed")
 			// Wait for CDC to process
-			time.Sleep(120 * time.Second)
+			time.Sleep(60 * time.Second)
 			VerifyIcebergSync(t, tableName, "6")
 		} else {
 			// Handle full refresh read
@@ -130,24 +130,22 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 	}
 	t.Run("full refresh read", func(t *testing.T) {
 		runReadTest(t, types.FULLREFRESH, nil)
-		time.Sleep(120 * time.Second)
+		time.Sleep(60 * time.Second)
 		VerifyIcebergSync(t, tableName, "5")
 	})
-	time.Sleep(60 * time.Second)
-	t.Run("cdc read", func(t *testing.T) {
+	t.Run("cdc read - insert operation", func(t *testing.T) {
 		runReadTest(t, types.CDC, func(t *testing.T) {
-			t.Run("insert operation", func(t *testing.T) {
-				helper.ExecuteQuery(ctx, t, conn, tableName, "insert")
-			})
-
-			t.Run("update operation", func(t *testing.T) {
-				helper.ExecuteQuery(ctx, t, conn, tableName, "update")
-			})
-
-			t.Run("delete operation", func(t *testing.T) {
-				helper.ExecuteQuery(ctx, t, conn, tableName, "delete")
-			})
-
+			helper.ExecuteQuery(ctx, t, conn, tableName, "insert")
+		})
+	})
+	t.Run("cdc read - update operation", func(t *testing.T) {
+		runReadTest(t, types.CDC, func(t *testing.T) {
+			helper.ExecuteQuery(ctx, t, conn, tableName, "update")
+		})
+	})
+	t.Run("cdc read - delete operation", func(t *testing.T) {
+		runReadTest(t, types.CDC, func(t *testing.T) {
+			helper.ExecuteQuery(ctx, t, conn, tableName, "delete")
 		})
 	})
 }
