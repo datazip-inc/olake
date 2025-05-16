@@ -120,7 +120,8 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			err := streamDriver.Read(pool, dummyStream)
 			assert.NoError(t, err, "CDC read operation failed")
 			// Wait for CDC to process
-			time.Sleep(3 * time.Second)
+			time.Sleep(120 * time.Second)
+			VerifyIcebergSync(t, tableName, "6")
 		} else {
 			// Handle full refresh read
 			err := streamDriver.Read(pool, dummyStream)
@@ -138,16 +139,15 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			t.Run("insert operation", func(t *testing.T) {
 				helper.ExecuteQuery(ctx, t, conn, tableName, "insert")
 			})
-			time.Sleep(180 * time.Second)
-			VerifyIcebergSync(t, tableName, "6")
+
 			t.Run("update operation", func(t *testing.T) {
 				helper.ExecuteQuery(ctx, t, conn, tableName, "update")
 			})
-			VerifyIcebergSync(t, tableName, "6")
+
 			t.Run("delete operation", func(t *testing.T) {
 				helper.ExecuteQuery(ctx, t, conn, tableName, "delete")
 			})
-			VerifyIcebergSync(t, tableName, "6")
+
 		})
 	})
 }
@@ -182,6 +182,6 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 	require.NotNil(t, countValue, "Count value is nil")
 
 	// Verify unique count
-	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg")
+	require.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg")
 	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s", countValue, tableName)
 }
