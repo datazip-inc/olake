@@ -302,6 +302,11 @@ func ReformatInt32(v any) (int32, error) {
 			return 0, fmt.Errorf("failed to change string %v to int32: %v", v, err)
 		}
 		return int32(intValue), nil
+	case []uint8:
+		if len(v) == 1 {
+			return int32(v[0]), nil
+		}
+		return 0, fmt.Errorf("unsupported []uint8 of length %d: %v", len(v), v)
 	case *any:
 		return ReformatInt32(*v)
 	}

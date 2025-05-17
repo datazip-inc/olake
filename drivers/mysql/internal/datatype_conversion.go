@@ -14,6 +14,7 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 	"unsigned smallint":  types.Int32,
 	"unsigned tinyint":   types.Int32,
 	"unsigned mediumint": types.Int32,
+	"bit":                types.Int32,
 	"bigint":             types.Int64,
 
 	// Floating point types
