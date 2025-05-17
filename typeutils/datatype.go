@@ -3,6 +3,7 @@ package typeutils
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
@@ -116,4 +117,10 @@ func detectTimestampPrecision(t time.Time) types.DataType {
 	default:
 		return types.TimestampNano // store in nanoseconds
 	}
+}
+
+func ExtractAndMapColumnType(columnType string, typeMapping map[string]types.DataType) types.DataType {
+	// extracts the base type (e.g., varchar(50) -> varchar)
+	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
+	return typeMapping[baseType]
 }
