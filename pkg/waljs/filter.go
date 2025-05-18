@@ -9,7 +9,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/goccy/go-json"
-	"github.com/jackc/pglogrepl"
 )
 
 type ChangeFilter struct {
@@ -30,7 +29,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 	return filter
 }
 
-func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered base.MessageProcessingFunc) error {
+func (c ChangeFilter) FilterChange(change []byte, OnFiltered base.MessageProcessingFunc) error {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
 		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
@@ -74,10 +73,7 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		if err := OnFiltered(base.CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,
-			Schema:    ch.Schema,
-			Table:     ch.Table,
 			Timestamp: changes.Timestamp,
-			State:     lsn,
 			Data:      changesMap,
 		}); err != nil {
 			return fmt.Errorf("failed to write filtered change: %s", err)

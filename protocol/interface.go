@@ -33,7 +33,7 @@ type Driver interface {
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(ctx context.Context, pool *WriterPool, standardStreams, cdcStreams []Stream) error
 	// backfill reader
-	Backfill(ctx context.Context, watitChan chan struct{}, pool *WriterPool, stream Stream) error
+	Backfill(ctx context.Context, watitChan chan string, pool *WriterPool, stream Stream) error
 	// change streams reader
 	RunChangeStream(ctx context.Context, pool *WriterPool, stream ...Stream) error
 	SetupState(state *types.State)

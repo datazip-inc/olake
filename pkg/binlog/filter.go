@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
-	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
@@ -26,7 +27,7 @@ func NewChangeFilter(streams ...protocol.Stream) ChangeFilter {
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
-func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.BinlogEvent, callback OnChange) error {
+func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.BinlogEvent, callback base.MessageProcessingFunc) error {
 	schemaName := string(e.Table.Schema)
 	tableName := string(e.Table.Table)
 	stream, exists := f.streams[schemaName+"."+tableName]
@@ -65,15 +66,10 @@ func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.
 		if record == nil {
 			continue
 		}
-		record["cdc_type"] = operationType
-
-		change := CDCChange{
+		change := base.CDCChange{
 			Stream:    stream,
-			Timestamp: time.Unix(int64(ev.Header.Timestamp), 0),
-			Position:  mysql.Position{}, // Position will be set in StreamMessages
+			Timestamp: typeutils.Time{Time: time.Unix(int64(ev.Header.Timestamp), 0)},
 			Kind:      operationType,
-			Schema:    schemaName,
-			Table:     tableName,
 			Data:      record,
 		}
 		if err := callback(change); err != nil {

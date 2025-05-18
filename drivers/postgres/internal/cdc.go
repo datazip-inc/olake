@@ -76,7 +76,7 @@ func (p *Postgres) RunChangeStream(ctx context.Context, pool *protocol.WriterPoo
 		}
 		return nil
 	}
-	return p.Driver.RunChangeStream(ctx, p.Backfill, socket.StreamMessages, postCDC, pool, streams...)
+	return p.Driver.RunChangeStream(ctx, p, socket.StreamMessages, postCDC, pool, streams...)
 }
 
 func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {

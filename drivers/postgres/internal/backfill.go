@@ -15,7 +15,7 @@ import (
 )
 
 // Simple Full Refresh Sync; Loads table fully
-func (p *Postgres) Backfill(_ context.Context, waitChan chan struct{}, pool *protocol.WriterPool, stream protocol.Stream) error {
+func (p *Postgres) Backfill(_ context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
@@ -70,7 +70,10 @@ func (p *Postgres) Backfill(_ context.Context, waitChan chan struct{}, pool *pro
 			// no error in writer as well
 			if err == nil {
 				logger.Infof("chunk with min[%v]-max[%v] completed in %0.2f seconds", chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
-				p.State.RemoveChunk(stream.Self(), chunk)
+				remCount := p.State.RemoveChunk(stream.Self(), chunk)
+				if remCount == 0 {
+					backfilledStreams <- stream.ID()
+				}
 			}
 		}()
 		return setter.Capture(func(rows *sql.Rows) error {

@@ -15,7 +15,7 @@ import (
 )
 
 // backfill implements full refresh sync mode for MySQL
-func (m *MySQL) Backfill(backfillCtx context.Context, waitChan chan struct{}, pool *protocol.WriterPool, stream protocol.Stream) error {
+func (m *MySQL) Backfill(backfillCtx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
 	// Get approximate row count and inform the pool
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
@@ -70,7 +70,10 @@ func (m *MySQL) Backfill(backfillCtx context.Context, waitChan chan struct{}, po
 			// Log completion and update state if successful
 			if err == nil {
 				logger.Infof("chunk with min[%v]-max[%v] completed in %0.2f seconds", chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
-				m.State.RemoveChunk(stream.Self(), chunk)
+				remCount := m.State.RemoveChunk(stream.Self(), chunk)
+				if remCount == 0 {
+					backfilledStreams <- stream.ID()
+				}
 			}
 		}()
 		// Begin transaction with repeatable read isolation

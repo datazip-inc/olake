@@ -89,9 +89,9 @@ func (s *State) ResetStreams() {
 }
 
 func (s *State) HasCompletedBackfill(stream *ConfiguredStream) bool {
-	s.RLock()
-	defer s.RUnlock()
 	if s.Type == GlobalType {
+		s.RLock()
+		defer s.RUnlock()
 		if s.Global != nil && s.Global.Streams != nil {
 			return s.Global.Streams.Exists(stream.ID())
 		}
@@ -200,10 +200,13 @@ func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 	s.LogState()
 }
 
-// remove chunk
-func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
+// remove chunk returns remaining chunk count after removing the chunk
+func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) int {
 	s.Lock()
-	defer s.Unlock()
+	defer func() {
+		s.LogState()
+		s.Unlock()
+	}()
 
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
@@ -211,11 +214,13 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
 	if contains {
 		stateChunks, loaded := s.Streams[index].State.LoadAndDelete(ChunksKey)
 		if loaded {
-			stateChunks.(*Set[Chunk]).Remove(chunk)
-			s.Streams[index].State.Store(ChunksKey, stateChunks)
+			castedStateChunks, _ := stateChunks.(*Set[Chunk])
+			castedStateChunks.Remove(chunk)
+			s.Streams[index].State.Store(ChunksKey, castedStateChunks)
+			return castedStateChunks.Len()
 		}
 	}
-	s.LogState()
+	return -1
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {

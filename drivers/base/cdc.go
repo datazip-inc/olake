@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -13,27 +14,25 @@ import (
 type CDCChange struct {
 	Stream    protocol.Stream
 	Timestamp typeutils.Time
-	State     any
 	Kind      string
-	Schema    string
-	Table     string
 	Data      map[string]interface{}
 }
 
 type MessageProcessingFunc func(message CDCChange) error
 type StreamerFunc func(ctx context.Context, callback MessageProcessingFunc) error
 type PostCDCFunc func(ctx context.Context, noErr bool) error
-type BackfillFunc func(ctx context.Context, backfillWaitChannel chan struct{}, pool *protocol.WriterPool, stream protocol.Stream) error
 
-func (d *Driver) RunChangeStream(ctx context.Context, backfill BackfillFunc, streamer StreamerFunc, postCDC PostCDCFunc, pool *protocol.WriterPool, streams ...protocol.Stream) error {
-	backfillWaitChannel := make(chan struct{}, 1)
+func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, streamer StreamerFunc, postCDC PostCDCFunc, pool *protocol.WriterPool, streams ...protocol.Stream) error {
+	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 	err := utils.ForEach(streams, func(stream protocol.Stream) error {
 		if !d.State.HasCompletedBackfill(stream.Self()) {
-			err := backfill(ctx, backfillWaitChannel, pool, stream)
+			err := sd.Backfill(ctx, backfillWaitChannel, pool, stream)
 			if err != nil {
 				return err
 			}
+		} else {
+			backfillWaitChannel <- stream.ID()
 		}
 		return nil
 	})
@@ -41,10 +40,28 @@ func (d *Driver) RunChangeStream(ctx context.Context, backfill BackfillFunc, str
 		return fmt.Errorf("failed to run backfill: %s", err)
 	}
 
-	// wait for backfill to finish
-	// <-backfillWaitChannel
+	// Wait for all backfill processes to complete
+	backfilledStreams := make([]string, 0, len(streams))
+	for len(backfilledStreams) < len(streams) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case streamID, ok := <-backfillWaitChannel:
+			if !ok {
+				return fmt.Errorf("backfill channel closed unexpectedly")
+			}
+			d.State.SetGlobal(nil, streamID)
+			// if isParallelChangeStream(sd.Type()) {
+			// 	// run parallel change stream
 
-	// handle drivers which have parallel change streams
+			// }
+			backfilledStreams = append(backfilledStreams, streamID)
+		}
+	}
+	if isParallelChangeStream(sd.Type()) {
+		// parallel change streams already processed
+		return nil
+	}
 	protocol.GlobalConnGroup.Add(func(ctx context.Context) error {
 		// Set up inserters for each stream
 		inserters := make(map[protocol.Stream]*protocol.ThreadEvent)
@@ -62,9 +79,9 @@ func (d *Driver) RunChangeStream(ctx context.Context, backfill BackfillFunc, str
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
 		defer func() {
-			if err == nil {
-				for stream, insert := range inserters {
-					insert.Close()
+			for stream, insert := range inserters {
+				insert.Close()
+				if err == nil {
 					if threadErr := <-errChans[stream]; threadErr != nil {
 						err = fmt.Errorf("failed to write record for stream[%s]: %s", stream.ID(), threadErr)
 					}
@@ -86,6 +103,6 @@ func (d *Driver) RunChangeStream(ctx context.Context, backfill BackfillFunc, str
 	return nil
 }
 
-// func isParallelChangeStream(driverType constants.DriverType) bool {
-// 	return driverType == constants.MongoDB
-// }
+func isParallelChangeStream(driverType string) bool {
+	return driverType == string(constants.MongoDB)
+}

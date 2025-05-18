@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -30,6 +31,12 @@ type MySQL struct {
 	config    *Config
 	client    *sql.DB
 	cdcConfig CDC
+}
+
+// MySQLGlobalState tracks the binlog position and backfilled streams.
+type MySQLGlobalState struct {
+	ServerID uint32        `json:"server_id"`
+	State    binlog.Binlog `json:"state"`
 }
 
 func (m *MySQL) StateType() types.StateType {

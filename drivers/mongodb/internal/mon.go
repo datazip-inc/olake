@@ -77,6 +77,10 @@ func (m *Mongo) Check() error {
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
 }
 
+func (m *Mongo) StateType() types.StateType {
+	return types.StreamType
+}
+
 func (m *Mongo) SetupState(state *types.State) {
 	state.Type = m.StateType()
 	m.State = state

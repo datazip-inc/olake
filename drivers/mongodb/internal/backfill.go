@@ -21,7 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) Backfill(backfillCtx context.Context, waitChan chan struct{}, pool *protocol.WriterPool, stream protocol.Stream) error {
+func (m *Mongo) Backfill(backfillCtx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	chunks := m.State.GetChunks(stream.Self())
 	var chunksArray []types.Chunk
@@ -116,7 +116,10 @@ func (m *Mongo) Backfill(backfillCtx context.Context, waitChan chan struct{}, po
 			return err
 		}
 		// remove success chunk from state
-		m.State.RemoveChunk(stream.Self(), chunk)
+		remCount := m.State.RemoveChunk(stream.Self(), chunk)
+		if remCount == 0 {
+			backfilledStreams <- stream.ID()
+		}
 		logger.Infof("chunk with min[%v]-max[%v] completed in %0.2f seconds", chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
 		return nil
 	})
