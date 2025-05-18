@@ -18,18 +18,18 @@ type Connector interface {
 	// Sets up connections and perform checks; doesn't load Streams
 	//
 	// Note: Check shouldn't be called before Setup as they're composed at Connector level
-	Check() error
+	Check(ctx context.Context) error
 	Type() string
 }
 
 type Driver interface {
 	Connector
 	// Sets up client, doesn't performs any Checks
-	Setup() error
+	Setup(ctx context.Context) error
 	// max connnection to be used
 	MaxConnections() int
 	// Discover discovers the streams; Returns cached if already discovered
-	Discover(discoverSchema bool) ([]*types.Stream, error)
+	Discover(ctx context.Context) ([]*types.Stream, error)
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(ctx context.Context, pool *WriterPool, standardStreams, cdcStreams []Stream) error
 	// backfill reader

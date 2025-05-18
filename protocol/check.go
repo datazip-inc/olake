@@ -31,12 +31,12 @@ var checkCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(_ *cobra.Command, _ []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		err := func() error {
 			// Catalog has been passed setup and is driver; Connector should be setup
 			if catalog != nil {
 				// Get Source Streams
-				streams, err := connector.Discover(false)
+				streams, err := connector.Discover(cmd.Context())
 				if err != nil {
 					return err
 				}
@@ -71,7 +71,7 @@ var checkCmd = &cobra.Command{
 				}
 			} else {
 				// Only perform checks
-				err := connector.Check()
+				err := connector.Check(cmd.Context())
 				if err != nil {
 					return err
 				}

@@ -46,7 +46,7 @@ func (p *Postgres) ChangeStreamSupported() bool {
 	return p.CDCSupport
 }
 
-func (p *Postgres) Setup() error {
+func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
@@ -58,7 +58,7 @@ func (p *Postgres) Setup() error {
 	}
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	// force a connection and test that it worked
@@ -118,8 +118,8 @@ func (p *Postgres) Spec() any {
 	return Config{}
 }
 
-func (p *Postgres) Check() error {
-	return p.Setup()
+func (p *Postgres) Check(ctx context.Context) error {
+	return p.Setup(ctx)
 }
 
 func (p *Postgres) CloseConnection() {
@@ -131,7 +131,7 @@ func (p *Postgres) CloseConnection() {
 	}
 }
 
-func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
+func (p *Postgres) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// if not cached already; discover
 	streams := p.GetStreams()
 	if len(streams) != 0 {
@@ -140,7 +140,7 @@ func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
 
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
 
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, discoverTime)
 	defer cancel()
 
 	var tableNamesOutput []Table

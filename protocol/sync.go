@@ -61,12 +61,12 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 		// setup conector first
-		err = connector.Setup()
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
 		// Get Source Streams
-		streams, err := connector.Discover(false)
+		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
 			return err
 		}

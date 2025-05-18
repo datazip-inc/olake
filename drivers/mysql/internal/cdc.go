@@ -21,7 +21,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 	if globalState.ServerID == 0 {
 		return nil, fmt.Errorf("invalid global state; server_id is missing")
 	}
-
+	// TODO: Support all flavour of mysql
 	config := &binlog.Config{
 		ServerID:        globalState.ServerID,
 		Flavor:          "mysql",

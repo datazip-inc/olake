@@ -51,11 +51,40 @@ func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, stream
 				return fmt.Errorf("backfill channel closed unexpectedly")
 			}
 			d.State.SetGlobal(nil, streamID)
-			// if isParallelChangeStream(sd.Type()) {
-			// 	// run parallel change stream
-
-			// }
 			backfilledStreams = append(backfilledStreams, streamID)
+
+			// run parallel change stream
+			// TODO: remove duplicate code
+			if isParallelChangeStream(sd.Type()) {
+				index, _ := utils.ArrayContains(streams, func(s protocol.Stream) bool { return s.ID() == streamID })
+				errChan := make(chan error, 1)
+				inserter, err := pool.NewThread(ctx, streams[index], protocol.WithErrorChannel(errChan))
+				if err != nil {
+					return fmt.Errorf("failed to create writer thread for stream[%s]: %s", streamID, err)
+				}
+				defer func() {
+					inserter.Close()
+					if err == nil {
+						if threadErr := <-errChan; threadErr != nil {
+							err = fmt.Errorf("failed to write record for stream[%s]: %s", streamID, threadErr)
+						}
+					}
+					_ = postCDC(ctx, err == nil)
+				}()
+				err = streamer(ctx, func(change CDCChange) error {
+					pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+					opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
+					return inserter.Insert(types.CreateRawRecord(
+						utils.GetKeysHash(change.Data, pkFields...),
+						change.Data,
+						opType,
+						change.Timestamp.Time,
+					))
+				})
+				if err != nil {
+					return fmt.Errorf("failed cdc for stream[%s]: %s", streamID, err)
+				}
+			}
 		}
 	}
 	if isParallelChangeStream(sd.Type()) {

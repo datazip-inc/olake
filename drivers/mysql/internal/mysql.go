@@ -60,7 +60,7 @@ func (m *MySQL) Spec() any {
 }
 
 // Setup establishes the database connection
-func (m *MySQL) Setup() error {
+func (m *MySQL) Setup(ctx context.Context) error {
 	err := m.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
@@ -71,7 +71,7 @@ func (m *MySQL) Setup() error {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
 	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
@@ -99,8 +99,8 @@ func (m *MySQL) Setup() error {
 }
 
 // Check verifies the database connection
-func (m *MySQL) Check() error {
-	return m.Setup()
+func (m *MySQL) Check(ctx context.Context) error {
+	return m.Setup(ctx)
 }
 
 // Type returns the database type
@@ -113,14 +113,14 @@ func (m *MySQL) MaxConnections() int {
 }
 
 // Discover finds and catalogs database tables
-func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
+func (m *MySQL) Discover(ctx context.Context) ([]*types.Stream, error) {
 	streams := m.GetStreams()
 	if len(streams) != 0 {
 		return streams, nil
 	}
 
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, discoverTime)
 	defer cancel()
 
 	query := jdbc.MySQLDiscoverTablesQuery()

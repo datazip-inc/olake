@@ -97,7 +97,7 @@ func (i *Iceberg) Close() error {
 	return nil
 }
 
-func (i *Iceberg) Check() error {
+func (i *Iceberg) Check(ctx context.Context) error {
 	// Save the current stream reference
 	originalStream := i.stream
 	originalPartitionInfo := i.partitionInfo
@@ -119,7 +119,7 @@ func (i *Iceberg) Check() error {
 		i.partitionInfo = originalPartitionInfo
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	// Try to send a test message

@@ -36,7 +36,7 @@ func (m *MySQL) Backfill(backfillCtx context.Context, backfilledStreams chan str
 	var splitChunks []types.Chunk
 	if stateChunks == nil || stateChunks.Len() == 0 {
 		chunks := types.NewSet[types.Chunk]()
-		if err := m.splitChunks(stream, chunks); err != nil {
+		if err := m.splitChunks(backfillCtx, stream, chunks); err != nil {
 			return fmt.Errorf("failed to calculate chunks: %s", err)
 		}
 		splitChunks = chunks.Array()
@@ -103,8 +103,8 @@ func (m *MySQL) Backfill(backfillCtx context.Context, backfilledStreams chan str
 	return nil
 }
 
-func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
-	return jdbc.WithIsolation(context.Background(), m.client, func(tx *sql.Tx) error {
+func (m *MySQL) splitChunks(ctx context.Context, stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
+	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 		// Get primary key column using the provided function
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		// Get table extremes

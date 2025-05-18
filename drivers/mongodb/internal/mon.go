@@ -41,13 +41,12 @@ func (m *Mongo) Spec() any {
 	return Config{}
 }
 
-func (m *Mongo) Setup() error {
+func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
-
-	connectCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
 	conn, err := mongo.Connect(connectCtx, opts)
@@ -70,8 +69,8 @@ func (m *Mongo) Setup() error {
 	return nil
 }
 
-func (m *Mongo) Check() error {
-	pingCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+func (m *Mongo) Check(ctx context.Context) error {
+	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
@@ -86,8 +85,8 @@ func (m *Mongo) SetupState(state *types.State) {
 	m.State = state
 }
 
-func (m *Mongo) Close() error {
-	return m.client.Disconnect(context.Background())
+func (m *Mongo) Close(ctx context.Context) error {
+	return m.client.Disconnect(ctx)
 }
 
 func (m *Mongo) Type() string {
@@ -98,15 +97,14 @@ func (m *Mongo) MaxConnections() int {
 	return m.config.MaxThreads
 }
 
-// TODO: utilize discoverSchema boolean
-func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
+func (m *Mongo) Discover(ctx context.Context) ([]*types.Stream, error) {
 	streams := m.GetStreams()
 	if len(streams) != 0 {
 		return streams, nil
 	}
 
 	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, discoverTime)
 	defer cancel()
 
 	database := m.client.Database(m.config.Database)

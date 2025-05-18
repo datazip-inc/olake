@@ -232,7 +232,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
-		first, last, err := m.fetchExtremes(collection)
+		first, last, err := m.fetchExtremes(ctx, collection)
 		if err != nil {
 			return nil, err
 		}
@@ -296,12 +296,12 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 
 	return int64(countResult["count"].(int32)), nil
 }
-func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Time, error) {
+func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection) (time.Time, time.Time, error) {
 	extreme := func(sortby int) (time.Time, error) {
 		// Find the first document
 		var result bson.M
 		// Sort by _id ascending to get the first document
-		err := collection.FindOne(context.Background(), bson.D{}, options.FindOne().SetSort(bson.D{{
+		err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{
 			Key: "_id", Value: sortby}})).Decode(&result)
 		if err != nil {
 			return time.Time{}, err
