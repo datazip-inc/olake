@@ -68,6 +68,16 @@ func Ternary(cond bool, a, b any) any {
 	return b
 }
 
+func ForEach[T any](set []T, action func(elem T) error) error {
+	for _, elem := range set {
+		err := action(elem)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Unmarshal serializes and deserializes any from into the object
 // return error if occurred
 func Unmarshal(from, object any) error {

@@ -79,7 +79,7 @@ func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, 
 	}
 
 	if err := utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(_ context.Context, s protocol.Stream, _ int) error {
-		if err := m.backfill(ctx, pool, s); err != nil {
+		if err := m.Backfill(ctx, nil, pool, s); err != nil {
 			return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
 		}
 		m.State.SetGlobal(MySQLGlobalState, s.ID())

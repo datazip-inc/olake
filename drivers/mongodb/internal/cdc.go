@@ -67,7 +67,7 @@ func (m *Mongo) changeStreamSync(cdcCtx context.Context, stream protocol.Stream,
 		// save resume token
 		m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 
-		if err := m.backfill(cdcCtx, pool, stream); err != nil {
+		if err := m.Backfill(cdcCtx, nil, pool, stream); err != nil {
 			return err
 		}
 		logger.Infof("backfill done for stream[%s]", stream.ID())

@@ -32,6 +32,10 @@ type Driver interface {
 	Discover(discoverSchema bool) ([]*types.Stream, error)
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(ctx context.Context, pool *WriterPool, standardStreams, cdcStreams []Stream) error
+	// backfill reader
+	Backfill(ctx context.Context, watitChan chan struct{}, pool *WriterPool, stream Stream) error
+	// change streams reader
+	RunChangeStream(ctx context.Context, pool *WriterPool, stream ...Stream) error
 	SetupState(state *types.State)
 }
 

@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -86,7 +87,7 @@ func (m *Mongo) Close() error {
 }
 
 func (m *Mongo) Type() string {
-	return "Mongo"
+	return string(constants.MongoDB)
 }
 
 func (m *Mongo) MaxConnections() int {
@@ -144,24 +145,7 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 }
 
 func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	// start change streams
-	if m.CDCSupport {
-		// TODO: can we run it with globalCtxGroup?
-		err := m.RunChangeStream(ctx, pool, cdcStreams...)
-		if err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("MongoDB does not support change streams, make sure all stream run full refresh")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return m.backfill(ctx, pool, stream)
-		})
-	}
-
-	return nil
+	return m.Driver.Read(ctx, m, pool, standardStreams, cdcStreams)
 }
 
 // fetch schema types from mongo for streamName

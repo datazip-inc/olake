@@ -21,7 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) backfill(backfillCtx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
+func (m *Mongo) Backfill(backfillCtx context.Context, waitChan chan struct{}, pool *protocol.WriterPool, stream protocol.Stream) error {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	chunks := m.State.GetChunks(stream.Self())
 	var chunksArray []types.Chunk

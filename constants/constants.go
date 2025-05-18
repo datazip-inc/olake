@@ -10,3 +10,11 @@ const (
 	CdcTimestamp   = "_cdc_timestamp"
 	DBName         = "_db"
 )
+
+type DriverType string
+
+const (
+	MongoDB  DriverType = "mongodb"
+	Postgres DriverType = "postgres"
+	MySQL    DriverType = "mysql"
+)

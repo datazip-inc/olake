@@ -67,71 +67,16 @@ func (p *Postgres) RunChangeStream(ctx context.Context, pool *protocol.WriterPoo
 		}
 
 	}
-
-	var needsBackfill []protocol.Stream
-	for _, s := range streams {
-		if globalState == nil || !globalState.Streams.Exists(s.ID()) {
-			needsBackfill = append(needsBackfill, s)
+	postCDC := func(ctx context.Context, noErr bool) error {
+		defer socket.Cleanup(ctx)
+		if noErr {
+			p.State.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
+			// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
+			return socket.AcknowledgeLSN(ctx)
 		}
-	}
-	if err = utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(ctx context.Context, s protocol.Stream, _ int) error {
-		if err := p.backfill(ctx, pool, s); err != nil {
-			return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
-		}
-		p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()}, s.ID())
 		return nil
-	}); err != nil {
-		return fmt.Errorf("failed concurrent backfill: %s", err)
 	}
-
-	protocol.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
-		// Inserter lifecycle management
-		inserters := make(map[protocol.Stream]*protocol.ThreadEvent)
-		errChans := make(map[protocol.Stream]chan error)
-
-		// Inserter initialization
-		for _, stream := range streams {
-			errChan := make(chan error)
-			inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan), protocol.WithBackfill(false))
-			if err != nil {
-				return fmt.Errorf("failed to initiate writer thread for stream[%s]: %s", stream.ID(), err)
-			}
-			inserters[stream], errChans[stream] = inserter, errChan
-		}
-
-		defer func() {
-			if err == nil {
-				for stream, inserter := range inserters {
-					inserter.Close()
-					if threadErr := <-errChans[stream]; threadErr != nil {
-						err = fmt.Errorf("failed to write record for stream[%s]: %s", stream.ID(), threadErr)
-					}
-				}
-				// no write error
-				if err == nil {
-					// first save state
-					p.State.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-					// mark lsn for wal logs drop
-					// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
-					err = socket.AcknowledgeLSN(ctx)
-				}
-			}
-			socket.Cleanup(ctx)
-		}()
-
-		// Message processing
-		return socket.StreamMessages(ctx, func(msg waljs.CDCChange) error {
-			pkFields := msg.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-			opType := utils.Ternary(msg.Kind == "delete", "d", utils.Ternary(msg.Kind == "update", "u", "c")).(string)
-			return inserters[msg.Stream].Insert(types.CreateRawRecord(
-				utils.GetKeysHash(msg.Data, pkFields...),
-				msg.Data,
-				opType,
-				msg.Timestamp.Time,
-			))
-		})
-	})
-	return nil
+	return p.Driver.RunChangeStream(ctx, p.Backfill, socket.StreamMessages, postCDC, pool, streams...)
 }
 
 func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {

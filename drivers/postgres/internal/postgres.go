@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -171,7 +172,7 @@ func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
 }
 
 func (p *Postgres) Type() string {
-	return "Postgres"
+	return string(constants.Postgres)
 }
 
 func (p *Postgres) MaxConnections() int {
@@ -189,20 +190,7 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 }
 
 func (p *Postgres) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	if p.CDCSupport {
-		if err := p.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return p.backfill(ctx, pool, stream)
-		})
-	}
-	return nil
+	return p.Driver.Read(ctx, p, pool, standardStreams, cdcStreams)
 }
 
 func (p *Postgres) populateStream(table Table) (*types.Stream, error) {

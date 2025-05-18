@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
@@ -97,7 +98,7 @@ func (m *MySQL) Check() error {
 
 // Type returns the database type
 func (m *MySQL) Type() string {
-	return "MySQL"
+	return string(constants.MySQL)
 }
 
 func (m *MySQL) MaxConnections() int {
@@ -151,21 +152,7 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 
 // Read handles different sync modes for data retrieval
 func (m *MySQL) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	if m.CDCSupport {
-		if err := m.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return m.backfill(ctx, pool, stream)
-		})
-	}
-
-	return nil
+	return m.Driver.Read(ctx, m, pool, standardStreams, cdcStreams)
 }
 
 // produceTableSchema extracts schema information for a given table

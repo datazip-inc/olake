@@ -147,7 +147,7 @@ func (i *Iceberg) ReInitiationOnNewColumns() bool {
 }
 
 func (i *Iceberg) Type() string {
-	return "iceberg"
+	return string(types.Iceberg)
 }
 
 func (i *Iceberg) Flattener() protocol.FlattenFunction {
