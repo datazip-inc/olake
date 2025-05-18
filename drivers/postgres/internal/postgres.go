@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	discoverTime = 5 * time.Minute
 	// TODO: make these queries Postgres version specific
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
@@ -140,7 +139,7 @@ func (p *Postgres) Discover(ctx context.Context) ([]*types.Stream, error) {
 
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
 
-	discoverCtx, cancel := context.WithTimeout(ctx, discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
 	defer cancel()
 
 	var tableNamesOutput []Table

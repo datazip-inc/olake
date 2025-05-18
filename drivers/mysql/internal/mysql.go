@@ -21,10 +21,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-const (
-	discoverTime = 5 * time.Minute // maximum time allowed to discover all the streams
-)
-
 // MySQL represents the MySQL database driver
 type MySQL struct {
 	*base.Driver
@@ -120,11 +116,10 @@ func (m *MySQL) Discover(ctx context.Context) ([]*types.Stream, error) {
 	}
 
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(ctx, discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
 	defer cancel()
 
 	query := jdbc.MySQLDiscoverTablesQuery()
-
 	rows, err := m.client.QueryContext(discoverCtx, query, m.config.Database)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)

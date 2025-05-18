@@ -82,8 +82,8 @@ func (m *Mongo) Backfill(backfillCtx context.Context, backfilledStreams chan str
 			}
 		}()
 
-		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursorIterationFunc := func() error {
+			opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 			cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
 			if err != nil {
 				return fmt.Errorf("collection.Find: %s", err)

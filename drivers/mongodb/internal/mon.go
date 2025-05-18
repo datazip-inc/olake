@@ -20,9 +20,7 @@ import (
 )
 
 const (
-	discoverTime        = 5 * time.Minute // maximum time allowed to discover all the streams
-	cdcCursorField      = "_data"
-	defaultBackoffCount = 3
+	cdcCursorField = "_data"
 )
 
 type Mongo struct {
@@ -59,8 +57,8 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	m.CDCSupport = true
 	// check for default backoff count
 	if m.config.RetryCount < 0 {
-		logger.Info("setting backoff retry count to default value %d", defaultBackoffCount)
-		m.config.RetryCount = defaultBackoffCount
+		logger.Info("setting backoff retry count to default value %d", constants.DefaultBackoffCount)
+		m.config.RetryCount = constants.DefaultBackoffCount
 	} else {
 		// add 1 for first run
 		m.config.RetryCount += 1
@@ -104,7 +102,7 @@ func (m *Mongo) Discover(ctx context.Context) ([]*types.Stream, error) {
 	}
 
 	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(ctx, discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
 	defer cancel()
 
 	database := m.client.Database(m.config.Database)
