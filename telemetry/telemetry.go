@@ -128,7 +128,7 @@ func (t *Telemetry) SendEvent(eventName string, properties map[string]interface{
 	}
 
 	props := map[string]interface{}{
-		"anonymous_id":  getAnonymousID(),
+		"anonymous_id":  GetAnonymousID(),
 		"os":            t.platform.OS,
 		"arch":          t.platform.Arch,
 		"olake_version": t.platform.OlakeVersion,
@@ -141,7 +141,7 @@ func (t *Telemetry) SendEvent(eventName string, properties map[string]interface{
 		props[k] = v
 	}
 
-	anonymousID := getAnonymousID()
+	anonymousID := GetAnonymousID()
 	fmt.Printf("Sending event: %s for user: %s\n", eventName, anonymousID)
 
 	err := t.client.Enqueue(analytics.Track{
@@ -185,7 +185,7 @@ func getPlatformInfo() platformInfo {
 	}
 }
 
-func getAnonymousID() string {
+func GetAnonymousID() string {
 	idLock.Lock()
 	defer idLock.Unlock()
 
@@ -216,4 +216,21 @@ func generateUUID() string {
 	hash := sha256.New()
 	hash.Write([]byte(time.Now().String()))
 	return hex.EncodeToString(hash.Sum(nil))[:32]
+}
+
+func ComputeConfigHash(srcPath, destPath string) string {
+	if srcPath == "" || destPath == "" {
+		// no config or no destination → no meaningful hash
+		return ""
+	}
+	a, err := os.ReadFile(srcPath)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(destPath)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(append(a, b...))
+	return hex.EncodeToString(sum[:])
 }

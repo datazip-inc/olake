@@ -33,10 +33,11 @@ var discoverCmd = &cobra.Command{
 		var streamCount int
 		defer func() {
 			props := map[string]interface{}{
-				"duration_sec": time.Since(startTime).Seconds(),
-				"success":      discoverError == nil,
-				"stream_count": streamCount,
-				"source_type":  connector.Type(),
+				"GetAnonymousID": telemetry.GetAnonymousID(),
+				"duration_sec":   time.Since(startTime).Seconds(),
+				"success":        discoverError == nil,
+				"stream_count":   streamCount,
+				"source_type":    connector.Type(),
 			}
 			if discoverError != nil {
 				props["error_type"] = discoverError
@@ -57,7 +58,8 @@ var discoverCmd = &cobra.Command{
 			return err
 		}
 
-		if len(streams) == 0 {
+		streamCount = len(streams)
+		if streamCount == 0 {
 			discoverError = errors.New("no streams found in connector")
 			return discoverError
 		}

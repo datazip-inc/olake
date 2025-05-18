@@ -25,8 +25,6 @@ import (
 var (
 	logger          zerolog.Logger
 	telemetryClient = telemetry.GetInstance()
-	initialized     bool
-	initMutex       sync.Mutex
 )
 
 // Info writes record into os.stdout with log level INFO
@@ -217,12 +215,6 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 }
 
 func Init() {
-	initMutex.Lock()
-	defer initMutex.Unlock()
-
-	if initialized {
-		return
-	}
 	telemetryClient = telemetry.GetInstance()
 	// Configure lumberjack for log rotation
 	currentTimestamp := time.Now().UTC()
@@ -295,8 +287,6 @@ func Init() {
 	} else {
 		fmt.Println("WARNING: Telemetry client is nil after initialization")
 	}
-
-	initialized = true
 }
 
 // ProcessOutputReader is a struct that manages reading output from a process

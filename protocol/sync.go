@@ -78,6 +78,7 @@ var syncCmd = &cobra.Command{
 		telemetryClient := telemetry.GetInstance()
 		defer func() {
 			props := map[string]interface{}{
+				"GetAnonymousID":  telemetry.GetAnonymousID(),
 				"success":         syncMetrics.success,
 				"records_synced":  syncMetrics.records,
 				"duration_sec":    syncMetrics.durationSec,
@@ -161,19 +162,27 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 
+		// Compute a unique hash of source+destination configs
+		configHash := telemetry.ComputeConfigHash(configPath, destinationConfigPath)
+
 		// Sync Detection
+		stateFileProvided := (statePath != "")
 		syncType := "FullRefresh"
-		if len(cdcStreams) > 0 {
+		if stateFileProvided {
 			syncType = "CDC"
 		}
 		if err := telemetryClient.SendEvent("SyncStarted", map[string]interface{}{
-			"stream_count":       len(catalog.Streams),
-			"selected_count":     len(selectedStreams),
-			"cdc_streams":        len(cdcStreams),
-			"sync_type":          syncType,
-			"source_type":        connector.Type(),
-			"destination_type":   destinationConfig.Type,
-			"normalized_streams": countNormalizedStreams(catalog),
+			"GetAnonymousID":      telemetry.GetAnonymousID(),
+			"stream_count":        len(streams),
+			"selected_count":      len(selectedStreams),
+			"cdc_streams":         len(cdcStreams),
+			"state_file_provided": stateFileProvided,
+			"config_hash":         configHash,
+			"sync_type":           syncType,
+			"source_type":         connector.Type(),
+			"destination_type":    destinationConfig.Type,
+			"normalized_streams":  countNormalizedStreams(catalog),
+			"partitioned_streams": countPartitionedStreams(catalog),
 		}); err != nil {
 			fmt.Printf("Failed to send telemetry event SyncStarted: %v\n", err)
 		}
@@ -249,6 +258,16 @@ func countNormalizedStreams(catalog *types.Catalog) int {
 	count := 0
 	for _, s := range catalog.Streams {
 		if s.StreamMetadata.Normalization {
+			count++
+		}
+	}
+	return count
+}
+
+func countPartitionedStreams(catalog *types.Catalog) int {
+	count := 0
+	for _, s := range catalog.Streams {
+		if s.StreamMetadata.PartitionRegex != "" {
 			count++
 		}
 	}
