@@ -33,11 +33,10 @@ var discoverCmd = &cobra.Command{
 		var streamCount int
 		defer func() {
 			props := map[string]interface{}{
-				"GetAnonymousID": telemetry.GetAnonymousID(),
-				"duration_sec":   time.Since(startTime).Seconds(),
-				"success":        discoverError == nil,
-				"stream_count":   streamCount,
-				"source_type":    connector.Type(),
+				"duration_sec": time.Since(startTime).Seconds(),
+				"success":      discoverError == nil,
+				"stream_count": streamCount,
+				"source_type":  connector.Type(),
 			}
 			if discoverError != nil {
 				props["error_type"] = discoverError

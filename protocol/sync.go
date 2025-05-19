@@ -18,7 +18,6 @@ import (
 var syncMetrics struct {
 	success       bool
 	records       int64
-	durationSec   float64
 	memoryUsageMB uint64
 	err           error
 }
@@ -74,16 +73,28 @@ var syncCmd = &cobra.Command{
 			syncMetrics.success = false
 			return err
 		}
+		startTime := time.Now()
 		// Defer telemetry event to capture final status
 		telemetryClient := telemetry.GetInstance()
+		configHash := telemetry.ComputeConfigHash(configPath, destinationConfigPath)
 		defer func() {
+			metrics := telemetryClient.TrackSyncResult(configHash, syncMetrics.success)
 			props := map[string]interface{}{
-				"GetAnonymousID":  telemetry.GetAnonymousID(),
 				"success":         syncMetrics.success,
 				"records_synced":  syncMetrics.records,
-				"duration_sec":    syncMetrics.durationSec,
+				"duration_sec":    time.Since(startTime).Seconds(),
 				"memory_usage_mb": syncMetrics.memoryUsageMB,
 				"threads_used":    pool.threadCounter.Load(),
+			}
+
+			if metrics != nil {
+				year, week := time.Now().ISOWeek()
+				currentWeek := fmt.Sprintf("%d-W%02d", year, week)
+				props["total_syncs"] = metrics.Total
+				props["successful_syncs"] = metrics.Success
+				props["failed_syncs"] = metrics.Failed
+				props["current_week_syncs"] = metrics.Weeks[currentWeek]
+				props["current_week"] = currentWeek // For weekly diffs
 			}
 
 			if syncMetrics.err != nil {
@@ -162,9 +173,6 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 
-		// Compute a unique hash of source+destination configs
-		configHash := telemetry.ComputeConfigHash(configPath, destinationConfigPath)
-
 		// Sync Detection
 		stateFileProvided := (statePath != "")
 		syncType := "FullRefresh"
@@ -172,17 +180,16 @@ var syncCmd = &cobra.Command{
 			syncType = "CDC"
 		}
 		if err := telemetryClient.SendEvent("SyncStarted", map[string]interface{}{
-			"GetAnonymousID":      telemetry.GetAnonymousID(),
-			"stream_count":        len(streams),
-			"selected_count":      len(selectedStreams),
-			"cdc_streams":         len(cdcStreams),
-			"state_file_provided": stateFileProvided,
-			"config_hash":         configHash,
-			"sync_type":           syncType,
-			"source_type":         connector.Type(),
-			"destination_type":    destinationConfig.Type,
-			"normalized_streams":  countNormalizedStreams(catalog),
-			"partitioned_streams": countPartitionedStreams(catalog),
+			"stream_count":             len(streams),
+			"selected_count":           len(selectedStreams),
+			"cdc_streams":              len(cdcStreams),
+			"state_file_provided":      stateFileProvided,
+			"unique_config_dstination": configHash,
+			"sync_type":                syncType,
+			"source_type":              connector.Type(),
+			"destination_type":         destinationConfig.Type,
+			"normalized_streams":       countNormalizedStreams(catalog),
+			"partitioned_streams":      countPartitionedStreams(catalog),
 		}); err != nil {
 			fmt.Printf("Failed to send telemetry event SyncStarted: %v\n", err)
 		}
@@ -241,7 +248,6 @@ var syncCmd = &cobra.Command{
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
 		syncMetrics.memoryUsageMB = memStats.HeapInuse / (1024 * 1024)
-		syncMetrics.durationSec = time.Since(time.Now()).Seconds()
 		if err != nil {
 			syncMetrics.err = err
 			return err

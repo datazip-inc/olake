@@ -3,7 +3,10 @@ package telemetry
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,21 +29,42 @@ var (
 )
 
 const (
-	anonymousIDFile = "telemetry_id"
-	version         = "1.0.0" // Should be set during build
+	anonymousIDFile       = "telemetry_id"
+	version               = "0.0.0" // Version 0
+	ipNotFoundPlaceholder = "NA"
+	syncCountsCountPrefix = "sync_counts_"
+	syncMetricsFilePrefix = "sync_metrics_"
 )
 
 type Telemetry struct {
-	client      analytics.Client
-	serviceName string
-	enabled     bool
-	platform    platformInfo
+	client        analytics.Client
+	serviceName   string
+	enabled       bool
+	platform      platformInfo
+	ipAddress     string
+	locationInfo  *LocationInfo
+	locationMutex sync.Mutex
+	locationChan  chan struct{}
 }
 
 type platformInfo struct {
 	OS           string
 	Arch         string
 	OlakeVersion string
+	DeviceCPU    string
+}
+
+type LocationInfo struct {
+	Country string `json:"country"`
+	Region  string `json:"region"`
+	City    string `json:"city"`
+}
+
+type SyncMetrics struct {
+	Total   int            `json:"total"`
+	Success int            `json:"success"`
+	Failed  int            `json:"failed"`
+	Weeks   map[string]int `json:"weeks"` // Key format: "YYYY-Www" (e.g., "2023-W43")
 }
 
 func loadConfig() {
@@ -66,31 +90,49 @@ func loadConfig() {
 
 func createTelemetry() {
 	loadConfig()
-	// Initialize only if telemetry is enabled
 	if isTelemetryEnabled() {
 		fmt.Println("Telemetry is enabled")
-		fmt.Println("Segment Key:", segmentAPIKey)
-
-		// Create client with proper configuration for more reliable event delivery
 		client = analytics.New(segmentAPIKey)
-
 		fmt.Println("Segment client initialized successfully")
 	} else {
-		fmt.Println("Telemetry is disabled, not initializing client")
+		fmt.Println("Telemetry is disabled")
 	}
 
+	ip := getOutboundIP()
 	instance = &Telemetry{
-		client:      client,
-		serviceName: getServiceName(),
-		enabled:     isTelemetryEnabled(),
-		platform:    getPlatformInfo(),
+		client:       client,
+		serviceName:  getServiceName(),
+		enabled:      isTelemetryEnabled(),
+		platform:     getPlatformInfo(),
+		ipAddress:    ip,
+		locationChan: make(chan struct{}), // INITIALIZE THE CHANNEL
 	}
 
-	// Send an initialization event to verify everything is working
 	if instance.enabled && instance.client != nil {
 		_ = instance.SendEvent("TelemetryInitialized", map[string]interface{}{
+			"ipAddress": ip,
 			"timestamp": time.Now().String(),
 		})
+		if ip != ipNotFoundPlaceholder {
+			go func() {
+				defer func() {
+					if instance.locationChan != nil {
+						close(instance.locationChan)
+					}
+				}()
+				location, err := getLocationFromIP(ip)
+				if err != nil {
+					return
+				}
+				instance.locationMutex.Lock()
+				instance.locationInfo = &location
+				instance.locationMutex.Unlock()
+			}()
+		} else {
+			if instance.locationChan != nil {
+				close(instance.locationChan)
+			}
+		}
 	}
 }
 
@@ -132,7 +174,10 @@ func (t *Telemetry) SendEvent(eventName string, properties map[string]interface{
 		"os":            t.platform.OS,
 		"arch":          t.platform.Arch,
 		"olake_version": t.platform.OlakeVersion,
+		"num_cpu":       t.platform.DeviceCPU,
 		"service":       t.serviceName,
+		"ip_address":    t.ipAddress,
+		"location":      t.getLocationWithTimeout(),
 		"environment":   getDeploymentType(),
 		"timestamp":     time.Now().UTC().Format(time.RFC3339),
 	}
@@ -182,6 +227,7 @@ func getPlatformInfo() platformInfo {
 		OS:           runtime.GOOS,
 		Arch:         runtime.GOARCH,
 		OlakeVersion: version,
+		DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
 	}
 }
 
@@ -233,4 +279,109 @@ func ComputeConfigHash(srcPath, destPath string) string {
 	}
 	sum := sha256.Sum256(append(a, b...))
 	return hex.EncodeToString(sum[:])
+}
+
+func getOutboundIP() string {
+	ip := []byte(ipNotFoundPlaceholder)
+	resp, err := http.Get("https://api.ipify.org?format=text")
+
+	if err != nil {
+		return string(ip)
+	}
+
+	defer resp.Body.Close()
+	ipBody, err := io.ReadAll(resp.Body)
+	if err == nil {
+		ip = ipBody
+	}
+
+	return string(ip)
+}
+
+func getLocationFromIP(ip string) (LocationInfo, error) {
+	client := http.Client{Timeout: 1 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("https://ipinfo.io/%s/json", ip))
+	if err != nil {
+		return LocationInfo{}, err
+	}
+	defer resp.Body.Close()
+
+	var info struct {
+		Country string `json:"country"`
+		Region  string `json:"region"`
+		City    string `json:"city"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return LocationInfo{}, err
+	}
+
+	return LocationInfo{
+		Country: info.Country,
+		Region:  info.Region,
+		City:    info.City,
+	}, nil
+}
+
+func (t *Telemetry) getLocationWithTimeout() interface{} {
+	// Wait up to 200ms for location lookup
+	select {
+	case <-t.locationChan: // Returns immediately if channel already closed
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	t.locationMutex.Lock()
+	defer t.locationMutex.Unlock()
+
+	if t.locationInfo != nil {
+		return t.locationInfo
+	}
+	return "NA"
+}
+
+func (t *Telemetry) TrackSyncResult(configHash string, success bool) *SyncMetrics {
+	if configHash == "" {
+		return nil
+	}
+
+	// Get the anonymous ID - this function handles its own locking internally
+	anonymousID := GetAnonymousID()
+	metricsPath := filepath.Join(getConfigDir(), syncMetricsFilePrefix+anonymousID)
+
+	// Read existing metrics - file operations don't need mutex protection
+	metrics := make(map[string]SyncMetrics)
+	if data, err := os.ReadFile(metricsPath); err == nil {
+		_ = json.Unmarshal(data, &metrics) // Best-effort read
+	}
+
+	// Get current week identifier
+	year, week := time.Now().ISOWeek()
+	weekKey := fmt.Sprintf("%d-W%02d", year, week)
+
+	// Initialize metrics for this config hash if missing
+	if _, exists := metrics[configHash]; !exists {
+		metrics[configHash] = SyncMetrics{
+			Weeks: make(map[string]int),
+		}
+	}
+
+	// Update metrics
+	configMetrics := metrics[configHash]
+	configMetrics.Total++
+	if success {
+		configMetrics.Success++
+	} else {
+		configMetrics.Failed++
+	}
+	configMetrics.Weeks[weekKey]++ // Increment weekly count
+	metrics[configHash] = configMetrics
+
+	// Persist updated metrics
+	if data, err := json.Marshal(metrics); err == nil {
+		_ = os.WriteFile(metricsPath, data, 0600) // Best-effort write
+	} else {
+		fmt.Printf("Failed to save sync metrics: %v\n", err)
+	}
+
+	return &configMetrics
 }
