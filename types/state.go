@@ -43,11 +43,10 @@ type Chunk struct {
 
 type StreamState struct {
 	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
-
-	Stream    string   `json:"stream"`
-	Namespace string   `json:"namespace"`
-	SyncMode  string   `json:"sync_mode"`
-	State     sync.Map `json:"state"`
+	Stream     string      `json:"stream"`
+	Namespace  string      `json:"namespace"`
+	SyncMode   string      `json:"sync_mode"`
+	State      sync.Map    `json:"state"`
 }
 
 func (s *State) initStreamState(stream *ConfiguredStream) *StreamState {

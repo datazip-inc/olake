@@ -25,10 +25,11 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
-func (m *Mongo) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) error {
-	return utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
+func (m *Mongo) RunChangeStream(_ context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) error {
+	utils.ConcurrentInGroup(protocol.GlobalCtxGroup, streams, func(ctx context.Context, stream protocol.Stream) error {
 		return m.changeStreamSync(ctx, stream, pool)
 	})
+	return nil
 }
 
 // does full load on empty state
