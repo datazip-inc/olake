@@ -138,10 +138,6 @@ var syncCmd = &cobra.Command{
 		if err := GlobalCtxGroup.Block(); err != nil {
 			return err
 		}
-		// wait for writer pool to finish
-		if err := pool.Wait(); err != nil {
-			return fmt.Errorf("error occurred in writer pool: %s", err)
-		}
 
 		// wait for all threads to finish
 		if err := GlobalConnGroup.Block(); err != nil {

@@ -91,11 +91,11 @@ func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, stream
 		// parallel change streams already processed
 		return nil
 	}
-	protocol.GlobalConnGroup.Add(func(ctx context.Context) error {
+	protocol.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream
 		inserters := make(map[protocol.Stream]*protocol.ThreadEvent)
 		errChans := make(map[protocol.Stream]chan error)
-		err := utils.ForEach(streams, func(stream protocol.Stream) error {
+		err = utils.ForEach(streams, func(stream protocol.Stream) error {
 			errChan := make(chan error, 1)
 			inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errChan))
 			if err != nil {

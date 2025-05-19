@@ -42,7 +42,7 @@ func (p *Postgres) Backfill(ctx context.Context, backfilledStreams chan string, 
 	return p.Driver.Backfill(ctx, p.getOrSplitChunks, streamIterator, backfilledStreams, pool, stream)
 }
 
-func (p *Postgres) getOrSplitChunks(pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
+func (p *Postgres) getOrSplitChunks(_ context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)

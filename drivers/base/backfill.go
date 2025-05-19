@@ -12,12 +12,12 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-type GetOrSplitChunkFunc func(pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error)
+type GetOrSplitChunkFunc func(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error)
 type BackfillMessageProcessFunc func(data map[string]any) error
 type ChunkIteratorFunc func(ctx context.Context, chunk types.Chunk, callback BackfillMessageProcessFunc) error
 
-func (d *Driver) Backfill(_ context.Context, chunkSplitter GetOrSplitChunkFunc, chunkIterator ChunkIteratorFunc, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-	chunks, err := chunkSplitter(pool, stream)
+func (d *Driver) Backfill(ctx context.Context, chunkSplitter GetOrSplitChunkFunc, chunkIterator ChunkIteratorFunc, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
+	chunks, err := chunkSplitter(ctx, pool, stream)
 	if err != nil {
 		return fmt.Errorf("failed to get or split chunks")
 	}
@@ -39,6 +39,7 @@ func (d *Driver) Backfill(_ context.Context, chunkSplitter GetOrSplitChunkFunc, 
 				err = <-errorChannel
 			}
 			if err == nil {
+				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				remCount := d.State.RemoveChunk(stream.Self(), chunk)
 				if remCount == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()

@@ -4,9 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
-	"time"
 
+	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -16,69 +15,19 @@ import (
 
 // backfill implements full refresh sync mode for MySQL
 func (m *MySQL) Backfill(backfillCtx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-	// Get approximate row count and inform the pool
-	var approxRowCount int64
-	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
-	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
-	if err != nil {
-		return fmt.Errorf("failed to get approx row count: %s", err)
+	// check for primary key if backfill is suported or not
+	if stream.GetStream().AvailableCursorFields.Len() > 1 {
+		return fmt.Errorf("backfill not supported, more then one primary key found in stream[%s]", stream.ID())
 	}
-	pool.AddRecordsToSync(approxRowCount)
-	// Get primary key column
-	pkColumns := stream.GetStream().SourceDefinedPrimaryKey
-	if pkColumns.Len() == 0 {
-		return fmt.Errorf("no primary key defined for stream %s", stream.Name())
-	}
-	// currently only support single primary key chunking
-	pkColumn := pkColumns.Array()[0]
-	// Get chunks from state or calculate new ones
-	stateChunks := m.State.GetChunks(stream.Self())
-	var splitChunks []types.Chunk
-	if stateChunks == nil || stateChunks.Len() == 0 {
-		chunks := types.NewSet[types.Chunk]()
-		if err := m.splitChunks(backfillCtx, stream, chunks); err != nil {
-			return fmt.Errorf("failed to calculate chunks: %s", err)
-		}
-		splitChunks = chunks.Array()
-		m.State.SetChunks(stream.Self(), chunks)
-	} else {
-		splitChunks = stateChunks.Array()
-	}
-
-	// Sort chunks by Min value to ensure consistent processing order
-	sort.Slice(splitChunks, func(i, j int) bool {
-		return utils.CompareInterfaceValue(splitChunks[i].Min, splitChunks[j].Min) < 0
-	})
-
-	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(splitChunks))
 
 	// Process chunks concurrently
-	processChunk := func(ctx context.Context, chunk types.Chunk) (err error) {
-		// Track batch start time for logging
-		batchStartTime := time.Now()
-		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(waitChannel))
-		if err != nil {
-			return fmt.Errorf("failed to create writer thread: %s", err)
-		}
-		defer func() {
-			insert.Close()
-			if err == nil {
-				// Wait for chunk completion
-				err = <-waitChannel
-			}
-			// Log completion and update state if successful
-			if err == nil {
-				logger.Infof("chunk with min[%v]-max[%v] completed in %0.2f seconds", chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
-				remCount := m.State.RemoveChunk(stream.Self(), chunk)
-				if remCount == 0 {
-					backfilledStreams <- stream.ID()
-				}
-			}
-		}()
+	chunkIterator := func(ctx context.Context, chunk types.Chunk, OnMessage base.BackfillMessageProcessFunc) (err error) {
 		// Begin transaction with repeatable read isolation
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			// Build query for the chunk
+			pkColumns := stream.GetStream().SourceDefinedPrimaryKey
+			pkColumn := pkColumns.Array()[0]
+			// Get chunks from state or calculate new ones
 			stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk)
 			setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 				return tx.QueryContext(ctx, query, args...)
@@ -90,19 +39,37 @@ func (m *MySQL) Backfill(backfillCtx context.Context, backfilledStreams chan str
 				if err != nil {
 					return fmt.Errorf("failed to mapScan record data: %s", err)
 				}
-				olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-				err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0)))
-				if err != nil {
-					return err
-				}
-				return nil
+				return OnMessage(record)
 			})
 		})
 	}
-	utils.ConcurrentInGroup(protocol.GlobalConnGroup, splitChunks, processChunk)
-	return nil
+	return m.Driver.Backfill(backfillCtx, m.getOrSplitChunks, chunkIterator, backfilledStreams, pool, stream)
 }
 
+func (m *MySQL) getOrSplitChunks(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
+	var approxRowCount int64
+	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
+	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get approx row count: %s", err)
+	}
+	pool.AddRecordsToSync(approxRowCount)
+	// Get primary key column
+
+	stateChunks := m.State.GetChunks(stream.Self())
+	var splitChunks []types.Chunk
+	if stateChunks == nil || stateChunks.Len() == 0 {
+		chunks := types.NewSet[types.Chunk]()
+		if err := m.splitChunks(ctx, stream, chunks); err != nil {
+			return nil, fmt.Errorf("failed to calculate chunks: %s", err)
+		}
+		splitChunks = chunks.Array()
+		m.State.SetChunks(stream.Self(), chunks)
+	} else {
+		splitChunks = stateChunks.Array()
+	}
+	return splitChunks, nil
+}
 func (m *MySQL) splitChunks(ctx context.Context, stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
 	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 		// Get primary key column using the provided function

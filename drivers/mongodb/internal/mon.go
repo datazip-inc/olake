@@ -193,7 +193,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 				return err
 			}
 
-			handleMongoObject(row)
+			filterMongoObject(row)
 			if err := typeutils.Resolve(stream, row); err != nil {
 				return err
 			}
@@ -203,7 +203,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 	})
 }
 
-func handleMongoObject(doc bson.M) {
+func filterMongoObject(doc bson.M) {
 	for key, value := range doc {
 		// first make key small case as data being typeresolved with small case keys
 		delete(doc, key)

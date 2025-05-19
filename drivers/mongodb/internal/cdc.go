@@ -79,7 +79,7 @@ func (m *Mongo) changeStreamSync(cdcCtx context.Context, stream protocol.Stream,
 				// replace full document(null) with documentKey
 				record.FullDocument = record.DocumentKey
 			}
-			handleMongoObject(record.FullDocument)
+			filterMongoObject(record.FullDocument)
 			ts := utils.Ternary(record.WallTime != 0,
 				record.WallTime.Time(), // millisecond precision
 				time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
