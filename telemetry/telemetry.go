@@ -83,11 +83,6 @@ func loadConfig() {
 	serviceName = viper.GetString("telemetry.service_name")
 }
 
-// var telemetryEnabled = true
-// var deploymentType = "development"
-// var serviceName = "olake"
-// var segmentAPIKey = "RFynIrEFUsaTRgKumlSqfme6DRPymYfN"
-
 func createTelemetry() {
 	loadConfig()
 	if isTelemetryEnabled() {
