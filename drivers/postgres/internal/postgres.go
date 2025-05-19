@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -16,7 +17,6 @@ import (
 )
 
 const (
-	discoverTime = 5 * time.Minute
 	// TODO: make these queries Postgres version specific
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
@@ -45,7 +45,7 @@ func (p *Postgres) ChangeStreamSupported() bool {
 	return p.CDCSupport
 }
 
-func (p *Postgres) Setup() error {
+func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
@@ -57,7 +57,7 @@ func (p *Postgres) Setup() error {
 	}
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	// force a connection and test that it worked
@@ -117,8 +117,8 @@ func (p *Postgres) Spec() any {
 	return Config{}
 }
 
-func (p *Postgres) Check() error {
-	return p.Setup()
+func (p *Postgres) Check(ctx context.Context) error {
+	return p.Setup(ctx)
 }
 
 func (p *Postgres) CloseConnection() {
@@ -130,7 +130,7 @@ func (p *Postgres) CloseConnection() {
 	}
 }
 
-func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
+func (p *Postgres) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// if not cached already; discover
 	streams := p.GetStreams()
 	if len(streams) != 0 {
@@ -139,7 +139,7 @@ func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
 
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
 
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
 	defer cancel()
 
 	var tableNamesOutput []Table
@@ -171,7 +171,7 @@ func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
 }
 
 func (p *Postgres) Type() string {
-	return "Postgres"
+	return string(constants.Postgres)
 }
 
 func (p *Postgres) MaxConnections() int {
@@ -189,20 +189,7 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 }
 
 func (p *Postgres) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	if p.CDCSupport {
-		if err := p.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return p.backfill(ctx, pool, stream)
-		})
-	}
-	return nil
+	return p.Driver.Read(ctx, p, pool, standardStreams, cdcStreams)
 }
 
 func (p *Postgres) populateStream(table Table) (*types.Stream, error) {

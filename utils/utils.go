@@ -15,6 +15,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/spf13/cobra"
 )
@@ -66,6 +67,16 @@ func Ternary(cond bool, a, b any) any {
 		return a
 	}
 	return b
+}
+
+func ForEach[T any](set []T, action func(elem T) error) error {
+	for _, elem := range set {
+		err := action(elem)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Unmarshal serializes and deserializes any from into the object
@@ -287,6 +298,11 @@ func CompareInterfaceValue(a, b interface{}) int {
 	case string:
 		if a != nil && b != nil {
 			return strings.Compare(a.(string), b.(string))
+		}
+		return Ternary(a == nil, -1, 1).(int)
+	case *primitive.ObjectID:
+		if a != nil && b != nil {
+			return strings.Compare(a.(*primitive.ObjectID).Hex(), b.(*primitive.ObjectID).Hex())
 		}
 		return Ternary(a == nil, -1, 1).(int)
 	}

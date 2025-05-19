@@ -61,12 +61,12 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 		// setup conector first
-		err = connector.Setup()
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
 		// Get Source Streams
-		streams, err := connector.Discover(false)
+		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -137,10 +137,6 @@ var syncCmd = &cobra.Command{
 		// wait for all threads to finish
 		if err := GlobalCtxGroup.Block(); err != nil {
 			return err
-		}
-		// wait for writer pool to finish
-		if err := pool.Wait(); err != nil {
-			return fmt.Errorf("error occurred in writer pool: %s", err)
 		}
 
 		// wait for all threads to finish

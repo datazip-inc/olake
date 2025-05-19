@@ -166,7 +166,7 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 }
 
 // Check validates local paths and S3 credentials if applicable.
-func (p *Parquet) Check() error {
+func (p *Parquet) Check(_ context.Context) error {
 	// check for s3 writer configuration
 	err := p.initS3Writer()
 	if err != nil {

@@ -76,7 +76,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 		return nil, err
 	}
 
-	err := adapter.Check()
+	err := adapter.Check(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
@@ -149,7 +149,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	}
 
 	w.group.Go(func() error {
-		err := func() error {
+		err := func() (err error) {
 			w.threadCounter.Add(1)
 			// init writer first
 			if err := initNewWriter(); err != nil {
@@ -161,6 +161,9 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				w.tmu.Lock()
 				defer w.tmu.Unlock()
 				childCancel() // no more inserts
+				if err != nil {
+					opts.errorChannel <- err
+				}
 				// capture error on thread close
 				threadCloseErr := thread.Close()
 				if len(opts.errorChannel) == 0 && threadCloseErr != nil {

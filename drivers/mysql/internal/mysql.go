@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -19,16 +21,18 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-const (
-	discoverTime = 5 * time.Minute // maximum time allowed to discover all the streams
-)
-
 // MySQL represents the MySQL database driver
 type MySQL struct {
 	*base.Driver
 	config    *Config
 	client    *sql.DB
 	cdcConfig CDC
+}
+
+// MySQLGlobalState tracks the binlog position and backfilled streams.
+type MySQLGlobalState struct {
+	ServerID uint32        `json:"server_id"`
+	State    binlog.Binlog `json:"state"`
 }
 
 func (m *MySQL) StateType() types.StateType {
@@ -52,7 +56,7 @@ func (m *MySQL) Spec() any {
 }
 
 // Setup establishes the database connection
-func (m *MySQL) Setup() error {
+func (m *MySQL) Setup(ctx context.Context) error {
 	err := m.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
@@ -63,7 +67,7 @@ func (m *MySQL) Setup() error {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
 	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
@@ -91,13 +95,13 @@ func (m *MySQL) Setup() error {
 }
 
 // Check verifies the database connection
-func (m *MySQL) Check() error {
-	return m.Setup()
+func (m *MySQL) Check(ctx context.Context) error {
+	return m.Setup(ctx)
 }
 
 // Type returns the database type
 func (m *MySQL) Type() string {
-	return "MySQL"
+	return string(constants.MySQL)
 }
 
 func (m *MySQL) MaxConnections() int {
@@ -105,18 +109,17 @@ func (m *MySQL) MaxConnections() int {
 }
 
 // Discover finds and catalogs database tables
-func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
+func (m *MySQL) Discover(ctx context.Context) ([]*types.Stream, error) {
 	streams := m.GetStreams()
 	if len(streams) != 0 {
 		return streams, nil
 	}
 
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
 	defer cancel()
 
 	query := jdbc.MySQLDiscoverTablesQuery()
-
 	rows, err := m.client.QueryContext(discoverCtx, query, m.config.Database)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
@@ -151,21 +154,7 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 
 // Read handles different sync modes for data retrieval
 func (m *MySQL) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	if m.CDCSupport {
-		if err := m.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return m.backfill(ctx, pool, stream)
-		})
-	}
-
-	return nil
+	return m.Driver.Read(ctx, m, pool, standardStreams, cdcStreams)
 }
 
 // produceTableSchema extracts schema information for a given table

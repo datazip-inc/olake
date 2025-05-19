@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -19,9 +20,7 @@ import (
 )
 
 const (
-	discoverTime        = 5 * time.Minute // maximum time allowed to discover all the streams
-	cdcCursorField      = "_data"
-	defaultBackoffCount = 3
+	cdcCursorField = "_data"
 )
 
 type Mongo struct {
@@ -40,13 +39,12 @@ func (m *Mongo) Spec() any {
 	return Config{}
 }
 
-func (m *Mongo) Setup() error {
+func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
-
-	connectCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
 	conn, err := mongo.Connect(connectCtx, opts)
@@ -59,8 +57,8 @@ func (m *Mongo) Setup() error {
 	m.CDCSupport = true
 	// check for default backoff count
 	if m.config.RetryCount < 0 {
-		logger.Info("setting backoff retry count to default value %d", defaultBackoffCount)
-		m.config.RetryCount = defaultBackoffCount
+		logger.Info("setting backoff retry count to default value %d", constants.DefaultBackoffCount)
+		m.config.RetryCount = constants.DefaultBackoffCount
 	} else {
 		// add 1 for first run
 		m.config.RetryCount += 1
@@ -69,11 +67,15 @@ func (m *Mongo) Setup() error {
 	return nil
 }
 
-func (m *Mongo) Check() error {
-	pingCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+func (m *Mongo) Check(ctx context.Context) error {
+	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
+}
+
+func (m *Mongo) StateType() types.StateType {
+	return types.StreamType
 }
 
 func (m *Mongo) SetupState(state *types.State) {
@@ -81,27 +83,26 @@ func (m *Mongo) SetupState(state *types.State) {
 	m.State = state
 }
 
-func (m *Mongo) Close() error {
-	return m.client.Disconnect(context.Background())
+func (m *Mongo) Close(ctx context.Context) error {
+	return m.client.Disconnect(ctx)
 }
 
 func (m *Mongo) Type() string {
-	return "Mongo"
+	return string(constants.MongoDB)
 }
 
 func (m *Mongo) MaxConnections() int {
 	return m.config.MaxThreads
 }
 
-// TODO: utilize discoverSchema boolean
-func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
+func (m *Mongo) Discover(ctx context.Context) ([]*types.Stream, error) {
 	streams := m.GetStreams()
 	if len(streams) != 0 {
 		return streams, nil
 	}
 
 	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
+	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
 	defer cancel()
 
 	database := m.client.Database(m.config.Database)
@@ -144,24 +145,7 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 }
 
 func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	// start change streams
-	if m.CDCSupport {
-		// TODO: can we run it with globalCtxGroup?
-		err := m.RunChangeStream(ctx, pool, cdcStreams...)
-		if err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("MongoDB does not support change streams, make sure all stream run full refresh")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return m.backfill(ctx, pool, stream)
-		})
-	}
-
-	return nil
+	return m.Driver.Read(ctx, m, pool, standardStreams, cdcStreams)
 }
 
 // fetch schema types from mongo for streamName
@@ -209,7 +193,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 				return err
 			}
 
-			handleMongoObject(row)
+			filterMongoObject(row)
 			if err := typeutils.Resolve(stream, row); err != nil {
 				return err
 			}
@@ -219,7 +203,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 	})
 }
 
-func handleMongoObject(doc bson.M) {
+func filterMongoObject(doc bson.M) {
 	for key, value := range doc {
 		// first make key small case as data being typeresolved with small case keys
 		delete(doc, key)
