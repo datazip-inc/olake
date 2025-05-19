@@ -328,8 +328,8 @@ func TestFlattenerImplFlatten(t *testing.T) {
 			name: "test interface types",
 			key:  "interfaces",
 			value: map[string]interface{}{
-				"interface_value": interface{}(42),
-				"nil_interface":   interface{}(nil),
+				"interface_value":  interface{}(42),
+				"nil_interface":    interface{}(nil),
 				"string_interface": interface{}("oLake"),
 			},
 			expected: types.Record{
