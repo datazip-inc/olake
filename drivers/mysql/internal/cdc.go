@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
@@ -153,8 +154,12 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	rows, err := m.client.Query(jdbc.MySQLMasterStatusQuery())
 	if err != nil {
 		// MySQL v8.2 and above
-		rows, err = m.client.Query(jdbc.MySQLMasterStatusQueryNew())
-		if err != nil {
+		if strings.Contains(err.Error(), "You have an error in your SQL syntax") && strings.Contains(err.Error(), "MASTER STATUS") {
+			rows, err = m.client.Query(jdbc.MySQLMasterStatusQueryNew())
+			if err != nil {
+				return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
+			}
+		} else {
 			return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
 		}
 	}
