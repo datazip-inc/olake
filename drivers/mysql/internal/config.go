@@ -39,14 +39,21 @@ func (c *Config) URI() string {
 		hostStr = "localhost"
 	}
 
+	// Add TLS parameters
+	tlsParam := "tls=true"
+	if c.TLSSkipVerify {
+		tlsParam = "tls=skip-verify"
+	}
+
 	// Construct full connection string
 	return fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s",
+		"%s:%s@tcp(%s:%d)/%s?%s",
 		url.QueryEscape(c.Username),
 		url.QueryEscape(c.Password),
 		hostStr,
 		c.Port,
 		url.QueryEscape(c.Database),
+		tlsParam,
 	)
 }
 
