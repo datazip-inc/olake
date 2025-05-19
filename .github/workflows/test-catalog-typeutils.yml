@@ -1,0 +1,30 @@
+name: Catalog, Flatten and Resolver Tests
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+    branches:
+      - staging
+
+jobs:
+  catalog-flatten-resolver-tests:
+    name: Run Catalog, Flatten and Resolver Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v3
+        with:
+          check-latest: true
+          go-version: 1.23.x
+
+      - name: Run Catalog Tests
+        run: go test -v ./types -run TestGetWrappedCatalog
+
+      - name: Run Flatten Tests
+        run: go test -v ./typeutils -run TestFlattener
+
+      - name: Run Resolve Tests
+        run: go test -v ./typeutils -run TestResolve
