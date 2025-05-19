@@ -269,6 +269,89 @@ func TestFlattenerImplFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		{
+			name: "test basic types",
+			key:  "basic",
+			value: map[string]interface{}{
+				"string":  "test",
+				"int":     int(42),
+				"int8":    int8(42),
+				"int16":   int16(42),
+				"int32":   int32(42),
+				"int64":   int64(42),
+				"uint":    uint(42),
+				"uint8":   uint8(42),
+				"uint16":  uint16(42),
+				"uint32":  uint32(42),
+				"uint64":  uint64(42),
+				"float32": float32(3.14),
+				"float64": float64(3.14),
+				"bool":    true,
+			},
+			expected: types.Record{
+				"basic": `{"bool":true,"float32":3.14,"float64":3.14,"int":42,"int16":42,"int32":42,"int64":42,"int8":42,"string":"test","uint":42,"uint16":42,"uint32":42,"uint64":42,"uint8":42}`,
+			},
+			expectError: false,
+		},
+		{
+			name: "test pointer types",
+			key:  "pointers",
+			value: map[string]interface{}{
+				"int_ptr":     func() *int { v := 42; return &v }(),
+				"string_ptr":  func() *string { v := "test"; return &v }(),
+				"bool_ptr":    func() *bool { v := true; return &v }(),
+				"float64_ptr": func() *float64 { v := 3.14; return &v }(),
+				"nil_ptr":     (*int)(nil),
+			},
+			expected: types.Record{
+				"pointers": `{"bool_ptr":true,"float64_ptr":3.14,"int_ptr":42,"nil_ptr":null,"string_ptr":"test"}`,
+			},
+			expectError: false,
+		},
+		{
+			name: "test array and slice types",
+			key:  "arrays",
+			value: map[string]interface{}{
+				"int_array":    [3]int{1, 2, 3},
+				"string_array": [2]string{"a", "b"},
+				"int_slice":    []int{1, 2, 3},
+				"string_slice": []string{"a", "b"},
+				"empty_slice":  []int{},
+				"nil_slice":    []int(nil),
+			},
+			expected: types.Record{
+				"arrays": `{"empty_slice":[],"int_array":[1,2,3],"int_slice":[1,2,3],"nil_slice":null,"string_array":["a","b"],"string_slice":["a","b"]}`,
+			},
+			expectError: false,
+		},
+		{
+			name: "test interface types",
+			key:  "interfaces",
+			value: map[string]interface{}{
+				"interface_value": interface{}(42),
+				"nil_interface":   interface{}(nil),
+				"string_interface": interface{}("oLake"),
+			},
+			expected: types.Record{
+				"interfaces": `{"interface_value":42,"nil_interface":null,"string_interface":"oLake"}`,
+			},
+			expectError: false,
+		},
+		{
+			name: "test struct types",
+			key:  "structs",
+			value: map[string]interface{}{
+				"time": time.Date(2024, 3, 19, 15, 30, 0, 0, time.UTC),
+				"custom_struct": struct {
+					Name  string
+					Value int
+				}{"test", 42},
+			},
+			expected: types.Record{
+				"structs": `{"custom_struct":{"Name":"test","Value":42},"time":"2024-03-19T15:30:00Z"}`,
+			},
+			expectError: false,
+		},
 	}
 
 	for _, tc := range tests {
