@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
@@ -150,18 +149,25 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 
 // getCurrentBinlogPosition retrieves the current binlog position from MySQL.
 func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
-	// MySQL v8.1 and below
-	rows, err := m.client.Query(jdbc.MySQLMasterStatusQuery())
+	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
+	// So check the version and use the appropriate query
+
+	// Get MySQL version
+	version, err := jdbc.MySQLVersion(m.client)
 	if err != nil {
-		// MySQL v8.2 and above
-		if strings.Contains(err.Error(), "You have an error in your SQL syntax") && strings.Contains(err.Error(), "MASTER STATUS") {
-			rows, err = m.client.Query(jdbc.MySQLMasterStatusQueryNew())
-			if err != nil {
-				return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
-			}
-		} else {
-			return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
-		}
+		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
+	}
+	// Compare MySQL version
+	versionCompare, err := jdbc.CompareMySQLVersion(version, "8.4")
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to compare MySQL version: %s", err)
+	}
+	// Use the appropriate query based on the MySQL version
+	query := utils.Ternary(versionCompare == -1, jdbc.MySQLMasterStatusQuery(), jdbc.MySQLMasterStatusQueryNew()).(string)
+
+	rows, err := m.client.Query(query)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
 	}
 	defer rows.Close()
 
