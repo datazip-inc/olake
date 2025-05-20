@@ -142,6 +142,8 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 		return m.backfill(stream, pool)
 	case types.CDC:
 		return m.changeStreamSync(stream, pool)
+	case types.INCREMENTAL:
+		return m.incrementalSync(stream, pool)
 	}
 
 	return nil
