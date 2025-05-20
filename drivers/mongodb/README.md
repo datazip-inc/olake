@@ -1,6 +1,6 @@
 # MongoDB Driver
 
-The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh**, **CDC (Change Data Capture)**, and **Query-Based Incremental Sync** modes.
+The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports **Full Refresh**, **CDC (Change Data Capture)**, and **Query-Based Incremental Sync** modes.
 
 ---
 
