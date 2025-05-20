@@ -157,7 +157,7 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
-	// Compare MySQL version
+	// Compare current MySQL version with version 8.4
 	versionCompare, err := jdbc.CompareMySQLVersion(version, "8.4")
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to compare MySQL version: %s", err)
