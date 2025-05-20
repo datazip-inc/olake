@@ -179,6 +179,12 @@ var syncCmd = &cobra.Command{
 		if stateFileProvided {
 			syncType = "CDC"
 		}
+
+		// catalog type if destination is Iceberg
+		catalogType, err := getCatalogType(destinationConfig)
+		if err != nil {
+			return err
+		}
 		if err := telemetryClient.SendEvent("SyncStarted", map[string]interface{}{
 			"stream_count":             len(streams),
 			"selected_count":           len(selectedStreams),
@@ -188,6 +194,7 @@ var syncCmd = &cobra.Command{
 			"sync_type":                syncType,
 			"source_type":              connector.Type(),
 			"destination_type":         destinationConfig.Type,
+			"catalog_type":             catalogType,
 			"normalized_streams":       countNormalizedStreams(catalog),
 			"partitioned_streams":      countPartitionedStreams(catalog),
 		}); err != nil {
@@ -278,4 +285,24 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 		}
 	}
 	return count
+}
+
+func getCatalogType(destinationConfig *types.WriterConfig) (string, error) {
+	if strings.EqualFold(string(destinationConfig.Type), "PARQUET") {
+		return "", nil
+	} else if strings.EqualFold(string(destinationConfig.Type), "ICEBERG") {
+		writerConfigMap, ok := destinationConfig.WriterConfig.(map[string]interface{})
+		if !ok {
+			return "", fmt.Errorf("WriterConfig is not a map[string]interface{}")
+		}
+		if ct, exists := writerConfigMap["catalog_type"]; exists {
+			catalogType, ok := ct.(string)
+			if !ok {
+				return "", fmt.Errorf("catalog_type is not a string")
+			}
+			return catalogType, nil
+		}
+		return "", fmt.Errorf("catalog_type not found in WriterConfig")
+	}
+	return "", nil
 }
