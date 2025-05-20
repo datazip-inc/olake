@@ -42,11 +42,7 @@ var RootCmd = &cobra.Command{
 		// set global variables
 
 		if !noSave {
-			if configPath != "" {
-				viper.Set("CONFIG_FOLDER", filepath.Dir(configPath))
-			} else {
-				viper.Set("CONFIG_FOLDER", filepath.Dir(destinationConfigPath))
-			}
+			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath != "", filepath.Dir(configPath), filepath.Dir(destinationConfigPath)))
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
@@ -66,11 +62,10 @@ var RootCmd = &cobra.Command{
 func CreateRootCommand(isDriver bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
 
+	// For drivers, we need a connector else nil
 	if isDriver {
-		// For drivers
 		connector = driver.(Driver)
 	} else {
-		// For writers, we don't need a connector
 		connector = nil
 	}
 

@@ -9,6 +9,6 @@ import (
 func main() {
 	err := protocol.CreateRootCommand(false, nil).Execute()
 	if err != nil {
-		logger.Fatal(err)
+		logger.Fatal("Failed to create root command", err)
 	}
 }
