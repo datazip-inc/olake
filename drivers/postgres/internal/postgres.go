@@ -188,6 +188,8 @@ func (p *Postgres) Read(pool *protocol.WriterPool, stream protocol.Stream) error
 		return p.backfill(pool, stream)
 	case types.CDC:
 		return p.RunChangeStream(pool, stream)
+	case types.INCREMENTAL:
+		return p.incremental(pool, stream)
 	}
 
 	return nil
@@ -213,6 +215,10 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 		return stream, fmt.Errorf("failed to retrieve primary key columns for table %s[%s]: %s", table.Name, table.Schema, err)
 	}
 
+	if stream.AvailableCursorFields == nil {
+		stream.AvailableCursorFields = types.NewSet[string]()
+	}
+
 	for _, column := range columnSchemaOutput {
 		datatype := types.Unknown
 		if val, found := pgTypeToDataTypes[*column.DataType]; found {
@@ -223,8 +229,15 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 		}
 
 		stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
+		if datatype == types.Timestamp {
+			stream.AvailableCursorFields.Insert(column.Name)
+		}
+	}
+	for _, pk := range primaryKeyOutput {
+		stream.AvailableCursorFields.Insert(pk.Name)
 	}
 
+	fmt.Println("Cursor fields", stream.AvailableCursorFields)
 	// cdc additional fields
 	if p.CDCSupport {
 		for column, typ := range base.DefaultColumns {
@@ -239,6 +252,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 
 	} else {
 		stream.WithSyncMode(types.FULLREFRESH)
+		stream.WithSyncMode(types.INCREMENTAL)
 	}
 
 	// add primary keys for stream
