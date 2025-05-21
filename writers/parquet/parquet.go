@@ -131,6 +131,10 @@ func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error
 
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
+	// Log the record data before writing
+	logger.Infof("💛 Parquet Write - Record data: %+v", record.Data)
+	logger.Infof("💛 Parquet Write - Schema: %v", p.stream.Schema().ToParquet())
+
 	partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
 
 	partitionFolder, exists := p.partitionedFiles[partitionedPath]
@@ -154,13 +158,25 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 		record.Data[constants.OlakeTimestamp] = record.OlakeTimestamp
 		record.Data[constants.OpType] = record.OperationType
 		record.Data[constants.CdcTimestamp] = record.CdcTimestamp
+
+		// Log the data before writing
+		logger.Infof("💛 Parquet Write - Writing normalized record with data: %+v", record.Data)
+		logger.Infof("💛 Parquet Write - Schema: %v", p.stream.Schema().ToParquet())
+
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 	} else {
+		// Log the data before writing
+		logger.Infof("💛 Parquet Write - Writing raw record: %+v", record)
+		logger.Infof("💛 Parquet Write - Schema: %v", p.stream.Schema().ToParquet())
+
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
 	}
+
 	if err != nil {
+		logger.Errorf("💛 Parquet Write - Error writing to parquet file: %v", err)
 		return fmt.Errorf("failed to write in parquet file: %s", err)
 	}
+
 	fileMetadata.recordCount++
 	return nil
 }

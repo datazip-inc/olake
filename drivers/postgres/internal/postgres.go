@@ -176,10 +176,30 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
+
+	// Log the raw input
+	logger.Infof("💛 PostgreSQL dataTypeConverter - Raw Input - Value: %v, Type: %T, Column type: %s",
+		value, value, columnType)
+
 	// (e.g., varchar(50) -> varchar)
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
 	olakeType := pgTypeToDataTypes[baseType]
-	return typeutils.ReformatValue(olakeType, value)
+
+	// Log the mapped type
+	logger.Infof("💛 PostgreSQL dataTypeConverter - Type Mapping - PostgreSQL type: %s -> Olake type: %s",
+		baseType, olakeType)
+
+	result, err := typeutils.ReformatValue(olakeType, value)
+	if err != nil {
+		logger.Errorf("💛 PostgreSQL dataTypeConverter - Error converting value: %v", err)
+		return nil, err
+	}
+
+	// Log the final output
+	logger.Infof("💛 PostgreSQL dataTypeConverter - Final Output - Value: %v, Type: %T",
+		result, result)
+
+	return result, nil
 }
 
 func (p *Postgres) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
@@ -217,8 +237,11 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 		datatype := types.Unknown
 		if val, found := pgTypeToDataTypes[*column.DataType]; found {
 			datatype = val
+			logger.Infof("💛 PostgreSQL populateStream - Column: %s, PostgreSQL type: %s, Mapped to Olake type: %s",
+				column.Name, *column.DataType, datatype)
 		} else {
-			logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
+			logger.Warnf("💛 PostgreSQL populateStream - No mapping found for column: %s, PostgreSQL type: %s, Defaulting to String",
+				column.Name, *column.DataType)
 			datatype = types.String
 		}
 

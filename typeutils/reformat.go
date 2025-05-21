@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -63,6 +64,9 @@ func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
 }
 
 func ReformatValue(dataType types.DataType, v any) (any, error) {
+	// Log the input value and type
+	logger.Infof("💛 ReformatValue - Input value: %v, Type: %T, Target data type: %s", v, v, dataType)
+
 	switch dataType {
 	case types.Null:
 		return nil, ErrNullValue
@@ -92,7 +96,14 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 
 		return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 	case types.Int64:
-		return ReformatInt64(v)
+		result, err := ReformatInt64(v)
+		if err != nil {
+			logger.Errorf("💛 ReformatValue - Error in ReformatInt64: %v", err)
+			return nil, err
+		}
+		// Log the output value and type
+		logger.Infof("💛 ReformatValue - Output value: %v, Type: %T", result, result)
+		return result, nil
 	case types.Int32:
 		return ReformatInt32(v)
 	case types.Timestamp:
@@ -214,6 +225,9 @@ func parseStringTimestamp(value string) (time.Time, error) {
 }
 
 func ReformatInt64(v any) (int64, error) {
+	// Log the input value and type
+	logger.Infof("💛 ReformatInt64 - Input value: %v, Type: %T", v, v)
+
 	switch v := v.(type) {
 	case float32:
 		return int64(v), nil
@@ -226,6 +240,8 @@ func ReformatInt64(v any) (int64, error) {
 	case int32:
 		return int64(v), nil
 	case int64:
+		// Log the output value and type
+		logger.Infof("💛 ReformatInt64 - Output value: %v, Type: %T", v, v)
 		return int64(v), nil
 	case uint:
 		//nolint:gosec,G115
@@ -247,8 +263,11 @@ func ReformatInt64(v any) (int64, error) {
 	case string:
 		intValue, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
+			logger.Errorf("💛 ReformatInt64 - Error parsing string: %v", err)
 			return int64(0), fmt.Errorf("failed to change string %v to int64: %v", v, err)
 		}
+		// Log the output value and type
+		logger.Infof("💛 ReformatInt64 - Output value: %v, Type: %T", intValue, intValue)
 		return intValue, nil
 	case *any:
 		return ReformatInt64(*v)

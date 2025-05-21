@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
@@ -42,10 +43,15 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		data := make(map[string]any)
 		for i, val := range values {
 			colType := types[i]
+			logger.Infof("💙 WAL Raw Data - Column: %s, Value: %v, Type: %T, PostgreSQL Type: %s",
+				names[i], val, val, colType)
+
 			conv, err := c.converter(val, colType)
 			if err != nil && err != typeutils.ErrNullValue {
 				return nil, err
 			}
+			logger.Infof("💙 WAL Converted Data - Column: %s, Value: %v, Type: %T",
+				names[i], conv, conv)
 			data[names[i]] = conv
 		}
 		return data, nil

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
@@ -119,6 +120,7 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 func (t *TypeSchema) ToParquet() *parquet.Schema {
 	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
+		logger.Infof("💛 ToParquet Key: %s, Value: %s", key, value)
 		groupNode[key.(string)] = value.(*Property).DataType().ToNewParquet()
 		return true
 	})
