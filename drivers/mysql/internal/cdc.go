@@ -160,12 +160,12 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
 	// Parse MySQL version to get major and minor version
-	major, minor, err := parseMySQLVersion(version)
+	majorVersion, minorVersion, err := parseMySQLVersion(version)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to parse MySQL version: %s", err)
 	}
 	// Use the appropriate query based on the MySQL version
-	query := utils.Ternary(major > 8 || (major == 8 && minor >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
 	rows, err := m.client.Query(query)
 	if err != nil {
