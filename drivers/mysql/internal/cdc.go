@@ -37,15 +37,6 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 	return binlog.NewConnection(ctx, config, globalState.State.Position, streams)
 }
 
-// // RunChangeStream implements the CDC functionality for multiple streams using a single binlog connection.
-// func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
-// 	err = m.PreCDC(ctx, streams)
-// 	if err != nil {
-// 		return fmt.Errorf("failed in pre cdc initialization")
-// 	}
-// 	return m.Driver.RunChangeStream(ctx, m, pool, streams...)
-// }
-
 func (m *MySQL) PreCDC(ctx context.Context, streams []protocol.Stream) error {
 	// Load or initialize global state
 	globalState := m.State.GetGlobal()

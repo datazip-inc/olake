@@ -28,14 +28,6 @@ func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config
 	}, nil
 }
 
-// func (p *Postgres) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
-// 	err = p.PreCDC(ctx, streams)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to run pre-cdc: %s", err)
-// 	}
-// 	return p.Driver.RunChangeStream(ctx, p, pool, streams...)
-// }
-
 func (p *Postgres) PreCDC(ctx context.Context, streams []protocol.Stream) error {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
@@ -48,7 +40,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []protocol.Stream) error 
 	}
 
 	p.Socket = socket
-	currentLSN := socket.ConfirmedFlushLSN
+	currentLSN := p.Socket.ConfirmedFlushLSN
 	globalState := p.State.GetGlobal()
 
 	if globalState == nil || globalState.State == nil {

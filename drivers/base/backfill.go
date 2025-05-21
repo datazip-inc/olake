@@ -17,6 +17,11 @@ func (d *Driver) Backfill(ctx context.Context, sd protocol.Driver, backfilledStr
 	if err != nil {
 		return fmt.Errorf("failed to get or split chunks")
 	}
+
+	if len(chunks) == 0 {
+		backfilledStreams <- stream.ID()
+		return nil
+	}
 	sort.Slice(chunks, func(i, j int) bool {
 		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
 	})
@@ -42,6 +47,7 @@ func (d *Driver) Backfill(ctx context.Context, sd protocol.Driver, backfilledStr
 				}
 			}
 		}()
+		// TODO: add backoff for connection errors
 		return sd.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			rawRecord := types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0))

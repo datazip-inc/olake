@@ -24,41 +24,30 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
-// func (m *Mongo) RunChangeStream(_ context.Context, pool *protocol.WriterPool, streams protocol.Stream) error {
-// 	utils.ConcurrentInGroup(protocol.GlobalCtxGroup, streams, func(ctx context.Context, stream protocol.Stream) error {
-// 		return m.PreCDC(ctx, stream)
-// 	})
-// 	return nil
-// }
-
-// does full load on empty state
 func (m *Mongo) PreCDC(cdcCtx context.Context, streams []protocol.Stream) error {
-	if len(streams) > 1 {
-		return fmt.Errorf("mongo require precdc with single stream")
-	}
-	stream := streams[0]
-	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{
-			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
-		}}},
-	}
+	for _, stream := range streams {
+		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{
+				{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
+			}}},
+		}
 
-	prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
-	if prevResumeToken == nil {
-		// get current resume token and do full load for stream
-		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
-		if err != nil {
-			return err
+		prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
+		if prevResumeToken == nil {
+			// get current resume token and do full load for stream
+			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
+			if err != nil {
+				return err
+			}
+			if resumeToken != nil {
+				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
+				m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+			}
 		}
-		if resumeToken != nil {
-			prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-			m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
-			m.cdcCursor = prevResumeToken
-		}
+		m.cdcCursor = prevResumeToken
 	}
 	return nil
-	// return m.Driver.RunChangeStream(cdcCtx, m, pool, stream)
 }
 
 func (m *Mongo) StreamChanges(ctx context.Context, stream protocol.Stream, OnMessage protocol.CDCMsgFn) error {

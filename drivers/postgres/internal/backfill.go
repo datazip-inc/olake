@@ -11,11 +11,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// // Simple Full Refresh Sync; Loads table fully
-// func (p *Postgres) Backfill(ctx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-// 	return p.Driver.Backfill(ctx, backfilledStreams, pool, stream)
-// }
-
 func (p *Postgres) ChunkIterator(ctx context.Context, stream protocol.Stream, chunk types.Chunk, callback protocol.BackfillMsgFn) error {
 	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {

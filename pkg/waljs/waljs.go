@@ -172,5 +172,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback protocol.CDCMsgFn)
 
 // cleanUpOnFailure drops replication slot and publication if database snapshotting was failed for any reason
 func (s *Socket) Cleanup(ctx context.Context) {
-	_ = s.pgConn.Close(ctx)
+	if s.pgConn != nil {
+		_ = s.pgConn.Close(ctx)
+	}
 }

@@ -12,18 +12,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// backfill implements full refresh sync mode for MySQL
-// func (m *MySQL) Backfill(backfillCtx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-// 	// check for primary key if backfill is suported or not
-// 	if stream.GetStream().AvailableCursorFields.Len() > 1 {
-// 		return fmt.Errorf("backfill not supported, more then one primary key found in stream[%s]", stream.ID())
-// 	}
-
-// 	// Process chunks concurrently
-
-// 	return m.Driver.Backfill(backfillCtx, backfilledStreams, pool, stream)
-// }
-
 func (m *MySQL) ChunkIterator(ctx context.Context, stream protocol.Stream, chunk types.Chunk, OnMessage protocol.BackfillMsgFn) (err error) {
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
