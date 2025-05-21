@@ -27,9 +27,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import static io.debezium.server.iceberg.OlakeRpcServer.keyDeserializer;
@@ -343,7 +345,9 @@ public class RecordConverter {
           // its primitive field
           final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
           schemaData.fields().add(field);
-          if (isPkField) schemaData.identifierFieldIds().add(field.fieldId());
+          if (isPkField && !schemaData.identifierFieldIds().contains(field.fieldId())) {
+              schemaData.identifierFieldIds().add(field.fieldId());
+          }
           return schemaData;
       }
     }
@@ -426,20 +430,31 @@ public class RecordConverter {
       }
 
       // Validate key fields
-      if (createIdentifierFields && !schemaData.identifierFieldIds().isEmpty()) {
-        LOGGER.debug("Validating key fields in schema: {}", schemaData.identifierFieldIds());
-        for (int keyFieldId : schemaData.identifierFieldIds()) {
-            boolean fieldExists = schemaData.fields().stream()
-                .anyMatch(field -> field.fieldId() == keyFieldId);
-            if (!fieldExists) {
-                throw new RuntimeException("Key field with ID " + keyFieldId + " is not present in the schema fields!");
-            }
-        }
+       if (createIdentifierFields && !schemaData.identifierFieldIds().isEmpty()) {
+        validateKeyFields(schemaData);
       }
       return new Schema(schemaData.fields(), schemaData.identifierFieldIds());
 
     }
 
+    private void validateKeyFields(RecordSchemaData schemaData) {
+      LOGGER.debug("Validating key fields in schema: {}", schemaData.identifierFieldIds());
+      
+      // Check for duplicate field IDs
+      Set<Integer> seenIds = new HashSet<>();
+      for (int keyFieldId : schemaData.identifierFieldIds()) {
+          if (!seenIds.add(keyFieldId)) {
+              throw new RuntimeException("Duplicate key field ID found: " + keyFieldId + 
+                  ". Each field can only be used as an identifier field once.");
+          }
+          
+          boolean fieldExists = schemaData.fields().stream()
+              .anyMatch(field -> field.fieldId() == keyFieldId);
+          if (!fieldExists) {
+              throw new RuntimeException("Key field with ID " + keyFieldId + " is not present in the schema fields!");
+          }
+      }
+    }
     private static Type.PrimitiveType icebergPrimitiveField(String fieldName, String fieldType) {
       switch (fieldType) {
         case "int8":
