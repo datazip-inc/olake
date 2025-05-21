@@ -198,7 +198,7 @@ When a partition field is missing from a record, the writer will automatically s
 
 ### Example Usage
 
-To include partitioning in your sync:
+To include partitioning in your sync **streams.json**:
 
 1. Specify the partitioning in your stream configuration:
 ```json
@@ -212,7 +212,7 @@ To include partitioning in your sync:
     ]
   }
 }
-
+```
 2. Run your sync as usual, and the Iceberg writer will create the appropriate partitioned table structure.
 
 After syncing, you can query the data efficiently by filtering on partition columns:
