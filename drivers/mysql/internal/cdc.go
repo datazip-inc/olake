@@ -192,15 +192,15 @@ func parseMySQLVersion(version string) (int, int, error) {
 	if len(parts) < 2 {
 		return 0, 0, fmt.Errorf("invalid version format")
 	}
-	major, err := strconv.Atoi(parts[0])
+	majorVersion, err := strconv.Atoi(parts[0])
 	if err != nil {
 		return 0, 0, fmt.Errorf("invalid major version: %s", err)
 	}
 
-	minor, err := strconv.Atoi(parts[1])
+	minorVersion, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return 0, 0, fmt.Errorf("invalid minor version: %s", err)
 	}
 
-	return major, minor, nil
+	return majorVersion, minorVersion, nil
 }
