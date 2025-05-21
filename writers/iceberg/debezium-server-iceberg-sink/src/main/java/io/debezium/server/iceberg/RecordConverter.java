@@ -345,7 +345,7 @@ public class RecordConverter {
           // its primitive field
           final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
           schemaData.fields().add(field);
-          if (isPkField) {
+          if (isPkField && !schemaData.identifierFieldIds().contains(field.fieldId())) {
               schemaData.identifierFieldIds().add(field.fieldId());
           }
           return schemaData;
