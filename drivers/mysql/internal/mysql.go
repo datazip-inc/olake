@@ -24,9 +24,10 @@ import (
 // MySQL represents the MySQL database driver
 type MySQL struct {
 	*base.Driver
-	config    *Config
-	client    *sql.DB
-	cdcConfig CDC
+	config     *Config
+	client     *sql.DB
+	cdcConfig  CDC
+	BinlogConn *binlog.Connection
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.

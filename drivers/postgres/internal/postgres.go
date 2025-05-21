@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -39,6 +40,7 @@ type Postgres struct {
 	client    *sqlx.DB
 	config    *Config // postgres driver connection config
 	cdcConfig CDC
+	Socket    *waljs.Socket
 }
 
 func (p *Postgres) ChangeStreamSupported() bool {

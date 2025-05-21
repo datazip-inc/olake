@@ -6,7 +6,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -17,6 +16,7 @@ import (
 type Connection struct {
 	syncer          *replication.BinlogSyncer
 	CurrentPos      mysql.Position // Current binlog position
+	ServerID        uint32
 	initialWaitTime time.Duration
 	changeFilter    ChangeFilter // Filter for processing binlog events
 }
@@ -34,16 +34,16 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		VerifyChecksum:  config.VerifyChecksum,
 		HeartbeatPeriod: config.HeartbeatPeriod,
 	}
-	syncer := replication.NewBinlogSyncer(syncerConfig)
 	return &Connection{
-		syncer:          syncer,
+		ServerID:        config.ServerID,
+		syncer:          replication.NewBinlogSyncer(syncerConfig),
 		CurrentPos:      pos,
 		initialWaitTime: config.InitialWaitTime,
 		changeFilter:    NewChangeFilter(streams...),
 	}, nil
 }
 
-func (c *Connection) StreamMessages(ctx context.Context, callback base.MessageProcessingFunc) error {
+func (c *Connection) StreamMessages(ctx context.Context, callback protocol.CDCMsgFn) error {
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
 	if err != nil {

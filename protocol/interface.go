@@ -5,7 +5,15 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
+
+type CDCChange struct {
+	Stream    Stream
+	Timestamp typeutils.Time
+	Kind      string
+	Data      map[string]interface{}
+}
 
 type Config interface {
 	Validate() error
@@ -22,6 +30,9 @@ type Connector interface {
 	Type() string
 }
 
+type BackfillMsgFn func(message map[string]any) error
+type CDCMsgFn func(message CDCChange) error
+
 type Driver interface {
 	Connector
 	// Sets up client, doesn't performs any Checks
@@ -33,10 +44,14 @@ type Driver interface {
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(ctx context.Context, pool *WriterPool, standardStreams, cdcStreams []Stream) error
 	// backfill reader
-	Backfill(ctx context.Context, watitChan chan string, pool *WriterPool, stream Stream) error
-	// change streams reader
-	RunChangeStream(ctx context.Context, pool *WriterPool, stream ...Stream) error
 	SetupState(state *types.State)
+	// specific to backfill
+	GetOrSplitChunks(ctx context.Context, pool *WriterPool, stream Stream) ([]types.Chunk, error)
+	ChunkIterator(ctx context.Context, stream Stream, chunk types.Chunk, processFn BackfillMsgFn) error
+	// specific to cdc
+	PreCDC(ctx context.Context, streams []Stream) error
+	StreamChanges(ctx context.Context, stream Stream, processFn CDCMsgFn) error
+	PostCDC(ctx context.Context, stream Stream, success bool) error
 }
 
 type Write = func(ctx context.Context, channel <-chan types.Record) error

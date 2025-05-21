@@ -5,44 +5,44 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
 
-// Simple Full Refresh Sync; Loads table fully
-func (p *Postgres) Backfill(ctx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-	streamIterator := func(ctx context.Context, chunk types.Chunk, callback base.BackfillMessageProcessFunc) error {
-		tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
-		splitColumn := stream.Self().StreamMetadata.SplitColumn
-		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
-		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
-		setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-			return tx.Query(query, args...)
-		})
+// // Simple Full Refresh Sync; Loads table fully
+// func (p *Postgres) Backfill(ctx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
+// 	return p.Driver.Backfill(ctx, backfilledStreams, pool, stream)
+// }
 
-		return setter.Capture(func(rows *sql.Rows) error {
-			// Create a map to hold column names and values
-			record := make(types.Record)
-
-			// Scan the row into the map
-			err := jdbc.MapScan(rows, record, p.dataTypeConverter)
-			if err != nil {
-				return fmt.Errorf("failed to mapScan record data: %s", err)
-			}
-			return callback(record)
-		})
+func (p *Postgres) ChunkIterator(ctx context.Context, stream protocol.Stream, chunk types.Chunk, callback protocol.BackfillMsgFn) error {
+	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return err
 	}
-	return p.Driver.Backfill(ctx, p.getOrSplitChunks, streamIterator, backfilledStreams, pool, stream)
+	defer tx.Rollback()
+	splitColumn := stream.Self().StreamMetadata.SplitColumn
+	splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
+	stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
+	setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		return tx.Query(query, args...)
+	})
+
+	return setter.Capture(func(rows *sql.Rows) error {
+		// Create a map to hold column names and values
+		record := make(types.Record)
+
+		// Scan the row into the map
+		err := jdbc.MapScan(rows, record, p.dataTypeConverter)
+		if err != nil {
+			return fmt.Errorf("failed to mapScan record data: %s", err)
+		}
+		return callback(record)
+	})
 }
 
-func (p *Postgres) getOrSplitChunks(_ context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
+func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)

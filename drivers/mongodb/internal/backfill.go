@@ -18,34 +18,31 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) Backfill(backfillCtx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-	cursorIteratorFunc := func(ctx context.Context, chunk types.Chunk, OnMessage base.BackfillMessageProcessFunc) (err error) {
-		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
-		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-		cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
-		if err != nil {
-			return fmt.Errorf("collection.Find: %s", err)
-		}
-		defer cursor.Close(ctx)
-		for cursor.Next(ctx) {
-			var doc bson.M
-			if _, err = cursor.Current.LookupErr("_id"); err != nil {
-				return fmt.Errorf("looking up idProperty: %s", err)
-			} else if err = cursor.Decode(&doc); err != nil {
-				return fmt.Errorf("backfill decoding document: %s", err)
-			}
-			// filter mongo object
-			filterMongoObject(doc)
-			if err := OnMessage(doc); err != nil {
-				return fmt.Errorf("failed to send message to writer: %s", err)
-			}
-		}
-		return cursor.Err()
+func (m *Mongo) ChunkIterator(ctx context.Context, stream protocol.Stream, chunk types.Chunk, OnMessage protocol.BackfillMsgFn) (err error) {
+	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
+	if err != nil {
+		return fmt.Errorf("collection.Find: %s", err)
 	}
-	return m.Driver.Backfill(backfillCtx, m.getOrSplitChunks, cursorIteratorFunc, backfilledStreams, pool, stream)
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if _, err = cursor.Current.LookupErr("_id"); err != nil {
+			return fmt.Errorf("looking up idProperty: %s", err)
+		} else if err = cursor.Decode(&doc); err != nil {
+			return fmt.Errorf("backfill decoding document: %s", err)
+		}
+		// filter mongo object
+		filterMongoObject(doc)
+		if err := OnMessage(doc); err != nil {
+			return fmt.Errorf("failed to send message to writer: %s", err)
+		}
+	}
+	return cursor.Err()
 }
 
-func (m *Mongo) getOrSplitChunks(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
+func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
 	chunks := m.State.GetChunks(stream.Self())
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	if chunks != nil && chunks.Len() != 0 {

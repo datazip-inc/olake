@@ -8,26 +8,14 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-type CDCChange struct {
-	Stream    protocol.Stream
-	Timestamp typeutils.Time
-	Kind      string
-	Data      map[string]interface{}
-}
-
-type MessageProcessingFunc func(message CDCChange) error
-type StreamerFunc func(ctx context.Context, callback MessageProcessingFunc) error
-type PostCDCFunc func(ctx context.Context, noErr bool) error
-
-func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, streamer StreamerFunc, postCDC PostCDCFunc, pool *protocol.WriterPool, streams ...protocol.Stream) error {
+func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, pool *protocol.WriterPool, streams ...protocol.Stream) error {
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 	err := utils.ForEach(streams, func(stream protocol.Stream) error {
 		if !d.State.HasCompletedBackfill(stream.Self()) {
-			err := sd.Backfill(ctx, backfillWaitChannel, pool, stream)
+			err := d.Backfill(ctx, sd, backfillWaitChannel, pool, stream)
 			if err != nil {
 				return err
 			}
@@ -69,9 +57,9 @@ func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, stream
 							err = fmt.Errorf("failed to write record for stream[%s]: %s", streamID, threadErr)
 						}
 					}
-					_ = postCDC(ctx, err == nil)
+					_ = sd.PostCDC(ctx, streams[index], err == nil)
 				}()
-				err = streamer(ctx, func(change CDCChange) error {
+				err = sd.StreamChanges(ctx, streams[index], func(change protocol.CDCChange) error {
 					pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 					opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 					return inserter.Insert(types.CreateRawRecord(
@@ -116,9 +104,9 @@ func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, stream
 					}
 				}
 			}
-			_ = postCDC(ctx, err == nil)
+			_ = sd.PostCDC(ctx, nil, err == nil)
 		}()
-		return streamer(ctx, func(change CDCChange) error {
+		return sd.StreamChanges(ctx, nil, func(change protocol.CDCChange) error {
 			pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 			opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 			return inserters[change.Stream].Insert(types.CreateRawRecord(

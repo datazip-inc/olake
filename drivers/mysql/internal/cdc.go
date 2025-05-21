@@ -37,8 +37,16 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 	return binlog.NewConnection(ctx, config, globalState.State.Position, streams)
 }
 
-// RunChangeStream implements the CDC functionality for multiple streams using a single binlog connection.
-func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
+// // RunChangeStream implements the CDC functionality for multiple streams using a single binlog connection.
+// func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
+// 	err = m.PreCDC(ctx, streams)
+// 	if err != nil {
+// 		return fmt.Errorf("failed in pre cdc initialization")
+// 	}
+// 	return m.Driver.RunChangeStream(ctx, m, pool, streams...)
+// }
+
+func (m *MySQL) PreCDC(ctx context.Context, streams []protocol.Stream) error {
 	// Load or initialize global state
 	globalState := m.State.GetGlobal()
 	if globalState == nil || globalState.State == nil {
@@ -53,7 +61,7 @@ func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, 
 	}
 
 	var MySQLGlobalState MySQLGlobalState
-	if err = utils.Unmarshal(globalState.State, &MySQLGlobalState); err != nil {
+	if err := utils.Unmarshal(globalState.State, &MySQLGlobalState); err != nil {
 		return fmt.Errorf("failed to unmarshal global state: %s", err)
 	}
 
@@ -61,17 +69,26 @@ func (m *MySQL) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, 
 	if err != nil {
 		return fmt.Errorf("failed to prepare binlog conn: %s", err)
 	}
+	m.BinlogConn = conn
+	return nil
+}
 
-	postCDC := func(ctx context.Context, noErr bool) error {
-		if noErr {
-			MySQLGlobalState.State.Position = conn.CurrentPos
-			m.State.SetGlobal(MySQLGlobalState)
-			// TODO: Research about acknowledgment of binlogs in mysql
-		}
-		conn.Cleanup()
-		return nil
+func (m *MySQL) PostCDC(ctx context.Context, stream protocol.Stream, noErr bool) error {
+	if noErr {
+		m.State.SetGlobal(MySQLGlobalState{
+			ServerID: m.BinlogConn.ServerID,
+			State: binlog.Binlog{
+				Position: m.BinlogConn.CurrentPos,
+			},
+		})
+		// TODO: Research about acknowledgment of binlogs in mysql
 	}
-	return m.Driver.RunChangeStream(ctx, m, conn.StreamMessages, postCDC, pool, streams...)
+	m.BinlogConn.Cleanup()
+	return nil
+}
+
+func (m *MySQL) StreamChanges(ctx context.Context, _ protocol.Stream, OnMessage protocol.CDCMsgFn) error {
+	return m.BinlogConn.StreamMessages(ctx, OnMessage)
 }
 
 // getCurrentBinlogPosition retrieves the current binlog position from MySQL.
