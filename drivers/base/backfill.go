@@ -12,14 +12,15 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-type GetOrSplitChunkFunc func(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error)
-type BackfillMessageProcessFunc func(data map[string]any) error
-type ChunkIteratorFunc func(ctx context.Context, chunk types.Chunk, callback BackfillMessageProcessFunc) error
-
-func (d *Driver) Backfill(ctx context.Context, chunkSplitter GetOrSplitChunkFunc, chunkIterator ChunkIteratorFunc, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-	chunks, err := chunkSplitter(ctx, pool, stream)
+func (d *Driver) Backfill(ctx context.Context, sd protocol.Driver, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
+	chunks, err := sd.GetOrSplitChunks(ctx, pool, stream)
 	if err != nil {
 		return fmt.Errorf("failed to get or split chunks")
+	}
+
+	if len(chunks) == 0 {
+		backfilledStreams <- stream.ID()
+		return nil
 	}
 	sort.Slice(chunks, func(i, j int) bool {
 		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
@@ -46,7 +47,8 @@ func (d *Driver) Backfill(ctx context.Context, chunkSplitter GetOrSplitChunkFunc
 				}
 			}
 		}()
-		return chunkIterator(ctx, chunk, func(data map[string]any) error {
+		// TODO: add backoff for connection errors
+		return sd.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			rawRecord := types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0))
 			err := inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))

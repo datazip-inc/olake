@@ -8,26 +8,20 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-type CDCChange struct {
-	Stream    protocol.Stream
-	Timestamp typeutils.Time
-	Kind      string
-	Data      map[string]interface{}
-}
+func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, pool *protocol.WriterPool, streams ...protocol.Stream) error {
+	// run pre cdc of drivers
+	if err := sd.PreCDC(ctx, streams); err != nil {
+		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", sd.Type(), err)
+	}
 
-type MessageProcessingFunc func(message CDCChange) error
-type StreamerFunc func(ctx context.Context, callback MessageProcessingFunc) error
-type PostCDCFunc func(ctx context.Context, noErr bool) error
-
-func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, streamer StreamerFunc, postCDC PostCDCFunc, pool *protocol.WriterPool, streams ...protocol.Stream) error {
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 	err := utils.ForEach(streams, func(stream protocol.Stream) error {
 		if !d.State.HasCompletedBackfill(stream.Self()) {
-			err := sd.Backfill(ctx, backfillWaitChannel, pool, stream)
+			// remove chunks state
+			err := d.Backfill(ctx, sd, backfillWaitChannel, pool, stream)
 			if err != nil {
 				return err
 			}
@@ -50,40 +44,40 @@ func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, stream
 			if !ok {
 				return fmt.Errorf("backfill channel closed unexpectedly")
 			}
-			d.State.SetGlobal(nil, streamID)
 			backfilledStreams = append(backfilledStreams, streamID)
 
 			// run parallel change stream
 			// TODO: remove duplicate code
 			if isParallelChangeStream(sd.Type()) {
-				index, _ := utils.ArrayContains(streams, func(s protocol.Stream) bool { return s.ID() == streamID })
-				errChan := make(chan error, 1)
-				inserter, err := pool.NewThread(ctx, streams[index], protocol.WithErrorChannel(errChan))
-				if err != nil {
-					return fmt.Errorf("failed to create writer thread for stream[%s]: %s", streamID, err)
-				}
-				defer func() {
-					inserter.Close()
-					if err == nil {
-						if threadErr := <-errChan; threadErr != nil {
-							err = fmt.Errorf("failed to write record for stream[%s]: %s", streamID, threadErr)
-						}
+				protocol.GlobalConnGroup.Add(func(ctx context.Context) error {
+					index, _ := utils.ArrayContains(streams, func(s protocol.Stream) bool { return s.ID() == streamID })
+					errChan := make(chan error, 1)
+					inserter, err := pool.NewThread(ctx, streams[index], protocol.WithErrorChannel(errChan))
+					if err != nil {
+						return fmt.Errorf("failed to create writer thread for stream[%s]: %s", streamID, err)
 					}
-					_ = postCDC(ctx, err == nil)
-				}()
-				err = streamer(ctx, func(change CDCChange) error {
-					pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-					opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-					return inserter.Insert(types.CreateRawRecord(
-						utils.GetKeysHash(change.Data, pkFields...),
-						change.Data,
-						opType,
-						change.Timestamp.Time,
-					))
+					defer func() {
+						inserter.Close()
+						if err == nil {
+							if threadErr := <-errChan; threadErr != nil {
+								err = fmt.Errorf("failed to write record for stream[%s]: %s", streamID, threadErr)
+							}
+						}
+						_ = sd.PostCDC(ctx, streams[index], err == nil)
+					}()
+					return sd.StreamChanges(ctx, streams[index], func(change protocol.CDCChange) error {
+						pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+						opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
+						return inserter.Insert(types.CreateRawRecord(
+							utils.GetKeysHash(change.Data, pkFields...),
+							change.Data,
+							opType,
+							change.Timestamp.Time,
+						))
+					})
 				})
-				if err != nil {
-					return fmt.Errorf("failed cdc for stream[%s]: %s", streamID, err)
-				}
+			} else {
+				d.State.SetGlobal(nil, streamID)
 			}
 		}
 	}
@@ -116,9 +110,9 @@ func (d *Driver) RunChangeStream(ctx context.Context, sd protocol.Driver, stream
 					}
 				}
 			}
-			_ = postCDC(ctx, err == nil)
+			_ = sd.PostCDC(ctx, nil, err == nil)
 		}()
-		return streamer(ctx, func(change CDCChange) error {
+		return sd.StreamChanges(ctx, nil, func(change protocol.CDCChange) error {
 			pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 			opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 			return inserters[change.Stream].Insert(types.CreateRawRecord(

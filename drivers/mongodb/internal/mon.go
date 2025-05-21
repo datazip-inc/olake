@@ -25,8 +25,9 @@ const (
 
 type Mongo struct {
 	*base.Driver
-	config *Config
-	client *mongo.Client
+	config    *Config
+	client    *mongo.Client
+	cdcCursor any
 }
 
 // config reference; must be pointer

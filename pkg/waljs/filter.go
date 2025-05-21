@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -29,7 +28,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 	return filter
 }
 
-func (c ChangeFilter) FilterChange(change []byte, OnFiltered base.MessageProcessingFunc) error {
+func (c ChangeFilter) FilterChange(change []byte, OnFiltered protocol.CDCMsgFn) error {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
 		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
@@ -70,7 +69,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered base.MessageProcess
 			return fmt.Errorf("failed to convert change data: %s", err)
 		}
 
-		if err := OnFiltered(base.CDCChange{
+		if err := OnFiltered(protocol.CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,
 			Timestamp: changes.Timestamp,

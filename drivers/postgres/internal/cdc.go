@@ -28,7 +28,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config
 	}, nil
 }
 
-func (p *Postgres) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) (err error) {
+func (p *Postgres) PreCDC(ctx context.Context, streams []protocol.Stream) error {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
 		return fmt.Errorf("failed to prepare wal config: %s", err)
@@ -39,7 +39,8 @@ func (p *Postgres) RunChangeStream(ctx context.Context, pool *protocol.WriterPoo
 		return fmt.Errorf("failed to create wal connection: %s", err)
 	}
 
-	currentLSN := socket.ConfirmedFlushLSN
+	p.Socket = socket
+	currentLSN := p.Socket.ConfirmedFlushLSN
 	globalState := p.State.GetGlobal()
 
 	if globalState == nil || globalState.State == nil {
@@ -65,18 +66,22 @@ func (p *Postgres) RunChangeStream(ctx context.Context, pool *protocol.WriterPoo
 				p.State.ResetStreams()
 			}
 		}
+	}
+	return nil
+}
 
+func (p *Postgres) StreamChanges(ctx context.Context, _ protocol.Stream, callback protocol.CDCMsgFn) error {
+	return p.Socket.StreamMessages(ctx, callback)
+}
+
+func (p *Postgres) PostCDC(ctx context.Context, _ protocol.Stream, noErr bool) error {
+	defer p.Socket.Cleanup(ctx)
+	if noErr {
+		p.State.SetGlobal(waljs.WALState{LSN: p.Socket.ClientXLogPos.String()})
+		// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
+		return p.Socket.AcknowledgeLSN(ctx)
 	}
-	postCDC := func(ctx context.Context, noErr bool) error {
-		defer socket.Cleanup(ctx)
-		if noErr {
-			p.State.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-			// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
-			return socket.AcknowledgeLSN(ctx)
-		}
-		return nil
-	}
-	return p.Driver.RunChangeStream(ctx, p, socket.StreamMessages, postCDC, pool, streams...)
+	return nil
 }
 
 func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {

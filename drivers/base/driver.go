@@ -60,7 +60,7 @@ func (d *Driver) GetStream(streamID string) (bool, *types.Stream) {
 // Read handles different sync modes for data retrieval
 func (d *Driver) Read(ctx context.Context, sd protocol.Driver, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
 	if d.CDCSupport {
-		if err := sd.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+		if err := d.RunChangeStream(ctx, sd, pool, cdcStreams...); err != nil {
 			return fmt.Errorf("failed to run change stream: %s", err)
 		}
 	} else {
@@ -69,7 +69,7 @@ func (d *Driver) Read(ctx context.Context, sd protocol.Driver, pool *protocol.Wr
 	// start backfill for standard streams
 	for _, stream := range standardStreams {
 		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return sd.Backfill(ctx, nil, pool, stream)
+			return d.Backfill(ctx, sd, nil, pool, stream)
 		})
 	}
 
