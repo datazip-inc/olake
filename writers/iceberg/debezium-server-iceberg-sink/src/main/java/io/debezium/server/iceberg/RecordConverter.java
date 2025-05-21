@@ -345,7 +345,7 @@ public class RecordConverter {
           // its primitive field
           final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
           schemaData.fields().add(field);
-          if (isPkField && !schemaData.identifierFieldIds().contains(field.fieldId())) {
+          if (isPkField) {
               schemaData.identifierFieldIds().add(field.fieldId());
           }
           return schemaData;
@@ -439,15 +439,7 @@ public class RecordConverter {
 
     private void validateKeyFields(RecordSchemaData schemaData) {
       LOGGER.debug("Validating key fields in schema: {}", schemaData.identifierFieldIds());
-      
-      // Check for duplicate field IDs
-      Set<Integer> seenIds = new HashSet<>();
       for (int keyFieldId : schemaData.identifierFieldIds()) {
-          if (!seenIds.add(keyFieldId)) {
-              throw new RuntimeException("Duplicate key field ID found: " + keyFieldId + 
-                  ". Each field can only be used as an identifier field once.");
-          }
-          
           boolean fieldExists = schemaData.fields().stream()
               .anyMatch(field -> field.fieldId() == keyFieldId);
           if (!fieldExists) {
