@@ -3,6 +3,8 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
@@ -157,13 +159,13 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
-	// Compare current MySQL version with version 8.4
-	versionCompare, err := jdbc.CompareMySQLVersion(version, "8.4")
+	// Parse MySQL version to get major and minor version
+	major, minor, err := parseMySQLVersion(version)
 	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to compare MySQL version: %s", err)
+		return mysql.Position{}, fmt.Errorf("failed to parse MySQL version: %s", err)
 	}
 	// Use the appropriate query based on the MySQL version
-	query := utils.Ternary(versionCompare == -1, jdbc.MySQLMasterStatusQuery(), jdbc.MySQLMasterStatusQueryNew()).(string)
+	query := utils.Ternary(major > 8 || (major == 8 && minor >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
 	rows, err := m.client.Query(query)
 	if err != nil {
@@ -183,4 +185,22 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	}
 
 	return mysql.Position{Name: file, Pos: position}, nil
+}
+
+func parseMySQLVersion(version string) (int, int, error) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("invalid version format")
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid major version: %s", err)
+	}
+
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid minor version: %s", err)
+	}
+
+	return major, minor, nil
 }

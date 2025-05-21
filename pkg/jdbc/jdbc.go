@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -137,12 +135,12 @@ func MySQLTableRowsQuery() string {
 	`
 }
 
-// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.1 and below
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.3 and below
 func MySQLMasterStatusQuery() string {
 	return "SHOW MASTER STATUS"
 }
 
-// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.2 and above
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.4 and above
 func MySQLMasterStatusQueryNew() string {
 	return "SHOW BINARY LOG STATUS"
 }
@@ -160,57 +158,12 @@ func MySQLTableColumnsQuery() string {
 // MySQLVersion returns the version of the MySQL server
 func MySQLVersion(client *sql.DB) (string, error) {
 	var version string
-	err := client.QueryRow("SELECT SUBSTRING_INDEX(VERSION(), '-', 1)").Scan(&version)
+	err := client.QueryRow("SELECT @@version").Scan(&version)
 	if err != nil {
 		return "", fmt.Errorf("failed to get MySQL version: %w", err)
 	}
 
 	return version, nil
-}
-
-// CompareMySQLVersion compares the MySQL version with the minimum version
-// Returns 0 if the v1 is equal to the v2
-// Returns 1 if the v1 is greater than the v2
-// Returns -1 if the v1 is less than the v2
-func CompareMySQLVersion(v1 string, v2 string) (int, error) {
-	v1Parts := strings.Split(v1, ".")
-	v2Parts := strings.Split(v2, ".")
-
-	if len(v1Parts) < 2 || len(v2Parts) < 2 {
-		return 0, fmt.Errorf("invalid version format")
-	}
-
-	major1, err := strconv.Atoi(v1Parts[0])
-	if err != nil {
-		return 0, fmt.Errorf("invalid major version: %w", err)
-	}
-	minor1, err := strconv.Atoi(v1Parts[1])
-	if err != nil {
-		return 0, fmt.Errorf("invalid minor version: %w", err)
-	}
-
-	major2, err := strconv.Atoi(v2Parts[0])
-	if err != nil {
-		return 0, fmt.Errorf("invalid major version: %w", err)
-	}
-	minor2, err := strconv.Atoi(v2Parts[1])
-	if err != nil {
-		return 0, fmt.Errorf("invalid minor version: %w", err)
-	}
-
-	if major1 > major2 {
-		return 1, nil
-	}
-	if major1 < major2 {
-		return -1, nil
-	}
-	if minor1 > minor2 {
-		return 1, nil
-	}
-	if minor1 < minor2 {
-		return -1, nil
-	}
-	return 0, nil
 }
 
 func WithIsolation(ctx context.Context, client *sql.DB, fn func(tx *sql.Tx) error) error {
