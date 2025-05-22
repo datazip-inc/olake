@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+
+	"github.com/datazip-inc/olake/logger"
 )
 
 // Input/Processed object for Stream
@@ -76,7 +78,8 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 	// no cursor validation in cdc and backfill sync
 	if s.Stream.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.CursorField) {
-		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.AvailableCursorFields)
+		s.Stream.SyncMode = FULLREFRESH
+		logger.Warnf("Invalid cursor field %q not found among available fields %v; defaulting to FULL_REFRESH sync mode", s.CursorField, source.AvailableCursorFields)
 	}
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
