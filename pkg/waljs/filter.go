@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
@@ -31,9 +30,6 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 }
 
 func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered OnMessage) error {
-	// Log the raw WAL data before unmarshaling
-	logger.Infof("💙 WAL Raw JSON - Data: %s", string(change))
-
 	var changes WALMessage
 	decoder := json.NewDecoder(bytes.NewReader(change))
 	decoder.UseNumber()
@@ -48,8 +44,6 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		data := make(map[string]any)
 		for i, val := range values {
 			colType := types[i]
-			logger.Infof("💙 WAL Raw Data - Column: %s, Value: %v, Type: %T, PostgreSQL Type: %s",
-				names[i], val, val, colType)
 
 			// Handle json.Number types
 			if num, ok := val.(json.Number); ok {
@@ -83,8 +77,6 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 			if err != nil && err != typeutils.ErrNullValue {
 				return nil, err
 			}
-			logger.Infof("💙 WAL Converted Data - Column: %s, Value: %v, Type: %T",
-				names[i], conv, conv)
 			data[names[i]] = conv
 		}
 		return data, nil

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
 )
@@ -202,7 +201,6 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 }
 
 func (d DataType) ToNewParquet() parquet.Node {
-	logger.Infof("💛 ToNewParquet - Converting type: %s", d)
 	var n parquet.Node
 	switch d {
 	case Int32:
@@ -222,10 +220,8 @@ func (d DataType) ToNewParquet() parquet.Node {
 	case Object, Array:
 		n = parquet.String()
 	case Unknown:
-		logger.Warnf("💛 ToNewParquet - Unknown type %s, defaulting to string", d)
 		n = parquet.String()
 	default:
-		logger.Warnf("💛 ToNewParquet - Unhandled type %s, defaulting to string", d)
 		n = parquet.String()
 	}
 	n = parquet.Optional(n)
