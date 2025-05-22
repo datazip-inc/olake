@@ -31,8 +31,13 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 }
 
 func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered OnMessage) error {
+	// Log the raw WAL data before unmarshaling
+	logger.Infof("💙 WAL Raw JSON - Data: %s", string(change))
+
 	var changes WALMessage
-	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(change))
+	decoder.UseNumber()
+	if err := decoder.Decode(&changes); err != nil {
 		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
 	}
 	if len(changes.Change) == 0 {
@@ -46,6 +51,34 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 			logger.Infof("💙 WAL Raw Data - Column: %s, Value: %v, Type: %T, PostgreSQL Type: %s",
 				names[i], val, val, colType)
 
+			// Handle json.Number types
+			if num, ok := val.(json.Number); ok {
+				switch colType {
+				case "bigint":
+					intVal, err := num.Int64()
+					if err != nil {
+						return nil, fmt.Errorf("failed to parse bigint: %v", err)
+					}
+					data[names[i]] = intVal
+					continue
+				case "integer", "int", "int4":
+					intVal, err := num.Int64()
+					if err != nil {
+						return nil, fmt.Errorf("failed to parse integer: %v", err)
+					}
+					data[names[i]] = int32(intVal)
+					continue
+				case "numeric", "decimal":
+					floatVal, err := num.Float64()
+					if err != nil {
+						return nil, fmt.Errorf("failed to parse numeric: %v", err)
+					}
+					data[names[i]] = floatVal
+					continue
+				}
+			}
+
+			// Handle other types
 			conv, err := c.converter(val, colType)
 			if err != nil && err != typeutils.ErrNullValue {
 				return nil, err

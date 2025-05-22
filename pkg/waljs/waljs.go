@@ -21,7 +21,6 @@ var pluginArguments = []string{
 	"\"include-lsn\" 'on'",
 	"\"pretty-print\" 'off'",
 	"\"include-timestamp\" 'on'",
-	"\"numeric-data-types-as-string\" 'true'",
 }
 
 // Socket represents a connection to PostgreSQL's logical replication stream
