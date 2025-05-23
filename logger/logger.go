@@ -166,65 +166,67 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 }
 
 func Init() {
-	// Configure lumberjack for log rotation
+	// Set up timestamp for log file names
 	currentTimestamp := time.Now().UTC()
-	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d", currentTimestamp.Year(), currentTimestamp.Month(), currentTimestamp.Day(), currentTimestamp.Hour(), currentTimestamp.Minute(), currentTimestamp.Second())
+	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d",
+		currentTimestamp.Year(), currentTimestamp.Month(), currentTimestamp.Day(),
+		currentTimestamp.Hour(), currentTimestamp.Minute(), currentTimestamp.Second())
+
+	// Configure rotating file logs
 	rotatingFile := &lumberjack.Logger{
-		Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString("CONFIG_FOLDER"), timestamp), // Log file path
-		MaxSize:    100,                                                                                   // Max size in MB before log rotation
-		MaxBackups: 5,                                                                                     // Max number of old log files to retain
-		MaxAge:     30,                                                                                    // Max age in days to retain old log files
-		Compress:   true,                                                                                  // Compress old log files
+		Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString("CONFIG_FOLDER"), timestamp),
+		MaxSize:    100, // Max size in MB
+		MaxBackups: 5,   // Number of old log files to retain
+		MaxAge:     30,  // Days to retain old log files
+		Compress:   true,
 	}
-	zerolog.TimestampFunc = func() time.Time {
-		return time.Now().UTC()
-	}
-	var currentLevel string
-	// LogColors defines ANSI color codes for log levels
-	var logColors = map[string]string{
+
+	zerolog.TimestampFunc = func() time.Time { return time.Now().UTC() }
+
+	// Log level colors
+	logColors := map[string]string{
 		"debug": "\033[36m", // Cyan
 		"info":  "\033[32m", // Green
 		"warn":  "\033[33m", // Yellow
 		"error": "\033[31m", // Red
 		"fatal": "\033[31m", // Red
 	}
-	// Create console writer
-	console := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: "2006-01-02 15:04:05",
-		FormatLevel: func(i interface{}) string {
-			level := i.(string)
-			currentLevel = level
-			color := logColors[level]
-			return fmt.Sprintf("%s%s\033[0m", color, strings.ToUpper(level))
-		},
-		FormatMessage: func(i interface{}) string {
-			msg := ""
-			switch v := i.(type) {
-			case string:
-				msg = v
-			default:
-				jsonMsg, err := json.Marshal(v)
-				if err != nil {
-					Errorf("failed to marshal log message: %s", err)
-					return err.Error()
-				}
-				return string(jsonMsg)
-			}
-			// Get the current log level from the context
-			if currentLevel == zerolog.ErrorLevel.String() || currentLevel == zerolog.FatalLevel.String() {
-				msg = fmt.Sprintf("\033[31m%s\033[0m", msg) // Make entire message red for error level
-			}
-			return msg
-		},
-		FormatTimestamp: func(i interface{}) string {
-			return fmt.Sprintf("\033[90m%s\033[0m", i)
-		},
-	}
-	// Create a multiwriter to log both console and file
-	multiwriter := zerolog.MultiLevelWriter(console, rotatingFile)
 
-	logger = zerolog.New(multiwriter).With().Timestamp().Logger()
+	// Thread-safe ConsoleWriter (each goroutine gets its own copy)
+	newConsoleWriter := func() zerolog.ConsoleWriter {
+		return zerolog.ConsoleWriter{
+			Out:        os.Stdout,
+			TimeFormat: "2006-01-02 15:04:05",
+			FormatLevel: func(i interface{}) string {
+				level := strings.ToLower(fmt.Sprintf("%s", i))
+				if color, exists := logColors[level]; exists {
+					return fmt.Sprintf("%s%s\033[0m", color, strings.ToUpper(level))
+				}
+				return strings.ToUpper(level)
+			},
+			FormatMessage: func(i interface{}) string {
+				switch v := i.(type) {
+				case string:
+					return v
+				default:
+					jsonMsg, err := json.Marshal(v)
+					if err != nil {
+						return fmt.Sprintf("failed to marshal log message: %s", err)
+					}
+					return string(jsonMsg)
+				}
+			},
+			FormatTimestamp: func(i interface{}) string {
+				return fmt.Sprintf("\033[90m%s\033[0m", i)
+			},
+		}
+	}
+
+	// MultiWriter (rotating file + console writer per goroutine)
+	multiWriter := zerolog.MultiLevelWriter(rotatingFile, newConsoleWriter())
+
+	// Create global logger (immutable after init)
+	logger = zerolog.New(multiWriter).With().Timestamp().Logger()
 }
 
 // ProcessOutputReader is a struct that manages reading output from a process

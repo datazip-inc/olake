@@ -29,14 +29,14 @@ type Driver interface {
 	// Discover discovers the streams; Returns cached if already discovered
 	Discover(discoverSchema bool) ([]*types.Stream, error)
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
-	Read(pool *WriterPool, stream Stream) error
+	Read(ctx context.Context, pool *WriterPool, stream Stream) error
 	ChangeStreamSupported() bool
 	SetupState(state *types.State)
 }
 
 // Bulk Read Driver
 type ChangeStreamDriver interface {
-	RunChangeStream(pool *WriterPool, streams ...Stream) error
+	RunChangeStream(ctx context.Context, pool *WriterPool, streams ...Stream) error
 	StateType() types.StateType
 }
 
@@ -83,5 +83,5 @@ type State interface {
 	GetChunks(stream *types.ConfiguredStream) *types.Set[types.Chunk]
 	SetChunks(stream *types.ConfiguredStream, chunks *types.Set[types.Chunk])
 	RemoveChunk(stream *types.ConfiguredStream, chunk types.Chunk)
-	SetGlobalState(globalState any)
+	SetGlobal(globalState any, streams ...string)
 }

@@ -163,7 +163,7 @@ func findAvailablePort(serverHost string) (int, error) {
 func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
 	// This strictly identifies column name and partition transform entries
-	patternRegex := regexp.MustCompile(`\{([^,]+),\s*([^}]+)\}`)
+	patternRegex := regexp.MustCompile(constants.PartitionRegex)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
 	for _, match := range matches {
 		if len(match) < 3 {
@@ -422,7 +422,7 @@ func getTestDebeziumRecord() string {
 					"optional" : true,
 					"field" : "` + constants.DBName + `"
 					}, {
-					"type" : "int64",
+					"type" : "timestamptz",
 					"optional" : true,
 					"field" : "` + constants.OlakeTimestamp + `"
 					} ],

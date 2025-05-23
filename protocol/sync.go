@@ -130,7 +130,7 @@ var syncCmd = &cobra.Command{
 		connector.SetupState(state)
 
 		// Execute driver ChangeStreams mode
-		GlobalCxGroup.Add(func(_ context.Context) error { // context is not used to keep processes mutually exclusive
+		GlobalCxGroup.Add(func(ctx context.Context) error { // context is not used to keep processes mutually exclusive
 			if connector.ChangeStreamSupported() {
 				driver, yes := connector.(ChangeStreamDriver)
 				if !yes {
@@ -139,7 +139,7 @@ var syncCmd = &cobra.Command{
 
 				logger.Info("Starting ChangeStream process in driver")
 
-				err := driver.RunChangeStream(pool, cdcStreams...)
+				err := driver.RunChangeStream(ctx, pool, cdcStreams...)
 				if err != nil {
 					return fmt.Errorf("error occurred while reading records: %s", err)
 				}
@@ -149,11 +149,11 @@ var syncCmd = &cobra.Command{
 
 		// Execute streams in Standard Stream mode
 		// TODO: Separate streams with FULL and Incremental here only
-		utils.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
+		utils.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(ctx context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
 			logger.Infof("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
 
 			streamStartTime := time.Now()
-			err := connector.Read(pool, stream)
+			err := connector.Read(ctx, pool, stream)
 			if err != nil {
 				return fmt.Errorf("error occurred while reading records: %s", err)
 			}

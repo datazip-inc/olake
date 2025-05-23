@@ -16,8 +16,7 @@ import (
 )
 
 // Simple Full Refresh Sync; Loads table fully
-func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) error {
-	backfillCtx := context.TODO()
+func (p *Postgres) backfill(backfillCtx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
