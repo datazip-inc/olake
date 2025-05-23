@@ -3,15 +3,17 @@ package driver
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -42,7 +44,7 @@ func (m *Mongo) Setup() error {
 	opts := options.Client()
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
-	opts.SetMaxPoolSize(1000)
+	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
 
 	connectCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
@@ -63,6 +65,7 @@ func (m *Mongo) Setup() error {
 		// add 1 for first run
 		m.config.RetryCount += 1
 	}
+
 	return nil
 }
 
@@ -84,6 +87,10 @@ func (m *Mongo) Close() error {
 
 func (m *Mongo) Type() string {
 	return "Mongo"
+}
+
+func (m *Mongo) MaxConnections() int {
+	return m.config.MaxThreads
 }
 
 // TODO: utilize discoverSchema boolean
@@ -136,12 +143,22 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	return m.GetStreams(), nil
 }
 
-func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
-	switch stream.GetSyncMode() {
-	case types.FULLREFRESH:
-		return m.backfill(ctx, pool, stream)
-	case types.CDC:
-		return m.RunChangeStream(ctx, pool, stream)
+func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
+	// start change streams
+	if m.CDCSupport {
+		// TODO: can we run it with globalCtxGroup?
+		err := m.RunChangeStream(ctx, pool, cdcStreams...)
+		if err != nil {
+			return fmt.Errorf("failed to run change stream: %s", err)
+		}
+	} else {
+		return fmt.Errorf("MongoDB does not support change streams, make sure all stream run full refresh")
+	}
+	// start backfill for standard streams
+	for _, stream := range standardStreams {
+		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
+			return m.backfill(ctx, pool, stream)
+		})
 	}
 
 	return nil
@@ -200,4 +217,34 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 		return cursor.Err()
 	})
+}
+
+func handleMongoObject(doc bson.M) {
+	for key, value := range doc {
+		// first make key small case as data being typeresolved with small case keys
+		delete(doc, key)
+		key = typeutils.Reformat(key)
+		switch value := value.(type) {
+		case primitive.Timestamp:
+			doc[key] = value.T
+		case primitive.DateTime:
+			doc[key] = value.Time()
+		case primitive.Null:
+			doc[key] = nil
+		case primitive.Binary:
+			doc[key] = fmt.Sprintf("%x", value.Data)
+		case primitive.Decimal128:
+			doc[key] = value.String()
+		case primitive.ObjectID:
+			doc[key] = value.Hex()
+		case float64:
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				doc[key] = nil
+			} else {
+				doc[key] = value
+			}
+		default:
+			doc[key] = value
+		}
+	}
 }

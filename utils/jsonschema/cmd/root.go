@@ -15,8 +15,8 @@ import (
 
 	"github.com/goccy/go-json"
 
-	"github.com/datazip-inc/olake/jsonschema/generator"
-	"github.com/datazip-inc/olake/jsonschema/schema"
+	"github.com/datazip-inc/olake/utils/jsonschema/generator"
+	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 
 	"github.com/spf13/cobra"
 )

@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/datazip-inc/olake/protocol"
-	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/goccy/go-json"
 	"github.com/jackc/pglogrepl"
 )
