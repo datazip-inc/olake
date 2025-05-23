@@ -176,17 +176,10 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
-
 	// (e.g., varchar(50) -> varchar)
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
 	olakeType := pgTypeToDataTypes[baseType]
-
-	result, err := typeutils.ReformatValue(olakeType, value)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return typeutils.ReformatValue(olakeType, value)
 }
 
 func (p *Postgres) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
@@ -225,8 +218,10 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 		if val, found := pgTypeToDataTypes[*column.DataType]; found {
 			datatype = val
 		} else {
+			logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
 			datatype = types.String
 		}
+
 		stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
 	}
 

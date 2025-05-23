@@ -44,35 +44,6 @@ func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered 
 		data := make(map[string]any)
 		for i, val := range values {
 			colType := types[i]
-
-			// Handle json.Number types
-			if num, ok := val.(json.Number); ok {
-				switch colType {
-				case "bigint":
-					intVal, err := num.Int64()
-					if err != nil {
-						return nil, fmt.Errorf("failed to parse bigint: %v", err)
-					}
-					data[names[i]] = intVal
-					continue
-				case "integer", "int", "int4":
-					intVal, err := num.Int64()
-					if err != nil {
-						return nil, fmt.Errorf("failed to parse integer: %v", err)
-					}
-					data[names[i]] = int32(intVal)
-					continue
-				case "numeric", "decimal":
-					floatVal, err := num.Float64()
-					if err != nil {
-						return nil, fmt.Errorf("failed to parse numeric: %v", err)
-					}
-					data[names[i]] = floatVal
-					continue
-				}
-			}
-
-			// Handle other types
 			conv, err := c.converter(val, colType)
 			if err != nil && err != typeutils.ErrNullValue {
 				return nil, err
