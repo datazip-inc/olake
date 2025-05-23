@@ -202,6 +202,7 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
+
 	switch d {
 	case Int32:
 		n = parquet.Leaf(parquet.Int32Type)
@@ -218,12 +219,12 @@ func (d DataType) ToNewParquet() parquet.Node {
 	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
 		n = parquet.Timestamp(parquet.Microsecond)
 	case Object, Array:
-		n = parquet.String()
-	case Unknown:
+		// Ensure proper handling of nested structures
 		n = parquet.String()
 	default:
-		n = parquet.String()
+		n = parquet.Leaf(parquet.ByteArrayType)
 	}
-	n = parquet.Optional(n)
+
+	n = parquet.Optional(n) // Ensure the field is nullable
 	return n
 }

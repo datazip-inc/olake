@@ -137,10 +137,6 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 			// Process only CopyData messages.
 			copyData, ok := msg.(*pgproto3.CopyData)
 			if !ok {
-				// Check if it's an error response
-				if errResp, ok := msg.(*pgproto3.ErrorResponse); ok {
-					return fmt.Errorf("postgres error: %s", errResp.Message)
-				}
 				return fmt.Errorf("unexpected message type: %T", msg)
 			}
 

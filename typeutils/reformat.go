@@ -124,11 +124,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 
 		return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 	case types.Int64:
-		result, err := ReformatInt64(v)
-		if err != nil {
-			return nil, err
-		}
-		return result, nil
+		return ReformatInt64(v)
 	case types.Int32:
 		return ReformatInt32(v)
 	case types.Timestamp:

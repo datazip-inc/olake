@@ -158,11 +158,9 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 	} else {
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
 	}
-
 	if err != nil {
 		return fmt.Errorf("failed to write in parquet file: %s", err)
 	}
-
 	fileMetadata.recordCount++
 	return nil
 }
