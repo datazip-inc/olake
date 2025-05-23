@@ -44,7 +44,7 @@ sleep 30
 
 echo "Running discover..."
 ls -lh "$CONFIG_DIR"
-docker run --network local-test_iceberg_net -v "$CONFIG_DIR:/mnt/config" "$DOCKER_IMAGE" discover --config /mnt/config/source.json > /dev/null || { echo "Discover failed"; exit 1; }
+docker run --network local-test_iceberg_net  -v "$CONFIG_DIR:/mnt/config" "$DOCKER_IMAGE" discover --config /mnt/config/source.json > /dev/null || { echo "Discover failed"; exit 1; }
 
 if [ ! -f "$CONFIG_DIR/streams.json" ]; then
   echo "streams.json not found. Discovery failed."
@@ -86,7 +86,7 @@ ACTUAL_RPS=$(jq -r '.Speed' "$CONFIG_DIR/stats.json" | sed 's/ rps//')
 BENCHMARK_RPS=$(jq -r '.Speed' "$CONFIG_DIR/benchmark_stats.json" | sed 's/ rps//')
 
 if (( $(echo "$ACTUAL_RPS >= 0.9 * $BENCHMARK_RPS" | bc -l) )); then
-  echo "RPS check passed. Actual: $ACTUAL_RPS, benchmark: $BASELINE_RPS"
+  echo "RPS check passed. Actual: $ACTUAL_RPS, benchmark: $BENCHMARK_RPS"
 else
   echo "RPS check failed. Actual: $ACTUAL_RPS, benchmark: $BENCHMARK_RPS"
   exit 1
@@ -150,7 +150,7 @@ ACTUAL_RPS=$(jq -r '.Speed' "$CONFIG_DIR/stats.json" | sed 's/ rps//')
 BENCHMARK_RPS=$(jq -r '.Speed' "$CONFIG_DIR/benchmark_stats_cdc.json" | sed 's/ rps//')
 
 if (( $(echo "$ACTUAL_RPS >= 0.9 * $BENCHMARK_RPS" | bc -l) )); then
-  echo "RPS check passed. Actual: $ACTUAL_RPS, benchmark: $BASELINE_RPS"
+  echo "RPS check passed. Actual: $ACTUAL_RPS, benchmark: $BENCHMARK_RPS"
 else
   echo "RPS check failed. Actual: $ACTUAL_RPS, benchmark: $BENCHMARK_RPS"
   exit 1
