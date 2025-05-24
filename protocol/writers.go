@@ -185,7 +185,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						//TODO: we need to capture error on thread.Close()
 
 						// check for normalization
-						if thread.Normalization() {
+						if stream.NormalizationEnabled() {
 							normalizedData, err := normalizeFunc(record)
 							if err != nil {
 								return err
