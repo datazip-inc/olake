@@ -31,7 +31,10 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 
 func (c ChangeFilter) FilterChange(lsn pglogrepl.LSN, change []byte, OnFiltered OnMessage) error {
 	var changes WALMessage
-	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(change))
+	// Use UseNumber() to convert numbers into json.Number and not float64.
+	decoder.UseNumber()
+	if err := decoder.Decode(&changes); err != nil {
 		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
 	}
 	if len(changes.Change) == 0 {
