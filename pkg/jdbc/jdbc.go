@@ -181,7 +181,6 @@ func MySQLVersion(client *sql.DB) (int, int, error) {
 	}
 
 	return majorVersion, minorVersion, nil
-
 }
 
 func WithIsolation(ctx context.Context, client *sql.DB, fn func(tx *sql.Tx) error) error {
