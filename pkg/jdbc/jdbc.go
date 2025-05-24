@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
@@ -156,14 +158,30 @@ func MySQLTableColumnsQuery() string {
 }
 
 // MySQLVersion returns the version of the MySQL server
-func MySQLVersion(client *sql.DB) (string, error) {
+// It returns the major and minor version of the MySQL server
+func MySQLVersion(client *sql.DB) (int, int, error) {
 	var version string
 	err := client.QueryRow("SELECT @@version").Scan(&version)
 	if err != nil {
-		return "", fmt.Errorf("failed to get MySQL version: %w", err)
+		return 0, 0, fmt.Errorf("failed to get MySQL version: %w", err)
 	}
 
-	return version, nil
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("invalid version format")
+	}
+	majorVersion, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid major version: %s", err)
+	}
+
+	minorVersion, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid minor version: %s", err)
+	}
+
+	return majorVersion, minorVersion, nil
+
 }
 
 func WithIsolation(ctx context.Context, client *sql.DB, fn func(tx *sql.Tx) error) error {

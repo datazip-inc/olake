@@ -3,8 +3,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
@@ -152,18 +150,13 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 // getCurrentBinlogPosition retrieves the current binlog position from MySQL.
 func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
-	// So check the version and use the appropriate query
 
 	// Get MySQL version
-	version, err := jdbc.MySQLVersion(m.client)
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
-	// Parse MySQL version to get major and minor version
-	majorVersion, minorVersion, err := parseMySQLVersion(version)
-	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to parse MySQL version: %s", err)
-	}
+
 	// Use the appropriate query based on the MySQL version
 	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
@@ -185,22 +178,4 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	}
 
 	return mysql.Position{Name: file, Pos: position}, nil
-}
-
-func parseMySQLVersion(version string) (int, int, error) {
-	parts := strings.Split(version, ".")
-	if len(parts) < 2 {
-		return 0, 0, fmt.Errorf("invalid version format")
-	}
-	majorVersion, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid major version: %s", err)
-	}
-
-	minorVersion, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid minor version: %s", err)
-	}
-
-	return majorVersion, minorVersion, nil
 }
