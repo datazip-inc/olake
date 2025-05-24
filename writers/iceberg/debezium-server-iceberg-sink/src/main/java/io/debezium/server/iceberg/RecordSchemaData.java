@@ -23,6 +23,4 @@ record RecordSchemaData(List<Types.NestedField> fields, Set<Integer> identifierF
   public RecordSchemaData copyKeepIdentifierFieldIdsAndNextFieldId() {
     return new RecordSchemaData(new ArrayList<>(), this.identifierFieldIds, this.nextFieldId);
   }
-
-
 }
