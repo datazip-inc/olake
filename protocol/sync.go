@@ -17,7 +17,6 @@ import (
 
 var syncMetrics struct {
 	success       bool
-	records       int64
 	memoryUsageMB uint64
 	err           error
 }
@@ -73,39 +72,6 @@ var syncCmd = &cobra.Command{
 			syncMetrics.success = false
 			return err
 		}
-		startTime := time.Now()
-		// Defer telemetry event to capture final status
-		telemetryClient := telemetry.GetInstance()
-		configHash := telemetry.ComputeConfigHash(configPath, destinationConfigPath)
-		defer func() {
-			metrics := telemetryClient.TrackSyncResult(configHash, syncMetrics.success)
-			props := map[string]interface{}{
-				"success":         syncMetrics.success,
-				"records_synced":  syncMetrics.records,
-				"duration_sec":    time.Since(startTime).Seconds(),
-				"memory_usage_mb": syncMetrics.memoryUsageMB,
-				"threads_used":    pool.threadCounter.Load(),
-			}
-
-			if metrics != nil {
-				year, week := time.Now().ISOWeek()
-				currentWeek := fmt.Sprintf("%d-W%02d", year, week)
-				props["total_syncs"] = metrics.Total
-				props["successful_syncs"] = metrics.Success
-				props["failed_syncs"] = metrics.Failed
-				props["current_week_syncs"] = metrics.Weeks[currentWeek]
-				props["current_week"] = currentWeek // For weekly diffs
-			}
-
-			if syncMetrics.err != nil {
-				props["error"] = syncMetrics.err
-			}
-			if err := telemetryClient.SendEvent("SyncCompleted", props); err != nil {
-				fmt.Printf("Error sending sync complete event: %v\n", err)
-			}
-			telemetryClient.Flush()
-		}()
-
 		// setup conector first
 		err = connector.Setup()
 		if err != nil {
@@ -173,33 +139,41 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 
-		// Sync Detection
-		stateFileProvided := (statePath != "")
-		syncType := "FullRefresh"
-		if stateFileProvided {
-			syncType = "CDC"
-		}
+		// Sync Telemetry tracking
+		startTime := time.Now()
+		configHash := telemetry.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// catalog type if destination is Iceberg
 		catalogType, err := getCatalogType(destinationConfig)
 		if err != nil {
 			return err
 		}
-		if err := telemetryClient.SendEvent("SyncStarted", map[string]interface{}{
-			"stream_count":             len(streams),
-			"selected_count":           len(selectedStreams),
-			"cdc_streams":              len(cdcStreams),
-			"state_file_provided":      stateFileProvided,
-			"unique_config_dstination": configHash,
-			"sync_type":                syncType,
-			"source_type":              connector.Type(),
-			"destination_type":         destinationConfig.Type,
-			"catalog_type":             catalogType,
-			"normalized_streams":       countNormalizedStreams(catalog),
-			"partitioned_streams":      countPartitionedStreams(catalog),
-		}); err != nil {
-			fmt.Printf("Failed to send telemetry event SyncStarted: %v\n", err)
-		}
+		telemetry.TrackSyncStarted(
+			len(streams),
+			len(selectedStreams),
+			len(cdcStreams),
+			statePath != "",
+			configHash,
+			connector.Type(),
+			string(destinationConfig.Type),
+			catalogType,
+			countNormalizedStreams(catalog),
+			countPartitionedStreams(catalog),
+		)
+		// Defer telemetry event to capture final status
+		defer func() {
+			metrics := telemetry.SyncResult(configHash, syncMetrics.success)
+			telemetry.TrackSyncCompleted(
+				syncMetrics.success,
+				pool.SyncedRecords(),
+				pool.threadCounter.Load(),
+				time.Since(startTime).Seconds(),
+				syncMetrics.memoryUsageMB,
+				metrics,
+				syncMetrics.err,
+			)
+			telemetry.Flush()
+		}()
 
 		// Execute driver ChangeStreams mode
 		GlobalCxGroup.Add(func(_ context.Context) error { // context is not used to keep processes mutually exclusive
@@ -261,7 +235,6 @@ var syncCmd = &cobra.Command{
 		}
 
 		// On success
-		syncMetrics.records = pool.SyncedRecords()
 		syncMetrics.success = true
 		return nil
 	},

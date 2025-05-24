@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,24 +14,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/logger"
 	analytics "github.com/segmentio/analytics-go/v3"
 	"github.com/spf13/viper"
 )
 
 var (
 	client           analytics.Client
-	once             sync.Once
-	instance         *Telemetry
 	idLock           sync.Mutex
 	telemetryEnabled bool
 	deploymentType   string
 	serviceName      string
 	segmentAPIKey    string
+	instance         *Telemetry
 )
 
 const (
 	anonymousIDFile       = "telemetry_id"
-	version               = "0.0.0" // Version 0
+	version               = "0.0.0"
 	ipNotFoundPlaceholder = "NA"
 	syncCountsCountPrefix = "sync_counts_"
 	syncMetricsFilePrefix = "sync_metrics_"
@@ -64,91 +65,149 @@ type SyncMetrics struct {
 	Total   int            `json:"total"`
 	Success int            `json:"success"`
 	Failed  int            `json:"failed"`
-	Weeks   map[string]int `json:"weeks"` // Key format: "YYYY-Www" (e.g., "2023-W43")
+	Weeks   map[string]int `json:"weeks"`
 }
 
 func loadConfig() {
 	viper.SetConfigName("config-telemetry")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath("../../") // current directory
+	viper.AddConfigPath("../../")
 
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Error reading config file: %v\n", err)
+	if err := viper.ReadInConfig(); err == nil {
+		telemetryEnabled = viper.GetBool("telemetry.enabled")
+		segmentAPIKey = viper.GetString("telemetry.segment_api_key")
+		deploymentType = viper.GetString("telemetry.deployment_type")
+		serviceName = viper.GetString("telemetry.service_name")
+	}
+}
+
+func init() {
+	loadConfig()
+	ip := getOutboundIP()
+	enabled := isTelemetryEnabled()
+
+	if enabled {
+		client = analytics.New(segmentAPIKey)
+	}
+
+	instance = &Telemetry{
+		client:       client,
+		serviceName:  serviceName,
+		enabled:      enabled,
+		platform:     getPlatformInfo(),
+		ipAddress:    ip,
+		locationChan: make(chan struct{}),
+	}
+
+	if instance.enabled {
+		if ip != ipNotFoundPlaceholder {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+				defer cancel()
+				location, err := getLocationFromIP(ctx, ip)
+				if err == nil {
+					instance.locationMutex.Lock()
+					instance.locationInfo = &location
+					instance.locationMutex.Unlock()
+				}
+				close(instance.locationChan)
+			}()
+		} else {
+			close(instance.locationChan)
+		}
+	}
+}
+
+func TrackDiscoverCompleted(duration float64, success bool, streamCount int, sourceType string, err error) {
+	if instance == nil || !instance.enabled {
 		return
 	}
 
-	telemetryEnabled = viper.GetBool("telemetry.enabled")
-	segmentAPIKey = viper.GetString("telemetry.segment_api_key")
-	deploymentType = viper.GetString("telemetry.deployment_type")
-	serviceName = viper.GetString("telemetry.service_name")
-}
-
-func createTelemetry() {
-	loadConfig()
-	if isTelemetryEnabled() {
-		fmt.Println("Telemetry is enabled")
-		client = analytics.New(segmentAPIKey)
-		fmt.Println("Segment client initialized successfully")
-	} else {
-		fmt.Println("Telemetry is disabled")
+	props := map[string]interface{}{
+		"duration_sec": duration,
+		"success":      success,
+		"stream_count": streamCount,
+		"source_type":  sourceType,
+	}
+	if err != nil {
+		props["error"] = err.Error()
 	}
 
-	ip := getOutboundIP()
-	instance = &Telemetry{
-		client:       client,
-		serviceName:  getServiceName(),
-		enabled:      isTelemetryEnabled(),
-		platform:     getPlatformInfo(),
-		ipAddress:    ip,
-		locationChan: make(chan struct{}), // INITIALIZE THE CHANNEL
-	}
-
-	if instance.enabled && instance.client != nil {
-		_ = instance.SendEvent("TelemetryInitialized", map[string]interface{}{
-			"ipAddress": ip,
-			"timestamp": time.Now().String(),
-		})
-		if ip != ipNotFoundPlaceholder {
-			go func() {
-				defer func() {
-					if instance.locationChan != nil {
-						close(instance.locationChan)
-					}
-				}()
-				location, err := getLocationFromIP(ip)
-				if err != nil {
-					return
-				}
-				instance.locationMutex.Lock()
-				instance.locationInfo = &location
-				instance.locationMutex.Unlock()
-			}()
-		} else {
-			if instance.locationChan != nil {
-				close(instance.locationChan)
-			}
-		}
+	if err := instance.sendEvent("DiscoverCompleted", props); err != nil {
+		logger.Errorf("Failed to send DiscoverCompleted event: %v", err)
 	}
 }
 
-func GetInstance() *Telemetry {
-	once.Do(createTelemetry)
-	return instance
-}
+func TrackSyncStarted(streamCount, selectedCount, cdcStreams int, stateFileProvided bool, configHash, sourceType, destType, catalogType string, normalized, partitioned int) {
+	if instance == nil || !instance.enabled {
+		return
+	}
 
-func (t *Telemetry) Flush() {
-	if t.client != nil {
-		fmt.Println("Flushing telemetry events...")
-		err := t.client.Close()
-		if err != nil {
-			fmt.Printf("Error flushing telemetry: %v\n", err)
-		} else {
-			fmt.Println("Telemetry events flushed successfully")
-		}
+	props := map[string]interface{}{
+		"stream_count":             streamCount,
+		"selected_count":           selectedCount,
+		"cdc_streams":              cdcStreams,
+		"state_file_provided":      stateFileProvided,
+		"unique_config_dstination": configHash,
+		"sync_type":                getSyncType(stateFileProvided),
+		"source_type":              sourceType,
+		"destination_type":         destType,
+		"catalog_type":             catalogType,
+		"normalized_streams":       normalized,
+		"partitioned_streams":      partitioned,
+	}
+
+	if err := instance.sendEvent("SyncStarted", props); err != nil {
+		logger.Errorf("Failed to send SyncStarted event: %v", err)
 	}
 }
 
-func (t *Telemetry) SendEvent(eventName string, properties map[string]interface{}) error {
+func TrackSyncCompleted(success bool, records, threads int64, durationSec float64, memoryMB uint64, metrics *SyncMetrics, syncError error) {
+	if instance == nil || !instance.enabled {
+		return
+	}
+
+	props := map[string]interface{}{
+		"success":         success,
+		"records_synced":  records,
+		"duration_sec":    durationSec,
+		"memory_usage_mb": memoryMB,
+		"threads_used":    threads,
+	}
+
+	if metrics != nil {
+		year, week := time.Now().ISOWeek()
+		currentWeek := fmt.Sprintf("%d-W%02d", year, week)
+		props["total_syncs"] = metrics.Total
+		props["successful_syncs"] = metrics.Success
+		props["failed_syncs"] = metrics.Failed
+		props["current_week_syncs"] = metrics.Weeks[currentWeek]
+		props["current_week"] = currentWeek
+	}
+
+	if syncError != nil {
+		props["error"] = syncError.Error()
+	}
+
+	if err := instance.sendEvent("SyncCompleted", props); err != nil {
+		logger.Errorf("Failed to send SyncCompleted event: %v", err)
+	}
+}
+
+func getSyncType(stateFileProvided bool) string {
+	if stateFileProvided {
+		return "CDC"
+	}
+	return "FullRefresh"
+}
+
+func Flush() {
+	if instance != nil && instance.client != nil {
+		instance.client.Close()
+	}
+}
+
+func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{}) error {
 	if !t.enabled {
 		fmt.Println("Telemetry disabled, not sending event:", eventName)
 		return nil
@@ -173,7 +232,7 @@ func (t *Telemetry) SendEvent(eventName string, properties map[string]interface{
 		"service":       t.serviceName,
 		"ip_address":    t.ipAddress,
 		"location":      t.getLocationWithTimeout(),
-		"environment":   getDeploymentType(),
+		"environment":   deploymentType,
 		"timestamp":     time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -184,37 +243,15 @@ func (t *Telemetry) SendEvent(eventName string, properties map[string]interface{
 	anonymousID := GetAnonymousID()
 	fmt.Printf("Sending event: %s for user: %s\n", eventName, anonymousID)
 
-	err := t.client.Enqueue(analytics.Track{
-		UserId:     anonymousID,
+	return t.client.Enqueue(analytics.Track{
+		UserId:     GetAnonymousID(),
 		Event:      eventName,
 		Properties: props,
 	})
-
-	if err != nil {
-		fmt.Printf("Error sending telemetry event: %v\n", err)
-		return err
-	}
-	fmt.Printf("Event %s queued successfully\n", eventName)
-
-	return nil
 }
 
 func isTelemetryEnabled() bool {
 	return telemetryEnabled
-}
-
-func getDeploymentType() string {
-	if deployment := deploymentType; deployment != "" {
-		return deployment
-	}
-	return "development"
-}
-
-func getServiceName() string {
-	if service := serviceName; service != "" {
-		return service
-	}
-	return "olake"
 }
 
 func getPlatformInfo() platformInfo {
@@ -293,9 +330,14 @@ func getOutboundIP() string {
 	return string(ip)
 }
 
-func getLocationFromIP(ip string) (LocationInfo, error) {
+func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://ipinfo.io/%s/json", ip), nil)
+	if err != nil {
+		return LocationInfo{}, err
+	}
+
 	client := http.Client{Timeout: 1 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("https://ipinfo.io/%s/json", ip))
+	resp, err := client.Do(req)
 	if err != nil {
 		return LocationInfo{}, err
 	}
@@ -379,4 +421,11 @@ func (t *Telemetry) TrackSyncResult(configHash string, success bool) *SyncMetric
 	}
 
 	return &configMetrics
+}
+
+func SyncResult(configHash string, success bool) *SyncMetrics {
+	if instance == nil {
+		return nil
+	}
+	return instance.TrackSyncResult(configHash, success)
 }
