@@ -29,8 +29,8 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 	stateChunks := p.State.GetChunks(stream.Self())
 	var splitChunks []types.Chunk
 	if stateChunks == nil {
-		// check for data distribution
-		// TODO: remove chunk intersections where chunks can be {0, 100} {100, 200}. Need to {0, 99} {100, 200}
+		// Split table into non-overlapping chunks for parallel processing
+		// Each chunk has exclusive boundaries, e.g., [0,99] [100,200]
 		splitChunks, err = p.splitTableIntoChunks(stream)
 		if err != nil {
 			return fmt.Errorf("failed to start backfill: %s", err)
