@@ -1,11 +1,18 @@
+// Package driver implements PostgreSQL driver for olake.
+// It handles data type conversions and provides functionality for both
+// full refresh and CDC (Change Data Capture) operations.
 package driver
 
 import (
 	"github.com/datazip-inc/olake/types"
 )
 
+// pgTypeToDataTypes maps PostgreSQL data types to olake's internal data types.
+// For numeric types:
+// - bigint/serial8/bigserial -> Int64 (exact precision)
+// - Other integers -> Int32
+// - Floating point -> Float32/Float64 based on precision
 var pgTypeToDataTypes = map[string]types.DataType{
-	// TODO: add proper types (not only int64)
 	"bigint":      types.Int64,
 	"tinyint":     types.Int32,
 	"integer":     types.Int32,
