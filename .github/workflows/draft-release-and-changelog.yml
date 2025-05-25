@@ -33,7 +33,7 @@ jobs:
           else
             # Remove 'v' prefix and split version into array
             version=${LATEST_TAG#v}
-            IFS='.' read -ra VERSION_PARTS <<< "$version"
+            IFS='.' read -ra VERSION_PARTS <<< "$version" 
             
             # Increment the last number (patch version)
             VERSION_PARTS[2]=$((VERSION_PARTS[2] + 1))

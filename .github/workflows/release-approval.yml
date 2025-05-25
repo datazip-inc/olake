@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        driver: [mongodb] # Add new drivers here as they become available
+        driver: [mongodb, mysql, postgres] # Add new drivers here as they become available
     env:
       DOCKER_LOGIN: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
@@ -31,25 +31,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_LOGIN }}
           password: ${{ env.DOCKER_PASSWORD }}
-          
-      - name: Set Driver 
+
+      - name: Set Driver
         run: echo "DRIVER=${{ env.DRIVER }}" >> $GITHUB_ENV
-        
+
       - name: Set VERSION
         run: echo "VERSION=${{ env.VERSION }}" >> $GITHUB_ENV
-        
+
       - name: Show VERSION
         run: echo "Building driver $DRIVER with version $VERSION"
-        
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
