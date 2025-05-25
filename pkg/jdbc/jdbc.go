@@ -24,11 +24,11 @@ func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) str
 // buildChunkCondition builds the condition for a chunk
 func buildChunkCondition(filterColumn string, chunk types.Chunk) string {
 	if chunk.Min != nil && chunk.Max != nil {
-		return fmt.Sprintf("%s >= %v AND %s <= %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
+		return fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
 	} else if chunk.Min != nil {
 		return fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
 	}
-	return fmt.Sprintf("%s <= %v", filterColumn, chunk.Max)
+	return fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
 }
 
 // PostgreSQL-Specific Queries
