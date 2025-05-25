@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [closed]
     branches:
-    - master
+      - master
 
 jobs:
   create_draft_release:
@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Get latest release
         id: latest-release
         run: |
           latest_tag=$(git tag -l | tail -1)
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
-        
+
       - name: Generate next version
         id: generate-next-version
         run: |
@@ -36,7 +36,7 @@ jobs:
             IFS='.' read -ra VERSION_PARTS <<< "$version"
             
             # Increment the last number (patch version)
-            ((VERSION_PARTS[2]++))
+            VERSION_PARTS[2]=$((VERSION_PARTS[2] + 1))
             
             # Reconstruct the version with 'v' prefix
             next_version="v${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.${VERSION_PARTS[2]}"
