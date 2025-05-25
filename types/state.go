@@ -24,12 +24,23 @@ const (
 	ChunksKey = "chunks"
 )
 
+type GlobalState struct {
+	// Global State shared by streams
+	State any `json:"state"`
+	// Attaching Streams to Global State helps in recognizing the tables that the state belongs to.
+	//
+	// This results in helping connector determine what streams were synced during the last sync in
+	// Group read. and also helps connectors to migrate from incremental to CDC Read without the need to
+	// full load with the help of using cursor value and field as recovery cursor for CDC
+	Streams *Set[string] `json:"streams"`
+}
+
 // TODO: Add validation tags; Write custom unmarshal that triggers validation
 // State is a dto for airbyte state serialization
 type State struct {
 	*sync.RWMutex `json:"-"`
 	Type          StateType      `json:"type"`
-	Global        any            `json:"global,omitempty"`
+	Global        *GlobalState   `json:"global,omitempty"`
 	Streams       []*StreamState `json:"streams,omitempty"` // TODO: make it set
 }
 
@@ -148,11 +159,25 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
 	s.LogState()
 }
 
-func (s *State) SetGlobalState(globalState any) {
+func (s *State) SetGlobal(state any, streams ...string) {
 	s.Lock()
 	defer s.Unlock()
-	s.Global = globalState
+	if s.Global == nil {
+		s.Global = &GlobalState{
+			State:   state,
+			Streams: NewSet[string](streams...),
+		}
+	} else {
+		s.Global.State = state
+		s.Global.Streams.Insert(streams...)
+	}
 	s.LogState()
+}
+
+func (s *State) GetGlobal() *GlobalState {
+	s.RLock()
+	defer s.RUnlock()
+	return s.Global
 }
 
 func (s *State) isZero() bool {
@@ -285,56 +310,5 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 			s.State.Store(ChunksKey, chunkSet)
 		}
 	}
-	return nil
-}
-
-func NewGlobalState[T GlobalState](state T) *Global[T] {
-	return &Global[T]{
-		State:   state,
-		Streams: NewSet[string](),
-	}
-}
-
-type GlobalState interface {
-	IsEmpty() bool
-}
-
-type Global[T GlobalState] struct {
-	// Global State shared by streams
-	State T `json:"state"`
-	// Attaching Streams to Global State helps in recognizing the tables that the state belongs to.
-	//
-	// This results in helping connector determine what streams were synced during the last sync in
-	// Group read. and also helps connectors to migrate from incremental to CDC Read without the need to
-	// full load with the help of using cursor value and field as recovery cursor for CDC
-	Streams *Set[string] `json:"streams"`
-}
-
-func (g *Global[T]) MarshalJSON() ([]byte, error) {
-	if any(g.State).(GlobalState).IsEmpty() {
-		return json.Marshal(nil)
-	}
-
-	type Alias Global[T]
-	p := Alias(*g)
-
-	return json.Marshal(p)
-}
-
-func (g *Global[T]) UnmarshalJSON(data []byte) error {
-	// Define a type alias to avoid recursion
-	type Alias Global[T]
-
-	// Create a temporary alias value to unmarshal into
-	var temp Alias
-
-	temp.Streams = NewSet[string]()
-
-	err := json.Unmarshal(data, &temp)
-	if err != nil {
-		return err
-	}
-
-	*g = Global[T](temp)
 	return nil
 }

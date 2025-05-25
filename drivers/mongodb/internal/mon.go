@@ -136,12 +136,12 @@ func (m *Mongo) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	return m.GetStreams(), nil
 }
 
-func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
+func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) error {
 	switch stream.GetSyncMode() {
 	case types.FULLREFRESH:
-		return m.backfill(stream, pool)
+		return m.backfill(ctx, pool, stream)
 	case types.CDC:
-		return m.changeStreamSync(stream, pool)
+		return m.RunChangeStream(ctx, pool, stream)
 	}
 
 	return nil
