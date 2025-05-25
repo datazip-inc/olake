@@ -139,13 +139,13 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 		currentVal := minVal
 		for {
 			var nextValRaw interface{}
-			err := tx.QueryRow(query, currentVal, chunkSize).Scan(&nextValRaw)
+			err := tx.QueryRow(query, currentVal).Scan(&nextValRaw)
 			if err != nil && err == sql.ErrNoRows || nextValRaw == nil {
 				break
 			} else if err != nil {
 				return fmt.Errorf("failed to get next chunk end: %w", err)
 			}
-			if currentVal != nil && nextValRaw == nil {
+			if currentVal != nil && nextValRaw != nil {
 				chunks.Insert(types.Chunk{
 					Min: utils.ConvertToString(currentVal),
 					Max: utils.ConvertToString(nextValRaw),
