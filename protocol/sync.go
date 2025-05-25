@@ -44,12 +44,13 @@ var syncCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig); err != nil {
 			return err
 		}
+		logger.Debugf("Destination Config: %+v", destinationConfig)
 
 		catalog = &types.Catalog{}
 		if err := utils.UnmarshalFile(catalogPath, catalog); err != nil {
 			return err
 		}
-
+		logger.Debugf("Catalog: %+v", catalog)
 		// default state
 		state = &types.State{
 			Type: types.StreamType,
@@ -144,10 +145,11 @@ var syncCmd = &cobra.Command{
 		configHash := telemetry.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// catalog type if destination is Iceberg
-		catalogType, err := getCatalogType(destinationConfig)
-		if err != nil {
-			return err
+		configMp, exist := destinationConfig.WriterConfig.(map[string]interface{})
+		if !exist {
+			return fmt.Errorf("invalid WriterConfig format, expected map[string]interface{}")
 		}
+		catalogType := configMp["catalog_type"].(string)
 		telemetry.TrackSyncStarted(
 			len(streams),
 			len(selectedStreams),
@@ -258,24 +260,4 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 		}
 	}
 	return count
-}
-
-func getCatalogType(destinationConfig *types.WriterConfig) (string, error) {
-	if strings.EqualFold(string(destinationConfig.Type), "PARQUET") {
-		return "", nil
-	} else if strings.EqualFold(string(destinationConfig.Type), "ICEBERG") {
-		writerConfigMap, ok := destinationConfig.WriterConfig.(map[string]interface{})
-		if !ok {
-			return "", fmt.Errorf("WriterConfig is not a map[string]interface{}")
-		}
-		if ct, exists := writerConfigMap["catalog_type"]; exists {
-			catalogType, ok := ct.(string)
-			if !ok {
-				return "", fmt.Errorf("catalog_type is not a string")
-			}
-			return catalogType, nil
-		}
-		return "", fmt.Errorf("catalog_type not found in WriterConfig")
-	}
-	return "", nil
 }
