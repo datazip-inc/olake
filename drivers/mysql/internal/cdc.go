@@ -149,7 +149,18 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 
 // getCurrentBinlogPosition retrieves the current binlog position from MySQL.
 func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
-	rows, err := m.client.Query(jdbc.MySQLMasterStatusQuery())
+	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
+
+	// Get MySQL version
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
+	}
+
+	// Use the appropriate query based on the MySQL version
+	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+
+	rows, err := m.client.Query(query)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
 	}
