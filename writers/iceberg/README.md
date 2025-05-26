@@ -253,4 +253,3 @@ WHERE timestamp_col = DATE '2023-05-01'
 ## Additional Resources
 
 * [OLake → Iceberg partitioning guide](https://olake.io/docs/writers/iceberg/partitioning)    
-
