@@ -42,6 +42,16 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
+		// Apply DefaultMode from catalog to streams without a specific sync mode
+		if catalog.DefaultMode != "" {
+			for i := range catalog.Streams {
+				if catalog.Streams[i].Stream.SyncMode == "" {
+					catalog.Streams[i].Stream.SyncMode = catalog.DefaultMode
+					logger.Infof("Applied default sync mode '%s' from catalog to stream '%s'", catalog.DefaultMode, catalog.Streams[i].Name())
+				}
+			}
+		}
+
 		// default state
 		state = &types.State{
 			Type: types.StreamType,
