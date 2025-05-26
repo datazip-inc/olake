@@ -80,7 +80,8 @@ Before running _Sync_, adjust the generated `streams.json`:
     "namespace": [
       {
         "partition_regex": "",
-        "stream_name": "incr"
+        "stream_name": "incr",
+        "normalization": false
       }
     ]
   },
@@ -89,8 +90,15 @@ Before running _Sync_, adjust the generated `streams.json`:
       "stream": {
         "name": "incr2",
         "namespace": "incr",
-        "...": "...",
-        "availabe_cursor_fields": [<cursor_fields>],
+        "type_schema": { ...  },
+        "supported_sync_modes": [
+          "full_refresh",
+          "cdc"
+         ],
+        "source_defined_primary_key": [
+          "_id"
+          ],
+        "available_cursor_fields": [],
         "sync_mode": "cdc"
       }
     }
