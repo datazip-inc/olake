@@ -41,6 +41,7 @@ type StreamMetadata struct {
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
+	DefaultMode       SyncMode                  `json:"default_mode,omitempty"`
 }
 
 func GetWrappedCatalog(streams []*Stream) *Catalog {
