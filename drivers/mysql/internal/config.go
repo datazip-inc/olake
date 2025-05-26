@@ -12,19 +12,29 @@ import (
 
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
-	Host          string         `json:"hosts"`
-	Username      string         `json:"username"`
-	Password      string         `json:"password"`
-	Database      string         `json:"database"`
-	Port          int            `json:"port"`
-	TLSSkipVerify bool           `json:"tls_skip_verify"` // Add this field
-	UpdateMethod  interface{}    `json:"update_method"`
-	DefaultMode   types.SyncMode `json:"default_mode"`
-	MaxThreads    int            `json:"max_threads"`
-	RetryCount    int            `json:"backoff_retry_count"`
+	Host             string            `json:"host"`
+	Username         string            `json:"username"`
+	Password         string            `json:"password"`
+	Database         string            `json:"database"`
+	Port             int               `json:"port"`
+	TLSSkipVerify    bool              `json:"tls_skip_verify"`
+	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
+	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
+	SyncSettings     *SyncSettings     `json:"sync_settings"`
+	UpdateMethod     interface{}       `json:"update_method,omitempty"` // For backward compatibility
+	DefaultMode      types.SyncMode    `json:"default_mode,omitempty"`  // For backward compatibility
+	MaxThreads       int               `json:"max_threads"`
+	RetryCount       int               `json:"backoff_retry_count"`
 }
+
 type CDC struct {
 	InitialWaitTime int `json:"intial_wait_time"`
+}
+
+// SyncSettings holds configuration for database synchronization
+type SyncSettings struct {
+	Mode         types.SyncMode `json:"mode"`
+	CDCLogWaitTime int          `json:"cdc_log_wait_time,omitempty"`
 }
 
 // URI generates the connection URI for the MySQL database
