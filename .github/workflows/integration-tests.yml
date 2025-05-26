@@ -1,8 +1,12 @@
 name: Integration Tests
 
 on:
+  push:
+    branches:
+      - "master"
   pull_request:
-    types: [opened, edited, reopened, synchronize]
+    branches:
+      - "*"
 
 env:
   MYSQL_ROOT_PASSWORD: root1234

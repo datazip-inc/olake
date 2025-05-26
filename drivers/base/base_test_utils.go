@@ -80,7 +80,6 @@ func TestRead(
 
 	conn, ok := client.(*sqlx.DB)
 	require.True(t, ok, "Invalid client type, expected *sqlx.DB")
-	time.Sleep(3 * time.Minute) // Allow time for the minio to stabilize
 	// Setup table and initial data
 	helper.ExecuteQuery(ctx, t, conn, currentTestTable, "create")
 	defer helper.ExecuteQuery(ctx, t, conn, currentTestTable, "drop")
@@ -180,7 +179,7 @@ func setupWriterPool(ctx context.Context, t *testing.T) *protocol.WriterPool {
 			"s3_use_ssl":      false,
 			"s3_path_style":   true,
 			"aws_access_key":  "admin",
-			"aws_region":      "ap-south-1",
+			"aws_region":      "us-east-1",
 			"aws_secret_key":  "password",
 			"iceberg_db":      icebergDatabase,
 		},
