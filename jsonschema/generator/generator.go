@@ -551,19 +551,23 @@ func (g *JSONSchemaGenerator) generateSchemaForBuiltIn(name string, field *ast.F
 	if found {
 		g.LogVerbose("found built-in type ", jsonType)
 		simpleSchema, err = g.generateSimpleSchema(name, jsonType, field, parentKey)
-		if err == nil {
-			g.LogVerbose("returning simple schema ", jsonType)
-			return simpleSchema, true, err
+		if err != nil {
+			return nil, false, err
 		}
-	} else {
-		schema, err := NewJSONSchemaGenerator(g.basePackage, name, g.options).Generate()
-		if err == nil {
-			g.LogVerbose("returning generated schema ", name)
-			return schema, true, err
-		}
+		g.LogVerbose("returning simple schema ", jsonType)
+		return simpleSchema, true, nil
 	}
 
-	return nil, false, err
+	// Try generating a schema for a custom type
+	schema, err := NewJSONSchemaGenerator(g.basePackage, name, g.options).Generate()
+	if err != nil {
+		return nil, false, err
+	}
+	if schema == nil {
+		return nil, false, fmt.Errorf("failed to generate schema for type %s", name)
+	}
+	g.LogVerbose("returning generated schema ", name)
+	return schema, true, nil
 }
 
 func (g *JSONSchemaGenerator) generateSimpleSchema(goType, jsonType string, field *ast.Field, parentKey string) (schema.JSONSchema, error) {
@@ -594,59 +598,66 @@ func (g *JSONSchemaGenerator) generateSimpleSchema(goType, jsonType string, fiel
 }
 
 func (g *JSONSchemaGenerator) generateArraySchema(ownerDecl *declInfo, elemExpr ast.Expr, field *ast.Field, parentKey string) (schema.JSONSchema, error) {
-	var err error
-	var elemSchema schema.JSONSchema
-
 	arraySchema := schema.NewArraySchema()
 
-	err = g.addArrayAttrsForField(arraySchema, field)
-	g.LogDebug("generating schema for array elem expr: ", elemExpr)
-	if err == nil {
-		elemSchema, err = g.generateSchemaForExpr(ownerDecl, elemExpr, nil, parentKey)
+	err := g.addArrayAttrsForField(arraySchema, field)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add array attributes: %v", err)
 	}
 
-	if err == nil {
-		if _, isObj := elemSchema.(schema.ObjectSchema); isObj {
-			err = g.ensureProperTypeForInterfaceField(elemSchema, field)
+	g.LogDebug("generating schema for array elem expr: ", elemExpr)
+	elemSchema, err := g.generateSchemaForExpr(ownerDecl, elemExpr, nil, parentKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate schema for array element: %v", err)
+	}
+	if elemSchema == nil {
+		return nil, fmt.Errorf("generated nil schema for array element")
+	}
+
+	if _, isObj := elemSchema.(schema.ObjectSchema); isObj {
+		err = g.ensureProperTypeForInterfaceField(elemSchema, field)
+		if err != nil {
+			return nil, fmt.Errorf("failed to ensure proper type for interface field: %v", err)
 		}
 	}
 
-	if err == nil {
-		arraySchema.SetItems(elemSchema)
-	}
-
-	return arraySchema, err
-
+	arraySchema.SetItems(elemSchema)
+	return arraySchema, nil
 }
 
 func (g *JSONSchemaGenerator) generateInterfaceSchemaForField(decl *declInfo, field *ast.Field, parentKey string) (schema.JSONSchema, error) {
-	var err error
-	var hasAnno, fhasXof, dhasAnno bool
+	fhasXof, err := g.fieldHasXofAnnotation(field)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check field XOF annotation: %v", err)
+	}
+
+	dhasAnno, err := g.declHasSchemaAnnotation(decl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check declaration schema annotation: %v", err)
+	}
+
+	hasAnno := fhasXof || dhasAnno
+	g.LogVerbose("hasAnno?: ", hasAnno)
+
 	var iSchema schema.JSONSchema
-
-	fhasXof, err = g.fieldHasXofAnnotation(field)
-
-	if err == nil {
-		dhasAnno, err = g.declHasSchemaAnnotation(decl)
+	if !hasAnno {
+		iSchema = schema.NewMapSchema(g.options.SupressXAttrs)
+		err = g.addCommonAttrsForDecl(iSchema, decl, parentKey)
+	} else {
+		iSchema = schema.NewObjectSchema(g.options.SupressXAttrs)
+		err = g.addObjectAttrsForDecl(iSchema.(schema.ObjectSchema), decl, parentKey)
 	}
 
-	hasAnno = fhasXof || dhasAnno
-
-	if err == nil {
-		g.LogVerbose("hasAnno?: ", hasAnno)
-		if !hasAnno {
-			iSchema = schema.NewMapSchema(g.options.SupressXAttrs)
-			err = g.addCommonAttrsForDecl(iSchema, decl, parentKey)
-		} else {
-			iSchema = schema.NewObjectSchema(g.options.SupressXAttrs)
-			err = g.addObjectAttrsForDecl(iSchema.(schema.ObjectSchema), decl, parentKey)
-		}
-
-		if err == nil {
-			err = g.ensureProperTypeForInterfaceField(iSchema, field)
-		}
+	if err != nil {
+		return nil, fmt.Errorf("failed to add attributes to schema: %v", err)
 	}
-	return iSchema, err
+
+	err = g.ensureProperTypeForInterfaceField(iSchema, field)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure proper type for interface field: %v", err)
+	}
+
+	return iSchema, nil
 }
 
 func (g *JSONSchemaGenerator) generateInterfaceSchemaForDecl(decl *declInfo, parentKey string) (schema.JSONSchema, error) {
