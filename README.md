@@ -28,9 +28,6 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 2. **MongoDB Connector to Apache Iceberg:** ([See Detailed Benchmark](https://olake.io/docs/connectors/mongodb/benchmarks))  
     1. Syncs 35,694 records/sec; 230 million rows in 46 minutes for a 664 GB dataset (20× Airbyte, 15× Embedded Debezium, 6× Fivetran)
 
-3. **MySQL Connector to Apache Iceberg:** ([See Detailed Benchmark](https://olake.io/docs/connectors/mysql/benchmarks))  
-    1. Syncs 1,000,000 records/sec for 10GB; ~209 mins for 100+GB 
-
 *These are preliminary performances, we'll published fully reproducible benchmark scores soon.
 
 ## Getting Started with OLake
