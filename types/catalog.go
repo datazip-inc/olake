@@ -44,22 +44,18 @@ type Catalog struct {
 	DefaultMode       SyncMode                  `json:"default_mode,omitempty"`
 }
 
-func GetWrappedCatalog(streams []*Stream) *Catalog {
-	catalog := &Catalog{
-		Streams:         []*ConfiguredStream{},
-		SelectedStreams: make(map[string][]StreamMetadata),
-	}
-	// Loop through each stream and populate Streams and SelectedStreams
-	for _, stream := range streams {
-		// Create ConfiguredStream and append to Streams
-		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
-			Stream: stream,
-		})
-		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:     stream.Name,
-			PartitionRegex: "",
-		})
+func GetWrappedCatalog(catalog *Catalog) *Catalog {
+	if catalog == nil {
+		return nil
 	}
 
-	return catalog
+	wrappedCatalog := &Catalog{
+		DefaultMode: catalog.DefaultMode,
+	}
+
+	for _, stream := range catalog.Streams {
+		wrappedCatalog.Streams = append(wrappedCatalog.Streams, stream)
+	}
+
+	return wrappedCatalog
 }
