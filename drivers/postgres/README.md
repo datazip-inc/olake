@@ -43,7 +43,6 @@ Add Postgres credentials in the following format (see the [docs](https://olake.i
   "reader_batch_size": 100000,
   "default_mode": "cdc",
   "max_threads": 50,
-  "split-region": ""
 }
 ```
 
