@@ -67,12 +67,11 @@ Before running _Sync_, adjust the generated `streams.json`:
 
 1. **Remove unnecessary streams** from `selected_streams`.
 2. **Add partitions** by editing `partition_regex`. Refer the partitioning docs for [AWS S3](https://olake.io/docs/writers/s3/partitioning) and [Apache Iceberg](https://olake.io/docs/writers/iceberg/partitioning) here.
-3. **Add a split column** (usually the primary key) for chunked full-load reads.
-4. **Set sync properties** for every stream you wish to sync:
+3. **Set sync properties** for every stream you wish to sync:
 
    ```json
    "sync_mode": "cdc",
-   "cursor_field": "<cursor field from available_cursor_fields>"
+   "available_cursor_fields": "<cursor field from available_cursor_fields>"
    ```
 
 **Final catalog example**
