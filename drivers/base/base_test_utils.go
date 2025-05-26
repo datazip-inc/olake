@@ -16,62 +16,151 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testTablePrefix       = "test_table_olake"
+	sparkConnectAddress   = "sc://localhost:15002"
+	icebergDatabase       = "olake_iceberg"
+	cdcInitializationWait = 2 * time.Second
+	cdcProcessingWait     = 60 * time.Second
+)
+
 // TestHelper defines database-specific helper functions
 type TestHelper struct {
-	CreateTable func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	DropTable   func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	CleanTable  func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	AddData     func(ctx context.Context, t *testing.T, conn interface{}, tableName string, numItems int, startAtItem int, cols ...string)
-
-	//CDC operations
-	InsertOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	UpdateOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
-	DeleteOp func(ctx context.Context, t *testing.T, conn interface{}, tableName string)
+	ExecuteQuery func(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string)
 }
 
-// TestSetup tests the driver setup and connection check
-var tableName = fmt.Sprintf("%s_%d", "test_table_olake", time.Now().Unix())
+var currentTestTable = fmt.Sprintf("%s_%d", testTablePrefix, time.Now().Unix())
 
+// TestSetup tests the driver setup and connection check
 func TestSetup(t *testing.T, driver protocol.Driver, client interface{}) {
 	t.Helper()
+
 	assert.NotNil(t, client, "Client should not be nil")
-	err := driver.Check()
-	assert.NoError(t, err, "Connection check failed")
+	require.NoError(t, driver.Check(), "Connection check failed")
 }
 
 // TestDiscover tests the discovery of tables
 func TestDiscover(t *testing.T, driver protocol.Driver, client interface{}, helper TestHelper) {
 	t.Helper()
 	ctx := context.Background()
-	conn := client.(*sqlx.DB) // For Postgres; adjust if MySQL uses *sql.DB
 
-	helper.CreateTable(ctx, t, conn, tableName)
-	defer helper.DropTable(ctx, t, conn, tableName)
-	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
+	conn, ok := client.(*sqlx.DB)
+	require.True(t, ok, "Invalid client type, expected *sqlx.DB")
+
+	// Setup and cleanup test table
+	helper.ExecuteQuery(ctx, t, conn, currentTestTable, "create")
+	defer helper.ExecuteQuery(ctx, t, conn, currentTestTable, "drop")
+	helper.ExecuteQuery(ctx, t, conn, currentTestTable, "clean")
+	helper.ExecuteQuery(ctx, t, conn, currentTestTable, "add")
 
 	streams, err := driver.Discover(true)
-	assert.NoError(t, err, "Discover failed")
-	assert.NotEmpty(t, streams, "No streams found")
+	require.NoError(t, err, "Discover failed")
+	require.NotEmpty(t, streams, "No streams found")
+
+	found := false
 	for _, stream := range streams {
-		if stream.Name == tableName {
-			return
+		if stream.Name == currentTestTable {
+			found = true
+			break
 		}
 	}
-	assert.Fail(t, "Unable to find test table %s", tableName)
+	assert.True(t, found, "Unable to find test table %s", currentTestTable)
 }
 
 // TestRead tests full refresh and CDC read operations
-func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHelper, setupClient func(t *testing.T) (interface{}, protocol.Driver)) {
+func TestRead(
+	t *testing.T,
+	_ protocol.Driver,
+	client interface{},
+	helper TestHelper,
+	setupClient func(t *testing.T) (interface{}, protocol.Driver),
+) {
 	t.Helper()
 	ctx := context.Background()
-	conn := client.(*sqlx.DB) // Adjust based on driver
 
+	conn, ok := client.(*sqlx.DB)
+	require.True(t, ok, "Invalid client type, expected *sqlx.DB")
+	time.Sleep(3 * time.Minute) // Allow time for the minio to stabilize
 	// Setup table and initial data
-	helper.CreateTable(ctx, t, conn, tableName)
-	defer helper.DropTable(ctx, t, conn, tableName)
-	helper.CleanTable(ctx, t, conn, tableName)
-	helper.AddData(ctx, t, conn, tableName, 5, 1, "col1", "col2")
+	helper.ExecuteQuery(ctx, t, conn, currentTestTable, "create")
+	defer helper.ExecuteQuery(ctx, t, conn, currentTestTable, "drop")
+	helper.ExecuteQuery(ctx, t, conn, currentTestTable, "clean")
+	helper.ExecuteQuery(ctx, t, conn, currentTestTable, "add")
+
+	// Initialize writer pool
+	pool := setupWriterPool(ctx, t)
+
+	// Define test cases
+	testCases := []struct {
+		name          string
+		syncMode      types.SyncMode
+		operation     string
+		expectedCount string
+	}{
+		{
+			name:          "full refresh read",
+			syncMode:      types.FULLREFRESH,
+			operation:     "",
+			expectedCount: "5",
+		},
+		{
+			name:          "cdc read - insert operation",
+			syncMode:      types.CDC,
+			operation:     "insert",
+			expectedCount: "6",
+		},
+		{
+			name:          "cdc read - update operation",
+			syncMode:      types.CDC,
+			operation:     "update",
+			expectedCount: "6",
+		},
+		{
+			name:          "cdc read - delete operation",
+			syncMode:      types.CDC,
+			operation:     "delete",
+			expectedCount: "6",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, streamDriver := setupClient(t)
+			testStream := getTestStream(t, streamDriver, currentTestTable)
+			configuredStream := &types.ConfiguredStream{Stream: testStream}
+			configuredStream.Stream.SyncMode = tc.syncMode
+
+			if tc.syncMode == types.CDC {
+				// Execute the operation for CDC tests
+				helper.ExecuteQuery(ctx, t, conn, currentTestTable, tc.operation)
+
+				// Wait for CDC initialization
+				time.Sleep(cdcInitializationWait)
+
+				require.NoError(t,
+					streamDriver.Read(pool, configuredStream),
+					"CDC read operation failed",
+				)
+
+				// Wait for CDC to process
+				time.Sleep(cdcProcessingWait)
+			} else {
+				// Handle full refresh read
+				require.NoError(t,
+					streamDriver.Read(pool, configuredStream),
+					"Read operation failed",
+				)
+				time.Sleep(cdcProcessingWait)
+			}
+
+			verifyIcebergSync(t, currentTestTable, tc.expectedCount)
+		})
+	}
+}
+
+// setupWriterPool initializes and returns a new writer pool
+func setupWriterPool(ctx context.Context, t *testing.T) *protocol.WriterPool {
+	t.Helper()
 
 	// Register Parquet writer
 	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
@@ -93,102 +182,65 @@ func TestRead(t *testing.T, _ protocol.Driver, client interface{}, helper TestHe
 			"aws_access_key":  "admin",
 			"aws_region":      "ap-south-1",
 			"aws_secret_key":  "password",
-			"iceberg_db":      "olake_iceberg",
+			"iceberg_db":      icebergDatabase,
 		},
 	})
 	require.NoError(t, err, "Failed to create writer pool")
-	// Get test stream
-	getTestStream := func(d protocol.Driver) *types.Stream {
-		streams, err := d.Discover(true)
-		require.NoError(t, err, "Discover failed")
-		require.NotEmpty(t, streams, "No streams found")
-		for _, stream := range streams {
-			if stream.Name == tableName {
-				return stream
-			}
-		}
-		require.Fail(t, "Could not find stream for table %s", tableName)
-		return nil
-	}
-	// Run read test for a given sync mode
-	runReadTest := func(t *testing.T, syncMode types.SyncMode, extraTests func(t *testing.T)) {
-		_, streamDriver := setupClient(t)
-		testStream := getTestStream(streamDriver)
-		dummyStream := &types.ConfiguredStream{Stream: testStream}
-		dummyStream.Stream.SyncMode = syncMode
-		if syncMode == types.CDC {
-			readErrCh := make(chan error, 1)
-			go func() {
-				readErrCh <- streamDriver.Read(pool, dummyStream)
-			}()
-			time.Sleep(2 * time.Second) // Wait for CDC initialization
-			if extraTests != nil {
-				extraTests(t)
-			}
-			time.Sleep(3 * time.Second) // Wait for CDC to process
-			// Directly receive from the channel
-			err := <-readErrCh
-			assert.NoError(t, err, "CDC read operation failed")
-		} else {
-			err := streamDriver.Read(pool, dummyStream)
-			assert.NoError(t, err, "Read operation failed")
-		}
-	}
-	t.Run("full refresh read", func(t *testing.T) {
-		runReadTest(t, types.FULLREFRESH, nil)
-		time.Sleep(120 * time.Second)
-		VerifyIcebergSync(t, tableName, "5", "after full load", "olake_id", "col1", "col2")
-	})
-	time.Sleep(60 * time.Second)
-	t.Run("cdc read", func(t *testing.T) {
-		runReadTest(t, types.CDC, func(t *testing.T) {
-			t.Run("insert operation", func(t *testing.T) {
-				helper.InsertOp(ctx, t, conn, tableName)
-			})
-			time.Sleep(120 * time.Second)
-			VerifyIcebergSync(t, tableName, "6", "after insert", "olake_id", "col1", "col2")
-			t.Run("update operation", func(t *testing.T) {
-				helper.UpdateOp(ctx, t, conn, tableName)
-			})
-			VerifyIcebergSync(t, tableName, "6", "after update", "olake_id", "col1", "col2")
-			t.Run("delete operation", func(t *testing.T) {
-				helper.DeleteOp(ctx, t, conn, tableName)
-			})
-			VerifyIcebergSync(t, tableName, "6", "after delete", "olake_id", "col1", "col2")
-		})
-	})
+
+	return pool
 }
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount string, message string, _ ...string) {
+
+// getTestStream retrieves the test stream by table name
+func getTestStream(t *testing.T, driver protocol.Driver, tableName string) *types.Stream {
+	t.Helper()
+
+	streams, err := driver.Discover(true)
+	require.NoError(t, err, "Discover failed")
+	require.NotEmpty(t, streams, "No streams found")
+
+	for _, stream := range streams {
+		if stream.Name == tableName {
+			return stream
+		}
+	}
+
+	require.Fail(t, "Could not find stream for table %s", tableName)
+	return nil
+}
+
+// verifyIcebergSync verifies that data was correctly synchronized to Iceberg
+func verifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 	t.Helper()
 	ctx := context.Background()
-	var sparkConnectAddress = "sc://localhost:15002" // Default value
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 	defer func() {
-		if err := spark.Stop(); err != nil {
-			t.Logf("Error stopping Spark session: %v", err)
+		if stopErr := spark.Stop(); stopErr != nil {
+			t.Errorf("Failed to stop Spark session: %v", stopErr)
 		}
 	}()
 
-	// Query for unique olake_id records
-	query := fmt.Sprintf("SELECT COUNT(DISTINCT _olake_id) as unique_count FROM olake_iceberg.olake_iceberg.%s", tableName)
+	query := fmt.Sprintf(
+		"SELECT COUNT(DISTINCT _olake_id) as unique_count FROM %s.%s.%s",
+		icebergDatabase, icebergDatabase, tableName,
+	)
 	t.Logf("Executing query: %s", query)
 
-	// Add retry for query execution
 	countDf, err := spark.Sql(ctx, query)
 	require.NoError(t, err, "Failed to query unique count from the table")
 
-	// Collect the count result
 	countRows, err := countDf.Collect(ctx)
 	require.NoError(t, err, "Failed to collect count data from Iceberg")
 	require.NotEmpty(t, countRows, "Count result is empty")
 
-	// Extract the count value using the correct method
 	countValue := countRows[0].Value("unique_count")
 	require.NotNil(t, countValue, "Count value is nil")
 
-	// Verify unique count
-	assert.Equal(t, expectedCount, utils.ConvertToString(countValue), "Unique olake_id count mismatch in Iceberg (%s)", message)
-	t.Logf("Successfully verified %v unique olake_id records in Iceberg table %s - %s", countValue, tableName, message)
+	actualCount := utils.ConvertToString(countValue)
+	require.Equal(t, expectedCount, actualCount,
+		"Unique olake_id count mismatch in Iceberg")
+
+	t.Logf("Verified %s unique olake_id records in Iceberg table %s",
+		actualCount, tableName)
 }

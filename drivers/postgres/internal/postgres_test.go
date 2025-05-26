@@ -7,40 +7,27 @@ import (
 	"github.com/datazip-inc/olake/protocol"
 )
 
-// SetupClient adapter for base package
-func setupClient(t *testing.T) (interface{}, protocol.Driver) {
-	client, _, mClient := testPostgresClient(t)
-	return client, mClient
-}
-
 // Test functions using base utilities
-func TestMySQLSetup(t *testing.T) {
+func TestPostgresSetup(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
 	base.TestSetup(t, pClient, client)
 }
 
-func TestMySQLDiscover(t *testing.T) {
+func TestPostgresDiscover(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
-	helper := base.TestHelper{
-		CreateTable: createTestTable,
-		DropTable:   dropTestTable,
-		CleanTable:  cleanTestTable,
-		AddData:     addTestTableData,
+	postgresHelper := base.TestHelper{
+		ExecuteQuery: ExecuteQuery,
 	}
-	base.TestDiscover(t, pClient, client, helper)
-	// TODO : Add Postgres-specific schema verification if needed
+	base.TestDiscover(t, pClient, client, postgresHelper)
 }
 
-func TestMySQLRead(t *testing.T) {
+func TestPostgresRead(t *testing.T) {
 	client, _, pClient := testPostgresClient(t)
-	helper := base.TestHelper{
-		CreateTable: createTestTable,
-		DropTable:   dropTestTable,
-		CleanTable:  cleanTestTable,
-		AddData:     addTestTableData,
-		InsertOp:    insertOp,
-		UpdateOp:    updateOp,
-		DeleteOp:    deleteOp,
+	postgresHelper := base.TestHelper{
+		ExecuteQuery: ExecuteQuery,
 	}
-	base.TestRead(t, pClient, client, helper, setupClient)
+	base.TestRead(t, pClient, client, postgresHelper, func(t *testing.T) (interface{}, protocol.Driver) {
+		client, _, mClient := testPostgresClient(t)
+		return client, mClient
+	})
 }
