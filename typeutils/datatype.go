@@ -9,7 +9,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// TypeFromValue return [types.DataType] from v type
 func TypeFromValue(v interface{}) types.DataType {
 	if v == nil {
 		return types.Null
@@ -18,19 +17,18 @@ func TypeFromValue(v interface{}) types.DataType {
 	// Check if v is a pointer and get the underlying element type if it is
 	valType := reflect.TypeOf(v)
 	if valType.Kind() == reflect.Pointer {
-		if valType.Elem() != nil {
-			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
+		val := reflect.ValueOf(v)
+		if val.IsNil() {
+			return types.Null
 		}
-
-		return types.Null // Handle nil pointers
+		elem := val.Elem()
+		if !elem.IsValid() {
+			return types.Null
+		}
+		return TypeFromValue(elem.Interface())
 	}
 
-	switch reflect.TypeOf(v).Kind() {
-	case reflect.Pointer:
-		if reflect.TypeOf(v).Elem() != nil {
-			return TypeFromValue(reflect.ValueOf(v).Elem().Interface())
-		}
-		return types.Null
+	switch valType.Kind() {
 	case reflect.Invalid:
 		return types.Null
 	case reflect.Bool:
@@ -56,7 +54,7 @@ func TypeFromValue(v interface{}) types.DataType {
 		return types.Object
 	default:
 		// Check if the type is time.Time for timestamp detection
-		if reflect.TypeOf(v) == reflect.TypeOf(time.Time{}) {
+		if valType == reflect.TypeOf(time.Time{}) {
 			return detectTimestampPrecision(v.(time.Time))
 		}
 
