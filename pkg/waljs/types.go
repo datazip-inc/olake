@@ -5,14 +5,13 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
 )
 
 type Config struct {
-	Tables              *types.Set[protocol.Stream]
+	Tables              *types.Set[types.StreamInterface]
 	Connection          url.URL
 	ReplicationSlotName string
 	InitialWaitTime     time.Duration

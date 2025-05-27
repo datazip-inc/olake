@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/datazip-inc/olake/destination"
+
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -56,7 +58,7 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		pool, err := NewWriter(cmd.Context(), destinationConfig)
+		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
 		if err != nil {
 			return err
 		}
@@ -83,10 +85,9 @@ var syncCmd = &cobra.Command{
 
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
-		cdcStreams := []Stream{}
-		standardModeStreams := []Stream{}
+		cdcStreams := []types.StreamInterface{}
+		standardModeStreams := []types.StreamInterface{}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
-
 			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 			// Check if the stream is in the selectedStreamMap
 			if !(catalog.SelectedStreams == nil || selected) {
@@ -121,15 +122,12 @@ var syncCmd = &cobra.Command{
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
-			return pool.SyncedRecords(), pool.threadCounter.Load(), pool.GetRecordsToSync()
+			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync()
 		})
 
 		// Setup State for Connector
 		connector.SetupState(state)
 		// init group
-
-		GlobalCtxGroup = utils.NewCGroup(cmd.Context())
-		GlobalConnGroup = utils.NewCGroupWithLimit(cmd.Context(), connector.MaxConnections())
 		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)

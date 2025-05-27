@@ -4,21 +4,22 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/goccy/go-json"
 )
 
 type ChangeFilter struct {
-	tables    map[string]protocol.Stream
+	tables    map[string]types.StreamInterface
 	converter func(value interface{}, columnType string) (interface{}, error)
 }
 
-func NewChangeFilter(typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...protocol.Stream) ChangeFilter {
+func NewChangeFilter(typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
 	filter := ChangeFilter{
 		converter: typeConverter,
-		tables:    make(map[string]protocol.Stream),
+		tables:    make(map[string]types.StreamInterface),
 	}
 
 	for _, stream := range streams {
@@ -28,7 +29,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 	return filter
 }
 
-func (c ChangeFilter) FilterChange(change []byte, OnFiltered protocol.CDCMsgFn) error {
+func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) error {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
 		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
@@ -69,7 +70,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered protocol.CDCMsgFn) 
 			return fmt.Errorf("failed to convert change data: %s", err)
 		}
 
-		if err := OnFiltered(protocol.CDCChange{
+		if err := OnFiltered(abstract.CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,
 			Timestamp: changes.Timestamp,

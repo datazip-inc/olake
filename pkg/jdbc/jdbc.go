@@ -5,17 +5,16 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 )
 
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a table
-func MinMaxQuery(stream protocol.Stream, column string) string {
+func MinMaxQuery(stream types.StreamInterface, column string) string {
 	return fmt.Sprintf(`SELECT MIN(%[1]s) AS min_value, MAX(%[1]s) AS max_value FROM %[2]s.%[3]s`, column, stream.Namespace(), stream.Name())
 }
 
 // NextChunkEndQuery returns the query to calculate the next chunk boundary
-func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) string {
+func NextChunkEndQuery(stream types.StreamInterface, column string, chunkSize int) string {
 	return fmt.Sprintf(`SELECT MAX(%[1]s) FROM (SELECT %[1]s FROM %[2]s.%[3]s WHERE %[1]s > ? ORDER BY %[1]s LIMIT %[4]d) AS subquery`, column, stream.Namespace(), stream.Name(), chunkSize)
 }
 
@@ -33,22 +32,22 @@ func buildChunkCondition(filterColumn string, chunk types.Chunk) string {
 // TODO: Rewrite queries for taking vars as arguments while execution.
 
 // PostgresWithoutState returns the query for a simple SELECT without state
-func PostgresWithoutState(stream protocol.Stream) string {
+func PostgresWithoutState(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor())
 }
 
 // PostgresWithState returns the query for a SELECT with state
-func PostgresWithState(stream protocol.Stream) string {
+func PostgresWithState(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" where "%s">$1 ORDER BY "%s" ASC NULLS FIRST`, stream.Namespace(), stream.Name(), stream.Cursor(), stream.Cursor())
 }
 
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
-func PostgresRowCountQuery(stream protocol.Stream) string {
+func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
-func PostgresRelPageCount(stream protocol.Stream) string {
+func PostgresRelPageCount(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
@@ -58,17 +57,17 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int) string {
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int) string {
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 }
 
 // PostgresMinQuery returns the query to fetch the minimum value of a column in PostgreSQL
-func PostgresMinQuery(stream protocol.Stream, filterColumn string, filterValue interface{}) string {
+func PostgresMinQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
 	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue)
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
-func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
+func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk) string {
 	condition := buildChunkCondition(filterColumn, chunk)
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
 }
@@ -76,7 +75,7 @@ func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk t
 // MySQL-Specific Queries
 
 // MySQLWithoutState builds a chunk scan query for MySql
-func MysqlChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
+func MysqlChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk) string {
 	condition := buildChunkCondition(filterColumn, chunk)
 	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
 }

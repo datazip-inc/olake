@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
 
-func (p *Postgres) ChunkIterator(ctx context.Context, stream protocol.Stream, chunk types.Chunk, callback protocol.BackfillMsgFn) error {
+func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, callback abstract.BackfillMsgFn) error {
 	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return err
@@ -37,7 +38,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream protocol.Stream, ch
 	})
 }
 
-func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
+func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) ([]types.Chunk, error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
@@ -62,8 +63,8 @@ func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *protocol.WriterPool
 	return splitChunks, nil
 }
 
-func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, error) {
-	generateCTIDRanges := func(stream protocol.Stream) ([]types.Chunk, error) {
+func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) ([]types.Chunk, error) {
+	generateCTIDRanges := func(stream types.StreamInterface) ([]types.Chunk, error) {
 		var relPages uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
 		err := p.client.QueryRow(relPagesQuery).Scan(&relPages)
@@ -103,7 +104,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 		return append(splits, types.Chunk{Min: chunkStart, Max: nil}), nil
 	}
 
-	splitViaNextQuery := func(min interface{}, stream protocol.Stream, splitColumn string) ([]types.Chunk, error) {
+	splitViaNextQuery := func(min interface{}, stream types.StreamInterface, splitColumn string) ([]types.Chunk, error) {
 		chunkStart := min
 		var splits []types.Chunk
 
@@ -154,7 +155,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 	}
 }
 
-func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, splitColumn string) (interface{}, error) {
+func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd interface{}, splitColumn string) (interface{}, error) {
 	var chunkEnd interface{}
 	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)

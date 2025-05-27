@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -31,13 +31,17 @@ type Mongo struct {
 }
 
 // config reference; must be pointer
-func (m *Mongo) GetConfigRef() protocol.Config {
+func (m *Mongo) GetConfigRef() abstract.Config {
 	m.config = &Config{}
 	return m.config
 }
 
 func (m *Mongo) Spec() any {
 	return Config{}
+}
+
+func (m *Mongo) CDCSupported() bool {
+	return m.CDCSupport
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
@@ -143,10 +147,6 @@ func (m *Mongo) Discover(ctx context.Context) ([]*types.Stream, error) {
 	}
 
 	return m.GetStreams(), nil
-}
-
-func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	return m.Driver.Read(ctx, m, pool, standardStreams, cdcStreams)
 }
 
 // fetch schema types from mongo for streamName

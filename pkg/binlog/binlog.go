@@ -6,7 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -22,7 +23,7 @@ type Connection struct {
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
-func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []protocol.Stream) (*Connection, error) {
+func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface) (*Connection, error) {
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
 		Flavor:          config.Flavor,
@@ -43,7 +44,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 	}, nil
 }
 
-func (c *Connection) StreamMessages(ctx context.Context, callback protocol.CDCMsgFn) error {
+func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
 	if err != nil {

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/waljs"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -41,6 +41,10 @@ type Postgres struct {
 	config    *Config // postgres driver connection config
 	cdcConfig CDC
 	Socket    *waljs.Socket
+}
+
+func (p *Postgres) CDCSupported() bool {
+	return p.CDCSupport
 }
 
 func (p *Postgres) ChangeStreamSupported() bool {
@@ -109,7 +113,7 @@ func (p *Postgres) SetupState(state *types.State) {
 	p.State = state
 }
 
-func (p *Postgres) GetConfigRef() protocol.Config {
+func (p *Postgres) GetConfigRef() abstract.Config {
 	p.config = &Config{}
 
 	return p.config
@@ -188,10 +192,6 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
 	olakeType := pgTypeToDataTypes[baseType]
 	return typeutils.ReformatValue(olakeType, value)
-}
-
-func (p *Postgres) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	return p.Driver.Read(ctx, p, pool, standardStreams, cdcStreams)
 }
 
 func (p *Postgres) populateStream(table Table) (*types.Stream, error) {

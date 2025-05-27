@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -24,7 +25,7 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
-func (m *Mongo) PreCDC(cdcCtx context.Context, streams []protocol.Stream) error {
+func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 		pipeline := mongo.Pipeline{
@@ -50,7 +51,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []protocol.Stream) error 
 	return nil
 }
 
-func (m *Mongo) StreamChanges(ctx context.Context, stream protocol.Stream, OnMessage protocol.CDCMsgFn) error {
+func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
@@ -83,7 +84,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream protocol.Stream, OnMes
 			record.WallTime.Time(), // millisecond precision
 			time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
 		).(time.Time)
-		change := protocol.CDCChange{
+		change := abstract.CDCChange{
 			Stream:    stream,
 			Timestamp: typeutils.Time{Time: ts},
 			Data:      record.FullDocument,
@@ -97,7 +98,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream protocol.Stream, OnMes
 	return cursor.Err()
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream protocol.Stream, noErr bool) error {
+func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
 	if noErr {
 		m.State.SetCursor(stream.Self(), cdcCursorField, m.cdcCursor)
 	}

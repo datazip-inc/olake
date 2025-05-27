@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -24,7 +25,7 @@ var (
 	destinationConfig *types.WriterConfig
 
 	commands  = []*cobra.Command{}
-	connector Driver
+	connector *abstract.AbDriver
 	// GlobalConGroup is a global variable to hold max concurrent connections
 	GlobalCtxGroup *utils.CxGroup
 	// manages total database connections
@@ -57,7 +58,7 @@ var RootCmd = &cobra.Command{
 
 func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
-	connector = driver.(Driver)
+	connector = abstract.NewAbstractDriver(RootCmd.Context(), driver.(abstract.DriverInterface))
 
 	return RootCmd
 }

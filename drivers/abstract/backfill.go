@@ -1,4 +1,4 @@
-package base
+package abstract
 
 import (
 	"context"
@@ -6,14 +6,14 @@ import (
 	"sort"
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-func (d *Driver) Backfill(ctx context.Context, sd protocol.Driver, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-	chunks, err := sd.GetOrSplitChunks(ctx, pool, stream)
+func (a *AbDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
+	chunks, err := a.driver.GetOrSplitChunks(ctx, pool, stream)
 	if err != nil {
 		return fmt.Errorf("failed to get or split chunks")
 	}
@@ -29,7 +29,7 @@ func (d *Driver) Backfill(ctx context.Context, sd protocol.Driver, backfilledStr
 
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		errorChannel := make(chan error, 1)
-		inserter, err := pool.NewThread(ctx, stream, protocol.WithErrorChannel(errorChannel), protocol.WithBackfill(true))
+		inserter, err := pool.NewThread(ctx, stream, destination.WithErrorChannel(errorChannel), destination.WithBackfill(true))
 		if err != nil {
 			return err
 		}
@@ -41,14 +41,14 @@ func (d *Driver) Backfill(ctx context.Context, sd protocol.Driver, backfilledStr
 			}
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
-				remCount := d.State.RemoveChunk(stream.Self(), chunk)
+				remCount := a.state.RemoveChunk(stream.Self(), chunk)
 				if remCount == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
 			}
 		}()
 		// TODO: add backoff for connection errors
-		return sd.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+		return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			rawRecord := types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0))
 			err := inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
@@ -58,6 +58,6 @@ func (d *Driver) Backfill(ctx context.Context, sd protocol.Driver, backfilledStr
 			return nil
 		})
 	}
-	utils.ConcurrentInGroup(protocol.GlobalConnGroup, chunks, chunkProcessor)
+	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)
 	return nil
 }

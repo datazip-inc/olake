@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/waljs"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -14,7 +14,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config, error) {
+func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
 	}
@@ -23,12 +23,12 @@ func (p *Postgres) prepareWALJSConfig(streams ...protocol.Stream) (*waljs.Config
 		Connection:          *p.config.Connection,
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
-		Tables:              types.NewSet[protocol.Stream](streams...),
+		Tables:              types.NewSet[types.StreamInterface](streams...),
 		BatchSize:           p.config.BatchSize,
 	}, nil
 }
 
-func (p *Postgres) PreCDC(ctx context.Context, streams []protocol.Stream) error {
+func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
 		return fmt.Errorf("failed to prepare wal config: %s", err)
@@ -70,11 +70,11 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []protocol.Stream) error 
 	return nil
 }
 
-func (p *Postgres) StreamChanges(ctx context.Context, _ protocol.Stream, callback protocol.CDCMsgFn) error {
+func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
 	return p.Socket.StreamMessages(ctx, callback)
 }
 
-func (p *Postgres) PostCDC(ctx context.Context, _ protocol.Stream, noErr bool) error {
+func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
 	defer p.Socket.Cleanup(ctx)
 	if noErr {
 		p.State.SetGlobal(waljs.WALState{LSN: p.Socket.ClientXLogPos.String()})

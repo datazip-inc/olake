@@ -1,12 +1,9 @@
 package base
 
 import (
-	"context"
-	"fmt"
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -55,25 +52,6 @@ func (d *Driver) GetStream(streamID string) (bool, *types.Stream) {
 	}
 
 	return found, val.(*types.Stream)
-}
-
-// Read handles different sync modes for data retrieval
-func (d *Driver) Read(ctx context.Context, sd protocol.Driver, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	if d.CDCSupport {
-		if err := d.RunChangeStream(ctx, sd, pool, cdcStreams...); err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return d.Backfill(ctx, sd, nil, pool, stream)
-		})
-	}
-
-	return nil
 }
 
 func NewBase() *Driver {

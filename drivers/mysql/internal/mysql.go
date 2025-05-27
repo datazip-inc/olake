@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -36,6 +36,10 @@ type MySQLGlobalState struct {
 	State    binlog.Binlog `json:"state"`
 }
 
+func (m *MySQL) CDCSupported() bool {
+	return m.CDCSupport
+}
+
 func (m *MySQL) StateType() types.StateType {
 	return types.GlobalType
 }
@@ -46,7 +50,7 @@ func (m *MySQL) SetupState(state *types.State) {
 }
 
 // GetConfigRef returns a reference to the configuration
-func (m *MySQL) GetConfigRef() protocol.Config {
+func (m *MySQL) GetConfigRef() abstract.Config {
 	m.config = &Config{}
 	return m.config
 }
@@ -151,11 +155,6 @@ func (m *MySQL) Discover(ctx context.Context) ([]*types.Stream, error) {
 	}
 
 	return m.GetStreams(), nil
-}
-
-// Read handles different sync modes for data retrieval
-func (m *MySQL) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	return m.Driver.Read(ctx, m, pool, standardStreams, cdcStreams)
 }
 
 // produceTableSchema extracts schema information for a given table

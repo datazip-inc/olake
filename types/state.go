@@ -183,7 +183,6 @@ func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
 func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 	s.Lock()
 	defer s.Unlock()
-
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})

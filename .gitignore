@@ -7,10 +7,10 @@ go.sum
 go.work.sum
 **/examples
 debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar
-writers/iceberg/debezium-server-iceberg-sink/target/
-writers/iceberg/debezium-server-iceberg-sink/target/**/
-writers/iceberg/local-test/data/
+destination/iceberg/debezium-server-iceberg-sink/target/
+destination/iceberg/debezium-server-iceberg-sink/target/**/
+destination/iceberg/local-test/data/
 debezium-server-iceberg-sink.jar
 local-releaser.sh
-writers/iceberg/debezium-server-iceberg-sink/.idea/
-writers/iceberg/debezium-server-iceberg-sink/dependency-reduced-pom.xml
+destination/iceberg/debezium-server-iceberg-sink/.idea/
+destination/iceberg/debezium-server-iceberg-sink/dependency-reduced-pom.xml

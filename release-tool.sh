@@ -29,7 +29,7 @@ function chalk() {
 function build_java_project() {
     echo "Building Java project with Maven..."
     # Change to the directory containing the POM file
-    cd writers/iceberg/debezium-server-iceberg-sink || fail "Failed to change to Maven project directory"
+    cd destination/iceberg/debezium-server-iceberg-sink || fail "Failed to change to Maven project directory"
     echo "Building Maven project in $(pwd)"
     mvn clean package -Dmaven.test.skip=true || fail "Maven build failed"
     # Return to the original directory
