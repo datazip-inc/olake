@@ -67,12 +67,19 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 
 func init() {
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
+	
+	// Add --source as an alias for --config to support new naming while maintaining backward compatibility
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "", "(Required) Config for connector")
+	RootCmd.PersistentFlags().StringVarP(&configPath, "source", "", "", "(Required) Source config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
+	
+	// Mark --source as hidden to avoid confusion in help text
+	RootCmd.PersistentFlags().MarkHidden("source")
+	
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

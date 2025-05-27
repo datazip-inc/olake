@@ -15,7 +15,7 @@ var checkCmd = &cobra.Command{
 	Short: "check command",
 	PreRunE: func(_ *cobra.Command, _ []string) error {
 		if configPath == "" {
-			return fmt.Errorf("--config not passed")
+			return fmt.Errorf("--config or --source not passed")
 		}
 
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {

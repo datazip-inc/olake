@@ -129,38 +129,48 @@ func (p *Postgres) CloseConnection() {
 }
 
 func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
-	// if not cached already; discover
 	streams := p.GetStreams()
 	if len(streams) != 0 {
 		return streams, nil
 	}
 
-	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
-
+	logger.Infof("Starting discover for postgres database %s", p.config.Database)
 	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
 	defer cancel()
 
-	var tableNamesOutput []Table
-	err := p.client.Select(&tableNamesOutput, getPrivilegedTablesTmpl)
+	query := jdbc.PostgresDiscoverTablesQuery()
+
+	rows, err := p.client.QueryContext(discoverCtx, query, p.config.Database)
 	if err != nil {
-		return streams, fmt.Errorf("failed to retrieve table names: %s", err)
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
+	defer rows.Close()
 
-	if len(tableNamesOutput) == 0 {
-		logger.Warnf("no tables found")
-		return streams, nil
-	}
-
-	err = utils.Concurrent(discoverCtx, tableNamesOutput, len(tableNamesOutput), func(ctx context.Context, pgTable Table, _ int) error {
-		stream, err := p.populateStream(pgTable)
-		if err != nil && discoverCtx.Err() == nil {
-			return err
+	var tableNames []string
+	for rows.Next() {
+		var tableName, schemaName string
+		if err := rows.Scan(&tableName, &schemaName); err != nil {
+			return nil, fmt.Errorf("failed to scan table: %w", err)
 		}
-		stream.SyncMode = p.config.DefaultSyncMode
-		// cache stream
+		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
+	}
+
+	err = utils.Concurrent(discoverCtx, tableNames, len(tableNames), func(ctx context.Context, streamName string, _ int) error {
+		stream, err := p.produceTableSchema(ctx, streamName)
+		if err != nil && discoverCtx.Err() == nil {
+			return fmt.Errorf("failed to process table[%s]: %s", streamName, err)
+		}
+		// Set the sync mode from the configuration
+		if p.config.SyncSettings != nil {
+			stream.SyncMode = types.SyncMode(p.config.SyncSettings.Mode)
+		} else if p.config.DefaultMode != "" {
+			// Fallback to DefaultMode for backward compatibility
+			stream.SyncMode = p.config.DefaultMode
+		}
 		p.AddStream(stream)
 		return err
 	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -247,4 +257,32 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 	}
 
 	return stream, nil
+}
+
+// ApplyDefaultSyncMode applies the default sync mode from the config or catalog to streams that don't have a specific sync mode set
+func (p *Postgres) ApplyDefaultSyncMode(catalog *types.Catalog) *types.Catalog {
+	// Apply DefaultMode from config first (for backward compatibility)
+	if p.config.DefaultMode != "" && p.config.SyncSettings == nil {
+		// Warn about deprecated config
+		logger.Warn("The 'default_mode' field in the source configuration is deprecated. Please use 'sync_settings.mode' instead.")
+		
+		for i := range catalog.Streams {
+			if catalog.Streams[i].Stream.SyncMode == "" {
+				catalog.Streams[i].Stream.SyncMode = p.config.DefaultMode
+				logger.Infof("Applied default sync mode '%s' from source config to stream '%s'", p.config.DefaultMode, catalog.Streams[i].Name())
+			}
+		}
+	}
+
+	// Apply DefaultMode from catalog (new way)
+	if catalog.DefaultMode != "" {
+		for i := range catalog.Streams {
+			if catalog.Streams[i].Stream.SyncMode == "" {
+				catalog.Streams[i].Stream.SyncMode = catalog.DefaultMode
+				logger.Infof("Applied default sync mode '%s' from catalog to stream '%s'", catalog.DefaultMode, catalog.Streams[i].Name())
+			}
+		}
+	}
+
+	return catalog
 }

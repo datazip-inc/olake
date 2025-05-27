@@ -19,8 +19,9 @@ type Config struct {
 	Password         string            `json:"password"`
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
-	UpdateMethod     interface{}       `json:"update_method"`
-	DefaultSyncMode  types.SyncMode    `json:"default_mode"`
+	SyncSettings     *SyncSettings     `json:"sync_settings"`
+	UpdateMethod     interface{}       `json:"update_method,omitempty"`
+	DefaultMode      types.SyncMode    `json:"default_mode,omitempty"`
 	BatchSize        int               `json:"reader_batch_size"`
 	MaxThreads       int               `json:"max_threads"`
 }
