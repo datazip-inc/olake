@@ -129,6 +129,36 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 
+		// Restore total records from state for resumed syncs
+		if statePath != "" {
+			// If we're resuming a sync, initialize pool with stored record counts
+			for _, streamState := range state.Streams {
+				// Find the matching stream in our current session
+				for _, stream := range standardModeStreams {
+					if stream.Name() == streamState.Stream && stream.Namespace() == streamState.Namespace {
+						if streamState.TotalRecords > 0 {
+							logger.Infof("Restoring record count from state for stream %s: %d records", 
+								stream.ID(), streamState.TotalRecords)
+							pool.AddRecordsToSync(streamState.TotalRecords)
+						}
+						break
+					}
+				}
+				
+				// Also check CDC streams
+				for _, stream := range cdcStreams {
+					if stream.Name() == streamState.Stream && stream.Namespace() == streamState.Namespace {
+						if streamState.TotalRecords > 0 {
+							logger.Infof("Restoring record count from state for CDC stream %s: %d records", 
+								stream.ID(), streamState.TotalRecords)
+							pool.AddRecordsToSync(streamState.TotalRecords)
+						}
+						break
+					}
+				}
+			}
+		}
+
 		// Execute driver ChangeStreams mode
 		GlobalCxGroup.Add(func(_ context.Context) error { // context is not used to keep processes mutually exclusive
 			if connector.ChangeStreamSupported() {
