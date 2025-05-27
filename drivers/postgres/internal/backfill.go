@@ -25,6 +25,9 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		return fmt.Errorf("failed to get approx row count: %s", err)
 	}
 	pool.AddRecordsToSync(approxRowCount)
+	
+	// Store total records in state for future resumed syncs
+	p.State.SetStreamTotalRecords(stream.Self(), approxRowCount)
 
 	stateChunks := p.State.GetChunks(stream.Self())
 	var splitChunks []types.Chunk
@@ -37,6 +40,13 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		}
 		p.State.SetChunks(stream.Self(), types.NewSet(splitChunks...))
 	} else {
+		// For resumed sync, verify we have total records in state
+		totalRecords := p.State.GetStreamTotalRecords(stream.Self())
+		if totalRecords == 0 {
+			// If we don't have total records in state, update it now
+			p.State.SetStreamTotalRecords(stream.Self(), approxRowCount)
+		}
+		
 		splitChunks = stateChunks.Array()
 	}
 	sort.Slice(splitChunks, func(i, j int) bool {
