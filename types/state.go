@@ -148,6 +148,42 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) {
 	s.LogState()
 }
 
+// SetStreamTotalRecords sets the total records count for a stream
+func (s *State) SetStreamTotalRecords(stream *ConfiguredStream, count int64) {
+	s.Lock()
+	defer s.Unlock()
+	
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	
+	if contains {
+		s.Streams[index].TotalRecords = count
+		s.Streams[index].HoldsValue.Store(true)
+	} else {
+		newStream := s.InitialState(stream)
+		newStream.TotalRecords = count
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+	s.LogState()
+}
+
+// GetStreamTotalRecords gets the total records count for a stream
+func (s *State) GetStreamTotalRecords(stream *ConfiguredStream) int64 {
+	s.RLock()
+	defer s.RUnlock()
+	
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	
+	if contains {
+		return s.Streams[index].TotalRecords
+	}
+	return 0
+}
+
 func (s *State) SetGlobalState(globalState any) {
 	s.Lock()
 	defer s.Unlock()
@@ -214,10 +250,11 @@ type Chunk struct {
 type StreamState struct {
 	HoldsValue atomic.Bool `json:"-"` // If State holds some value and should not be excluded during unmarshaling then value true
 
-	Stream    string   `json:"stream"`
-	Namespace string   `json:"namespace"`
-	SyncMode  string   `json:"sync_mode"`
-	State     sync.Map `json:"state"`
+	Stream      string   `json:"stream"`
+	Namespace   string   `json:"namespace"`
+	SyncMode    string   `json:"sync_mode"`
+	State       sync.Map `json:"state"`
+	TotalRecords int64   `json:"total_records,omitempty"` // Total records to sync for this stream
 }
 
 // MarshalJSON custom marshaller to handle sync.Map encoding
@@ -264,7 +301,7 @@ func (s *StreamState) UnmarshalJSON(data []byte) error {
 		s.State.Store(key, value)
 	}
 
-	if len(aux.State) > 0 {
+	if len(aux.State) > 0 || aux.TotalRecords > 0 {
 		s.HoldsValue.Store(true)
 	}
 	if rawChunks, exists := aux.State[ChunksKey]; exists {

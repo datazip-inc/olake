@@ -27,6 +27,10 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 		return fmt.Errorf("failed to get approx row count: %s", err)
 	}
 	pool.AddRecordsToSync(approxRowCount)
+	
+	// Store total records in state for future resumed syncs
+	m.State.SetStreamTotalRecords(stream.Self(), approxRowCount)
+	
 	// Get primary key column
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey
 	if pkColumns.Len() == 0 {
@@ -45,6 +49,13 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 		splitChunks = chunks.Array()
 		m.State.SetChunks(stream.Self(), chunks)
 	} else {
+		// For resumed sync, verify we have total records in state
+		totalRecords := m.State.GetStreamTotalRecords(stream.Self())
+		if totalRecords == 0 {
+			// If we don't have total records in state, update it now
+			m.State.SetStreamTotalRecords(stream.Self(), approxRowCount)
+		}
+		
 		splitChunks = stateChunks.Array()
 	}
 

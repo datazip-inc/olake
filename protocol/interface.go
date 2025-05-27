@@ -84,4 +84,6 @@ type State interface {
 	SetChunks(stream *types.ConfiguredStream, chunks *types.Set[types.Chunk])
 	RemoveChunk(stream *types.ConfiguredStream, chunk types.Chunk)
 	SetGlobalState(globalState any)
+	GetStreamTotalRecords(stream *types.ConfiguredStream) int64
+	SetStreamTotalRecords(stream *types.ConfiguredStream, count int64)
 }
