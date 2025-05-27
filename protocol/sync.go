@@ -87,9 +87,9 @@ var syncCmd = &cobra.Command{
 		selectedStreams := []string{}
 		cdcStreams := []Stream{}
 		standardModeStreams := []Stream{}
-		var stateStreams = make(map[string]*types.StreamState)
+		var stateStreamMap = make(map[string]*types.StreamState)
 		for _, stream := range state.Streams {
-			stateStreams[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
+			stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
 		}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 
@@ -119,7 +119,7 @@ var syncCmd = &cobra.Command{
 
 			if elem.Stream.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)
-				if streamState, exists := stateStreams[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]; exists {
+				if streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]; exists {
 					cdcSelectedStreams = append(cdcSelectedStreams, streamState)
 				}
 			} else {
