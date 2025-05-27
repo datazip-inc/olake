@@ -50,10 +50,6 @@ var checkCmd = &cobra.Command{
 			// If connector is not set, we are checking the destination
 			if connector == nil {
 				_, err := NewWriter(cmd.Context(), destinationConfig)
-				if err != nil {
-					return err
-				}
-
 				return err
 			}
 			// Catalog has been passed setup and is driver; Connector should be setup
