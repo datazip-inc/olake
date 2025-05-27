@@ -338,3 +338,10 @@ func (g *Global[T]) UnmarshalJSON(data []byte) error {
 	*g = Global[T](temp)
 	return nil
 }
+func NewState(typ StateType) *State {
+	return &State{
+		RWMutex: &sync.RWMutex{},
+		Type:    typ,
+		Streams: []*StreamState{},
+	}
+}
