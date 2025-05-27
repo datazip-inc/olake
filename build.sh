@@ -61,7 +61,7 @@ function build_and_run() {
     local connector="$1"
     if [[ $2 == "driver" ]]; then
         path=drivers/$connector
-    elif [[ $2 == "writer" ]]; then
+    elif [[ $2 == "destination" ]]; then
         path=writers/$connector/cmd
     else
         fail "The argument does not have a recognized prefix."
@@ -103,7 +103,7 @@ function build_and_run() {
     go mod tidy
     go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
     
-    if [[ $2 == "writer" ]]; then
+    if [[ $2 == "destination" ]]; then
         # For writers, return to root directory to run the command
         cd "$current_dir"
         echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
@@ -129,10 +129,10 @@ if [ $# -gt 0 ]; then
         driver="${argument#driver-}"
         echo "============================== Building driver: $driver =============================="
         build_and_run "$driver" "driver" "$joined_arguments"
-    elif [[ $argument == writer-* ]]; then
-        writer="${argument#writer-}"
-        echo "============================== Building writer: $writer =============================="
-        build_and_run "$writer" "writer" "$joined_arguments"
+    elif [[ $argument == destination-* ]]; then
+        destination="${argument#destination-}"
+        echo "============================== Building Destination: $destination =============================="
+        build_and_run "$destination" "destination" "$joined_arguments"
     else
         fail "The argument does not have a recognized prefix."
     fi

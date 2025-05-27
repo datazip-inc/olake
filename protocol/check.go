@@ -14,6 +14,20 @@ var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "check command",
 	PreRunE: func(_ *cobra.Command, _ []string) error {
+		// If connector is not set, we are checking the destination
+		if connector == nil {
+			if destinationConfigPath == "" {
+				return fmt.Errorf("--destination not passed")
+			}
+
+			destinationConfig = &types.WriterConfig{}
+			if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		// If connector is set, we are checking the source
 		if configPath == "" {
 			return fmt.Errorf("--config not passed")
 		}
@@ -31,8 +45,17 @@ var checkCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(_ *cobra.Command, _ []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		err := func() error {
+			// If connector is not set, we are checking the destination
+			if connector == nil {
+				_, err := NewWriter(cmd.Context(), destinationConfig)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			}
 			// Catalog has been passed setup and is driver; Connector should be setup
 			if catalog != nil {
 				// setup connector first
