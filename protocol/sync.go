@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
@@ -110,12 +111,20 @@ var syncCmd = &cobra.Command{
 
 			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
-
+			var cdcSelectedStreams []*types.StreamState
 			if elem.Stream.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)
+				cdcSelectedStreams = append(cdcSelectedStreams, &types.StreamState{
+					Namespace:  elem.Namespace(),
+					Stream:     elem.Name(),
+					State:      sync.Map{},
+					HoldsValue: atomic.Bool{},
+					SyncMode:   "cdc",
+				})
 			} else {
 				standardModeStreams = append(standardModeStreams, elem)
 			}
+			state.Streams = cdcSelectedStreams
 
 			return false
 		})
