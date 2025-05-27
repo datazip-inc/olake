@@ -40,8 +40,9 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// set global variables
+
 		if !noSave {
-			viper.Set("CONFIG_FOLDER", filepath.Dir(configPath))
+			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath != "", filepath.Dir(configPath), filepath.Dir(destinationConfigPath)))
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
@@ -58,9 +59,15 @@ var RootCmd = &cobra.Command{
 	},
 }
 
-func CreateRootCommand(_ bool, driver any) *cobra.Command {
+func CreateRootCommand(isDriver bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
-	connector = driver.(Driver)
+
+	// For drivers, we need a connector else nil
+	if isDriver {
+		connector = driver.(Driver)
+	} else {
+		connector = nil
+	}
 
 	return RootCmd
 }
