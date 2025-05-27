@@ -1,0 +1,166 @@
+services:
+  spark-iceberg:
+    image: pyiceberg-spark
+    container_name: spark-iceberg
+    build: .
+    networks:
+      iceberg_net:
+    depends_on:
+      rest:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./warehouse:/home/iceberg/warehouse
+      - ./notebooks:/home/iceberg/notebooks/notebooks
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      # JVM tuning for better performance
+      - JAVA_OPTS=-Xmx4g -Xms2g -XX:+UseG1GC -XX:G1HeapRegionSize=16m
+    ports:
+      - 8888:8888
+      - 9090:8080
+      - 10000:10000
+      - 10001:10001
+    restart: unless-stopped
+
+  rest:
+    image: apache/iceberg-rest-fixture
+    container_name: iceberg-rest
+    networks:
+      iceberg_net:
+    ports:
+      - 8181:8181
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - CATALOG_WAREHOUSE=s3://warehouse/
+      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_S3_ENDPOINT=http://minio:9000
+      # Enhanced stability settings
+      - CATALOG_JDBC_USESSL=false
+      - JAVA_OPTS=-Xmx4g -Xms2g -XX:+UseG1GC
+      # Connection pool settings
+      - CATALOG_JDBC_CONNECTION_POOL_SIZE=20
+      - CATALOG_JDBC_CONNECTION_TIMEOUT=30000
+      - CATALOG_JDBC_IDLE_TIMEOUT=600000
+      # Retry settings
+      - CATALOG_RETRY_INITIAL_INTERVAL=100
+      - CATALOG_RETRY_MAX_INTERVAL=5000
+      - CATALOG_RETRY_MULTIPLIER=2
+      - CATALOG_RETRY_MAX_ATTEMPTS=5
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/v1/config"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+        reservations:
+          memory: 2g
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_DOMAIN=minio
+      # Performance tuning
+      - MINIO_API_REQUESTS_MAX=1000
+      - MINIO_API_REQUESTS_DEADLINE=10s
+    networks:
+      iceberg_net:
+        aliases:
+          - warehouse.minio
+    ports:
+      - 9001:9001
+      - 9000:9000
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+        reservations:
+          memory: 512m
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: azurite
+    hostname: azurite
+    ports:
+      - 11000:11000
+    command: ["azurite-blob", "--loose", "--blobHost", "0.0.0.0", "--blobPort", "11000"]
+    volumes:
+      - azurite_data:/workspace
+    restart: unless-stopped
+
+  mc:
+    depends_on:
+      minio:
+        condition: service_healthy
+    image: minio/mc
+    container_name: mc
+    networks:
+      iceberg_net:
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO to be ready...';
+      until (/usr/bin/mc config host add minio http://minio:9000 admin password) do 
+        echo '...waiting for MinIO...' && sleep 2; 
+      done;
+      echo 'MinIO is ready, setting up buckets...';
+      /usr/bin/mc rm -r --force minio/warehouse || true;
+      /usr/bin/mc mb minio/warehouse;
+      /usr/bin/mc policy set public minio/warehouse;
+      echo 'Bucket setup complete';
+      tail -f /dev/null
+      "
+    restart: unless-stopped
+
+  # Optional: Add a load balancer for multiple REST instances (commented out for now)
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: iceberg-lb
+  #   networks:
+  #     iceberg_net:
+  #   ports:
+  #     - 8080:80
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - rest
+  #   restart: unless-stopped
+
+networks:
+  iceberg_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.91.0.0/16
+
+volumes:
+  minio_data:
+    driver: local
+  azurite_data:
+    driver: local
