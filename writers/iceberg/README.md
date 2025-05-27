@@ -218,3 +218,28 @@ After syncing, you can query the data efficiently by filtering on partition colu
 select * from olake_iceberg.olake_iceberg.my_stream 
 where timestamp_col = '2023-05-01' and region = 'us-east';
 ```
+
+## Commands
+
+### Check Command
+The *Check* command validates the destination configuration and ensures it's properly set up.
+
+#### Usage
+To check the destination configuration, use the following syntax:
+```bash
+./build.sh destination-iceberg check --destination /path/to/destination.json
+```
+
+#### Example Response
+When the check is successful, you'll see a response like this:
+```json
+{
+  "connectionStatus": {
+    "status": "SUCCEEDED"
+  },
+  "type": "CONNECTION_STATUS"
+}
+```
+
+
+
