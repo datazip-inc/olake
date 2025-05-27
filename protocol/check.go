@@ -58,11 +58,6 @@ var checkCmd = &cobra.Command{
 			}
 			// Catalog has been passed setup and is driver; Connector should be setup
 			if catalog != nil {
-				// setup connector first
-				err := connector.Setup()
-				if err != nil {
-					return err
-				}
 				// Get Source Streams
 				streams, err := connector.Discover(false)
 				if err != nil {
