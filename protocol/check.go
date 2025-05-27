@@ -54,7 +54,7 @@ var checkCmd = &cobra.Command{
 					return err
 				}
 
-				return nil
+				return err
 			}
 			// Catalog has been passed setup and is driver; Connector should be setup
 			if catalog != nil {

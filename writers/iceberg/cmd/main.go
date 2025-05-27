@@ -9,6 +9,6 @@ import (
 func main() {
 	err := protocol.CreateRootCommand(false, nil).Execute()
 	if err != nil {
-		logger.Fatal("Failed to create root command", err)
+		logger.Fatalf("Failed to create iceberg destination root command: %s", err)
 	}
 }

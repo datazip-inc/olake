@@ -11,7 +11,7 @@ To check the destination configuration, use the following syntax:
 ./build.sh destination-parquet check --destination /path/to/destination.json
 ```
 
-#### Example Response
+#### Example Response (Formatted)
 When the check is successful, you'll see a response like this:
 ```json
 {
