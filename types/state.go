@@ -115,6 +115,7 @@ func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 	if stream.GetSyncMode() == FULLREFRESH {
 		return
 	}
+
 	s.Lock()
 	defer s.Unlock()
 
