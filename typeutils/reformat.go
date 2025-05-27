@@ -67,12 +67,6 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	// Handle json.Number type
 	if num, ok := v.(json.Number); ok {
 		switch dataType {
-		case types.Int64:
-			intVal, err := num.Int64()
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse bigint: %v", err)
-			}
-			return intVal, nil
 		case types.Int32:
 			intVal, err := num.Int64()
 			if err != nil {
@@ -80,18 +74,24 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 			}
 			//nolint:gosec
 			return int32(intVal), nil
-		case types.Float64:
-			floatVal, err := num.Float64()
+		case types.Int64:
+			intVal, err := num.Int64()
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse numeric: %v", err)
+				return nil, fmt.Errorf("failed to parse bigint: %v", err)
 			}
-			return floatVal, nil
+			return intVal, nil
 		case types.Float32:
 			floatVal, err := num.Float64()
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse numeric: %v", err)
 			}
 			return float32(floatVal), nil
+		case types.Float64:
+			floatVal, err := num.Float64()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse numeric: %v", err)
+			}
+			return floatVal, nil
 		}
 	}
 
