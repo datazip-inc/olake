@@ -112,7 +112,7 @@ func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
 
 // set chunks
 func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
-	if stream.Self().Stream.SyncMode != CDC {
+	if stream.Self().Stream.SyncMode == FULLREFRESH {
 		return
 	}
 	s.Lock()

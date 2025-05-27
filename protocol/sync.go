@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/logger"
@@ -88,6 +87,10 @@ var syncCmd = &cobra.Command{
 		selectedStreams := []string{}
 		cdcStreams := []Stream{}
 		standardModeStreams := []Stream{}
+		var stateStreams = make(map[string]*types.StreamState)
+		for _, stream := range state.Streams {
+			stateStreams[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
+		}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 
 			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
@@ -111,16 +114,14 @@ var syncCmd = &cobra.Command{
 
 			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
+
 			var cdcSelectedStreams []*types.StreamState
+
 			if elem.Stream.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)
-				cdcSelectedStreams = append(cdcSelectedStreams, &types.StreamState{
-					Namespace:  elem.Namespace(),
-					Stream:     elem.Name(),
-					State:      sync.Map{},
-					HoldsValue: atomic.Bool{},
-					SyncMode:   "cdc",
-				})
+				if streamState, exists := stateStreams[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]; exists {
+					cdcSelectedStreams = append(cdcSelectedStreams, streamState)
+				}
 			} else {
 				standardModeStreams = append(standardModeStreams, elem)
 			}
