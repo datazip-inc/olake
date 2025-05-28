@@ -1,6 +1,6 @@
 # MongoDB Driver
 
-The **MongoDB Driver** enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
+The **MongoDB Driver** enables data synchronization from MongoDB to S3 parquet or iceberg. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
 
 ---
 
