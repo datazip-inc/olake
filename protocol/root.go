@@ -42,7 +42,7 @@ var RootCmd = &cobra.Command{
 		// set global variables
 
 		if !noSave {
-			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath != "", filepath.Dir(configPath), filepath.Dir(destinationConfigPath)))
+			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
