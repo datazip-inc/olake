@@ -16,12 +16,12 @@ jobs:
   build_all_drivers:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
     name: Build and Release Drivers
-    runs-on: ubuntu-latest
+    
     strategy:
       matrix:
         driver: [mongodb, mysql, postgres] # Add new drivers here as they become available
+
     uses: ./.github/workflows/build-and-release-driver.yml
     with:
       driver: ${{ github.event.inputs.driver || matrix.driver }}
       version: ${{ github.event.inputs.version || github.event.release.tag_name }}
-    secrets: inherit
