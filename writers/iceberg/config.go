@@ -57,7 +57,6 @@ type Config struct {
 	JarPath         string `json:"sink_jar_path,omitempty"`        // Path to the Iceberg sink JAR
 	ServerHost      string `json:"sink_rpc_server_host,omitempty"` // gRPC server host
 
-	Normalization bool `json:"normalization,omitempty"`
 }
 
 func (c *Config) Validate() error {

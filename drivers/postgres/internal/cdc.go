@@ -70,7 +70,14 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 
 	var needsBackfill []protocol.Stream
 	for _, s := range streams {
-		if !gs.Streams.Exists(s.ID()) {
+		// check if full refresh state present or not
+		_, exist := utils.ArrayContains(p.State.Streams, func(streamState *types.StreamState) bool {
+			if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
+				return true
+			}
+			return false
+		})
+		if !exist || !gs.Streams.Exists(s.ID()) {
 			needsBackfill = append(needsBackfill, s)
 		}
 	}

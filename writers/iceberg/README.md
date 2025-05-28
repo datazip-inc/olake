@@ -49,7 +49,6 @@ Now create a writer.json for iceberg writer as follows :
     "jdbc_url": "jdbc:postgresql://localhost:5432/iceberg",
     "jdbc_username": "iceberg",
     "jdbc_password": "password",
-    "normalization": false,
     "iceberg_s3_path": "s3a://warehouse",
     "s3_endpoint": "http://localhost:9000",
     "s3_use_ssl": false,
@@ -82,7 +81,6 @@ Create a json for writer config (Works for S3 as storage and AWS Glue as a catal
 {
     "type": "ICEBERG",
     "writer": {
-      "normalization": false,
       "iceberg_s3_path": "s3://bucket_name/olake_iceberg/test_olake",
       "aws_region": "ap-south-1",
       "aws_access_key": "XXX",
@@ -109,7 +107,6 @@ Create a json for writer config (writer.json)
   "type": "ICEBERG",
   "writer": {
     "catalog_type": "rest",
-    "normalization": false,
     "rest_catalog_url": "http://localhost:8181/catalog",
     "iceberg_s3_path": "warehouse",
     "iceberg_db": "ICEBERG_DATABASE_NAME"
@@ -124,7 +121,6 @@ Create a json for writer config (writer.json)
     "type": "ICEBERG",
     "writer": {
         "catalog_type": "hive",
-        "normalization": false,
         "iceberg_s3_path": "s3a://warehouse/",
         "aws_region": "us-east-1",
         "aws_access_key": "admin",
@@ -222,3 +218,28 @@ After syncing, you can query the data efficiently by filtering on partition colu
 select * from olake_iceberg.olake_iceberg.my_stream 
 where timestamp_col = '2023-05-01' and region = 'us-east';
 ```
+
+## Commands
+
+### Check Command
+The *Check* command validates the destination configuration and ensures it's properly set up.
+
+#### Usage
+To check the destination configuration, use the following syntax:
+```bash
+./build.sh destination-iceberg check --destination /path/to/destination.json
+```
+
+#### Example Response (Formatted)
+When the check is successful, you'll see a response like this:
+```json
+{
+  "connectionStatus": {
+    "status": "SUCCEEDED"
+  },
+  "type": "CONNECTION_STATUS"
+}
+```
+
+
+
