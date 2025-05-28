@@ -1,0 +1,2 @@
+{"level":"info","time":"2025-05-28T11:58:23Z","message":"System has 16GB RAM, setting iceberg writer batch size to 419430400 bytes"}
+{"level":"fatal","time":"2025-05-28T11:58:23Z","message":"no connector config or destination config provided"}
