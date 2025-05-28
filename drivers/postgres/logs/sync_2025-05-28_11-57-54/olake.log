@@ -1,2 +1,0 @@
-{"level":"info","time":"2025-05-28T11:57:54Z","message":"System has 16GB RAM, setting iceberg writer batch size to 419430400 bytes"}
-{"level":"fatal","time":"2025-05-28T11:57:54Z","message":"not-set does not exist: stat not-set: no such file or directory"}
