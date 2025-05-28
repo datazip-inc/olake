@@ -15,17 +15,19 @@ var checkCmd = &cobra.Command{
 	Short: "check command",
 	PreRunE: func(_ *cobra.Command, _ []string) error {
 		// If connector is not set, we are checking the destination
+		if destinationConfigPath == "not-set" && configPath == "not-set" {
+			return fmt.Errorf("no connector config or destination config provided")
+		}
+
+		// check for destination config
 		if destinationConfigPath != "not-set" {
 			destinationConfig = &types.WriterConfig{}
-			if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig); err != nil {
-				return err
-			}
-		} else if configPath != "not-set" {
-			if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
-				return err
-			}
-		} else {
-			return fmt.Errorf("no connector config or destination config provided")
+			return utils.UnmarshalFile(destinationConfigPath, destinationConfig)
+		}
+
+		// check for source config
+		if configPath != "not-set" {
+			return utils.UnmarshalFile(configPath, connector.GetConfigRef())
 		}
 
 		return nil

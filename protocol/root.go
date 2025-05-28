@@ -59,16 +59,9 @@ var RootCmd = &cobra.Command{
 	},
 }
 
-func CreateRootCommand(isDriver bool, driver any) *cobra.Command {
+func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
-
-	// For drivers, we need a connector else nil
-	if isDriver {
-		connector = driver.(Driver)
-	} else {
-		connector = nil
-	}
-
+	connector = driver.(Driver)
 	return RootCmd
 }
 
