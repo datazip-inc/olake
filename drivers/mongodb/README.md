@@ -9,7 +9,7 @@ The **MongoDB Driver** enables data synchronization from MongoDB to S3 parquet o
 | Mode                          | Description                                                     |
 | ----------------------------- | --------------------------------------------------------------- |
 | **Full Refresh**              | Fetches the complete dataset from MongoDB.                      |
-| **CDC (Change Data Capture)** | Tracks and syncs incremental changes from MongoDB in real time. |
+| **CDC (Change Data Capture)** | Read MongoDB change streams in real time |
 
 ---
 
