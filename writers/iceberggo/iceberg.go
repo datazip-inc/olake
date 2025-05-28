@@ -26,6 +26,7 @@ import (
 )
 
 var globalIcebergMutex sync.Mutex
+var commitMutexes sync.Map // Key: configHash, Value: sync.Mutex
 
 func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) error {
 	w.stream = stream
@@ -34,12 +35,63 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 	w.schemaMapping = make(map[string]int) // Initialize the schema mapping
 	w.writerID = fmt.Sprintf("writer-%s", uuid.New().String()[:8])
 
+	// Initialize configHash for batching optimization
+	w.configHash = getConfigHash(w.config.Namespace, w.stream.Name(), w.config.AppendMode)
+
+	// Try to reuse existing server instance
+	serverInstance, err := getOrCreateServerInstance(w.configHash, w.config)
+	if err == nil && serverInstance.catalog != nil && serverInstance.iceTable != nil {
+		logger.Infof("[%s] Reusing existing server instance for configHash: %s", w.writerID, w.configHash)
+		w.catalog = serverInstance.catalog
+		w.iceTable = serverInstance.iceTable
+		w.tableIdent = catalog.ToIdentifier(w.config.Namespace, w.stream.Name())
+		
+		// Still need to initialize our own components
+		w.partitionInfo = make(map[string]string)
+		if stream.Self().StreamMetadata.PartitionRegex != "" {
+			err := w.parsePartitionRegex(stream.Self().StreamMetadata.PartitionRegex)
+			if err != nil {
+				return fmt.Errorf("failed to parse partition regex: %v", err)
+			}
+		}
+		
+		// Create schema and record builder from existing table
+		if w.iceTable != nil {
+			w.schema = w.iceTable.Schema()
+			w.createRecordBuilder()
+		}
+		
+		logger.Infof("Initialized writer with ID: %s, ConfigHash: %s (reused server)", w.writerID, w.configHash)
+
+		// Store the catalog and table in the server instance for reuse
+		if serverInstance != nil {
+			serverInstance.catalog = w.catalog
+			serverInstance.iceTable = w.iceTable
+			logger.Infof("[%s] Stored catalog and table in server instance for reuse", w.writerID)
+		}
+
+		return nil
+	}
+
+	// Fallback to creating new instance
+	logger.Infof("Creating new server instance for configHash: %s", w.configHash)
+
+	w.partitionInfo = make(map[string]string)
+
+	partitionRegex := w.stream.Self().StreamMetadata.PartitionRegex
+	if partitionRegex != "" {
+		err := w.parsePartitionRegex(partitionRegex)
+		if err != nil {
+			return fmt.Errorf("failed to parse partition regex: %v", err)
+		}
+	}
+
 	logger.Infof("Setting up ICEBERGGO writer with catalog %s at %s",
 		w.config.CatalogType, w.config.RestCatalogURL)
 	logger.Infof("S3 endpoint: %s, region: %s", w.config.S3Endpoint, w.config.AwsRegion)
 	logger.Infof("Iceberg DB: %s, namespace: %s", w.config.IcebergDB, w.config.Namespace)
 	logger.Infof("Handling nil values with appropriate default values (0 for numbers, empty string for text)")
-	logger.Infof("Initialized writer with ID: %s", w.writerID)
+	logger.Infof("Initialized writer with ID: %s, ConfigHash: %s", w.writerID, w.configHash)
 
 
 	ctx := context.Background()
@@ -160,6 +212,13 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 	// Initialize record builder
 	w.createRecordBuilder()
 
+	// Store the catalog and table in the server instance for reuse
+	if serverInstance != nil {
+		serverInstance.catalog = w.catalog
+		serverInstance.iceTable = w.iceTable
+		logger.Infof("[%s] Stored catalog and table in server instance for reuse", w.writerID)
+	}
+
 	return nil
 }
 
@@ -212,13 +271,48 @@ func (w *NewIcebergGo) createRecordBuilder() {
 }
 
 func (w *NewIcebergGo) Write(_ context.Context, record types.RawRecord) error {
-	w.recordsMutex.Lock()
-	defer w.recordsMutex.Unlock()
+	recordSize := int64(estimateRecordSize(record))
 
-	w.records = append(w.records, record)
-	if len(w.records) >= w.config.BatchSize {
-		return w.flushRecords()
+	buffer := getLocalBuffer(w.configHash)
+	buffer.records = append(buffer.records, record)
+	buffer.size += recordSize
+
+	if buffer.size >= localBufferThreshold {
+		return w.flushLocalBuffer(buffer)
 	}
+	
+	return nil
+}
+
+func (w *NewIcebergGo) flushLocalBuffer(buffer *LocalBuffer) error {
+	if len(buffer.records) == 0 {
+		return nil
+	}
+	batch := getOrCreateBatch(w.configHash)
+
+	batch.mu.Lock()
+	batch.records = append(batch.records, buffer.records...)
+	batch.size += buffer.size
+	
+	needsFlush := batch.size >= maxBatchSize
+	var recordsToFlush []types.RawRecord
+
+	if needsFlush {
+		recordsToFlush = make([]types.RawRecord, len(batch.records))
+		copy(recordsToFlush, batch.records)
+		batch.records = batch.records[:0]
+		batch.size = 0
+	}
+
+	batch.mu.Unlock()
+
+	buffer.records = buffer.records[:0]
+	buffer.size = 0
+
+	if needsFlush {
+		return w.flushRecordsBatch(recordsToFlush)
+	}
+
 	return nil
 }
 
@@ -255,6 +349,7 @@ func (w *NewIcebergGo) flushRecords() error {
 	}
 
 	// Process records
+	// builder.append : converting the data into arrow format
 	for _, record := range w.records {
 		// Process each field in the schema to ensure consistent counts
 		for i := 0; i < numFields; i++ {
@@ -323,7 +418,7 @@ func (w *NewIcebergGo) flushRecords() error {
 		}
 	}
 
-	// Create the record
+	// Create the record : a structured, columnar representation of the data
 	record := w.recordBuilder.NewRecord()
 	defer record.Release()
 
@@ -425,6 +520,220 @@ func (w *NewIcebergGo) flushRecords() error {
 
 	// Clear the batch
 	w.records = w.records[:0]
+
+	return nil
+}
+
+func getCommitMutex(configHash string) *sync.Mutex {
+	mutex, _ := commitMutexes.LoadOrStore(configHash, &sync.Mutex{})
+	return mutex.(*sync.Mutex)
+}
+
+func (w *NewIcebergGo) flushRecordsBatch(records []types.RawRecord) error {
+	// Use asynchronous processing to avoid blocking
+	processor := getOrCreateAsyncProcessor(w.configHash, w)
+	return processor.flushAsync(records)
+}
+
+func (w *NewIcebergGo) commitRecords(records []types.RawRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	// Track flush time for performance metrics
+	startTime := time.Now()
+	defer func() {
+		flushDuration := time.Since(startTime)
+		recordBatchFlush(int64(len(records)), flushDuration)
+	}()
+
+	// Use config-specific mutex for thread safety
+	mutex := getCommitMutex(w.configHash)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if w.recordBuilder == nil {
+		return fmt.Errorf("record builder is nil")
+	}
+
+	if w.iceTable == nil {
+		return fmt.Errorf("iceberg table is nil")
+	}
+
+	logger.Infof("[%s] Committing %d records to Iceberg", w.writerID, len(records))
+
+	// Create a new record builder for each commit
+	schema := w.recordBuilder.Schema()
+	recordBuilder := array.NewRecordBuilder(w.allocator, schema)
+	defer recordBuilder.Release()
+
+	// Reserve space for all records
+	recordBuilder.Reserve(len(records))
+
+	// Get all field builders
+	numFields := len(schema.Fields())
+	fieldBuilders := make([]array.Builder, numFields)
+	for i := 0; i < numFields; i++ {
+		fieldBuilders[i] = recordBuilder.Field(i)
+	}
+
+	// Process records - converting the data into arrow format
+	for _, record := range records {
+		// Process each field in the schema to ensure consistent counts
+		for i := 0; i < numFields; i++ {
+			fieldBuilder := fieldBuilders[i]
+			fieldName := schema.Field(i).Name
+
+			value, exists := record.Data[fieldName]
+			if !exists || value == nil {
+				fieldBuilder.AppendNull()
+				continue
+			}
+
+			// Convert and append the value
+			switch builder := fieldBuilder.(type) {
+			case *array.StringBuilder:
+				if strVal, ok := toString(value); ok {
+					builder.Append(strVal)
+				} else {
+					builder.Append("")
+				}
+			case *array.Int32Builder:
+				if intVal, ok := toInt32(value); ok {
+					builder.Append(intVal)
+				} else {
+					builder.Append(0)
+				}
+			case *array.Int64Builder:
+				if intVal, ok := toInt64(value); ok {
+					builder.Append(intVal)
+				} else {
+					builder.Append(0)
+				}
+			case *array.Float32Builder:
+				if floatVal, ok := toFloat32(value); ok {
+					builder.Append(floatVal)
+				} else {
+					builder.Append(0.0)
+				}
+			case *array.Float64Builder:
+				if floatVal, ok := toFloat64(value); ok {
+					builder.Append(floatVal)
+				} else {
+					builder.Append(0.0)
+				}
+			case *array.BooleanBuilder:
+				if boolVal, ok := value.(bool); ok {
+					builder.Append(boolVal)
+				} else {
+					builder.Append(false)
+				}
+			case *array.TimestampBuilder:
+				if timeVal, ok := value.(time.Time); ok {
+					builder.Append(arrow.Timestamp(timeVal.UnixMicro()))
+				} else if strVal, ok := value.(string); ok {
+					if timeVal, err := time.Parse(time.RFC3339, strVal); err == nil {
+						builder.Append(arrow.Timestamp(timeVal.UnixMicro()))
+					} else {
+						builder.Append(arrow.Timestamp(time.Now().UnixMicro()))
+					}
+				} else {
+					builder.Append(arrow.Timestamp(time.Now().UnixMicro()))
+				}
+			default:
+				fieldBuilder.AppendNull()
+			}
+		}
+	}
+
+	// Create the record - a structured, columnar representation of the data
+	arrowRecord := recordBuilder.NewRecord()
+	defer arrowRecord.Release()
+
+	// Create Arrow table
+	arrowTable := array.NewTableFromRecords(arrowRecord.Schema(), []arrow.Record{arrowRecord})
+	defer arrowTable.Release()
+
+	ctx := context.Background()
+
+	fileUUID := uuid.New().String()
+	filePath := fmt.Sprintf("s3://warehouse/%s/%s/data-%s.parquet",
+		w.config.Namespace, w.stream.Name(), fileUUID)
+
+	writeFileIO, ok := w.iceTable.FS().(iceio.WriteFileIO)
+	if !ok {
+		return fmt.Errorf("filesystem does not support writing")
+	}
+
+	fw, err := writeFileIO.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create parquet file: %v", err)
+	}
+
+	writeErr := pqarrow.WriteTable(arrowTable, fw, arrowRecord.NumRows(), nil, pqarrow.DefaultWriterProps())
+	closeErr := fw.Close()
+	
+	if writeErr != nil {
+		return fmt.Errorf("failed to write record to parquet: %v", writeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("failed to close parquet file: %v", closeErr)
+	}
+
+	// Step 3: Inside the lock, reload the latest table state
+	props := iceberg.Properties{
+		iceio.S3Region:          w.config.AwsRegion,
+		iceio.S3AccessKeyID:     w.config.AwsAccessKey,
+		iceio.S3SecretAccessKey: w.config.AwsSecretKey,
+		iceio.S3EndpointURL:     w.config.S3Endpoint,
+		"s3.path-style-access":  "true",
+	}
+	
+	// Reloading the table to get the latest state
+	w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, props)
+	if err != nil {
+		return fmt.Errorf("failed to reload table: %v", err)
+	}
+
+	logger.Infof("[%s] Loaded latest table state inside commit", w.writerID)
+
+	// Create a new transaction
+	txn := w.iceTable.NewTransaction()
+	if txn == nil {
+		return fmt.Errorf("failed to create transaction (txn is nil)")
+	}
+
+	// Add the data file to the transaction
+	err = txn.AddFiles([]string{filePath}, iceberg.Properties{}, false)
+	if err != nil {
+		return fmt.Errorf("failed to add file to transaction: %v", err)
+	}
+
+	// Try to commit the transaction
+	updatedTable, err := txn.Commit(ctx)
+	if err != nil {
+		// Check if it's a commit conflict
+		if strings.Contains(err.Error(), "CommitFailedException") || 
+			strings.Contains(err.Error(), "concurrent") ||
+			strings.Contains(err.Error(), "conflict") ||
+			strings.Contains(err.Error(), "branch main has changed") {
+			logger.Warnf("[%s] Commit failed due to concurrent modification: %v", 
+				w.writerID, err)
+		}
+		
+		// For other errors, check if it's a catalog/connection issue
+		if strings.Contains(err.Error(), "Failed to get table") ||
+			strings.Contains(err.Error(), "catalog") ||
+			strings.Contains(err.Error(), "UncheckedSQLException") {
+			logger.Warnf("[%s] Catalog/connection error: %v", 
+				w.writerID, err)
+		}
+
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	w.iceTable = updatedTable
+	logger.Infof("[%s] Successfully committed transaction with %d records", w.writerID, len(records))
 
 	return nil
 }

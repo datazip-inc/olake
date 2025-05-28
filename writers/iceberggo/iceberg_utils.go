@@ -4,7 +4,11 @@ import (
 	// "context"
 	// "errors"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
+	"sync/atomic"
+
 	// "strings"
 	"sync"
 	"time"
@@ -12,21 +16,26 @@ import (
 	// "github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+
 	// "github.com/apache/arrow-go/v18/parquet/pqarrow"
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
+
 	// "github.com/apache/iceberg-go/catalog/rest"
 	// iceio "github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
 	// "github.com/aws/aws-sdk-go-v2/aws"
 	// "github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 
 	// "github.com/datazip-inc/olake/typeutils"
 	// "github.com/google/uuid"
+	"runtime"
 )
 
 // A simple implementation of the writer interface for ICEBERGGO
@@ -56,6 +65,10 @@ type NewIcebergGo struct {
 	// mutex    sync.Mutex
 
 	writerID string
+
+	configHash 		string
+	recordsAtomic   atomic.Int64
+	partitionInfo   map[string]string // map of field names to partition transform
 }
 
 type Config struct {
@@ -80,6 +93,108 @@ type Config struct {
 	BatchSize              int  `json:"batch_size"`
 	Normalization          bool `json:"normalization"`
 	AppendMode             bool `json:"append_mode"`
+}
+
+type LocalBuffer struct {
+	records []types.RawRecord
+	size int64
+}
+
+type recordBatch struct {
+	records []types.RawRecord
+	size int64
+	mu sync.Mutex
+}
+
+var (
+	localBufferThreshold int64 = 50 * 1024 * 1024
+	localBuffers sync.Map
+)
+
+var (
+	batchRegistry sync.Map
+	maxBatchSize = determineMaxBatchSize()
+)
+
+type serverInstance struct {
+	catalog catalog.Catalog
+	iceTable *table.Table
+	refCount int
+	configHash string
+}
+
+var serverRegistry = make(map[string]*serverInstance)
+var serverMutex sync.Mutex
+
+func getOrCreateServerInstance(configHash string, config *Config) (*serverInstance, error) {
+	serverMutex.Lock()
+	defer serverMutex.Unlock()
+
+	if instance, exists := serverRegistry[configHash]; exists {
+		instance.refCount++
+		return instance, nil
+	}
+
+	instance := &serverInstance{
+		configHash: configHash,
+		refCount: 1,
+	}
+
+	serverRegistry[configHash] = instance
+	return instance, nil
+}
+
+func getGoroutineId() string {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	id := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+	return id
+}
+
+func determineMaxBatchSize() int64 {
+	ramGB := utils.DetermineSystemMemoryGB()
+
+	var batchSize int64
+
+	switch {
+	case ramGB <= 8:
+		batchSize = 200 * 1024 * 1024 // 200MB
+	case ramGB <= 16:
+		batchSize = 400 * 1024 * 1024 // 400MB
+	case ramGB <= 32:
+		batchSize = 800 * 1024 * 1024 // 800MB
+	default:
+		batchSize = 1600 * 1024 * 1024 // 1600MB
+	}
+
+	logger.Infof("System has %dGB RAM, setting iceberg writer batch size to %d bytes", ramGB, batchSize)
+	return batchSize
+}
+
+func getOrCreateBatch(configHash string) *recordBatch {
+	batch, _ := batchRegistry.LoadOrStore(configHash, &recordBatch{
+		records: make([]types.RawRecord, 0, 1000),
+		size: 0,
+	})
+
+	return batch.(*recordBatch)
+}
+
+func getLocalBuffer(configHash string) *LocalBuffer {
+	goroutineId := getGoroutineId()
+	bufferID := fmt.Sprintf("%s-%s", configHash, goroutineId)
+
+	if val, ok := localBuffers.Load(bufferID); ok {
+		return val.(*LocalBuffer)
+	}
+
+	buffer := &LocalBuffer{
+		records: make([]types.RawRecord, 0, 1000),
+		size: 0,
+	}
+
+	localBuffers.Store(bufferID, buffer)
+	return buffer
 }
 
 // GetConfigRef returns a reference to this writer's configuration
@@ -266,523 +381,101 @@ func toString(value any) (string, bool) {
 	return fmt.Sprintf("%v", value), true
 }
 
-// Setup initializes the writer
-// func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) error {
-// 	w.stream = stream
-// 	w.records = make([]types.RawRecord, 0, w.config.BatchSize)
-// 	w.allocator = memory.NewGoAllocator()
-
-// 	// Log configuration details
-// 	logger.Infof("Setting up ICEBERGGO writer with catalog %s at %s",
-// 		w.config.CatalogType, w.config.RestCatalogURL)
-// 	logger.Infof("S3 endpoint: %s, region: %s", w.config.S3Endpoint, w.config.AwsRegion)
-// 	logger.Infof("Iceberg DB: %s, namespace: %s", w.config.IcebergDB, w.config.Namespace)
-// 	logger.Infof("Handling nil values with appropriate default values (0 for numbers, empty string for text)")
-
-// 	ctx := context.Background()
-
-// 	// Configure S3 client
-// 	s3Endpoint := w.config.S3Endpoint
-// 	if s3Endpoint == "" {
-// 		return fmt.Errorf("s3_endpoint is required")
-// 	}
-
-// 	// Create S3 client
-// 	w.s3Client = s3.New(s3.Options{
-// 		Region: w.config.AwsRegion,
-// 		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(
-// 			w.config.AwsAccessKey,
-// 			w.config.AwsSecretKey,
-// 			"",
-// 		)),
-// 		EndpointResolver: s3.EndpointResolverFunc(func(region string, options s3.EndpointResolverOptions) (aws.Endpoint, error) {
-// 			return aws.Endpoint{
-// 				URL:               s3Endpoint,
-// 				HostnameImmutable: true,
-// 				SigningRegion:     w.config.AwsRegion,
-// 			}, nil
-// 		}),
-// 		UsePathStyle: w.config.S3PathStyle,
-// 	})
-
-// 	// Create REST catalog with proper S3 properties
-// 	props := iceberg.Properties{
-// 		iceio.S3Region:          w.config.AwsRegion,
-// 		iceio.S3AccessKeyID:     w.config.AwsAccessKey,
-// 		iceio.S3SecretAccessKey: w.config.AwsSecretKey,
-// 		iceio.S3EndpointURL:     w.config.S3Endpoint,
-// 		"warehouse":             "s3://warehouse/iceberg/",
-// 	}
-
-// 	if w.config.S3PathStyle {
-// 		props[iceio.S3ForceVirtualAddressing] = "false"
-// 	}
-
-// 	restCatalog, err := rest.NewCatalog(
-// 		ctx,
-// 		"olake-catalog",
-// 		w.config.RestCatalogURL,
-// 		rest.WithOAuthToken(""), // Add token if needed
-// 	)
-
-// 	if err != nil {
-// 		return fmt.Errorf("failed to create REST catalog: %v", err)
-// 	}
-
-// 	w.catalog = restCatalog
-
-// 	// Create schema from stream schema
-// 	schemaFields, err := w.createIcebergSchema()
-// 	if err != nil {
-// 		return fmt.Errorf("failed to create iceberg schema: %v", err)
-// 	}
-
-// 	// Create schema with ID 0 (since it will be assigned by Iceberg)
-// 	w.schema = iceberg.NewSchema(0, schemaFields...)
-
-// 	// Set up table identifier
-// 	w.tableIdent = catalog.ToIdentifier(w.config.Namespace, w.stream.Name())
-
-// 	// Load table if it exists, otherwise create it
-// 	var tableExists bool
-// 	_, err = w.catalog.LoadTable(ctx, w.tableIdent, props)
-// 	if err != nil {
-// 		if errors.Is(err, catalog.ErrNoSuchTable) {
-// 			tableExists = false
-// 			logger.Infof("Table %s does not exist", w.tableIdent)
-// 		} else {
-// 			return fmt.Errorf("failed to check if table exists: %v", err)
-// 		}
-// 	} else {
-// 		tableExists = true
-// 		logger.Infof("Table %s exists", w.tableIdent)
-// 	}
-
-// 	if !tableExists {
-// 		if !w.config.CreateTableIfNotExists {
-// 			return fmt.Errorf("table %s does not exist and create_table_if_not_exists is false", w.tableIdent)
-// 		}
-
-// 		logger.Infof("Creating new Iceberg table: %s", w.tableIdent)
-// 		w.iceTable, err = w.catalog.CreateTable(ctx, w.tableIdent, w.schema, catalog.WithProperties(iceberg.Properties{
-// 			"write.format.default": "parquet",
-// 		}))
-// 		if err != nil {
-// 			return fmt.Errorf("failed to create table: %v", err)
-// 		}
-// 	} else {
-// 		logger.Infof("Loading existing Iceberg table: %s", w.tableIdent)
-// 		w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, props)
-// 		if err != nil {
-// 			return fmt.Errorf("failed to load table: %v", err)
-// 		}
-// 	}
-
-// 	// Initialize record builder
-// 	w.createRecordBuilder()
-
-// 	return nil
-// }
-
-// createIcebergSchema converts the stream schema to Iceberg schema fields
-// func (w *NewIcebergGo) createIcebergSchema() ([]iceberg.NestedField, error) {
-// 	if w.stream == nil || w.stream.Schema() == nil {
-// 		return nil, fmt.Errorf("stream or schema is nil")
-// 	}
-
-// 	streamSchema := w.stream.Schema()
-// 	fields := make([]iceberg.NestedField, 0)
-
-// 	// Create the schema mapping
-// 	w.schemaMapping = make(map[string]int)
-
-// 	// Add olake_id field first with optional type
-// 	fields = append(fields, iceberg.NestedField{
-// 		Name:     "_olake_id",
-// 		Type:     iceberg.StringType{},
-// 		Required: false,
-// 		Doc:      "Unique identifier for the record",
-// 	})
-// 	w.schemaMapping["_olake_id"] = 0
-
-// 	// Add data fields
-// 	streamSchema.Properties.Range(func(key, value interface{}) bool {
-// 		name := key.(string)
-// 		// Skip _olake_id if it's already in the schema
-// 		if name == "_olake_id" {
-// 			return true
-// 		}
-// 		property := value.(*types.Property)
-
-// 		var fieldType iceberg.Type
-
-// 		// Map olake types to iceberg types
-// 		dataType := property.DataType()
-// 		switch dataType {
-// 		case types.Int32:
-// 			fieldType = iceberg.Int32Type{}
-// 		case types.Int64:
-// 			fieldType = iceberg.Int64Type{}
-// 		case types.Float32:
-// 			fieldType = iceberg.Float32Type{}
-// 		case types.Float64:
-// 			fieldType = iceberg.Float64Type{}
-// 		case types.String:
-// 			fieldType = iceberg.StringType{}
-// 		case types.Bool:
-// 			fieldType = iceberg.BooleanType{}
-// 		case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
-// 			fieldType = iceberg.TimestampType{}
-// 		default:
-// 			fieldType = iceberg.StringType{}
-// 		}
-
-// 		fields = append(fields, iceberg.NestedField{
-// 			Name:     name,
-// 			Type:     fieldType,
-// 			Required: false,
-// 		})
-
-// 		w.schemaMapping[name] = len(fields) - 1
-// 		return true
-// 	})
-
-// 	// Add metadata fields
-// 	fields = append(fields, iceberg.NestedField{
-// 		Name:     "_olake_timestamp",
-// 		Type:     iceberg.TimestampType{},
-// 		Required: true,
-// 		Doc:      "Timestamp when the record was processed",
-// 	})
-// 	w.schemaMapping["_olake_timestamp"] = len(fields) - 1
-
-// 	fields = append(fields, iceberg.NestedField{
-// 		Name:     "_op_type",
-// 		Type:     iceberg.StringType{},
-// 		Required: true,
-// 		Doc:      "Operation type (insert, update, delete)",
-// 	})
-// 	w.schemaMapping["_op_type"] = len(fields) - 1
-
-// 	fields = append(fields, iceberg.NestedField{
-// 		Name:     "_cdc_timestamp",
-// 		Type:     iceberg.TimestampType{},
-// 		Required: true,
-// 		Doc:      "CDC timestamp from the source",
-// 	})
-// 	w.schemaMapping["_cdc_timestamp"] = len(fields) - 1
-
-// 	// Log the schema mapping for debugging
-// 	logger.Infof("Schema mapping: %v", w.schemaMapping)
-
-// 	return fields, nil
-// }
-
-// createRecordBuilder initializes the Arrow record builder
-// func (w *NewIcebergGo) createRecordBuilder() {
-// 	// Convert Iceberg schema to Arrow schema
-// 	// Create mapping for metadata
-// 	metadata := make(map[string]string)
-// 	metadata["_olake_id"] = "string" // Explicitly add _olake_id to metadata
-
-// 	// Log the schema for debugging
-// 	logger.Infof("Schema fields: %v", w.schema.Fields())
-
-// 	// Create a simple Arrow schema directly from the Iceberg schema fields
-// 	fields := make([]arrow.Field, 0, len(w.schema.Fields()))
-
-// 	// Add _olake_id field first
-// 	fields = append(fields, arrow.Field{
-// 		Name:     "_olake_id",
-// 		Type:     arrow.BinaryTypes.String,
-// 		Nullable: true,
-// 		Metadata: arrow.NewMetadata([]string{"_olake_id"}, []string{"string"}),
-// 	})
-
-// 	// Add the rest of the fields
-// 	for _, field := range w.schema.Fields() {
-// 		if field.Name == "_olake_id" {
-// 			continue // Skip _olake_id as we already added it
-// 		}
-
-// 		var arrowType arrow.DataType
-// 		switch field.Type.(type) {
-// 		case iceberg.Int32Type:
-// 			arrowType = arrow.PrimitiveTypes.Int32
-// 		case iceberg.Int64Type:
-// 			arrowType = arrow.PrimitiveTypes.Int64
-// 		case iceberg.Float32Type:
-// 			arrowType = arrow.PrimitiveTypes.Float32
-// 		case iceberg.Float64Type:
-// 			arrowType = arrow.PrimitiveTypes.Float64
-// 		case iceberg.StringType:
-// 			arrowType = arrow.BinaryTypes.String
-// 		case iceberg.BooleanType:
-// 			arrowType = arrow.FixedWidthTypes.Boolean
-// 		case iceberg.TimestampType:
-// 			arrowType = arrow.FixedWidthTypes.Timestamp_us
-// 		default:
-// 			arrowType = arrow.BinaryTypes.String
-// 		}
-
-// 		fields = append(fields, arrow.Field{
-// 			Name:     field.Name,
-// 			Type:     arrowType,
-// 			Nullable: !field.Required,
-// 		})
-// 	}
-
-// 	// Create the Arrow schema
-// 	arrowSchema := arrow.NewSchema(fields, nil)
-
-// 	// Log the Arrow schema for debugging
-// 	logger.Infof("Arrow schema: %v", arrowSchema)
-
-// 	// Create a new record builder with the arrow schema
-// 	w.recordBuilder = array.NewRecordBuilder(w.allocator, arrowSchema)
-// }
-
-// Write handles writing a record
-// func (w *NewIcebergGo) Write(_ context.Context, record types.RawRecord) error {
-// 	w.recordsMutex.Lock()
-// 	defer w.recordsMutex.Unlock()
-
-// 	// Add the record to the batch
-// 	w.records = append(w.records, record)
-
-// 	// If we've reached the batch size, flush the records
-// 	if len(w.records) >= w.config.BatchSize {
-// 		return w.flushRecords()
-// 	}
-
-// 	return nil
-// }
-
-// flushRecords writes the accumulated records to Iceberg
-// func (w *NewIcebergGo) flushRecords() error {
-// 	if len(w.records) == 0 {
-// 		return nil
-// 	}
-
-// 	logger.Infof("Flushing %d records to Iceberg", len(w.records))
-
-// 	// Reset the record builder
-// 	w.recordBuilder.Reserve(len(w.records))
-
-// 	// Get field builders for metadata fields
-// 	olakeIDBuilder := w.recordBuilder.Field(0).(*array.StringBuilder) // _olake_id is always at index 0
-// 	olakeTimestampBuilder := w.recordBuilder.Field(w.schemaMapping["_olake_timestamp"] - 1).(*array.TimestampBuilder)
-// 	opTypeBuilder := w.recordBuilder.Field(w.schemaMapping["_op_type"] - 1).(*array.StringBuilder)
-// 	cdcTimestampBuilder := w.recordBuilder.Field(w.schemaMapping["_cdc_timestamp"] - 1).(*array.TimestampBuilder)
-
-// 	// Map of field builders for data fields
-// 	fieldBuilders := make(map[string]array.Builder)
-
-// 	// Initialize field builders for all columns
-// 	for name, id := range w.schemaMapping {
-// 		if name != "_olake_id" && name != "_olake_timestamp" && name != "_op_type" && name != "_cdc_timestamp" {
-// 			fieldBuilders[name] = w.recordBuilder.Field(id - 1)
-// 		}
-// 	}
-
-// 	// Populate the record builder with data
-// 	for _, record := range w.records {
-// 		// Add metadata fields
-// 		if record.OlakeID == "" {
-// 			record.OlakeID = uuid.New().String()
-// 		}
-// 		olakeIDBuilder.Append(record.OlakeID)
-// 		olakeTimestampBuilder.Append(arrow.Timestamp(record.OlakeTimestamp.UnixMicro()))
-// 		opTypeBuilder.Append(record.OperationType)
-// 		cdcTimestampBuilder.Append(arrow.Timestamp(record.CdcTimestamp.UnixMicro()))
-
-// 		// Add data fields
-// 		for fieldName, fieldBuilder := range fieldBuilders {
-// 			value, exists := record.Data[fieldName]
-// 			if !exists || value == nil {
-// 				fieldBuilder.AppendNull()
-// 				continue
-// 			}
-
-// 			// Append the value based on the builder type
-// 			switch builder := fieldBuilder.(type) {
-// 			case *array.Int32Builder:
-// 				if intVal, ok := toInt32(value); ok {
-// 					builder.Append(intVal)
-// 				} else {
-// 					builder.Append(0)
-// 				}
-// 			case *array.Int64Builder:
-// 				if intVal, ok := toInt64(value); ok {
-// 					builder.Append(intVal)
-// 				} else {
-// 					builder.Append(0)
-// 				}
-// 			case *array.Float32Builder:
-// 				if floatVal, ok := toFloat32(value); ok {
-// 					builder.Append(floatVal)
-// 				} else {
-// 					builder.Append(0.0)
-// 				}
-// 			case *array.Float64Builder:
-// 				if floatVal, ok := toFloat64(value); ok {
-// 					builder.Append(floatVal)
-// 				} else {
-// 					builder.Append(0.0)
-// 				}
-// 			case *array.BooleanBuilder:
-// 				if boolVal, ok := value.(bool); ok {
-// 					builder.Append(boolVal)
-// 				} else {
-// 					builder.Append(false)
-// 				}
-// 			case *array.StringBuilder:
-// 				if strVal, ok := toString(value); ok {
-// 					builder.Append(strVal)
-// 				} else {
-// 					builder.Append("")
-// 				}
-// 			case *array.TimestampBuilder:
-// 				if timeVal, ok := value.(time.Time); ok {
-// 					builder.Append(arrow.Timestamp(timeVal.UnixMicro()))
-// 				} else if strVal, ok := value.(string); ok {
-// 					if timeVal, err := time.Parse(time.RFC3339, strVal); err == nil {
-// 						builder.Append(arrow.Timestamp(timeVal.UnixMicro()))
-// 					} else {
-// 						builder.Append(arrow.Timestamp(time.Now().UnixMicro()))
-// 					}
-// 				} else {
-// 					builder.Append(arrow.Timestamp(time.Now().UnixMicro()))
-// 				}
-// 			default:
-// 				if strVal, ok := toString(value); ok {
-// 					if strBuilder, ok := builder.(*array.StringBuilder); ok {
-// 						strBuilder.Append(strVal)
-// 					} else {
-// 						builder.AppendNull()
-// 					}
-// 				} else {
-// 					builder.AppendNull()
-// 				}
-// 			}
-// 		}
-// 	}
-
-// 	// Create record batch
-// 	record := w.recordBuilder.NewRecord()
-// 	defer record.Release()
-
-// 	// Create an Arrow table from the record
-// 	arrowTable := array.NewTableFromRecords(record.Schema(), []arrow.Record{record})
-// 	defer arrowTable.Release()
-
-// 	// Get a context
-// 	ctx := context.Background()
-
-// 	// Maximum number of retries
-// 	maxRetries := 3
-// 	var lastErr error
-
-// 	for attempt := 0; attempt < maxRetries; attempt++ {
-// 		// Create a transaction
-// 		txn := w.iceTable.NewTransaction()
-
-// 		// Generate a unique file path for this batch
-// 		fileUUID := uuid.New().String()
-// 		filePath := fmt.Sprintf("%s/%s/data-%s.parquet",
-// 			w.iceTable.Location(), w.stream.Name(), fileUUID)
-
-// 		// Write record to a parquet file using the table's filesystem
-// 		writeFileIO, ok := w.iceTable.FS().(iceio.WriteFileIO)
-// 		if !ok {
-// 			return fmt.Errorf("filesystem does not support writing")
-// 		}
-
-// 		// Create parquet file with the record
-// 		fw, err := writeFileIO.Create(filePath)
-// 		if err != nil {
-// 			return fmt.Errorf("failed to create parquet file: %v", err)
-// 		}
-
-// 		// Write the record to parquet with default properties and without field IDs
-// 		props := pqarrow.DefaultWriterProps()
-// 		// Note: We can't disable field IDs directly, but we can use a simpler schema conversion
-
-// 		if err := pqarrow.WriteTable(arrowTable, fw, record.NumRows(), nil, props); err != nil {
-// 			fw.Close()
-// 			return fmt.Errorf("failed to write record to parquet: %v", err)
-// 		}
-
-// 		if err := fw.Close(); err != nil {
-// 			return fmt.Errorf("failed to close parquet file: %v", err)
-// 		}
-
-// 		// Add the file to the transaction with append operation
-// 		icebergProps := iceberg.Properties{
-// 			"operation": "append",
-// 			"format":    "parquet",
-// 		}
-
-// 		err = txn.AddFiles([]string{filePath}, icebergProps, false)
-// 		if err != nil {
-// 			return fmt.Errorf("failed to add file to transaction: %v", err)
-// 		}
-
-// 		// Try to commit the transaction
-// 		updatedTable, err := txn.Commit(ctx)
-// 		if err != nil {
-// 			lastErr = err
-// 			// Check if it's a commit conflict
-// 			if strings.Contains(err.Error(), "CommitFailedException") {
-// 				logger.Warnf("Commit failed due to concurrent modification (attempt %d/%d), retrying...", attempt+1, maxRetries)
-// 				// Reload the table to get the latest metadata
-// 				w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, iceberg.Properties{})
-// 				if err != nil {
-// 					return fmt.Errorf("failed to reload table after commit conflict: %v", err)
-// 				}
-// 				// Wait a bit before retrying
-// 				time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
-// 				continue
-// 			}
-// 			return fmt.Errorf("failed to commit transaction: %v", err)
-// 		}
-
-// 		// Update our table reference
-// 		w.iceTable = updatedTable
-
-// 		// Clear the batch
-// 		w.records = w.records[:0]
-
-// 		return nil
-// 	}
-
-// 	return fmt.Errorf("failed to commit after %d attempts, last error: %v", maxRetries, lastErr)
-// }
-
 // Close handles cleanup
 func (w *NewIcebergGo) Close() error {
-	logger.Infof("Closing ICEBERGGO writer", w.writerID)
+	// Flush any remaining local buffers
+	err := w.flushAllLocalBuffers()
+	if err != nil {
+		logger.Errorf("Error flushing local buffers on close: %v", err)
+		return err
+	}
 
-	// Flush any remaining records
-	w.recordsMutex.Lock()
-	defer w.recordsMutex.Unlock()
+	// Flush any remaining records in the shared batch
+	err = w.flushBatch()
+	if err != nil {
+		logger.Errorf("Error flushing batch on close: %v", err)
+		return err
+	}
 
-	if len(w.records) > 0 {
-		err := w.flushRecords()
+	// Handle server instance cleanup with reference counting
+	serverMutex.Lock()
+	if instance, exists := serverRegistry[w.configHash]; exists {
+		instance.refCount--
+		logger.Infof("[%s] Decremented ref count for configHash %s, new count: %d", w.writerID, w.configHash, instance.refCount)
+		
+		if instance.refCount <= 0 {
+			delete(serverRegistry, w.configHash)
+			logger.Infof("[%s] Removed server instance for configHash: %s", w.writerID, w.configHash)
+			
+			// Clean up async processor when no more references
+			if processor, exists := asyncProcessors.Load(w.configHash); exists {
+				processor.(*AsyncBatchProcessor).stop()
+				asyncProcessors.Delete(w.configHash)
+				logger.Infof("[%s] Stopped async processor for configHash: %s", w.writerID, w.configHash)
+			}
+		}
+	}
+	serverMutex.Unlock()
+
+	logger.Infof("[%s] Successfully closed writer", w.writerID)
+	return nil
+}
+
+// flushAllLocalBuffers flushes all local buffers for this config hash
+func (w *NewIcebergGo) flushAllLocalBuffers() error {
+	var localBuffersToFlush []*LocalBuffer
+
+	// Collect all local buffers for this config hash
+	localBuffers.Range(func(key, value interface{}) bool {
+		bufferID := key.(string)
+		if strings.HasPrefix(bufferID, w.configHash+"-") {
+			localBuffersToFlush = append(localBuffersToFlush, value.(*LocalBuffer))
+		}
+		return true
+	})
+
+	// Flush each local buffer
+	for _, buffer := range localBuffersToFlush {
+		err := w.flushLocalBuffer(buffer)
 		if err != nil {
-			return fmt.Errorf("failed to flush records during close: %v", err)
+			return err
 		}
 	}
 
-	// Clean up resources
-	if w.recordBuilder != nil {
-		w.recordBuilder.Release()
-	}
-	if w.allocator != nil {
-		w.allocator = nil
+	return nil
+}
+
+// flushBatch forces a flush of the shared batch for this config hash
+func (w *NewIcebergGo) flushBatch() error {
+	batchVal, exists := batchRegistry.Load(w.configHash)
+	if !exists {
+		return nil // Nothing to flush
 	}
 
-	return nil
+	batch := batchVal.(*recordBatch)
+
+	// Lock the batch
+	batch.mu.Lock()
+
+	// Skip if batch is empty
+	if len(batch.records) == 0 {
+		batch.mu.Unlock()
+		return nil
+	}
+
+	// Copy records to flush
+	recordsToFlush := make([]types.RawRecord, len(batch.records))
+	copy(recordsToFlush, batch.records)
+
+	// Reset the batch
+	batch.records = batch.records[:0]
+	batch.size = 0
+
+	// Unlock the batch
+	batch.mu.Unlock()
+
+	// Send the records
+	return w.flushRecordsBatch(recordsToFlush)
 }
 
 // Check validates the configuration
@@ -873,5 +566,163 @@ func (c *Config) Validate() error {
 func init() {
 	protocol.RegisteredWriters[types.IcebergGo] = func() protocol.Writer {
 		return new(NewIcebergGo)
+	}
+}
+
+func (w *NewIcebergGo) parsePartitionRegex(pattern string) error {
+	patternRegex := regexp.MustCompile(`\{([^,]+),\s*([^}]+)\}`)
+	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
+
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+
+		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
+		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
+		w.partitionInfo[colName] = transform
+	}
+
+	return nil
+}
+
+// estimateRecordSize estimates the size of a record in bytes
+func estimateRecordSize(record types.RawRecord) int64 {
+	size := int64(0)
+	for key, value := range record.Data {
+		// Add key size
+		size += int64(len(key))
+		
+		// Add value size based on type
+		switch v := value.(type) {
+		case string:
+			size += int64(len(v))
+		case int, int8, int16, int32, int64:
+			size += 8
+		case uint, uint8, uint16, uint32, uint64:
+			size += 8
+		case float32, float64:
+			size += 8
+		case bool:
+			size += 1
+		case time.Time:
+			size += 24 // approximate size for timestamp
+		default:
+			// For unknown types, estimate as string representation
+			size += int64(len(fmt.Sprintf("%v", v)))
+		}
+	}
+	return size
+}
+
+// getConfigHash generates a unique identifier for server configuration per stream
+func getConfigHash(namespace string, streamID string, appendMode bool) string {
+	hashComponents := []string{
+		streamID,
+		namespace,
+		fmt.Sprintf("%t", appendMode),
+	}
+	return strings.Join(hashComponents, "-")
+}
+
+// AsyncBatchProcessor handles asynchronous batch processing
+type AsyncBatchProcessor struct {
+	flushChannel chan *asyncFlushRequest
+	done         chan struct{}
+	writer       *NewIcebergGo
+}
+
+type asyncFlushRequest struct {
+	records    []types.RawRecord
+	resultChan chan error
+}
+
+var (
+	asyncProcessors sync.Map // Key: configHash, Value: *AsyncBatchProcessor
+)
+
+// getOrCreateAsyncProcessor gets or creates an async processor for a config hash
+func getOrCreateAsyncProcessor(configHash string, writer *NewIcebergGo) *AsyncBatchProcessor {
+	if processor, ok := asyncProcessors.Load(configHash); ok {
+		return processor.(*AsyncBatchProcessor)
+	}
+
+	processor := &AsyncBatchProcessor{
+		flushChannel: make(chan *asyncFlushRequest, 100), // Buffer up to 100 requests
+		done:         make(chan struct{}),
+		writer:       writer,
+	}
+
+	// Start the background goroutine
+	go processor.processFlushRequests()
+
+	asyncProcessors.Store(configHash, processor)
+	return processor
+}
+
+// processFlushRequests processes flush requests in the background
+func (p *AsyncBatchProcessor) processFlushRequests() {
+	for {
+		select {
+		case req := <-p.flushChannel:
+			err := p.writer.commitRecords(req.records)
+			req.resultChan <- err
+			close(req.resultChan)
+		case <-p.done:
+			return
+		}
+	}
+}
+
+// flushAsync submits a flush request asynchronously
+func (p *AsyncBatchProcessor) flushAsync(records []types.RawRecord) error {
+	resultChan := make(chan error, 1)
+	
+	select {
+	case p.flushChannel <- &asyncFlushRequest{
+		records:    records,
+		resultChan: resultChan,
+	}:
+		// Request submitted successfully, wait for result
+		return <-resultChan
+	default:
+		// Channel is full, process synchronously as fallback
+		logger.Warnf("Async flush channel full, falling back to synchronous processing")
+		return p.writer.commitRecords(records)
+	}
+}
+
+// stop stops the async processor
+func (p *AsyncBatchProcessor) stop() {
+	close(p.done)
+}
+
+// BatchMetrics tracks performance metrics
+type BatchMetrics struct {
+	TotalRecordsProcessed atomic.Int64
+	TotalBatchesFlushed   atomic.Int64
+	TotalFlushTime        atomic.Int64 // in milliseconds
+	LastFlushSize         atomic.Int64
+}
+
+var (
+	batchMetrics = &BatchMetrics{}
+)
+
+// recordBatchFlush records metrics for a batch flush
+func recordBatchFlush(recordCount int64, flushTime time.Duration) {
+	batchMetrics.TotalRecordsProcessed.Add(recordCount)
+	batchMetrics.TotalBatchesFlushed.Add(1)
+	batchMetrics.TotalFlushTime.Add(flushTime.Milliseconds())
+	batchMetrics.LastFlushSize.Store(recordCount)
+	
+	// Log performance metrics every 10 batches
+	if batchMetrics.TotalBatchesFlushed.Load()%10 == 0 {
+		avgFlushTime := float64(batchMetrics.TotalFlushTime.Load()) / float64(batchMetrics.TotalBatchesFlushed.Load())
+		logger.Infof("Batch Performance - Total Records: %d, Total Batches: %d, Avg Flush Time: %.2fms, Last Batch Size: %d",
+			batchMetrics.TotalRecordsProcessed.Load(),
+			batchMetrics.TotalBatchesFlushed.Load(),
+			avgFlushTime,
+			batchMetrics.LastFlushSize.Load())
 	}
 }
