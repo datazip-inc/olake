@@ -15,32 +15,19 @@ var checkCmd = &cobra.Command{
 	Short: "check command",
 	PreRunE: func(_ *cobra.Command, _ []string) error {
 		// If connector is not set, we are checking the destination
-		if connector == nil {
-			if destinationConfigPath == "" {
-				return fmt.Errorf("--destination not passed")
-			}
+		if destinationConfigPath == "not-set" && configPath == "not-set" {
+			return fmt.Errorf("no connector config or destination config provided")
+		}
 
+		// check for destination config
+		if destinationConfigPath != "not-set" {
 			destinationConfig = &types.WriterConfig{}
-			if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig); err != nil {
-				return err
-			}
-			return nil
+			return utils.UnmarshalFile(destinationConfigPath, destinationConfig)
 		}
 
-		// If connector is set, we are checking the source
-		if configPath == "" {
-			return fmt.Errorf("--config not passed")
-		}
-
-		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
-			return err
-		}
-
-		if catalogPath != "" {
-			catalog = &types.Catalog{}
-			if err := utils.UnmarshalFile(catalogPath, &catalog); err != nil {
-				return err
-			}
+		// check for source config
+		if configPath != "not-set" {
+			return utils.UnmarshalFile(configPath, connector.GetConfigRef())
 		}
 
 		return nil
@@ -48,52 +35,13 @@ var checkCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, _ []string) {
 		err := func() error {
 			// If connector is not set, we are checking the destination
-			if connector == nil {
+			if destinationConfigPath != "not-set" {
 				_, err := NewWriter(cmd.Context(), destinationConfig)
 				return err
 			}
-			// Catalog has been passed setup and is driver; Connector should be setup
-			if catalog != nil {
-				// Get Source Streams
-				streams, err := connector.Discover(false)
-				if err != nil {
-					return err
-				}
 
-				streamsMap := types.StreamsToMap(streams...)
-
-				// Validating Streams
-				invalidStreams := []string{}
-				missingStreams := []string{}
-				_, _ = utils.ArrayContains(catalog.Streams, func(stream *types.ConfiguredStream) bool {
-					source, found := streamsMap[stream.ID()]
-					if !found {
-						missingStreams = append(missingStreams, stream.ID())
-						return false
-					}
-
-					err := stream.Validate(source)
-					if err != nil {
-						logger.Error(err)
-						invalidStreams = append(invalidStreams, stream.ID())
-					}
-
-					return false
-				})
-
-				if len(invalidStreams) > 0 && len(missingStreams) > 0 {
-					return fmt.Errorf("found missing streams: %v and invalid streams: %v", missingStreams, invalidStreams)
-				} else if len(invalidStreams) > 0 {
-					return fmt.Errorf("found invalid streams: %v", invalidStreams)
-				} else if len(missingStreams) > 0 {
-					return fmt.Errorf("found missing streams: %v", missingStreams)
-				}
-			} else {
-				// Only perform checks
-				err := connector.Check()
-				if err != nil {
-					return err
-				}
+			if configPath != "not-set" {
+				return connector.Check()
 			}
 
 			return nil
