@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/jmoiron/sqlx"
 )
 
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a table
@@ -22,11 +25,11 @@ func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) str
 // buildChunkCondition builds the condition for a chunk
 func buildChunkCondition(filterColumn string, chunk types.Chunk) string {
 	if chunk.Min != nil && chunk.Max != nil {
-		return fmt.Sprintf("%s >= %v AND %s <= %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
+		return fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
 	} else if chunk.Min != nil {
 		return fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
 	}
-	return fmt.Sprintf("%s <= %v", filterColumn, chunk.Max)
+	return fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
 }
 
 // PostgreSQL-Specific Queries
@@ -135,9 +138,14 @@ func MySQLTableRowsQuery() string {
 	`
 }
 
-// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.3 and below
 func MySQLMasterStatusQuery() string {
 	return "SHOW MASTER STATUS"
+}
+
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.4 and above
+func MySQLMasterStatusQueryNew() string {
+	return "SHOW BINARY LOG STATUS"
 }
 
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
@@ -149,7 +157,34 @@ func MySQLTableColumnsQuery() string {
 		ORDER BY ORDINAL_POSITION
 	`
 }
-func WithIsolation(ctx context.Context, client *sql.DB, fn func(tx *sql.Tx) error) error {
+
+// MySQLVersion returns the version of the MySQL server
+// It returns the major and minor version of the MySQL server
+func MySQLVersion(client *sqlx.DB) (int, int, error) {
+	var version string
+	err := client.QueryRow("SELECT @@version").Scan(&version)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get MySQL version: %w", err)
+	}
+
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("invalid version format")
+	}
+	majorVersion, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid major version: %s", err)
+	}
+
+	minorVersion, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid minor version: %s", err)
+	}
+
+	return majorVersion, minorVersion, nil
+}
+
+func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) error) error {
 	tx, err := client.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
 		ReadOnly:  true,
