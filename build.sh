@@ -61,8 +61,6 @@ function build_and_run() {
     local connector="$1"
     if [[ $2 == "driver" ]]; then
         path=drivers/$connector
-    elif [[ $2 == "destination" ]]; then
-        path=writers/$connector/cmd
     else
         fail "The argument does not have a recognized prefix."
     fi
@@ -94,25 +92,13 @@ function build_and_run() {
     if [[ "$using_iceberg" == true ]]; then
         check_and_build_jar "iceberg"
     fi
+
+    cd $path || fail "Failed to navigate to path: $path"
     
-    # Store current directory
-    local current_dir=$(pwd)
-    
-    # Build in the specific directory
-    cd $path
     go mod tidy
     go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
-    
-    if [[ $2 == "destination" ]]; then
-        # For writers, return to root directory to run the command
-        cd "$current_dir"
-        echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
-        $path/olake $joined_arguments
-    else
-        # For drivers, run in the current directory
-        echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
-        ./olake $joined_arguments
-    fi
+    echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
+    ./olake $joined_arguments
 }
 
 if [ $# -gt 0 ]; then
@@ -129,10 +115,6 @@ if [ $# -gt 0 ]; then
         driver="${argument#driver-}"
         echo "============================== Building driver: $driver =============================="
         build_and_run "$driver" "driver" "$joined_arguments"
-    elif [[ $argument == destination-* ]]; then
-        destination="${argument#destination-}"
-        echo "============================== Building Destination: $destination =============================="
-        build_and_run "$destination" "destination" "$joined_arguments"
     else
         fail "The argument does not have a recognized prefix."
     fi
