@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/jmoiron/sqlx"
 )
 
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a table
@@ -159,7 +160,7 @@ func MySQLTableColumnsQuery() string {
 
 // MySQLVersion returns the version of the MySQL server
 // It returns the major and minor version of the MySQL server
-func MySQLVersion(client *sql.DB) (int, int, error) {
+func MySQLVersion(client *sqlx.DB) (int, int, error) {
 	var version string
 	err := client.QueryRow("SELECT @@version").Scan(&version)
 	if err != nil {
@@ -183,7 +184,7 @@ func MySQLVersion(client *sql.DB) (int, int, error) {
 	return majorVersion, minorVersion, nil
 }
 
-func WithIsolation(ctx context.Context, client *sql.DB, fn func(tx *sql.Tx) error) error {
+func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) error) error {
 	tx, err := client.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
 		ReadOnly:  true,

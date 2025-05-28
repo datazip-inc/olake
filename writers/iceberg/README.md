@@ -248,8 +248,6 @@ WHERE timestamp_col = DATE '2023-05-01'
 
 > Iceberg will only scan the partitions that match these predicates.
 
----
-
 ## Additional Resources
 
 * [OLake → Iceberg partitioning guide](https://olake.io/docs/writers/iceberg/partitioning)    
