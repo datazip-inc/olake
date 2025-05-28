@@ -76,7 +76,14 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	// Backfill streams that haven't been processed yet
 	var needsBackfill []protocol.Stream
 	for _, s := range streams {
-		if !gs.Streams.Exists(s.ID()) {
+		// check if full refresh state present or not
+		_, exist := utils.ArrayContains(m.State.Streams, func(streamState *types.StreamState) bool {
+			if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
+				return true
+			}
+			return false
+		})
+		if !exist || !gs.Streams.Exists(s.ID()) {
 			needsBackfill = append(needsBackfill, s)
 		}
 	}

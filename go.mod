@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake
 
-go 1.23.0
+go 1.23.2
 
 toolchain go1.23.7
 
