@@ -50,9 +50,9 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 			return err
 		}
 		defer tx.Rollback()
-		splitColumn := stream.Self().StreamMetadata.SplitColumn
-		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
-		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
+		split_column := stream.Self().StreamMetadata.SplitColumn
+		split_column = utils.Ternary(split_column == "", "ctid", split_column).(string)
+		stmt := jdbc.PostgresChunkScanQuery(stream, split_column, chunk)
 
 		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.Query(query, args...)
@@ -140,12 +140,12 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 		return append(splits, types.Chunk{Min: chunkStart, Max: nil}), nil
 	}
 
-	splitViaNextQuery := func(min interface{}, stream protocol.Stream, splitColumn string) ([]types.Chunk, error) {
+	splitViaNextQuery := func(min interface{}, stream protocol.Stream, split_column string) ([]types.Chunk, error) {
 		chunkStart := min
 		var splits []types.Chunk
 
 		for {
-			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, splitColumn)
+			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, split_column)
 			if err != nil {
 				return nil, fmt.Errorf("failed to split chunks based on next query size: %s", err)
 			}
@@ -160,10 +160,10 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 		return splits, nil
 	}
 
-	splitColumn := stream.Self().StreamMetadata.SplitColumn
-	if splitColumn != "" {
+	split_column := stream.Self().StreamMetadata.SplitColumn
+	if split_column != "" {
 		var minValue, maxValue interface{}
-		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, splitColumn)
+		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, split_column)
 		// TODO: Fails on UUID type (Good First Issue)
 		err := p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {
@@ -174,26 +174,26 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 		}
 
 		_, contains := utils.ArrayContains(stream.GetStream().SourceDefinedPrimaryKey.Array(), func(element string) bool {
-			return element == splitColumn
+			return element == split_column
 		})
 		if !contains {
 			return nil, fmt.Errorf("provided split column is not a primary key")
 		}
 
-		splitColType, _ := stream.Schema().GetType(splitColumn)
+		split_col_type, _ := stream.Schema().GetType(split_column)
 		// evenly distirbution only available for float and int types
-		if splitColType == types.Int64 || splitColType == types.Float64 {
+		if split_col_type == types.Int64 || split_col_type == types.Float64 {
 			return splitViaBatchSize(minValue, maxValue, p.config.BatchSize)
 		}
-		return splitViaNextQuery(minValue, stream, splitColumn)
+		return splitViaNextQuery(minValue, stream, split_column)
 	} else {
 		return generateCTIDRanges(stream)
 	}
 }
 
-func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, splitColumn string) (interface{}, error) {
+func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, split_column string) (interface{}, error) {
 	var chunkEnd interface{}
-	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize)
+	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, split_column, previousChunkEnd, p.config.BatchSize)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
