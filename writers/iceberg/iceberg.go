@@ -25,8 +25,11 @@ type Iceberg struct {
 	conn          *grpc.ClientConn
 	port          int
 	backfill      bool
-	configHash    string
 	partitionInfo map[string]string // map of field names to partition transform
+	// Local buffer for this writer thread
+	localBuffer   []string
+	bufferSize    int64
+	maxBufferSize int64
 }
 
 func (i *Iceberg) GetConfigRef() protocol.Config {
@@ -43,6 +46,9 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 	i.stream = stream
 	i.backfill = options.Backfill
 	i.partitionInfo = make(map[string]string)
+	i.localBuffer = make([]string, 0, 1000)
+	i.bufferSize = 0
+	i.maxBufferSize = determineMaxBatchSize()
 
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -59,29 +65,89 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	// Convert record to Debezium format
 	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled())
-
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
-	// Add the record to the batch
-	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
-	if err != nil {
-		return fmt.Errorf("failed to add record to batch: %v", err)
-	}
 
-	// If the batch was flushed, log the event
-	if flushed {
-		logger.Infof("Batch flushed to Iceberg server for stream %s", i.stream.Name())
+	// Add record to local buffer
+	if debeziumRecord != "" {
+		i.localBuffer = append(i.localBuffer, debeziumRecord)
+		i.bufferSize += int64(len(debeziumRecord))
+
+		// Check if buffer threshold is reached
+		if i.bufferSize >= i.maxBufferSize {
+			err := i.flushBuffer()
+			if err != nil {
+				return fmt.Errorf("failed to flush buffer: %v", err)
+			}
+		}
 	}
 
 	i.records.Add(1)
 	return nil
 }
 
-func (i *Iceberg) Close() error {
-	err := flushBatch(i.configHash, i.client)
+func (i *Iceberg) flushBuffer() error {
+	if len(i.localBuffer) == 0 {
+		return nil
+	}
+
+	recordCount := len(i.localBuffer)
+
+	// Send records directly to Java writer
+	err := i.sendRecords(i.localBuffer)
 	if err != nil {
-		logger.Errorf("Error flushing batch on close: %v", err)
+		return err
+	}
+
+	// Reset buffer
+	i.localBuffer = make([]string, 0, 1000)
+	i.bufferSize = 0
+
+	logger.Infof("Flushed buffer with %d records to Iceberg server on port %d", recordCount, i.port)
+	return nil
+}
+
+func (i *Iceberg) sendRecords(records []string) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	// Filter out empty records
+	validRecords := make([]string, 0, len(records))
+	for _, record := range records {
+		if record != "" {
+			validRecords = append(validRecords, record)
+		}
+	}
+
+	if len(validRecords) == 0 {
+		return nil
+	}
+
+	// Create request
+	req := &proto.RecordIngestRequest{
+		Messages: validRecords,
+	}
+
+	// Send to gRPC server with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
+	defer cancel()
+
+	res, err := i.client.SendRecords(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to send records: %v", err)
+	}
+
+	logger.Infof("Sent %d records to Iceberg server on port %d, response: %s", len(validRecords), i.port, res.GetResult())
+	return nil
+}
+
+func (i *Iceberg) Close() error {
+	// Flush any remaining records in buffer
+	err := i.flushBuffer()
+	if err != nil {
+		logger.Errorf("Error flushing buffer on close: %v", err)
 		return err
 	}
 
