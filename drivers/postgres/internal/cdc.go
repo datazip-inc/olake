@@ -49,47 +49,64 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	defer socket.Cleanup(ctx)
 
 	currentLSN := socket.ConfirmedFlushLSN
-	if gs.State.IsEmpty() {
-		gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
-		p.State.SetGlobalState(gs)
-		// reset streams for creating chunks again
-		p.State.ResetStreams()
-	} else {
-		parsed, err := pglogrepl.ParseLSN(gs.State.LSN)
-		if err != nil {
-			return fmt.Errorf("failed to parse stored lsn[%s]: %s", gs.State.LSN, err)
+	isStrictCDC := len(streams) > 0 && streams[0].GetSyncMode() == types.STRICTCDC
+
+	if isStrictCDC {
+		logger.Infof("Strict CDC mode")
+		if gs.State.IsEmpty() {
+			gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
+			p.State.SetGlobalState(gs)
+		} else {
+			_, err := pglogrepl.ParseLSN(gs.State.LSN)
+			if err != nil {
+				return fmt.Errorf("failed to parse stored lsn[%s]: %s", gs.State.LSN, err)
+			}
 		}
-		if parsed != currentLSN {
-			logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
+	} else {
+		if gs.State.IsEmpty() {
 			gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
 			p.State.SetGlobalState(gs)
 			// reset streams for creating chunks again
 			p.State.ResetStreams()
+		} else {
+			parsed, err := pglogrepl.ParseLSN(gs.State.LSN)
+			if err != nil {
+				return fmt.Errorf("failed to parse stored lsn[%s]: %s", gs.State.LSN, err)
+			}
+			if parsed != currentLSN {
+				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
+				gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
+				p.State.SetGlobalState(gs)
+				// reset streams for creating chunks again
+				p.State.ResetStreams()
+			}
 		}
 	}
 
-	var needsBackfill []protocol.Stream
-	for _, s := range streams {
-		// check if full refresh state present or not
-		_, exist := utils.ArrayContains(p.State.Streams, func(streamState *types.StreamState) bool {
-			if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
-				return true
+	if !isStrictCDC {
+		var needsBackfill []protocol.Stream
+		for _, s := range streams {
+			// check if full refresh state present or not
+			_, exist := utils.ArrayContains(p.State.Streams, func(streamState *types.StreamState) bool {
+				if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
+					return true
+				}
+				return false
+			})
+			if !exist || !gs.Streams.Exists(s.ID()) {
+				needsBackfill = append(needsBackfill, s)
 			}
-			return false
-		})
-		if !exist || !gs.Streams.Exists(s.ID()) {
-			needsBackfill = append(needsBackfill, s)
 		}
-	}
-	if err = utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(ctx context.Context, s protocol.Stream, _ int) error {
-		if err := p.backfill(pool, s); err != nil {
-			return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
+		if err = utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(ctx context.Context, s protocol.Stream, _ int) error {
+			if err := p.backfill(pool, s); err != nil {
+				return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
+			}
+			gs.Streams.Insert(s.ID())
+			p.State.SetGlobalState(gs)
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed concurrent backfill: %s", err)
 		}
-		gs.Streams.Insert(s.ID())
-		p.State.SetGlobalState(gs)
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed concurrent backfill: %s", err)
 	}
 
 	// Inserter lifecycle management
