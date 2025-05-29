@@ -346,6 +346,7 @@ func parseEachCondition(condition string) (string, error) {
 			value = fmt.Sprintf("%v", num)
 		} else if value == "true" || value == "false" {
 			// Keep as is
+			value = fmt.Sprintf("%s::boolean", value)
 		} else {
 			return "", fmt.Errorf("unquoted string values are not allowed: %s", value)
 		}
