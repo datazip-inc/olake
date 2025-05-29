@@ -230,6 +230,8 @@ func ReformatInt64(v any) (int64, error) {
 		return int64(v), nil
 	case int:
 		return int64(v), nil
+	case int8:
+		return int64(v), nil
 	case int16:
 		return int64(v), nil
 	case int32:
