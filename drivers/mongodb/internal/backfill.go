@@ -23,7 +23,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
 	if err != nil {
-		return fmt.Errorf("collection.Find: %s", err)
+		return fmt.Errorf("failed to create cursor: %s", err)
 	}
 	defer cursor.Close(ctx)
 	for cursor.Next(ctx) {

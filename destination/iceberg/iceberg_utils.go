@@ -315,7 +315,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	// Get the server configuration JSON
 	configJSON, err := i.getServerConfigJSON(port, upsert)
 	if err != nil {
-		return fmt.Errorf("failed to create server config: %v", err)
+		return fmt.Errorf("failed to create server config: %s", err)
 	}
 
 	// Start the Java server process
@@ -351,7 +351,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	// Set up and start the process with logging
 	processName := fmt.Sprintf("Java-Iceberg:%d", port)
 	if err := logger.SetupAndStartProcess(processName, i.cmd); err != nil {
-		return fmt.Errorf("failed to start Iceberg server: %v", err)
+		return fmt.Errorf("failed to start Iceberg server: %s", err)
 	}
 
 	// Connect to gRPC server
@@ -363,10 +363,10 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 		// If connection fails, clean up the process
 		if i.cmd != nil && i.cmd.Process != nil {
 			if killErr := i.cmd.Process.Kill(); killErr != nil {
-				logger.Errorf("Failed to kill process: %v", killErr)
+				logger.Errorf("Failed to kill process: %s", killErr)
 			}
 		}
-		return fmt.Errorf("failed to connect to iceberg writer: %v", err)
+		return fmt.Errorf("failed to connect to iceberg writer: %s", err)
 	}
 
 	i.port, i.conn, i.client = port, conn, proto.NewRecordIngestServiceClient(conn)
@@ -453,7 +453,7 @@ func (i *Iceberg) CloseIcebergClient() error {
 		if server.cmd != nil && server.cmd.Process != nil {
 			err := server.cmd.Process.Kill()
 			if err != nil {
-				logger.Errorf("Failed to kill Iceberg server: %v", err)
+				logger.Errorf("Failed to kill Iceberg server: %s", err)
 			}
 		}
 
@@ -659,7 +659,7 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 	// Send the batch to the server
 	res, err := client.SendRecords(ctx, req)
 	if err != nil {
-		logger.Errorf("failed to send batch: %v", err)
+		logger.Errorf("failed to send batch: %s", err)
 		return err
 	}
 

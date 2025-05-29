@@ -67,7 +67,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		// Calculate optimal chunk size based on table statistics
 		chunkSize, err := m.calculateChunkSize(stream)
 		if err != nil {
-			return fmt.Errorf("failed to calculate chunk size: %w", err)
+			return fmt.Errorf("failed to calculate chunk size: %s", err)
 		}
 
 		// Generate chunks based on range
@@ -80,7 +80,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			if err != nil && err == sql.ErrNoRows || nextValRaw == nil {
 				break
 			} else if err != nil {
-				return fmt.Errorf("failed to get next chunk end: %w", err)
+				return fmt.Errorf("failed to get next chunk end: %s", err)
 			}
 			if currentVal != nil && nextValRaw == nil {
 				chunks.Insert(types.Chunk{
@@ -115,7 +115,7 @@ func (m *MySQL) calculateChunkSize(stream types.StreamInterface) (int, error) {
 	query := jdbc.MySQLTableRowsQuery()
 	err := m.client.QueryRow(query, stream.Name()).Scan(&totalRecords)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get estimated records count:%v", err)
+		return 0, fmt.Errorf("failed to get estimated records count: %s", err)
 	}
 	// number of chunks based on max threads
 	return totalRecords / (m.config.MaxThreads * 8), nil

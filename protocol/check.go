@@ -33,7 +33,7 @@ var checkCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, _ []string) {
 		err := func() error {
-			err := connector.Check(cmd.Context())
+			err := connector.Setup(cmd.Context())
 			if err != nil {
 				return err
 			}

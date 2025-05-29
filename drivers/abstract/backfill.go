@@ -19,7 +19,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		chunksSet, err = a.driver.GetOrSplitChunks(ctx, pool, stream)
 		if err != nil {
 			return fmt.Errorf("failed to get or split chunks: %s", err)
-		} //////////////////////////
+		}
 		// set state chunks
 		a.state.SetChunks(stream.Self(), chunksSet)
 	}

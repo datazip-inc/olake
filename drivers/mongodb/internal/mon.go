@@ -68,18 +68,10 @@ func (m *Mongo) Setup(ctx context.Context) error {
 		m.config.RetryCount += 1
 	}
 
-	return nil
-}
-
-func (m *Mongo) Check(ctx context.Context) error {
 	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
-}
-
-func (m *Mongo) StateType() types.StateType {
-	return types.StreamType
 }
 
 func (m *Mongo) Close(ctx context.Context) error {
@@ -120,70 +112,68 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 }
 
 func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
+		logger.Infof("producing type schema for stream [%s]", streamName)
+
+		// initialize stream
+		collection := db.Collection(streamName)
+		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+
+		// find primary keys
+		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
+		if err != nil {
+			return nil, err
+		}
+		defer indexesCursor.Close(ctx)
+
+		for indexesCursor.Next(ctx) {
+			var indexes bson.M
+			if err := indexesCursor.Decode(&indexes); err != nil {
+				return nil, err
+			}
+			for key := range indexes["key"].(bson.M) {
+				stream.WithPrimaryKey(key)
+			}
+		}
+
+		// Define find options for fetching documents in ascending and descending order.
+		findOpts := []*options.FindOptions{
+			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
+			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
+		}
+
+		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+			cursor, err := collection.Find(ctx, bson.D{}, findOpt)
+			if err != nil {
+				return err
+			}
+			defer cursor.Close(ctx)
+
+			for cursor.Next(ctx) {
+
+				var row bson.M
+				if err := cursor.Decode(&row); err != nil {
+					return err
+				}
+
+				filterMongoObject(row)
+				if err := typeutils.Resolve(stream, row); err != nil {
+					return err
+				}
+			}
+
+			return cursor.Err()
+		})
+	}
 	database := m.client.Database(m.config.Database)
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
-	stream, err := m.produceCollectionSchema(ctx, database, streamName)
+	stream, err := produceCollectionSchema(ctx, database, streamName)
 	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
 	stream.SyncMode = m.config.DefaultMode
 	return stream, err
-}
-
-// fetch schema types from mongo for streamName
-func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
-	logger.Infof("producing type schema for stream [%s]", streamName)
-
-	// initialize stream
-	collection := db.Collection(streamName)
-	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
-
-	// find primary keys
-	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
-	if err != nil {
-		return nil, err
-	}
-	defer indexesCursor.Close(ctx)
-
-	for indexesCursor.Next(ctx) {
-		var indexes bson.M
-		if err := indexesCursor.Decode(&indexes); err != nil {
-			return nil, err
-		}
-		for key := range indexes["key"].(bson.M) {
-			stream.WithPrimaryKey(key)
-		}
-	}
-
-	// Define find options for fetching documents in ascending and descending order.
-	findOpts := []*options.FindOptions{
-		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
-		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
-	}
-
-	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
-		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
-		if err != nil {
-			return err
-		}
-		defer cursor.Close(ctx)
-
-		for cursor.Next(ctx) {
-
-			var row bson.M
-			if err := cursor.Decode(&row); err != nil {
-				return err
-			}
-
-			filterMongoObject(row)
-			if err := typeutils.Resolve(stream, row); err != nil {
-				return err
-			}
-		}
-
-		return cursor.Err()
-	})
 }
 
 func filterMongoObject(doc bson.M) {

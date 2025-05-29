@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	// TODO: make these queries Postgres version specific
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
 		relname as table_name
@@ -43,10 +42,6 @@ type Postgres struct {
 }
 
 func (p *Postgres) CDCSupported() bool {
-	return p.CDCSupport
-}
-
-func (p *Postgres) ChangeStreamSupported() bool {
 	return p.CDCSupport
 }
 
@@ -117,10 +112,6 @@ func (p *Postgres) Spec() any {
 	return Config{}
 }
 
-func (p *Postgres) Check(ctx context.Context) error {
-	return p.Setup(ctx)
-}
-
 func (p *Postgres) CloseConnection() {
 	if p.client != nil {
 		err := p.client.Close()
@@ -145,7 +136,49 @@ func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 }
 
 func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	stream, err := p.populateStream(streamName)
+	populateStream := func(streamName string) (*types.Stream, error) {
+		// create new stream
+		streamParts := strings.Split(streamName, ".")
+		stream := types.NewStream(streamParts[1], streamParts[0])
+		var columnSchemaOutput []ColumnDetails
+		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, streamParts[0], streamParts[1])
+		if err != nil {
+			return stream, fmt.Errorf("failed to retrieve column details for table %s: %s", streamName, err)
+		}
+
+		if len(columnSchemaOutput) == 0 {
+			logger.Warnf("no columns found in table %s[%s]", streamParts[1], streamParts[0])
+			return stream, nil
+		}
+
+		var primaryKeyOutput []ColumnDetails
+		err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, streamParts[0], streamParts[1])
+		if err != nil {
+			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
+		}
+
+		for _, column := range columnSchemaOutput {
+			datatype := types.Unknown
+			if val, found := pgTypeToDataTypes[*column.DataType]; found {
+				datatype = val
+			} else {
+				logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
+				datatype = types.String
+			}
+
+			stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
+		}
+
+		stream.WithSyncMode(types.FULLREFRESH)
+		// add primary keys for stream
+		for _, column := range primaryKeyOutput {
+			stream.WithPrimaryKey(column.Name)
+		}
+
+		return stream, nil
+	}
+
+	stream, err := populateStream(streamName)
 	if err != nil && ctx.Err() == nil {
 		return nil, err
 	}
@@ -170,61 +203,4 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
 	olakeType := pgTypeToDataTypes[baseType]
 	return typeutils.ReformatValue(olakeType, value)
-}
-
-func (p *Postgres) populateStream(streamName string) (*types.Stream, error) {
-	// create new stream
-	streamParts := strings.Split(streamName, ".")
-	stream := types.NewStream(streamParts[1], streamParts[0])
-	var columnSchemaOutput []ColumnDetails
-	err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, streamParts[0], streamParts[1])
-	if err != nil {
-		return stream, fmt.Errorf("failed to retrieve column details for table %s: %s", streamName, err)
-	}
-
-	if len(columnSchemaOutput) == 0 {
-		logger.Warnf("no columns found in table %s[%s]", streamParts[1], streamParts[0])
-		return stream, nil
-	}
-
-	var primaryKeyOutput []ColumnDetails
-	err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, streamParts[0], streamParts[1])
-	if err != nil {
-		return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
-	}
-
-	for _, column := range columnSchemaOutput {
-		datatype := types.Unknown
-		if val, found := pgTypeToDataTypes[*column.DataType]; found {
-			datatype = val
-		} else {
-			logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
-			datatype = types.String
-		}
-
-		stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
-	}
-
-	// cdc additional fields
-	if p.CDCSupport {
-		for column, typ := range abstract.DefaultColumns {
-			stream.UpsertField(column, typ, true)
-		}
-	}
-
-	// TODO: Populate cursor fields for incremental purpose
-	if p.CDCSupport {
-		stream.WithSyncMode(types.FULLREFRESH)
-		stream.WithSyncMode(types.CDC)
-
-	} else {
-		stream.WithSyncMode(types.FULLREFRESH)
-	}
-
-	// add primary keys for stream
-	for _, column := range primaryKeyOutput {
-		stream.WithPrimaryKey(column.Name)
-	}
-
-	return stream, nil
 }

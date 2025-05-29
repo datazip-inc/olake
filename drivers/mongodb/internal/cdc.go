@@ -108,7 +108,7 @@ func (m *Mongo) PostCDC(ctx context.Context, state *types.State, stream types.St
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
 	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream())
 	if err != nil {
-		return nil, fmt.Errorf("failed to open change stream: %v", err)
+		return nil, fmt.Errorf("failed to open change stream: %s", err)
 	}
 	defer cursor.Close(cdcCtx)
 

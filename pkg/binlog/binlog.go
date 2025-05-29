@@ -48,7 +48,7 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
 	if err != nil {
-		return fmt.Errorf("failed to start binlog sync: %w", err)
+		return fmt.Errorf("failed to start binlog sync: %s", err)
 	}
 	startTime := time.Now()
 	for {
@@ -68,7 +68,7 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 					// Timeout means no event, continue to monitor idle time
 					continue
 				}
-				return fmt.Errorf("failed to get binlog event: %w", err)
+				return fmt.Errorf("failed to get binlog event: %s", err)
 			}
 			// Update current position
 			c.CurrentPos.Pos = ev.Header.LogPos

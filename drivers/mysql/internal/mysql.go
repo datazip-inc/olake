@@ -39,10 +39,6 @@ func (m *MySQL) CDCSupported() bool {
 	return m.CDCSupport
 }
 
-func (m *MySQL) StateType() types.StateType {
-	return types.GlobalType
-}
-
 // GetConfigRef returns a reference to the configuration
 func (m *MySQL) GetConfigRef() abstract.Config {
 	m.config = &Config{}
@@ -63,7 +59,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	// Open database connection
 	client, err := sql.Open("mysql", m.config.URI())
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
+		return fmt.Errorf("failed to open database connection: %s", err)
 	}
 	// Test connection
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -71,7 +67,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %w", err)
+		return fmt.Errorf("failed to ping database: %s", err)
 	}
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "intial_wait_time")
 	if found {
@@ -91,11 +87,6 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	//TODO : check for mysql binlog permisssions
 	m.CDCSupport = true
 	return nil
-}
-
-// Check verifies the database connection
-func (m *MySQL) Check(ctx context.Context) error {
-	return m.Setup(ctx)
 }
 
 // Type returns the database type
@@ -123,7 +114,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&tableName, &schemaName); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %w", err)
+			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
 	}
@@ -131,69 +122,67 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 }
 
 func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	stream, err := m.produceTableSchema(ctx, streamName)
+	produceTableSchema := func(ctx context.Context, streamName string) (*types.Stream, error) {
+		logger.Infof("producing type schema for stream [%s]", streamName)
+
+		parts := strings.Split(streamName, ".")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
+		}
+		schemaName, tableName := parts[0], parts[1]
+		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC)
+
+		query := jdbc.MySQLTableSchemaQuery()
+
+		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query column information: %s", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var columnName, columnType, dataType, isNullable, columnKey string
+			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
+				return nil, fmt.Errorf("failed to scan column: %s", err)
+			}
+			datatype := types.Unknown
+
+			if val, found := mysqlTypeToDataTypes[dataType]; found {
+				datatype = val
+			} else {
+				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
+				datatype = types.String
+			}
+			stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("yes", isNullable))
+
+			// Mark primary keys
+			if columnKey == "PRI" {
+				stream.WithPrimaryKey(columnName)
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating rows: %s", err)
+		}
+		// TODO: Populate cursor fields for incremental purpose
+
+		// Add CDC columns if supported
+		if m.CDCSupport {
+			for column, typ := range abstract.DefaultColumns {
+				stream.UpsertField(column, typ, true)
+			}
+			stream.WithSyncMode(types.CDC)
+
+		}
+		stream.WithSyncMode(types.FULLREFRESH)
+
+		return stream, nil
+	}
+	stream, err := produceTableSchema(ctx, streamName)
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
 	stream.SyncMode = m.config.DefaultMode
-	return stream, nil
-}
-
-// produceTableSchema extracts schema information for a given table
-func (m *MySQL) produceTableSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	logger.Infof("producing type schema for stream [%s]", streamName)
-
-	parts := strings.Split(streamName, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-	}
-	schemaName, tableName := parts[0], parts[1]
-	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC)
-
-	query := jdbc.MySQLTableSchemaQuery()
-
-	rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query column information: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var columnName, columnType, dataType, isNullable, columnKey string
-		if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
-			return nil, fmt.Errorf("failed to scan column: %w", err)
-		}
-		datatype := types.Unknown
-
-		if val, found := mysqlTypeToDataTypes[dataType]; found {
-			datatype = val
-		} else {
-			logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
-			datatype = types.String
-		}
-		stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("yes", isNullable))
-
-		// Mark primary keys
-		if columnKey == "PRI" {
-			stream.WithPrimaryKey(columnName)
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-	// TODO: Populate cursor fields for incremental purpose
-
-	// Add CDC columns if supported
-	if m.CDCSupport {
-		for column, typ := range abstract.DefaultColumns {
-			stream.UpsertField(column, typ, true)
-		}
-		stream.WithSyncMode(types.CDC)
-
-	}
-	stream.WithSyncMode(types.FULLREFRESH)
-
 	return stream, nil
 }
 

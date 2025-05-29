@@ -49,7 +49,7 @@ func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Optio
 	if partitionRegex != "" {
 		err := i.parsePartitionRegex(partitionRegex)
 		if err != nil {
-			return fmt.Errorf("failed to parse partition regex: %v", err)
+			return fmt.Errorf("failed to parse partition regex: %s", err)
 		}
 	}
 
@@ -70,7 +70,7 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	// Add the record to the batch
 	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
 	if err != nil {
-		return fmt.Errorf("failed to add record to batch: %v", err)
+		return fmt.Errorf("failed to add record to batch: %s", err)
 	}
 
 	// If the batch was flushed, log the event
@@ -85,13 +85,13 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 func (i *Iceberg) Close() error {
 	err := flushBatch(i.configHash, i.client)
 	if err != nil {
-		logger.Errorf("Error flushing batch on close: %v", err)
+		logger.Errorf("Error flushing batch on close: %s", err)
 		return err
 	}
 
 	err = i.CloseIcebergClient()
 	if err != nil {
-		return fmt.Errorf("error closing Iceberg client: %v", err)
+		return fmt.Errorf("error closing Iceberg client: %s", err)
 	}
 
 	return nil
@@ -109,7 +109,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Create a temporary setup for checking
 	err := i.SetupIcebergClient(false)
 	if err != nil {
-		return fmt.Errorf("failed to setup iceberg: %v", err)
+		return fmt.Errorf("failed to setup iceberg: %s", err)
 	}
 
 	defer func() {
@@ -130,7 +130,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Call the remote procedure
 	res, err := i.client.SendRecords(ctx, req)
 	if err != nil {
-		return fmt.Errorf("error sending record to Iceberg RPC Server: %v", err)
+		return fmt.Errorf("error sending record to Iceberg RPC Server: %s", err)
 	}
 	// Print the response from the server
 	logger.Infof("Server Response: %s", res.GetResult())

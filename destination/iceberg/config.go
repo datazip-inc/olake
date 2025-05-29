@@ -122,7 +122,7 @@ func (c *Config) Validate() error {
 		// Set JarPath based on file existence in two possible locations
 		execDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get current directory for searching jar file: %v", err)
+			return fmt.Errorf("failed to get current directory for searching jar file: %s", err)
 		}
 
 		// Remove /drivers/* from execDir if present

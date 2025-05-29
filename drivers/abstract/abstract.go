@@ -58,10 +58,6 @@ func (a *AbstractDriver) Spec() any {
 	return a.driver.Spec()
 }
 
-func (a *AbstractDriver) Check(ctx context.Context) error {
-	return a.driver.Setup(ctx)
-}
-
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
@@ -72,6 +68,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
+
 	utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, stream string) error {
 		streamSchema, err := a.driver.ProduceSchema(ctx, stream)
 		if err != nil {
@@ -80,12 +77,22 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		streamMap.Store(streamSchema.ID(), streamSchema)
 		return nil
 	})
-	var result []*types.Stream
+
+	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
-		result = append(result, value.(*types.Stream))
+		convStream, _ := value.(*types.Stream)
+		// Add CDC columns if supported
+		if a.driver.CDCSupported() {
+			for column, typ := range DefaultColumns {
+				convStream.UpsertField(column, typ, true)
+			}
+			convStream.WithSyncMode(types.CDC)
+		}
+		finalStreams = append(finalStreams, convStream)
 		return true
 	})
-	return result, nil
+
+	return finalStreams, nil
 }
 
 func (a *AbstractDriver) Setup(ctx context.Context) error {
@@ -104,7 +111,7 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 			return fmt.Errorf("failed to run change stream: %s", err)
 		}
 	} else {
-		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
+		return fmt.Errorf("CDC configuration is not provided, use full refresh for all streams")
 	}
 	// start backfill for standard streams
 	for _, stream := range standardStreams {

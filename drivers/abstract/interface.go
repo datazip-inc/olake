@@ -18,7 +18,7 @@ type DriverInterface interface {
 	GetConfigRef() Config
 	Spec() any
 	Type() string
-	// Sets up client, doesn't performs any Checks
+	// set up client as well as check connection
 	Setup(ctx context.Context) error
 	// max connnection to be used
 	MaxConnections() int
