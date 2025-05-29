@@ -52,7 +52,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	isStrictCDC := len(streams) > 0 && streams[0].GetSyncMode() == types.STRICTCDC
 
 	if isStrictCDC {
-		logger.Infof("Strict CDC mode")
+		logger.Infof("Running in strict-cdc mode")
 		if gs.State.IsEmpty() {
 			gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
 			p.State.SetGlobalState(gs)
