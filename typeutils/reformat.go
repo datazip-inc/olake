@@ -274,9 +274,12 @@ func ReformatInt32(v any) (int32, error) {
 		return int32(v), nil
 	case float64:
 		return int32(v), nil
-	case int16:
+	case int:
+		//nolint:gosec,G115
 		return int32(v), nil
 	case int8:
+		return int32(v), nil
+	case int16:
 		return int32(v), nil
 	case int32:
 		return v, nil
