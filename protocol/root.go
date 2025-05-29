@@ -26,10 +26,6 @@ var (
 
 	commands  = []*cobra.Command{}
 	connector *abstract.AbstractDriver
-	// GlobalConGroup is a global variable to hold max concurrent connections
-	GlobalCtxGroup *utils.CxGroup
-	// manages total database connections
-	GlobalConnGroup *utils.CxGroup
 )
 
 // RootCmd represents the base command when called without any subcommands

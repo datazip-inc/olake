@@ -78,6 +78,10 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		return nil
 	})
 
+	if err := a.GlobalConnGroup.Block(); err != nil {
+		return nil, fmt.Errorf("error occurred while waiting for connection group: %s", err)
+	}
+
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
@@ -120,5 +124,14 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		})
 	}
 
+	// wait for all threads to finish
+	if err := a.GlobalCtxGroup.Block(); err != nil {
+		return fmt.Errorf("error occurred while waiting for context groups: %s", err)
+	}
+
+	// wait for all threads to finish
+	if err := a.GlobalConnGroup.Block(); err != nil {
+		return fmt.Errorf("error occurred while waiting for connections: %s", err)
+	}
 	return nil
 }

@@ -137,22 +137,22 @@ func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 
 func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	populateStream := func(streamName string) (*types.Stream, error) {
-		// create new stream
 		streamParts := strings.Split(streamName, ".")
-		stream := types.NewStream(streamParts[1], streamParts[0])
+		schemaName, streamName := streamParts[0], streamParts[1]
+		stream := types.NewStream(streamName, schemaName)
 		var columnSchemaOutput []ColumnDetails
-		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, streamParts[0], streamParts[1])
+		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {
 			return stream, fmt.Errorf("failed to retrieve column details for table %s: %s", streamName, err)
 		}
 
 		if len(columnSchemaOutput) == 0 {
-			logger.Warnf("no columns found in table %s[%s]", streamParts[1], streamParts[0])
+			logger.Warnf("no columns found in table [%s.%s]", schemaName, streamName)
 			return stream, nil
 		}
 
 		var primaryKeyOutput []ColumnDetails
-		err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, streamParts[0], streamParts[1])
+		err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, schemaName, streamName)
 		if err != nil {
 			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
 		}

@@ -91,7 +91,7 @@ var syncCmd = &cobra.Command{
 			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 			// Check if the stream is in the selectedStreamMap
 			if !(catalog.SelectedStreams == nil || selected) {
-				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Name(), elem.Namespace())
+				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
 				return false
 			}
 
@@ -118,6 +118,10 @@ var syncCmd = &cobra.Command{
 
 			return false
 		})
+		if len(selectedStreams) == 0 {
+			return fmt.Errorf("no valid streams found in catalog")
+		}
+
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
 		// start monitoring stats
@@ -132,19 +136,8 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
-		// wait for all threads to finish
-		if err := GlobalCtxGroup.Block(); err != nil {
-			return err
-		}
-
-		// wait for all threads to finish
-		if err := GlobalConnGroup.Block(); err != nil {
-			return fmt.Errorf("error occurred while waiting for connections: %s", err)
-		}
-
 		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogWithLock()
-
 		return nil
 	},
 }

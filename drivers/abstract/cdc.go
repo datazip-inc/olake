@@ -11,6 +11,11 @@ import (
 )
 
 func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+	// check streams
+	if len(streams) == 0 {
+		return fmt.Errorf("no streams provided for change stream")
+	}
+
 	// run pre cdc of drivers
 	if err := a.driver.PreCDC(ctx, a.state, streams); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
