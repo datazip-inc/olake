@@ -33,7 +33,7 @@ jobs:
         run: |
           docker compose -f ./drivers/mysql/docker-compose.yml up -d
           docker compose -f ./drivers/postgres/docker-compose.yml up -d
-          docker compose -f ./writers/iceberg/local-test/docker-compose.yml up -d
+          docker compose -f ./writers/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
         uses: nick-fields/retry@v2
