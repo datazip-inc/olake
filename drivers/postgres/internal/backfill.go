@@ -40,7 +40,8 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 	if stateChunks == nil {
 		// check for data distribution
 		// TODO: remove chunk intersections where chunks can be {0, 100} {100, 200}. Need to {0, 99} {100, 200}
-		splitChunks, err = p.splitTableIntoChunks(stream)
+		// Filter passed in before chunking format.
+		splitChunks, err = p.splitTableIntoChunks(stream, parsedFilter)
 		if err != nil {
 			return fmt.Errorf("failed to start backfill: %s", err)
 		}
@@ -61,6 +62,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		defer tx.Rollback()
 		splitColumn := stream.Self().StreamMetadata.SplitColumn
 		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
+		// FIlter passed in after chunking format, remove the filter from the split chunk and minmax part.
 		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk, parsedFilter)
 
 		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -108,7 +110,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 	return utils.Concurrent(backfillCtx, splitChunks, p.config.MaxThreads, processChunk)
 }
 
-func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, error) {
+func (p *Postgres) splitTableIntoChunks(stream protocol.Stream, parsedFilter string) ([]types.Chunk, error) {
 	generateCTIDRanges := func(stream protocol.Stream) ([]types.Chunk, error) {
 		var relPages uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
@@ -173,6 +175,10 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 	if splitColumn != "" {
 		var minValue, maxValue interface{}
 		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, splitColumn)
+		// Filter added during minmax chunk creation and during processing as well. Number of chunks to be scaanned should be decreased. Before chunking
+		// if parsedFilter != "" {
+		// 	minMaxRowCountQuery = fmt.Sprintf("%s WHERE %s", minMaxRowCountQuery, parsedFilter)
+		// }
 		// TODO: Fails on UUID type (Good First Issue)
 		err := p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {

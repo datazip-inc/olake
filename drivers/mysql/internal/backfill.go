@@ -22,7 +22,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 	filter := stream.Self().StreamMetadata.Filter
 	if filter != "" {
 		var err error
-		parsedFilter, err = jdbc.ParseFilter(filter)
+		parsedFilter, err = jdbc.ParseFilterMySQL(filter)
 		if err != nil {
 			return fmt.Errorf("failed to parse filter: %s", err)
 		}
@@ -118,6 +118,15 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 
 func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
 	return jdbc.WithIsolation(context.Background(), m.client, func(tx *sql.Tx) error {
+		filter := stream.Self().StreamMetadata.Filter
+		parsedFilter := ""
+		if filter != "" {
+			var err error
+			parsedFilter, err = jdbc.ParseFilterMySQL(filter)
+			if err != nil {
+				return fmt.Errorf("failed to parse filter: %s", err)
+			}
+		}
 		// Get primary key column using the provided function
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		// Get table extremes
@@ -142,7 +151,7 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 		}
 
 		// Generate chunks based on range
-		query := jdbc.NextChunkEndQuery(stream, pkColumn, chunkSize)
+		query := jdbc.NextChunkEndQuery(stream, pkColumn, chunkSize, parsedFilter)
 
 		currentVal := minVal
 		for {
@@ -173,7 +182,20 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 }
 
 func (m *MySQL) getTableExtremes(stream protocol.Stream, pkColumn string, tx *sql.Tx) (min, max any, err error) {
+	// Filter used before/during chunking
+	// var parsedFilter string
+	// filter := stream.Self().StreamMetadata.Filter
+	// if filter != "" {
+	// 	var err error
+	// 	parsedFilter, err = jdbc.ParseFilterMySQL(filter)
+	// 	if err != nil {
+	// 		return nil, nil, fmt.Errorf("failed to parse filter: %s", err)
+	// 	}
+	// }
 	query := jdbc.MinMaxQuery(stream, pkColumn)
+	// if parsedFilter != "" {
+	// 	query = fmt.Sprintf("%s WHERE %s", query, parsedFilter)
+	// }
 	err = tx.QueryRow(query).Scan(&min, &max)
 	if err != nil {
 		return "", "", err

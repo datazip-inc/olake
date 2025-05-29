@@ -19,18 +19,54 @@ func MinMaxQuery(stream protocol.Stream, column string) string {
 }
 
 // NextChunkEndQuery returns the query to calculate the next chunk boundary
-func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) string {
+func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int, filter string) string {
 	return fmt.Sprintf(`SELECT MAX(%[1]s) FROM (SELECT %[1]s FROM %[2]s.%[3]s WHERE %[1]s > ? ORDER BY %[1]s LIMIT %[4]d) AS subquery`, column, stream.Namespace(), stream.Name(), chunkSize)
 }
 
+// Before chunking filter option, then nextChunkEnd given below.
+// func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int, filter string) string {
+// 	baseCond := fmt.Sprintf(`%s > ?`, column)
+// 	if filter != "" {
+// 		baseCond = fmt.Sprintf(`(%s) AND (%s)`, baseCond, filter)
+// 	}
+
+// 	return fmt.Sprintf(`
+//         SELECT MAX(%[1]s)
+//           FROM (
+//                 SELECT %[1]s
+//                   FROM %[2]s.%[3]s
+//                  WHERE %[4]s
+//               ORDER BY %[1]s
+//                  LIMIT %[5]d
+//                ) AS subquery
+//     `,
+// 		column,
+// 		stream.Namespace(),
+// 		stream.Name(),
+// 		baseCond,
+// 		chunkSize,
+// 	)
+// }
+
 // buildChunkCondition builds the condition for a chunk
+// func buildChunkCondition(filterColumn string, chunk types.Chunk, filter string) string {
+// 	if chunk.Min != nil && chunk.Max != nil {
+// 		return fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
+// 	} else if chunk.Min != nil {
+// 		return fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
+// 	} else if chunk.Max != nil {
+// 		return fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
+// 	}
+// 	return ""
+// }
+
 func buildChunkCondition(filterColumn string, chunk types.Chunk, filter string) string {
 	condition := ""
 	if chunk.Min != nil && chunk.Max != nil {
 		condition = fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
 	} else if chunk.Min != nil {
 		condition = fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
-	} else if chunk.Max != nil {
+	} else {
 		condition = fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
 	}
 
@@ -73,29 +109,32 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int, filter string) string {
-	baseCond := fmt.Sprintf(`%s > %v`, filterColumn, filterValue)
-	if filter != "" {
-		baseCond = fmt.Sprintf(`(%s) AND (%s)`, baseCond, filter)
-	}
+// func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int, filter string) string {
+// 	baseCond := fmt.Sprintf(`%s > %v`, filterColumn, filterValue)
+// 	if filter != "" {
+// 		baseCond = fmt.Sprintf(`(%s) AND (%s)`, baseCond, filter)
+// 	}
 
-	return fmt.Sprintf(`
-        SELECT MAX(%[1]s)
-          FROM (
-                SELECT %[1]s
-                  FROM "%[2]s"."%[3]s"
-                 WHERE %[4]s
-              ORDER BY %[1]s ASC
-                 LIMIT %[5]d
-               ) AS T
-    `,
-		filterColumn,
-		stream.Namespace(),
-		stream.Name(),
-		baseCond,
-		batchSize,
-	)
-	// return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
+//		return fmt.Sprintf(`
+//	        SELECT MAX(%[1]s)
+//	          FROM (
+//	                SELECT %[1]s
+//	                  FROM "%[2]s"."%[3]s"
+//	                 WHERE %[4]s
+//	              ORDER BY %[1]s ASC
+//	                 LIMIT %[5]d
+//	               ) AS T
+//	    `,
+//			filterColumn,
+//			stream.Namespace(),
+//			stream.Name(),
+//			baseCond,
+//			batchSize,
+//		)
+//		// return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
+//	}
+func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int, filter string) string {
+	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 }
 
 // PostgresMinQuery returns the query to fetch the minimum value of a column in PostgreSQL
@@ -104,6 +143,37 @@ func PostgresMinQuery(stream protocol.Stream, filterColumn string, filterValue i
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
+// func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk, filter string) string {
+// 	condition := buildChunkCondition(filterColumn, chunk, filter)
+
+// 	if condition != "" && filter != "" {
+// 		return fmt.Sprintf(
+// 			`SELECT * FROM "%s"."%s" WHERE %s AND (%s)`,
+// 			stream.Namespace(),
+// 			stream.Name(),
+// 			condition,
+// 			filter,
+// 		)
+// 	}
+// 	if condition != "" {
+// 		return fmt.Sprintf(
+// 			`SELECT * FROM "%s"."%s" WHERE %s`,
+// 			stream.Namespace(),
+// 			stream.Name(),
+// 			condition,
+// 		)
+// 	}
+// 	if filter != "" {
+// 		return fmt.Sprintf(
+// 			`SELECT * FROM "%s"."%s" WHERE %s`,
+// 			stream.Namespace(),
+// 			stream.Name(),
+// 			filter,
+// 		)
+// 	}
+// 	return fmt.Sprintf(`SELECT * FROM "%s"."%s"`, stream.Namespace(), stream.Name())
+// }
+
 func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk, filter string) string {
 	condition := buildChunkCondition(filterColumn, chunk, filter)
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
@@ -358,4 +428,68 @@ func parseEachCondition(condition string) (string, error) {
 // escapeString escapes single quotes for PostgreSQL
 func escapeString(s string) string {
 	return strings.Replace(s, "'", "''", -1)
+}
+
+// MySQL parser for filter
+func ParseFilterMySQL(filter string) (string, error) {
+	if strings.TrimSpace(filter) == "" {
+		return "", nil
+	}
+
+	// Split into conditions and operators
+	conditions, operators, err := splitFilterConditions(filter)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse each condition
+	var parsed []string
+	for _, cond := range conditions {
+		p, err := parseMySQLCondition(strings.TrimSpace(cond))
+		if err != nil {
+			return "", fmt.Errorf("invalid condition '%s': %w", cond, err)
+		}
+		parsed = append(parsed, p)
+	}
+
+	// Combine back with uppercase operators
+	expr := parsed[0]
+	for i, op := range operators {
+		expr += " " + strings.ToUpper(op) + " " + parsed[i+1]
+	}
+
+	return expr, nil
+}
+
+// parseMySQLCondition parses a single condition into backtick-quoted SQL
+func parseMySQLCondition(cond string) (string, error) {
+	// regex: column operator value
+	pattern := regexp.MustCompile(`^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(=|!=|>|>=|<|<=)\s*("([^"]*)"|(\S+))\s*$`)
+	match := pattern.FindStringSubmatch(cond)
+	if match == nil {
+		return "", fmt.Errorf("could not parse condition")
+	}
+
+	col := match[1]
+	op := match[2]
+	val := match[3]
+
+	// handle quoted string
+	if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
+		unquoted := val[1 : len(val)-1]
+		escaped := escapeString(unquoted)
+		return fmt.Sprintf("`%s` %s '%s'", col, op, escaped), nil
+	}
+
+	// numeric or unquoted literal (true/false)
+	if num, err := strconv.ParseFloat(val, 64); err == nil {
+		// leave as-is
+		return fmt.Sprintf("`%s` %s %v", col, op, num), nil
+	}
+	lower := strings.ToLower(val)
+	if lower == "true" || lower == "false" {
+		return fmt.Sprintf("`%s` %s %s", col, op, lower), nil
+	}
+
+	return "", fmt.Errorf("unsupported literal: %s", val)
 }
