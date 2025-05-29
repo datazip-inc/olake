@@ -18,7 +18,15 @@ import (
 func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) error {
 	// Use a context for the backfill operation
 	backfillCtx := context.TODO()
-
+	var parsedFilter string
+	filter := stream.Self().StreamMetadata.Filter
+	if filter != "" {
+		var err error
+		parsedFilter, err = jdbc.ParseFilter(filter)
+		if err != nil {
+			return fmt.Errorf("failed to parse filter: %s", err)
+		}
+	}
 	// Get approximate row count and inform the pool
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
@@ -79,7 +87,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 		// Begin transaction with repeatable read isolation
 		return jdbc.WithIsolation(backfillCtx, m.client, func(tx *sql.Tx) error {
 			// Build query for the chunk
-			stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk)
+			stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk, parsedFilter)
 			setter := jdbc.NewReader(backfillCtx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 				return tx.QueryContext(ctx, query, args...)
 			})

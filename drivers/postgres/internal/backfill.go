@@ -18,6 +18,15 @@ import (
 // Simple Full Refresh Sync; Loads table fully
 func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) error {
 	backfillCtx := context.TODO()
+	var parsedFilter string
+	filter := stream.Self().StreamMetadata.Filter
+	if filter != "" {
+		var err error
+		parsedFilter, err = jdbc.ParseFilter(filter)
+		if err != nil {
+			return fmt.Errorf("failed to parse filter: %s", err)
+		}
+	}
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
@@ -52,7 +61,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		defer tx.Rollback()
 		splitColumn := stream.Self().StreamMetadata.SplitColumn
 		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
-		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk)
+		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk, parsedFilter)
 
 		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.Query(query, args...)
@@ -193,7 +202,16 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 
 func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, splitColumn string) (interface{}, error) {
 	var chunkEnd interface{}
-	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize)
+	filter := stream.Self().StreamMetadata.Filter
+	parsedFilter := ""
+	if filter != "" {
+		var err error
+		parsedFilter, err = jdbc.ParseFilter(filter)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse filter: %s", err)
+		}
+	}
+	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize, parsedFilter)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
