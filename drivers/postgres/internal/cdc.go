@@ -28,7 +28,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 	}, nil
 }
 
-func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+func (p *Postgres) PreCDC(ctx context.Context, state *types.State, streams []types.StreamInterface) error {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
 		return fmt.Errorf("failed to prepare wal config: %s", err)
@@ -41,11 +41,11 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 
 	p.Socket = socket
 	currentLSN := p.Socket.ConfirmedFlushLSN
-	globalState := p.State.GetGlobal()
+	globalState := state.GetGlobal()
 
 	if globalState == nil || globalState.State == nil {
-		p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-		p.State.ResetStreams()
+		state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
+		state.ResetStreams()
 	} else {
 		// global state exist check for cursor and cursor mismatch
 		var postgresGlobalState waljs.WALState
@@ -53,8 +53,8 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			return fmt.Errorf("failed to unmarshal global state: %s", err)
 		}
 		if postgresGlobalState.LSN == "" {
-			p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-			p.State.ResetStreams()
+			state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
+			state.ResetStreams()
 		} else {
 			parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
@@ -62,8 +62,8 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			}
 			if parsed != currentLSN {
 				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
-				p.State.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-				p.State.ResetStreams()
+				state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
+				state.ResetStreams()
 			}
 		}
 	}
@@ -74,10 +74,10 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, c
 	return p.Socket.StreamMessages(ctx, callback)
 }
 
-func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
+func (p *Postgres) PostCDC(ctx context.Context, state *types.State, _ types.StreamInterface, noErr bool) error {
 	defer p.Socket.Cleanup(ctx)
 	if noErr {
-		p.State.SetGlobal(waljs.WALState{LSN: p.Socket.ClientXLogPos.String()})
+		state.SetGlobal(waljs.WALState{LSN: p.Socket.ClientXLogPos.String()})
 		// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
 		return p.Socket.AcknowledgeLSN(ctx)
 	}

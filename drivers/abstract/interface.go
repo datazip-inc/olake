@@ -22,14 +22,15 @@ type DriverInterface interface {
 	Setup(ctx context.Context) error
 	// max connnection to be used
 	MaxConnections() int
-	// Discover discovers the streams; Returns cached if already discovered
-	Discover(ctx context.Context) ([]*types.Stream, error)
+	// GetStreamNames returns the names of the streams
+	GetStreamNames(ctx context.Context) ([]string, error)
+	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
 	// specific to backfill
-	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) ([]types.Chunk, error)
+	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
-	PreCDC(ctx context.Context, streams []types.StreamInterface) error
+	PreCDC(ctx context.Context, state *types.State, streams []types.StreamInterface) error
 	StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error
-	PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error
+	PostCDC(ctx context.Context, state *types.State, stream types.StreamInterface, success bool) error
 }

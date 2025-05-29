@@ -58,7 +58,7 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
+		pool, err := destination.NewWriter(cmd.Context(), destinationConfig, batchSize, state)
 		if err != nil {
 			return err
 		}

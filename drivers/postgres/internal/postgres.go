@@ -8,7 +8,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -36,11 +35,11 @@ const (
 )
 
 type Postgres struct {
-	*base.Driver
-	client    *sqlx.DB
-	config    *Config // postgres driver connection config
-	cdcConfig CDC
-	Socket    *waljs.Socket
+	client     *sqlx.DB
+	config     *Config // postgres driver connection config
+	CDCSupport bool    // indicates if the Postgres instance supports CDC
+	cdcConfig  CDC
+	Socket     *waljs.Socket
 }
 
 func (p *Postgres) CDCSupported() bool {
@@ -108,11 +107,6 @@ func (p *Postgres) StateType() types.StateType {
 	return types.GlobalType
 }
 
-func (p *Postgres) SetupState(state *types.State) {
-	state.Type = p.StateType()
-	p.State = state
-}
-
 func (p *Postgres) GetConfigRef() abstract.Config {
 	p.config = &Config{}
 
@@ -136,44 +130,28 @@ func (p *Postgres) CloseConnection() {
 	}
 }
 
-func (p *Postgres) Discover(ctx context.Context) ([]*types.Stream, error) {
-	// if not cached already; discover
-	streams := p.GetStreams()
-	if len(streams) != 0 {
-		return streams, nil
-	}
-
+func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
-
-	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
-	defer cancel()
-
 	var tableNamesOutput []Table
 	err := p.client.Select(&tableNamesOutput, getPrivilegedTablesTmpl)
 	if err != nil {
-		return streams, fmt.Errorf("failed to retrieve table names: %s", err)
+		return nil, fmt.Errorf("failed to retrieve table names: %s", err)
 	}
-
-	if len(tableNamesOutput) == 0 {
-		logger.Warnf("no tables found")
-		return streams, nil
+	tablesNames := []string{}
+	for _, table := range tableNamesOutput {
+		tablesNames = append(tablesNames, fmt.Sprintf("%s.%s", table.Schema, table.Name))
 	}
+	return tablesNames, nil
+}
 
-	err = utils.Concurrent(discoverCtx, tableNamesOutput, len(tableNamesOutput), func(ctx context.Context, pgTable Table, _ int) error {
-		stream, err := p.populateStream(pgTable)
-		if err != nil && discoverCtx.Err() == nil {
-			return err
-		}
-		stream.SyncMode = p.config.DefaultSyncMode
-		// cache stream
-		p.AddStream(stream)
-		return err
-	})
-	if err != nil {
+func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+	stream, err := p.populateStream(streamName)
+	if err != nil && ctx.Err() == nil {
 		return nil, err
 	}
+	stream.SyncMode = p.config.DefaultSyncMode
 
-	return p.GetStreams(), nil
+	return stream, nil
 }
 
 func (p *Postgres) Type() string {
@@ -194,24 +172,25 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	return typeutils.ReformatValue(olakeType, value)
 }
 
-func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
+func (p *Postgres) populateStream(streamName string) (*types.Stream, error) {
 	// create new stream
-	stream := types.NewStream(table.Name, table.Schema)
+	streamParts := strings.Split(streamName, ".")
+	stream := types.NewStream(streamParts[1], streamParts[0])
 	var columnSchemaOutput []ColumnDetails
-	err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, table.Schema, table.Name)
+	err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, streamParts[0], streamParts[1])
 	if err != nil {
-		return stream, fmt.Errorf("failed to retrieve column details for table %s[%s]: %s", table.Name, table.Schema, err)
+		return stream, fmt.Errorf("failed to retrieve column details for table %s: %s", streamName, err)
 	}
 
 	if len(columnSchemaOutput) == 0 {
-		logger.Warnf("no columns found in table %s[%s]", table.Name, table.Schema)
+		logger.Warnf("no columns found in table %s[%s]", streamParts[1], streamParts[0])
 		return stream, nil
 	}
 
 	var primaryKeyOutput []ColumnDetails
-	err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, table.Schema, table.Name)
+	err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, streamParts[0], streamParts[1])
 	if err != nil {
-		return stream, fmt.Errorf("failed to retrieve primary key columns for table %s[%s]: %s", table.Name, table.Schema, err)
+		return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
 	}
 
 	for _, column := range columnSchemaOutput {
@@ -228,7 +207,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 
 	// cdc additional fields
 	if p.CDCSupport {
-		for column, typ := range base.DefaultColumns {
+		for column, typ := range abstract.DefaultColumns {
 			stream.UpsertField(column, typ, true)
 		}
 	}

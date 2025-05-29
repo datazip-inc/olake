@@ -38,7 +38,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	})
 }
 
-func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) ([]types.Chunk, error) {
+func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
@@ -46,25 +46,11 @@ func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterP
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
 	pool.AddRecordsToSync(approxRowCount)
-
-	stateChunks := p.State.GetChunks(stream.Self())
-	var splitChunks []types.Chunk
-	if stateChunks == nil {
-		// check for data distribution
-		// TODO: remove chunk intersections where chunks can be {0, 100} {100, 200}. Need to {0, 99} {100, 200}
-		splitChunks, err = p.splitTableIntoChunks(stream)
-		if err != nil {
-			return nil, fmt.Errorf("failed to start backfill: %s", err)
-		}
-		p.State.SetChunks(stream.Self(), types.NewSet(splitChunks...))
-	} else {
-		splitChunks = stateChunks.Array()
-	}
-	return splitChunks, nil
+	return p.splitTableIntoChunks(stream)
 }
 
-func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) ([]types.Chunk, error) {
-	generateCTIDRanges := func(stream types.StreamInterface) ([]types.Chunk, error) {
+func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		var relPages uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
 		err := p.client.QueryRow(relPagesQuery).Scan(&relPages)
@@ -72,20 +58,20 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) ([]types.C
 			return nil, fmt.Errorf("failed to get relPages: %s", err)
 		}
 		relPages = utils.Ternary(relPages == uint32(0), uint32(1), relPages).(uint32)
-		var chunks []types.Chunk
+		chunks := types.NewSet[types.Chunk]()
 		batchSize := uint32(p.config.BatchSize)
 		for start := uint32(0); start < relPages; start += batchSize {
 			end := start + batchSize
 			if end >= relPages {
 				end = ^uint32(0) // Use max uint32 value for the last range
 			}
-			chunks = append(chunks, types.Chunk{Min: fmt.Sprintf("'(%d,0)'", start), Max: fmt.Sprintf("'(%d,0)'", end)})
+			chunks.Insert(types.Chunk{Min: fmt.Sprintf("'(%d,0)'", start), Max: fmt.Sprintf("'(%d,0)'", end)})
 		}
 		return chunks, nil
 	}
 
-	splitViaBatchSize := func(min, max interface{}, dynamicChunkSize int) ([]types.Chunk, error) {
-		var splits []types.Chunk
+	splitViaBatchSize := func(min, max interface{}, dynamicChunkSize int) (*types.Set[types.Chunk], error) {
+		splits := types.NewSet[types.Chunk]()
 		chunkStart := min
 		chunkEnd, err := utils.AddConstantToInterface(min, dynamicChunkSize)
 		if err != nil {
@@ -93,7 +79,7 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) ([]types.C
 		}
 
 		for utils.CompareInterfaceValue(chunkEnd, max) <= 0 {
-			splits = append(splits, types.Chunk{Min: chunkStart, Max: chunkEnd})
+			splits.Insert(types.Chunk{Min: chunkStart, Max: chunkEnd})
 			chunkStart = chunkEnd
 			newChunkEnd, err := utils.AddConstantToInterface(chunkEnd, dynamicChunkSize)
 			if err != nil {
@@ -101,13 +87,13 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) ([]types.C
 			}
 			chunkEnd = newChunkEnd
 		}
-		return append(splits, types.Chunk{Min: chunkStart, Max: nil}), nil
+		splits.Insert(types.Chunk{Min: chunkStart, Max: nil})
+		return splits, nil
 	}
 
-	splitViaNextQuery := func(min interface{}, stream types.StreamInterface, splitColumn string) ([]types.Chunk, error) {
+	splitViaNextQuery := func(min interface{}, stream types.StreamInterface, splitColumn string) (*types.Set[types.Chunk], error) {
 		chunkStart := min
-		var splits []types.Chunk
-
+		splits := types.NewSet[types.Chunk]()
 		for {
 			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, splitColumn)
 			if err != nil {
@@ -118,7 +104,7 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) ([]types.C
 				break
 			}
 
-			splits = append(splits, types.Chunk{Min: chunkStart, Max: chunkEnd})
+			splits.Insert(types.Chunk{Min: chunkStart, Max: chunkEnd})
 			chunkStart = chunkEnd
 		}
 		return splits, nil
@@ -134,7 +120,7 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) ([]types.C
 			return nil, fmt.Errorf("failed to fetch table min max: %s", err)
 		}
 		if minValue == maxValue {
-			return []types.Chunk{{Min: minValue, Max: maxValue}}, nil
+			return types.NewSet(types.Chunk{Min: minValue, Max: nil}), nil
 		}
 
 		_, contains := utils.ArrayContains(stream.GetStream().SourceDefinedPrimaryKey.Array(), func(element string) bool {

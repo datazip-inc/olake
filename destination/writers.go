@@ -67,7 +67,7 @@ type WriterPool struct {
 }
 
 // Shouldn't the name be NewWriterPool?
-func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
+func NewWriter(ctx context.Context, config *types.WriterConfig, batchSize int64, state *types.State) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -93,6 +93,8 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 		group:         group,
 		groupCtx:      ctx,
 		tmu:           sync.Mutex{},
+		batchSize:     batchSize,
+		state:         state,
 	}, nil
 }
 

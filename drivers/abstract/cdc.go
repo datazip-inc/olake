@@ -10,9 +10,9 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-func (a *AbDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	// run pre cdc of drivers
-	if err := a.driver.PreCDC(ctx, streams); err != nil {
+	if err := a.driver.PreCDC(ctx, a.state, streams); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
 	}
 
@@ -63,7 +63,7 @@ func (a *AbDriver) RunChangeStream(ctx context.Context, pool *destination.Writer
 								err = fmt.Errorf("failed to write record for stream[%s]: %s", streamID, threadErr)
 							}
 						}
-						_ = a.driver.PostCDC(ctx, streams[index], err == nil)
+						_ = a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
 					}()
 					return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
 						pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -110,7 +110,7 @@ func (a *AbDriver) RunChangeStream(ctx context.Context, pool *destination.Writer
 					}
 				}
 			}
-			_ = a.driver.PostCDC(ctx, nil, err == nil)
+			_ = a.driver.PostCDC(ctx, a.state, nil, err == nil)
 		}()
 		return a.driver.StreamChanges(ctx, nil, func(change CDCChange) error {
 			pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()

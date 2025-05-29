@@ -36,7 +36,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	})
 }
 
-func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) ([]types.Chunk, error) {
+func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
 	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
@@ -44,25 +44,9 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
 	pool.AddRecordsToSync(approxRowCount)
-	// Get primary key column
 
-	stateChunks := m.State.GetChunks(stream.Self())
-	var splitChunks []types.Chunk
-	if stateChunks == nil || stateChunks.Len() == 0 {
-		chunks := types.NewSet[types.Chunk]()
-		if err := m.splitChunks(ctx, stream, chunks); err != nil {
-			return nil, fmt.Errorf("failed to calculate chunks: %s", err)
-		}
-		splitChunks = chunks.Array()
-		m.State.SetChunks(stream.Self(), chunks)
-	} else {
-		splitChunks = stateChunks.Array()
-	}
-	return splitChunks, nil
-}
-
-func (m *MySQL) splitChunks(ctx context.Context, stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
-	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+	chunks := types.NewSet[types.Chunk]()
+	err = jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 		// Get primary key column using the provided function
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		// Get table extremes
@@ -115,6 +99,7 @@ func (m *MySQL) splitChunks(ctx context.Context, stream types.StreamInterface, c
 
 		return nil
 	})
+	return chunks, err
 }
 
 func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumn string, tx *sql.Tx) (min, max any, err error) {

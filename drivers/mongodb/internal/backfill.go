@@ -9,7 +9,6 @@ import (
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"go.mongodb.org/mongo-driver/bson"
@@ -43,19 +42,15 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	return cursor.Err()
 }
 
-func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) ([]types.Chunk, error) {
-	chunks := m.State.GetChunks(stream.Self())
+func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	if chunks != nil && chunks.Len() != 0 {
-		return chunks.Array(), nil
-	}
 	recordCount, err := m.totalCountInCollection(ctx, collection)
 	if err != nil {
 		return nil, err
 	}
 	if recordCount == 0 {
 		logger.Infof("Collection is empty, nothing to backfill")
-		return []types.Chunk{}, nil
+		return types.NewSet[types.Chunk](), nil
 	}
 
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
@@ -64,15 +59,14 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// Generate and update chunks
 	var retryErr error
 	var chunksArray []types.Chunk
-	err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
 		chunksArray, retryErr = m.splitChunks(ctx, collection, stream)
 		return retryErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed after retry backoff: %s", err)
 	}
-	m.State.SetChunks(stream.Self(), types.NewSet(chunksArray...))
-	return chunksArray, nil
+	return types.NewSet(chunksArray...), nil
 }
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface) ([]types.Chunk, error) {

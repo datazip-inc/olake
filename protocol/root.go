@@ -25,7 +25,7 @@ var (
 	destinationConfig *types.WriterConfig
 
 	commands  = []*cobra.Command{}
-	connector *abstract.AbDriver
+	connector *abstract.AbstractDriver
 	// GlobalConGroup is a global variable to hold max concurrent connections
 	GlobalCtxGroup *utils.CxGroup
 	// manages total database connections

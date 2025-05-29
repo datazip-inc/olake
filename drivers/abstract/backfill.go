@@ -12,12 +12,18 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-func (a *AbDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
-	chunks, err := a.driver.GetOrSplitChunks(ctx, pool, stream)
-	if err != nil {
-		return fmt.Errorf("failed to get or split chunks")
+func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
+	chunksSet := a.state.GetChunks(stream.Self())
+	var err error
+	if chunksSet == nil || chunksSet.Len() == 0 {
+		chunksSet, err = a.driver.GetOrSplitChunks(ctx, pool, stream)
+		if err != nil {
+			return fmt.Errorf("failed to get or split chunks: %s", err)
+		} //////////////////////////
+		// set state chunks
+		a.state.SetChunks(stream.Self(), chunksSet)
 	}
-
+	chunks := chunksSet.Array()
 	if len(chunks) == 0 {
 		backfilledStreams <- stream.ID()
 		return nil

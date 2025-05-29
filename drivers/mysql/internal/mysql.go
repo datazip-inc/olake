@@ -9,7 +9,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/drivers/base"
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
@@ -23,9 +22,9 @@ import (
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
-	*base.Driver
 	config     *Config
 	client     *sql.DB
+	CDCSupport bool // indicates if the MySQL instance supports CDC
 	cdcConfig  CDC
 	BinlogConn *binlog.Connection
 }
@@ -42,11 +41,6 @@ func (m *MySQL) CDCSupported() bool {
 
 func (m *MySQL) StateType() types.StateType {
 	return types.GlobalType
-}
-
-func (m *MySQL) SetupState(state *types.State) {
-	state.Type = m.StateType()
-	m.State = state
 }
 
 // GetConfigRef returns a reference to the configuration
@@ -113,13 +107,7 @@ func (m *MySQL) MaxConnections() int {
 	return m.config.MaxThreads
 }
 
-// Discover finds and catalogs database tables
-func (m *MySQL) Discover(ctx context.Context) ([]*types.Stream, error) {
-	streams := m.GetStreams()
-	if len(streams) != 0 {
-		return streams, nil
-	}
-
+func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
 	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
 	defer cancel()
@@ -139,22 +127,16 @@ func (m *MySQL) Discover(ctx context.Context) ([]*types.Stream, error) {
 		}
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
 	}
+	return tableNames, nil
+}
 
-	err = utils.Concurrent(discoverCtx, tableNames, len(tableNames), func(ctx context.Context, streamName string, _ int) error {
-		stream, err := m.produceTableSchema(ctx, streamName)
-		if err != nil && discoverCtx.Err() == nil {
-			return fmt.Errorf("failed to process table[%s]: %s", streamName, err)
-		}
-		stream.SyncMode = m.config.DefaultMode
-		m.AddStream(stream)
-		return err
-	})
-
-	if err != nil {
-		return nil, err
+func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+	stream, err := m.produceTableSchema(ctx, streamName)
+	if err != nil && ctx.Err() == nil {
+		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
-
-	return m.GetStreams(), nil
+	stream.SyncMode = m.config.DefaultMode
+	return stream, nil
 }
 
 // produceTableSchema extracts schema information for a given table
@@ -204,7 +186,7 @@ func (m *MySQL) produceTableSchema(ctx context.Context, streamName string) (*typ
 
 	// Add CDC columns if supported
 	if m.CDCSupport {
-		for column, typ := range base.DefaultColumns {
+		for column, typ := range abstract.DefaultColumns {
 			stream.UpsertField(column, typ, true)
 		}
 		stream.WithSyncMode(types.CDC)

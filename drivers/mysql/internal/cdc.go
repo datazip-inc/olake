@@ -38,18 +38,18 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 	return binlog.NewConnection(ctx, config, globalState.State.Position, streams)
 }
 
-func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+func (m *MySQL) PreCDC(ctx context.Context, state *types.State, streams []types.StreamInterface) error {
 	// Load or initialize global state
-	globalState := m.State.GetGlobal()
+	globalState := state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
 		binlogPos, err := m.getCurrentBinlogPosition()
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
-		m.State.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%9000), State: binlog.Binlog{Position: binlogPos}})
-		m.State.ResetStreams()
+		state.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%9000), State: binlog.Binlog{Position: binlogPos}})
+		state.ResetStreams()
 		// reinit state
-		globalState = m.State.GetGlobal()
+		globalState = state.GetGlobal()
 	}
 
 	var MySQLGlobalState MySQLGlobalState
@@ -65,9 +65,9 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+func (m *MySQL) PostCDC(ctx context.Context, state *types.State, stream types.StreamInterface, noErr bool) error {
 	if noErr {
-		m.State.SetGlobal(MySQLGlobalState{
+		state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
 			State: binlog.Binlog{
 				Position: m.BinlogConn.CurrentPos,

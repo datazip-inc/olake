@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/abstract"
+	abstract "github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -25,7 +25,7 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
-func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
+func (m *Mongo) PreCDC(cdcCtx context.Context, state *types.State, streams []types.StreamInterface) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 		pipeline := mongo.Pipeline{
@@ -34,7 +34,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}}},
 		}
 
-		prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
+		prevResumeToken := state.GetCursor(stream.Self(), cdcCursorField)
 		if prevResumeToken == nil {
 			// get current resume token and do full load for stream
 			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
@@ -43,7 +43,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}
 			if resumeToken != nil {
 				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-				m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+				state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
 		m.cdcCursor = prevResumeToken
@@ -98,9 +98,9 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	return cursor.Err()
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+func (m *Mongo) PostCDC(ctx context.Context, state *types.State, stream types.StreamInterface, noErr bool) error {
 	if noErr {
-		m.State.SetCursor(stream.Self(), cdcCursorField, m.cdcCursor)
+		state.SetCursor(stream.Self(), cdcCursorField, m.cdcCursor)
 	}
 	return nil
 }
