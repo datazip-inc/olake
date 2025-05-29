@@ -19,6 +19,8 @@ func MinMaxQuery(stream protocol.Stream, column string) string {
 }
 
 // NextChunkEndQuery returns the query to calculate the next chunk boundary
+
+//nolint:revive
 func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int, filter string) string {
 	return fmt.Sprintf(`SELECT MAX(%[1]s) FROM (SELECT %[1]s FROM %[2]s.%[3]s WHERE %[1]s > ? ORDER BY %[1]s LIMIT %[4]d) AS subquery`, column, stream.Namespace(), stream.Name(), chunkSize)
 }
@@ -133,6 +135,8 @@ func PostgresWalLSNQuery() string {
 //		)
 //		// return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 //	}
+
+//nolint:revive
 func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int, filter string) string {
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 }
