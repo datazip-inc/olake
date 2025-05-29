@@ -45,6 +45,11 @@ public class IcebergTableOperator {
   
   // Static lock object for synchronizing commits across threads
   private static final Object COMMIT_LOCK = new Object();
+  
+  // Store pending write results per table for later commit
+  private final Map<String, List<WriteResult>> pendingWrites = new ConcurrentHashMap<>();
+  // Store table references for commit
+  private final Map<String, Table> tableReferences = new ConcurrentHashMap<>();
 
   public IcebergTableOperator() {
     createIdentifierFields = true;
@@ -163,18 +168,12 @@ public class IcebergTableOperator {
   }
 
   /**
-   * Adds list of events to iceberg table.
-   * <p>
-   * If field addition enabled then it groups list of change events by their schema first. Then adds new fields to
-   * iceberg table if there is any. And then follows with adding data to the table.
-   * <p>
-   * New fields are detected using CDC event schema, since events are grouped by their schemas it uses single
-   * event to find-out schema for the whole list of events.
+   * Writes data to iceberg files but does not commit. Files are stored for later commit.
    *
    * @param icebergTable
    * @param events
    */
-  public void addToTable(Table icebergTable, List<RecordConverter> events) {
+  public void writeToTable(Table icebergTable, List<RecordConverter> events) {
 
     // when operation mode is not upsert deduplicate the events to avoid inserting duplicate row
     if (upsert && !icebergTable.schema().identifierFieldIds().isEmpty()) {
@@ -183,7 +182,7 @@ public class IcebergTableOperator {
 
     if (!allowFieldAddition) {
       // if field additions not enabled add set of events to table
-      addToTablePerSchema(icebergTable, events);
+      writeToTablePerSchema(icebergTable, events);
     } else {
       
       Map<RecordConverter.SchemaConverter, List<RecordConverter>> eventsGroupedBySchema =
@@ -196,20 +195,72 @@ public class IcebergTableOperator {
         // extend table schema if new fields found
         applyFieldAddition(icebergTable, schemaEvents.getValue().get(0).icebergSchema(createIdentifierFields));
         // add set of events to table
-        addToTablePerSchema(icebergTable, schemaEvents.getValue());
+        writeToTablePerSchema(icebergTable, schemaEvents.getValue());
       }
     }
-
   }
 
   /**
-   * Adds list of change events to iceberg table. All the events are having same schema.
+   * Commits all pending writes across all tables
+   */
+  public void commitPendingWrites() {
+    synchronized(COMMIT_LOCK) {
+      if (pendingWrites.isEmpty()) {
+        LOGGER.info("No pending writes to commit");
+        return;
+      }
+      
+      LOGGER.info("Committing pending writes for {} tables", pendingWrites.size());
+      
+      for (Map.Entry<String, List<WriteResult>> entry : pendingWrites.entrySet()) {
+        String tableName = entry.getKey();
+        List<WriteResult> writeResults = entry.getValue();
+        Table table = tableReferences.get(tableName);
+        
+        if (table == null) {
+          LOGGER.error("Table reference not found for: {}", tableName);
+          throw new RuntimeException("Table reference not found for: " + tableName);
+        }
+        
+        try {
+          // Refresh table before committing to get the latest state
+          table.refresh();
+          
+          // Commit each write result
+          for (WriteResult writeResult : writeResults) {
+            if (writeResult.deleteFiles().length > 0) {
+              RowDelta newRowDelta = table.newRowDelta();
+              Arrays.stream(writeResult.dataFiles()).forEach(newRowDelta::addRows);
+              Arrays.stream(writeResult.deleteFiles()).forEach(newRowDelta::addDeletes);
+              newRowDelta.commit();
+            } else {
+              AppendFiles appendFiles = table.newAppend();
+              Arrays.stream(writeResult.dataFiles()).forEach(appendFiles::appendFile);
+              appendFiles.commit();
+            }
+          }
+          
+          LOGGER.info("Successfully committed {} write operations for table: {}", writeResults.size(), tableName);
+        } catch (Exception e) {
+          LOGGER.error("Failed to commit writes for table: {}", tableName, e);
+          throw new RuntimeException("Failed to commit writes for table: " + tableName, e);
+        }
+      }
+      
+      // Clear pending writes and table references after successful commit
+      pendingWrites.clear();
+      tableReferences.clear();
+      LOGGER.info("All pending writes committed successfully");
+    }
+  }
+
+  /**
+   * Writes data to iceberg files for a specific schema but does not commit
    *
    * @param icebergTable
    * @param events
    */
-  private void addToTablePerSchema(Table icebergTable, List<RecordConverter> events) {
-    // Remove retry logic and add synchronization
+  private void writeToTablePerSchema(Table icebergTable, List<RecordConverter> events) {
     
     // Initialize the task writer
     BaseTaskWriter<Record> writer = writerFactory2.create(icebergTable);
@@ -230,36 +281,13 @@ public class IcebergTableOperator {
 
       WriteResult files = writer.complete();
       
-      // Synchronize the commit operation to prevent concurrent commits
-      synchronized(COMMIT_LOCK) {
-        // Refresh table again before committing to get the latest state
-        icebergTable.refresh();
-        
-        if (files.deleteFiles().length > 0) {
-          RowDelta newRowDelta = icebergTable.newRowDelta();
-          Arrays.stream(files.dataFiles()).forEach(newRowDelta::addRows);
-          Arrays.stream(files.deleteFiles()).forEach(newRowDelta::addDeletes);
-          newRowDelta.commit();
-        } else {
-          AppendFiles appendFiles = icebergTable.newAppend();
-          Arrays.stream(files.dataFiles()).forEach(appendFiles::appendFile);
-          appendFiles.commit();
-        }
-      }
+      // Store the write result and table reference for later commit
+      String tableName = icebergTable.name();
+      pendingWrites.computeIfAbsent(tableName, k -> new ArrayList<>()).add(files);
+      tableReferences.put(tableName, icebergTable);
       
-      LOGGER.info("Successfully committed {} events", events.size());
+      LOGGER.info("Successfully wrote {} events to files for table: {} (not yet committed)", events.size(), tableName);
       
-    } catch (org.apache.iceberg.exceptions.CommitFailedException e) {
-      String errorMessage = e.getMessage();
-      LOGGER.error("Commit failed: {}", errorMessage, e);
-      
-      try {
-        writer.abort();
-      } catch (IOException abortEx) {
-        LOGGER.warn("Failed to abort writer", abortEx);
-      }
-      
-      throw new RuntimeException("Failed to commit", e);
     } catch (Exception ex) {
       LOGGER.error("Failed to write data to table: {}", icebergTable.name(), ex);
       

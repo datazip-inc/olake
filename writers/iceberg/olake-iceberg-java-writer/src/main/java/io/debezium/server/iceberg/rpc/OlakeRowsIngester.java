@@ -56,16 +56,41 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     public void sendRecords(RecordIngest.RecordIngestRequest request, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
         String requestId = String.format("[Thread-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
         long startTime = System.currentTimeMillis();
-        // Retrieve the array of strings from the request
         List<String> messages = request.getMessagesList();
 
         try {
+            // Check if this is a commit signal (single message with commit = true)
+            if (messages.size() == 1) {
+                String message = messages.get(0);
+                try {
+                    Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
+                    if (messageMap.containsKey("commit") && Boolean.TRUE.equals(messageMap.get("commit"))) {
+                        // Process commit signal
+                        LOGGER.info("{} Received commit signal, committing all pending writes", requestId);
+                        long commitStartTime = System.currentTimeMillis();
+                        
+                        icebergTableOperator.commitPendingWrites();
+                        
+                        RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
+                                .setResult(requestId + " Commit completed successfully")
+                                .build();
+                        responseObserver.onNext(response);
+                        responseObserver.onCompleted();
+                        LOGGER.info("{} Commit operation completed in: {} ms", requestId, (System.currentTimeMillis() - commitStartTime));
+                        return;
+                    }
+                } catch (Exception e) {
+                    // If we can't parse the message as commit signal, treat as regular data
+                    LOGGER.debug("{} Failed to parse as commit signal, treating as regular data: {}", requestId, message);
+                }
+            }
+            
+            // Process regular data messages
             long parsingStartTime = System.currentTimeMillis();
             Map<String, List<RecordConverter>> result =
-                    messages.parallelStream() // Use parallel stream for concurrent processing
+                    messages.parallelStream()
                             .map(message -> {
                                 try {
-                                    // Read the entire JSON message into a Map<String, Object>:
                                     Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
 
                                     // Get the destination table:
@@ -89,23 +114,23 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                             .collect(Collectors.groupingBy(RecordConverter::destination));
             LOGGER.info("{} Parsing messages took: {} ms", requestId, (System.currentTimeMillis() - parsingStartTime));
 
-            // consume list of events for each destination table
+            // Write data to files (but don't commit yet)
             long processingStartTime = System.currentTimeMillis();
             for (Map.Entry<String, List<RecordConverter>> tableEvents : result.entrySet()) {
                 try {
                     Table icebergTable = this.loadIcebergTable(TableIdentifier.of(icebergNamespace, tableEvents.getKey()), tableEvents.getValue().get(0));
-                    icebergTableOperator.addToTable(icebergTable, tableEvents.getValue());
+                    icebergTableOperator.writeToTable(icebergTable, tableEvents.getValue());
                 } catch (Exception e) {
-                    String errorMessage = String.format("%s Failed to process table events for table: %s", requestId, tableEvents.getKey());
+                    String errorMessage = String.format("%s Failed to write table events for table: %s", requestId, tableEvents.getKey());
                     LOGGER.error(errorMessage, e);
                     throw e;
                 }
             }
-            LOGGER.info("{} Processing tables took: {} ms", requestId, (System.currentTimeMillis() - processingStartTime));
+            LOGGER.info("{} Writing to files took: {} ms", requestId, (System.currentTimeMillis() - processingStartTime));
 
             // Build and send a response
             RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
-                    .setResult(requestId + " Received " + messages.size() + " messages")
+                    .setResult(requestId + " Wrote " + messages.size() + " messages to files (not yet committed)")
                     .build();
             responseObserver.onNext(response);
             responseObserver.onCompleted();
