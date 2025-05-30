@@ -11,7 +11,6 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
-	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
 	"github.com/apache/iceberg-go/catalog/rest"
@@ -25,7 +24,6 @@ import (
 	"github.com/google/uuid"
 )
 
-var globalIcebergMutex sync.Mutex
 var commitMutexes sync.Map // Key: configHash, Value: sync.Mutex
 
 func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) error {
@@ -93,7 +91,6 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 	logger.Infof("Handling nil values with appropriate default values (0 for numbers, empty string for text)")
 	logger.Infof("Initialized writer with ID: %s, ConfigHash: %s", w.writerID, w.configHash)
 
-
 	ctx := context.Background()
 	s3Endpoint := w.config.S3Endpoint
 	if s3Endpoint == "" {
@@ -133,7 +130,8 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 	}
 	logger.Infof("S3 connectivity test successful")
 
-	props := iceberg.Properties{
+	// Create properties for REST catalog with S3 credentials
+	catalogProps := iceberg.Properties{
 		iceio.S3Region:             w.config.AwsRegion,
 		iceio.S3AccessKeyID:        w.config.AwsAccessKey,
 		iceio.S3SecretAccessKey:    w.config.AwsSecretKey,
@@ -145,13 +143,15 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 	}
 
 	if w.config.S3PathStyle {
-		props[iceio.S3ForceVirtualAddressing] = "false"
+		catalogProps[iceio.S3ForceVirtualAddressing] = "false"
 	}
 
+	// Create REST catalog
 	restCatalog, err := rest.NewCatalog(
 		ctx,
 		"olake-catalog",
 		w.config.RestCatalogURL,
+		rest.WithAdditionalProps(catalogProps),
 		rest.WithOAuthToken(""), // Add token if needed
 	)
 
@@ -159,7 +159,7 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 		return fmt.Errorf("failed to create REST catalog: %v", err)
 	}
 
-	w.catalog = restCatalog // created a new catalog and added it to the config
+	w.catalog = restCatalog
 
 	schemaFields, err := w.createIcebergSchema2()
 	if err != nil {
@@ -170,7 +170,7 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 	w.tableIdent = catalog.ToIdentifier(w.config.Namespace, w.stream.Name())
 
 	var tableExists bool
-	_, err = w.catalog.LoadTable(ctx, w.tableIdent, props)
+	_, err = w.catalog.LoadTable(ctx, w.tableIdent, catalogProps)
 	if err != nil {
 		if errors.Is(err, catalog.ErrNoSuchTable) {
 			tableExists = false
@@ -189,21 +189,20 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 		}
 
 		logger.Infof("Creating new Iceberg table: %s", w.tableIdent)
-		logger.Infof(w.config.AwsAccessKey, w.config.AwsRegion, w.config.AwsSecretKey, w.config.S3Endpoint)
 		w.iceTable, err = w.catalog.CreateTable(ctx, w.tableIdent, w.schema, catalog.WithProperties(iceberg.Properties{
-			"write.format.default":  "parquet",
-			iceio.S3Region:          w.config.AwsRegion,
-			iceio.S3AccessKeyID:     w.config.AwsAccessKey,
-			iceio.S3SecretAccessKey: w.config.AwsSecretKey,
-			iceio.S3EndpointURL:     w.config.S3Endpoint,
-			"s3.path-style-access":  "true",
+			"write.format.default":     "parquet",
+			iceio.S3Region:             w.config.AwsRegion,
+			iceio.S3AccessKeyID:        w.config.AwsAccessKey,
+			iceio.S3SecretAccessKey:    w.config.AwsSecretKey,
+			iceio.S3EndpointURL:        w.config.S3Endpoint,
+			"s3.path-style-access":     "true",
 		}))
 		if err != nil {
 			return fmt.Errorf("failed to create table: %v", err)
 		}
 	} else {
 		logger.Infof("Loading existing Iceberg table: %s", w.tableIdent)
-		w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, props)
+		w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, catalogProps)
 		if err != nil {
 			return fmt.Errorf("failed to load table: %v", err)
 		}
@@ -316,223 +315,14 @@ func (w *NewIcebergGo) flushLocalBuffer(buffer *LocalBuffer) error {
 	return nil
 }
 
-func (w *NewIcebergGo) flushRecords() error {
-	// w.mutex.Lock()
-	// defer w.mutex.Unlock()
-
-	if len(w.records) == 0 {
-		return nil
-	}
-
-	if w.recordBuilder == nil {
-		return fmt.Errorf("record builder is nil")
-	}
-
-	if w.iceTable == nil {
-		return fmt.Errorf("iceberg table is nil")
-	}
-
-	logger.Infof("Flushing %d records to Iceberg", w.writerID, len(w.records))
-
-	// Create a new record builder for each flush
-	schema := w.recordBuilder.Schema()
-	w.recordBuilder = array.NewRecordBuilder(w.allocator, schema)
-
-	// Reserve space for all records
-	w.recordBuilder.Reserve(len(w.records))
-
-	// Get all field builders
-	numFields := len(schema.Fields())
-	fieldBuilders := make([]array.Builder, numFields)
-	for i := 0; i < numFields; i++ {
-		fieldBuilders[i] = w.recordBuilder.Field(i)
-	}
-
-	// Process records
-	// builder.append : converting the data into arrow format
-	for _, record := range w.records {
-		// Process each field in the schema to ensure consistent counts
-		for i := 0; i < numFields; i++ {
-			fieldBuilder := fieldBuilders[i]
-			fieldName := schema.Field(i).Name
-
-			value, exists := record.Data[fieldName]
-			if !exists || value == nil {
-				fieldBuilder.AppendNull()
-				continue
-			}
-
-			// Convert and append the value
-			switch builder := fieldBuilder.(type) {
-			case *array.StringBuilder:
-				if strVal, ok := toString(value); ok {
-					builder.Append(strVal)
-				} else {
-					builder.Append("")
-				}
-			case *array.Int32Builder:
-				if intVal, ok := toInt32(value); ok {
-					builder.Append(intVal)
-				} else {
-					builder.Append(0)
-				}
-			case *array.Int64Builder:
-				if intVal, ok := toInt64(value); ok {
-					builder.Append(intVal)
-				} else {
-					builder.Append(0)
-				}
-			case *array.Float32Builder:
-				if floatVal, ok := toFloat32(value); ok {
-					builder.Append(floatVal)
-				} else {
-					builder.Append(0.0)
-				}
-			case *array.Float64Builder:
-				if floatVal, ok := toFloat64(value); ok {
-					builder.Append(floatVal)
-				} else {
-					builder.Append(0.0)
-				}
-			case *array.BooleanBuilder:
-				if boolVal, ok := value.(bool); ok {
-					builder.Append(boolVal)
-				} else {
-					builder.Append(false)
-				}
-			case *array.TimestampBuilder:
-				if timeVal, ok := value.(time.Time); ok {
-					builder.Append(arrow.Timestamp(timeVal.UnixMicro()))
-				} else if strVal, ok := value.(string); ok {
-					if timeVal, err := time.Parse(time.RFC3339, strVal); err == nil {
-						builder.Append(arrow.Timestamp(timeVal.UnixMicro()))
-					} else {
-						builder.Append(arrow.Timestamp(time.Now().UnixMicro()))
-					}
-				} else {
-					builder.Append(arrow.Timestamp(time.Now().UnixMicro()))
-				}
-			default:
-				fieldBuilder.AppendNull()
-			}
-		}
-	}
-
-	// Create the record : a structured, columnar representation of the data
-	record := w.recordBuilder.NewRecord()
-	defer record.Release()
-
-	// Create Arrow table
-	arrowTable := array.NewTableFromRecords(record.Schema(), []arrow.Record{record})
-	defer arrowTable.Release()
-
-	ctx := context.Background()
-
-	var err error
-
-	fileUUID := uuid.New().String()
-	filePath := fmt.Sprintf("s3://warehouse/%s/%s/data-%s.parquet",
-		w.config.Namespace, w.stream.Name(), fileUUID)
-
-	writeFileIO, ok := w.iceTable.FS().(iceio.WriteFileIO)
-	if !ok {
-		return fmt.Errorf("filesystem does not support writing")
-	}
-
-	fw, err := writeFileIO.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create parquet file: %v", err)
-	}
-
-	writeErr := pqarrow.WriteTable(arrowTable, fw, record.NumRows(), nil, pqarrow.DefaultWriterProps())
-	closeErr := fw.Close()
-	
-	if writeErr != nil {
-		return fmt.Errorf("failed to write record to parquet: %v", writeErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("failed to close parquet file: %v", closeErr)
-	}
-
-	// Acquiring global lock for Iceberg commit
-	logger.Infof("[%s] Acquiring global lock for Iceberg commit", w.writerID)
-	globalIcebergMutex.Lock()
-	
-	defer func() {
-		globalIcebergMutex.Unlock()
-		logger.Infof("[%s] Released global lock for Iceberg commit", w.writerID)
-	}()
-
-	// Step 3: Inside the lock, reload the latest table state
-	props := iceberg.Properties{
-		iceio.S3Region:          w.config.AwsRegion,
-		iceio.S3AccessKeyID:     w.config.AwsAccessKey,
-		iceio.S3SecretAccessKey: w.config.AwsSecretKey,
-		iceio.S3EndpointURL:     w.config.S3Endpoint,
-		"s3.path-style-access":  "true",
-	}
-	
-	// Reloading the table to get the latest state
-	w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, props)
-	if err != nil {
-		return fmt.Errorf("failed to reload table: %v", err)
-	}
-
-	logger.Infof("[%s] Loaded latest table state inside lock", w.writerID)
-
-	// Create a new transaction
-	txn := w.iceTable.NewTransaction()
-	if txn == nil {
-		return fmt.Errorf("failed to create transaction (txn is nil)")
-	}
-
-	// Add the data file to the transaction
-	err = txn.AddFiles([]string{filePath}, iceberg.Properties{}, false)
-	if err != nil {
-		return fmt.Errorf("failed to add file to transaction: %v", err)
-	}
-
-	// Try to commit the transaction
-	updatedTable, err := txn.Commit(ctx)
-	if err != nil {
-		// Check if it's a commit conflict
-		if strings.Contains(err.Error(), "CommitFailedException") || 
-			strings.Contains(err.Error(), "concurrent") ||
-			strings.Contains(err.Error(), "conflict") ||
-			strings.Contains(err.Error(), "branch main has changed") {
-			logger.Warnf("[%s] Commit failed due to concurrent modification (attempt): %v", 
-				w.writerID, err)
-		}
-		
-		// For other errors, check if it's a catalog/connection issue
-		if strings.Contains(err.Error(), "Failed to get table") ||
-			strings.Contains(err.Error(), "catalog") ||
-			strings.Contains(err.Error(), "UncheckedSQLException") {
-			logger.Warnf("[%s] Catalog/connection error (attempt): %v", 
-				w.writerID, err)
-		}
-
-		return fmt.Errorf("failed to commit transaction: %v", err)
-	}
-
-	w.iceTable = updatedTable
-	logger.Infof("[%s] Successfully committed transaction with %d records", w.writerID, len(w.records))
-
-	// Clear the batch
-	w.records = w.records[:0]
-
-	return nil
-}
-
 func getCommitMutex(configHash string) *sync.Mutex {
 	mutex, _ := commitMutexes.LoadOrStore(configHash, &sync.Mutex{})
 	return mutex.(*sync.Mutex)
 }
 
 func (w *NewIcebergGo) flushRecordsBatch(records []types.RawRecord) error {
-	// Use asynchronous processing to avoid blocking
-	processor := getOrCreateAsyncProcessor(w.configHash, w)
-	return processor.flushAsync(records)
+	// Process synchronously instead of using async processing
+	return w.commitRecords(records)
 }
 
 func (w *NewIcebergGo) commitRecords(records []types.RawRecord) error {
@@ -656,30 +446,6 @@ func (w *NewIcebergGo) commitRecords(records []types.RawRecord) error {
 
 	ctx := context.Background()
 
-	fileUUID := uuid.New().String()
-	filePath := fmt.Sprintf("s3://warehouse/%s/%s/data-%s.parquet",
-		w.config.Namespace, w.stream.Name(), fileUUID)
-
-	writeFileIO, ok := w.iceTable.FS().(iceio.WriteFileIO)
-	if !ok {
-		return fmt.Errorf("filesystem does not support writing")
-	}
-
-	fw, err := writeFileIO.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create parquet file: %v", err)
-	}
-
-	writeErr := pqarrow.WriteTable(arrowTable, fw, arrowRecord.NumRows(), nil, pqarrow.DefaultWriterProps())
-	closeErr := fw.Close()
-	
-	if writeErr != nil {
-		return fmt.Errorf("failed to write record to parquet: %v", writeErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("failed to close parquet file: %v", closeErr)
-	}
-
 	// Step 3: Inside the lock, reload the latest table state
 	props := iceberg.Properties{
 		iceio.S3Region:          w.config.AwsRegion,
@@ -690,6 +456,7 @@ func (w *NewIcebergGo) commitRecords(records []types.RawRecord) error {
 	}
 	
 	// Reloading the table to get the latest state
+	var err error
 	w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, props)
 	if err != nil {
 		return fmt.Errorf("failed to reload table: %v", err)
@@ -703,10 +470,19 @@ func (w *NewIcebergGo) commitRecords(records []types.RawRecord) error {
 		return fmt.Errorf("failed to create transaction (txn is nil)")
 	}
 
-	// Add the data file to the transaction
-	err = txn.AddFiles([]string{filePath}, iceberg.Properties{}, false)
+	// Create a record reader from the Arrow table
+	batchSize := int64(arrowRecord.NumRows())
+	if batchSize == 0 {
+		batchSize = 1000 // default batch size
+	}
+	
+	rdr := array.NewTableReader(arrowTable, batchSize)
+	defer rdr.Release()
+
+	// Use the context-aware Append method for iceberg-go v0.3.0
+	err = txn.Append(ctx, rdr, iceberg.Properties{})
 	if err != nil {
-		return fmt.Errorf("failed to add file to transaction: %v", err)
+		return fmt.Errorf("failed to append data to transaction: %v", err)
 	}
 
 	// Try to commit the transaction
@@ -733,7 +509,7 @@ func (w *NewIcebergGo) commitRecords(records []types.RawRecord) error {
 	}
 
 	w.iceTable = updatedTable
-	logger.Infof("[%s] Successfully committed transaction with %d records", w.writerID, len(records))
+	logger.Infof("[%s] Successfully committed transaction with %d records using Append", w.writerID, len(records))
 
 	return nil
 }

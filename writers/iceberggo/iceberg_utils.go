@@ -407,12 +407,12 @@ func (w *NewIcebergGo) Close() error {
 			delete(serverRegistry, w.configHash)
 			logger.Infof("[%s] Removed server instance for configHash: %s", w.writerID, w.configHash)
 			
-			// Clean up async processor when no more references
-			if processor, exists := asyncProcessors.Load(w.configHash); exists {
-				processor.(*AsyncBatchProcessor).stop()
-				asyncProcessors.Delete(w.configHash)
-				logger.Infof("[%s] Stopped async processor for configHash: %s", w.writerID, w.configHash)
-			}
+			// // Clean up async processor when no more references
+			// if processor, exists := asyncProcessors.Load(w.configHash); exists {
+			// 	processor.(*AsyncBatchProcessor).stop()
+			// 	asyncProcessors.Delete(w.configHash)
+			// 	logger.Infof("[%s] Stopped async processor for configHash: %s", w.writerID, w.configHash)
+			// }
 		}
 	}
 	serverMutex.Unlock()
@@ -626,76 +626,76 @@ func getConfigHash(namespace string, streamID string, appendMode bool) string {
 }
 
 // AsyncBatchProcessor handles asynchronous batch processing
-type AsyncBatchProcessor struct {
-	flushChannel chan *asyncFlushRequest
-	done         chan struct{}
-	writer       *NewIcebergGo
-}
+// type AsyncBatchProcessor struct {
+// 	flushChannel chan *asyncFlushRequest
+// 	done         chan struct{}
+// 	writer       *NewIcebergGo
+// }
 
-type asyncFlushRequest struct {
-	records    []types.RawRecord
-	resultChan chan error
-}
+// type asyncFlushRequest struct {
+// 	records    []types.RawRecord
+// 	resultChan chan error
+// }
 
-var (
-	asyncProcessors sync.Map // Key: configHash, Value: *AsyncBatchProcessor
-)
+// var (
+// 	asyncProcessors sync.Map // Key: configHash, Value: *AsyncBatchProcessor
+// )
 
-// getOrCreateAsyncProcessor gets or creates an async processor for a config hash
-func getOrCreateAsyncProcessor(configHash string, writer *NewIcebergGo) *AsyncBatchProcessor {
-	if processor, ok := asyncProcessors.Load(configHash); ok {
-		return processor.(*AsyncBatchProcessor)
-	}
+// // getOrCreateAsyncProcessor gets or creates an async processor for a config hash
+// func getOrCreateAsyncProcessor(configHash string, writer *NewIcebergGo) *AsyncBatchProcessor {
+// 	if processor, ok := asyncProcessors.Load(configHash); ok {
+// 		return processor.(*AsyncBatchProcessor)
+// 	}
 
-	processor := &AsyncBatchProcessor{
-		flushChannel: make(chan *asyncFlushRequest, 100), // Buffer up to 100 requests
-		done:         make(chan struct{}),
-		writer:       writer,
-	}
+// 	processor := &AsyncBatchProcessor{
+// 		flushChannel: make(chan *asyncFlushRequest, 100), // Buffer up to 100 requests
+// 		done:         make(chan struct{}),
+// 		writer:       writer,
+// 	}
 
-	// Start the background goroutine
-	go processor.processFlushRequests()
+// 	// Start the background goroutine
+// 	go processor.processFlushRequests()
 
-	asyncProcessors.Store(configHash, processor)
-	return processor
-}
+// 	asyncProcessors.Store(configHash, processor)
+// 	return processor
+// }
 
-// processFlushRequests processes flush requests in the background
-func (p *AsyncBatchProcessor) processFlushRequests() {
-	for {
-		select {
-		case req := <-p.flushChannel:
-			err := p.writer.commitRecords(req.records)
-			req.resultChan <- err
-			close(req.resultChan)
-		case <-p.done:
-			return
-		}
-	}
-}
+// // processFlushRequests processes flush requests in the background
+// func (p *AsyncBatchProcessor) processFlushRequests() {
+// 	for {
+// 		select {
+// 		case req := <-p.flushChannel:
+// 			err := p.writer.commitRecords(req.records)
+// 			req.resultChan <- err
+// 			close(req.resultChan)
+// 		case <-p.done:
+// 			return
+// 		}
+// 	}
+// }
 
-// flushAsync submits a flush request asynchronously
-func (p *AsyncBatchProcessor) flushAsync(records []types.RawRecord) error {
-	resultChan := make(chan error, 1)
+// // flushAsync submits a flush request asynchronously
+// func (p *AsyncBatchProcessor) flushAsync(records []types.RawRecord) error {
+// 	resultChan := make(chan error, 1)
 	
-	select {
-	case p.flushChannel <- &asyncFlushRequest{
-		records:    records,
-		resultChan: resultChan,
-	}:
-		// Request submitted successfully, wait for result
-		return <-resultChan
-	default:
-		// Channel is full, process synchronously as fallback
-		logger.Warnf("Async flush channel full, falling back to synchronous processing")
-		return p.writer.commitRecords(records)
-	}
-}
+// 	select {
+// 	case p.flushChannel <- &asyncFlushRequest{
+// 		records:    records,
+// 		resultChan: resultChan,
+// 	}:
+// 		// Request submitted successfully, wait for result
+// 		return <-resultChan
+// 	default:
+// 		// Channel is full, process synchronously as fallback
+// 		logger.Warnf("Async flush channel full, falling back to synchronous processing")
+// 		return p.writer.commitRecords(records)
+// 	}
+// }
 
-// stop stops the async processor
-func (p *AsyncBatchProcessor) stop() {
-	close(p.done)
-}
+// // stop stops the async processor
+// func (p *AsyncBatchProcessor) stop() {
+// 	close(p.done)
+// }
 
 // BatchMetrics tracks performance metrics
 type BatchMetrics struct {
