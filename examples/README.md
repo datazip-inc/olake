@@ -167,9 +167,12 @@ Once Olake has processed data and created Iceberg tables, you can query these ta
 
 Example configurations and detailed setup instructions for specific query engines are provided in their respective subdirectories within this example:
 
-* **Presto / Trino:**
+* **Presto:**
     * Sample configuration files are located in the `./presto/etc/` directory.
-    * For detailed setup instructions, please refer to the [**Presto/Trino Setup Guide (`./presto/README.md`)**](./presto/README.md).
+    * For detailed setup instructions, please refer to the [**Presto Setup Guide (`./presto/README.md`)**](./presto/README.md).
+
+* **(Future) Trino:**
+    * Coming soon...
 
 * **(Future) DuckDB:**
     * Coming soon...
