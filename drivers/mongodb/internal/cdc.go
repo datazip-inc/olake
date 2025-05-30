@@ -47,6 +47,7 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	cdcCtx := context.TODO()
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
+	changeStreamOpts = changeStreamOpts.SetMaxAwaitTime(time.Duration(m.cdcConfig.InitialWaitTime) * time.Second)
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
@@ -56,28 +57,38 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
 	chunks := m.State.GetChunks(stream.Self())
 
-	if prevResumeToken == nil || chunks == nil || chunks.Len() != 0 {
-		// get current resume token and do full load for stream
-		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
-		if err != nil {
-			return err
+	if stream.GetSyncMode() == types.STRICTCDC {
+		logger.Infof("Running in strict-cdc mode")
+		if prevResumeToken == nil {
+			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
+			if err != nil {
+				return err
+			}
+			if resumeToken != nil {
+				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
+				m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+			}
 		}
-		if resumeToken != nil {
-			prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-		}
+	} else {
+		if prevResumeToken == nil || chunks == nil || chunks.Len() != 0 {
+			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
+			if err != nil {
+				return err
+			}
+			if resumeToken != nil {
+				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
+			}
 
-		// save resume token
-		m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+			m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 
-		if err := m.backfill(stream, pool); err != nil {
-			return err
+			if err := m.backfill(stream, pool); err != nil {
+				return err
+			}
+			logger.Infof("backfill done for stream[%s]", stream.ID())
 		}
-		logger.Infof("backfill done for stream[%s]", stream.ID())
 	}
 
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
-	// resume cdc sync from prev resume token
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
 	if err != nil {

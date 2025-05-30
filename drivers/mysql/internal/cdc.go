@@ -55,11 +55,6 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 		}
 	}
 
-	isStrictCDC := len(streams) > 0 && streams[0].GetSyncMode() == types.STRICTCDC
-	if isStrictCDC {
-		logger.Infof("Running in strict-cdc mode")
-	}
-
 	// Get current binlog position if state is empty
 	if gs.ServerID == 0 || gs.State.Position.Name == "" {
 		currentPos, err := m.getCurrentBinlogPosition()
@@ -70,10 +65,8 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 		gs.State.Position = currentPos
 		gs.ServerID = uint32(1000 + time.Now().UnixNano()%9000)
 		m.State.SetGlobalState(gs)
-		if !isStrictCDC {
-			// Reset streams for creating chunks again
-			m.State.ResetStreams()
-		}
+		// Reset streams for creating chunks again
+		m.State.ResetStreams()
 	}
 
 	config, err := m.prepareBinlogConfig(gs.ServerID)
@@ -81,10 +74,10 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 		return fmt.Errorf("failed to prepare binlog config: %s", err)
 	}
 
-	if !isStrictCDC {
-		// Backfill streams that haven't been processed yet
-		var needsBackfill []protocol.Stream
-		for _, s := range streams {
+	// Backfill streams that haven't been processed yet
+	var needsBackfill []protocol.Stream
+	for _, s := range streams {
+		if s.GetSyncMode() == types.CDC {
 			// check if full refresh state present or not
 			_, exist := utils.ArrayContains(m.State.Streams, func(streamState *types.StreamState) bool {
 				if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
@@ -96,17 +89,17 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 				needsBackfill = append(needsBackfill, s)
 			}
 		}
+	}
 
-		if err := utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(_ context.Context, s protocol.Stream, _ int) error {
-			if err := m.backfill(pool, s); err != nil {
-				return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
-			}
-			gs.Streams.Insert(s.ID())
-			m.State.SetGlobalState(gs)
-			return nil
-		}); err != nil {
-			return fmt.Errorf("failed concurrent backfill: %s", err)
+	if err := utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(_ context.Context, s protocol.Stream, _ int) error {
+		if err := m.backfill(pool, s); err != nil {
+			return fmt.Errorf("failed backfill of stream[%s]: %s", s.ID(), err)
 		}
+		gs.Streams.Insert(s.ID())
+		m.State.SetGlobalState(gs)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed concurrent backfill: %s", err)
 	}
 
 	// Set up inserters for each stream
