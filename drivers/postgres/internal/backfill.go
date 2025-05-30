@@ -180,9 +180,9 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 			return nil, fmt.Errorf("provided split column is not a primary key")
 		}
 
-		splitColType, _ := stream.Schema().GetType(chunkColumn)
+		chunkColType, _ := stream.Schema().GetType(chunkColumn)
 		// evenly distirbution only available for float and int types
-		if chunk_col_type == types.Int64 || chunk_col_type == types.Float64 {
+		if chunkColType == types.Int64 || chunkColType == types.Float64 {
 			return splitViaBatchSize(minValue, maxValue, p.config.BatchSize)
 		}
 		return splitViaNextQuery(minValue, stream, chunkColumn)
