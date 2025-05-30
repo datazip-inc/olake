@@ -20,7 +20,7 @@ It assumes:
     docker run -d --name my-olake-presto-coordinator \
       --network app-network \
       -p 80:8080 \
-      -v "$(pwd)/etc:/opt/presto-server/etc" \
+      -v "$(pwd)/presto/etc:/opt/presto-server/etc" \
       prestodb/presto:latest
     ```
 
@@ -29,7 +29,7 @@ It assumes:
         * `--name my-olake-presto-coordinator`: Assigns a recognizable name to your Presto container.
         * `--network app-network`: **This is crucial.** It connects the Presto container to the same Docker network (`app-network`) used by the Olake services. This allows Presto to resolve and communicate with services like `rest` (Iceberg Catalog) and `minio` (S3 storage) using their service names.
         * `-p 80:8080`: Maps port `8080` inside the Presto container (Presto's default HTTP port) to port `80` on your host machine. You can change `8088` to any other available port on your host if needed (e.g., `-p 8080:8080` to use the default HTTP port, or `-p 8090:8080`).
-        * `-v "$(pwd)/etc:/opt/presto-server/etc"`: This mounts the Presto configuration files located in the `./etc` subdirectory (relative to where you run the command) into the expected location within the Presto container.
+        * `-v "$(pwd)/presto/etc:/opt/presto-server/etc"`: This mounts the Presto configuration files located in the `./etc` subdirectory (relative to where you run the command) into the expected location within the Presto container.
             * If you are on Windows Command Prompt, replace `$(pwd)` with `"%cd%"`.
             * If you are on Windows PowerShell, replace `$(pwd)` with `${PWD}`.
         * `prestodb/presto:latest`: Specifies the Docker image for Presto. You can replace this with a specific Presto version tag or a Trino image (e.g., `trinodb/trino:latest`). Ensure the configuration files in `./presto/etc/` are compatible with the chosen image and version.
