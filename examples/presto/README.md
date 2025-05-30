@@ -1,6 +1,6 @@
-# Querying Olake-Managed Iceberg Tables with Presto/Trino
+# Querying Olake-Managed Iceberg Tables with Presto
 
-This guide explains how to run Presto (or Trino) as an external Docker container to query Apache Iceberg tables created by the main Olake Docker Compose stack.
+This guide explains how to run Presto as an external Docker container to query Apache Iceberg tables created by the main Olake Docker Compose stack.
 
 It assumes:
 1.  The main Olake Docker Compose stack (from the parent directory's `docker-compose.yml`) is already up and running.
@@ -32,11 +32,11 @@ It assumes:
         * `-v "$(pwd)/presto/etc:/opt/presto-server/etc"`: This mounts the Presto configuration files located in the `./etc` subdirectory (relative to where you run the command) into the expected location within the Presto container.
             * If you are on Windows Command Prompt, replace `$(pwd)` with `"%cd%"`.
             * If you are on Windows PowerShell, replace `$(pwd)` with `${PWD}`.
-        * `prestodb/presto:latest`: Specifies the Docker image for Presto. You can replace this with a specific Presto version tag or a Trino image (e.g., `trinodb/trino:latest`). Ensure the configuration files in `./presto/etc/` are compatible with the chosen image and version.
+        * `prestodb/presto:latest`: Specifies the Docker image for Presto. You can replace this with a specific Presto version tag. Ensure the configuration files in `./presto/etc/` are compatible with the chosen image and version.
 
 3.  **Access Presto UI & Query Data:**
     * Once the Presto container is running (it might take a few seconds to initialize), you can access the Presto web UI in your browser at `http://localhost:80` (or whichever host port you mapped).
-    * You can use the Presto CLI, a SQL IDE (like DBeaver, DataGrip), or any application compatible with Presto/Trino to connect to `localhost:80`.
+    * You can use the Presto CLI, a SQL IDE (like DBeaver, DataGrip), or any application compatible with Presto to connect to `localhost:80`.
     * You should be able to query the `iceberg` catalog defined in your `./presto/etc/catalog/iceberg.properties` file. Example queries:
         ```sql
         SHOW CATALOGS;
