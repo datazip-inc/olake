@@ -1,5 +1,5 @@
 # Postgres Driver
-The Postgres Driver enables data synchronization from Postgres to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
+The Postgres Driver enables data synchronization from Postgres to your desired destination.It supports **Full Refresh**, **CDC (Change Data Capture)**, and **Query-Based Incremental Sync** modes
 
 ---
 
@@ -8,6 +8,8 @@ The Postgres Driver enables data synchronization from Postgres to your desired d
    Fetches the complete dataset from Postgres.
 2. **CDC (Change Data Capture)**  
    Tracks and syncs incremental changes from Postgres in real time.
+3. **Query-Based Incremental Sync**
+   Fetches only newly inserted or modified documents since the last sync.
 
 ---
 
@@ -40,6 +42,7 @@ Add Postgres credentials in following format in `config.json` file. [More detail
     "reader_batch_size": 100000,
     "default_mode":"cdc",
     "max_threads" :50,
+    "batch_size": 5000, // docs fetched per internal page for incremental sync
   }
 ```
 
