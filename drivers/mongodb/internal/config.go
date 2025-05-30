@@ -23,6 +23,7 @@ type Config struct {
 	DefaultMode       types.SyncMode `json:"default_mode"`
 	RetryCount        int            `json:"backoff_retry_count"`
 	PartitionStrategy string         `json:"partition_strategy"`
+	UpdateMethod      interface{}    `json:"update_method"`
 }
 
 func (c *Config) URI() string {

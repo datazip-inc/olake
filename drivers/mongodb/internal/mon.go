@@ -24,8 +24,13 @@ const (
 
 type Mongo struct {
 	*base.Driver
-	config *Config
-	client *mongo.Client
+	config    *Config
+	client    *mongo.Client
+	cdcConfig CDC
+}
+
+type CDC struct {
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
 // config reference; must be pointer
@@ -56,6 +61,21 @@ func (m *Mongo) Setup() error {
 	if err := conn.Ping(connectCtx, nil); err != nil {
 		return fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
+
+	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
+	logger.Infof("💛 found: %+v", found)
+	if found {
+		cdc := &CDC{}
+		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
+			return err
+		}
+		if cdc.InitialWaitTime == 0 {
+			cdc.InitialWaitTime = 10
+		}
+		m.cdcConfig = *cdc
+	}
+
+	logger.Infof("💛 cdc config: %+v", m.cdcConfig)
 
 	m.client = conn
 	// no need to check from discover if it have cdc support or not
@@ -142,6 +162,8 @@ func (m *Mongo) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 	switch stream.GetSyncMode() {
 	case types.FULLREFRESH:
 		return m.backfill(stream, pool)
+	case types.STRICTCDC:
+		return m.changeStreamSync(stream, pool)
 	case types.CDC:
 		return m.changeStreamSync(stream, pool)
 	}
@@ -155,7 +177,7 @@ func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database,
 
 	// initialize stream
 	collection := db.Collection(streamName)
-	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC, types.STRICTCDC)
 
 	// find primary keys
 	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
