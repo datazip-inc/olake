@@ -22,7 +22,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 	filter := stream.Self().StreamMetadata.Filter
 	if filter != "" {
 		var err error
-		parsedFilter, err = jdbc.ParseFilter(filter)
+		parsedFilter, err = jdbc.ParseFilter(filter, "postgres")
 		if err != nil {
 			return fmt.Errorf("failed to parse filter: %s", err)
 		}
@@ -40,7 +40,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 	if stateChunks == nil {
 		// check for data distribution
 		// TODO: remove chunk intersections where chunks can be {0, 100} {100, 200}. Need to {0, 99} {100, 200}
-		// Filter passed in before chunking format.
+		// Filter added during chunk creation
 		splitChunks, err = p.splitTableIntoChunks(stream, parsedFilter)
 		if err != nil {
 			return fmt.Errorf("failed to start backfill: %s", err)
@@ -62,7 +62,7 @@ func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) e
 		defer tx.Rollback()
 		splitColumn := stream.Self().StreamMetadata.SplitColumn
 		splitColumn = utils.Ternary(splitColumn == "", "ctid", splitColumn).(string)
-		// FIlter passed in after chunking format, remove the filter from the split chunk and minmax part.
+		// Filter added during chunk processing
 		stmt := jdbc.PostgresChunkScanQuery(stream, splitColumn, chunk, parsedFilter)
 
 		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -156,7 +156,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream, parsedFilter str
 		var splits []types.Chunk
 
 		for {
-			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, splitColumn)
+			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, splitColumn, parsedFilter)
 			if err != nil {
 				return nil, fmt.Errorf("failed to split chunks based on next query size: %s", err)
 			}
@@ -175,10 +175,9 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream, parsedFilter str
 	if splitColumn != "" {
 		var minValue, maxValue interface{}
 		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, splitColumn)
-		// Filter added during minmax chunk creation and during processing as well. Number of chunks to be scaanned should be decreased. Before chunking
-		// if parsedFilter != "" {
-		// 	minMaxRowCountQuery = fmt.Sprintf("%s WHERE %s", minMaxRowCountQuery, parsedFilter)
-		// }
+		if parsedFilter != "" {
+			minMaxRowCountQuery = fmt.Sprintf("%s WHERE %s", minMaxRowCountQuery, parsedFilter)
+		}
 		// TODO: Fails on UUID type (Good First Issue)
 		err := p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {
@@ -206,17 +205,8 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream, parsedFilter str
 	}
 }
 
-func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, splitColumn string) (interface{}, error) {
+func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, splitColumn, parsedFilter string) (interface{}, error) {
 	var chunkEnd interface{}
-	filter := stream.Self().StreamMetadata.Filter
-	parsedFilter := ""
-	if filter != "" {
-		var err error
-		parsedFilter, err = jdbc.ParseFilter(filter)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse filter: %s", err)
-		}
-	}
 	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, splitColumn, previousChunkEnd, p.config.BatchSize, parsedFilter)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {

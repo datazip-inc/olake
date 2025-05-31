@@ -29,10 +29,15 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	chunks := m.State.GetChunks(stream.Self())
 	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
-	// parsedFilter, err := parseFilter(stream.Self().StreamMetadata.Filter)
-	// if err != nil {
-	// 	return err
-	// }
+	var parsedFilter bson.D
+	filter := stream.Self().StreamMetadata.Filter
+	if filter != "" {
+		var err error
+		parsedFilter, err = parseFilter(filter)
+		if err != nil {
+			return fmt.Errorf("failed to parse filter: %s", err)
+		}
+	}
 	if chunks == nil || chunks.Len() == 0 {
 		// Full load case
 		logger.Infof("Starting full load for stream [%s]", stream.ID())
@@ -52,7 +57,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		// Generate and update chunks
 		var retryErr error
 		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
+			// Filter added during chunk creation
+			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream, parsedFilter)
 			return retryErr
 		})
 		if err != nil {
@@ -95,8 +101,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursorIterationFunc := func() error {
-			// Here if the filter in used in split chunks with generate pipeline, then it is filter before/during chunking, else it is after chunking if used only at generate pipeline
-			cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, stream.Self().StreamMetadata.Filter), opts)
+			// Filter added during chunk processing
+			cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, parsedFilter), opts)
 			if err != nil {
 				return fmt.Errorf("collection.Find: %s", err)
 			}
@@ -134,19 +140,15 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	})
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
-	// When filter used in this method, this is before or while processing the chunks.
-
-	// filter := stream.Self().StreamMetadata.Filter
-	// parsedFilter, err := parseFilter(filter)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to parse filter: %v", err)
-	// }
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream, parsedFilter bson.D) ([]types.Chunk, error) {
+	if parsedFilter == nil {
+		parsedFilter = bson.D{}
+	}
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
 			// pass here in place of bson.D{}
-			err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+			err := collection.FindOne(ctx, parsedFilter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
 			if err == mongo.ErrNoDocuments {
 				return primitive.NilObjectID, nil
 			}
@@ -167,7 +169,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
 				{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
 				{Key: "maxChunkSize", Value: 1024},
-				// {Key: "filter", Value: parsedFilter},
+				{Key: "filter", Value: parsedFilter},
 			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
 				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
@@ -205,7 +207,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		logger.Info("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		pipeline := mongo.Pipeline{
-			// {{Key: "$match", Value: parsedFilter}},
+			{{Key: "$match", Value: parsedFilter}},
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 			{{Key: "$bucketAuto", Value: bson.D{
 				{Key: "groupBy", Value: "$_id"},
@@ -250,8 +252,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
-		// pass parsedfilter here in place of bson.D{}
-		first, last, err := m.fetchExtremes(collection, bson.D{})
+		first, last, err := m.fetchExtremes(collection, parsedFilter)
 		if err != nil {
 			return nil, err
 		}
@@ -351,14 +352,8 @@ func (m *Mongo) fetchExtremes(collection *mongo.Collection, parsedFilter bson.D)
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter string) mongo.Pipeline {
+func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
 	// Parse the filter string into a BSON query
-	parsedFilter, err := parseFilter(filter)
-	if err != nil {
-		// you can choose to panic or return a hard-coded empty pipeline here
-		panic(fmt.Sprintf("invalid filter [%s]: %v", filter, err))
-	}
-
 	andOperation := bson.A{
 		bson.D{
 			{
@@ -471,7 +466,6 @@ func parseFilter(filter string) (bson.D, error) {
 		}
 		return parsedFilter, nil
 	}
-
 	return parseDSLFilter(filter)
 }
 
@@ -522,7 +516,6 @@ func parseDSLFilter(input string) (bson.D, error) {
 	if len(clauses) == 1 {
 		return clauses[0].(bson.D), nil
 	}
-
 	return bson.D{{Key: opKey, Value: clauses}}, nil
 }
 

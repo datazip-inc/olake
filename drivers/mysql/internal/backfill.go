@@ -22,7 +22,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 	filter := stream.Self().StreamMetadata.Filter
 	if filter != "" {
 		var err error
-		parsedFilter, err = jdbc.ParseFilterMySQL(filter)
+		parsedFilter, err = jdbc.ParseFilter(filter, "mysql")
 		if err != nil {
 			return fmt.Errorf("failed to parse filter: %s", err)
 		}
@@ -47,7 +47,8 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 	var splitChunks []types.Chunk
 	if stateChunks == nil || stateChunks.Len() == 0 {
 		chunks := types.NewSet[types.Chunk]()
-		if err := m.splitChunks(stream, chunks); err != nil {
+		// Filter added during chunk creation
+		if err := m.splitChunks(stream, chunks, parsedFilter); err != nil {
 			return fmt.Errorf("failed to calculate chunks: %s", err)
 		}
 		splitChunks = chunks.Array()
@@ -87,6 +88,7 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 		// Begin transaction with repeatable read isolation
 		return jdbc.WithIsolation(backfillCtx, m.client, func(tx *sql.Tx) error {
 			// Build query for the chunk
+			// Filter added during chunk processing
 			stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk, parsedFilter)
 			setter := jdbc.NewReader(backfillCtx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 				return tx.QueryContext(ctx, query, args...)
@@ -116,21 +118,12 @@ func (m *MySQL) backfill(pool *protocol.WriterPool, stream protocol.Stream) erro
 	return utils.Concurrent(backfillCtx, splitChunks, m.config.MaxThreads, processChunk)
 }
 
-func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chunk]) error {
+func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chunk], parsedFilter string) error {
 	return jdbc.WithIsolation(context.Background(), m.client, func(tx *sql.Tx) error {
-		filter := stream.Self().StreamMetadata.Filter
-		parsedFilter := ""
-		if filter != "" {
-			var err error
-			parsedFilter, err = jdbc.ParseFilterMySQL(filter)
-			if err != nil {
-				return fmt.Errorf("failed to parse filter: %s", err)
-			}
-		}
 		// Get primary key column using the provided function
 		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		// Get table extremes
-		minVal, maxVal, err := m.getTableExtremes(stream, pkColumn, tx)
+		minVal, maxVal, err := m.getTableExtremes(stream, pkColumn, tx, parsedFilter)
 		if err != nil {
 			return err
 		}
@@ -181,21 +174,11 @@ func (m *MySQL) splitChunks(stream protocol.Stream, chunks *types.Set[types.Chun
 	})
 }
 
-func (m *MySQL) getTableExtremes(stream protocol.Stream, pkColumn string, tx *sql.Tx) (min, max any, err error) {
-	// Filter used before/during chunking
-	// var parsedFilter string
-	// filter := stream.Self().StreamMetadata.Filter
-	// if filter != "" {
-	// 	var err error
-	// 	parsedFilter, err = jdbc.ParseFilterMySQL(filter)
-	// 	if err != nil {
-	// 		return nil, nil, fmt.Errorf("failed to parse filter: %s", err)
-	// 	}
-	// }
+func (m *MySQL) getTableExtremes(stream protocol.Stream, pkColumn string, tx *sql.Tx, parsedFilter string) (min, max any, err error) {
 	query := jdbc.MinMaxQuery(stream, pkColumn)
-	// if parsedFilter != "" {
-	// 	query = fmt.Sprintf("%s WHERE %s", query, parsedFilter)
-	// }
+	if parsedFilter != "" {
+		query = fmt.Sprintf("%s WHERE %s", query, parsedFilter)
+	}
 	err = tx.QueryRow(query).Scan(&min, &max)
 	if err != nil {
 		return "", "", err
