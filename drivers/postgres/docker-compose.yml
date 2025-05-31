@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: olake_postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret1234
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf
+    command: 
+      - bash
+      - -c
+      - |
+        # Install wal2json
+        apt-get update && apt-get install -y postgresql-15-wal2json
+        
+        # Start PostgreSQL with basic config in background
+        docker-entrypoint.sh postgres \
+          -c hba_file=/etc/postgresql/pg_hba.conf \
+          -c listen_addresses='*' \
+          -c wal_level=logical \
+          -c max_wal_senders=10 \
+          -c max_replication_slots=10 \
+          -c shared_preload_libraries=wal2json &
+        
+        # Wait for PostgreSQL to be ready
+        while ! pg_isready -U postgres -h localhost -p 5432; do
+          sleep 1
+        done
+        
+        # Create replication slot if it doesn't exist
+        psql -v ON_ERROR_STOP=1 -U postgres <<EOF
+        DO \$\$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'olake_slot') THEN
+            PERFORM pg_create_logical_replication_slot('olake_slot', 'wal2json');
+            RAISE NOTICE 'Replication slot created successfully';
+          ELSE
+            RAISE NOTICE 'Replication slot already exists';
+          END IF;
+        END
+        \$\$;
+        EOF
+        
+        # Keep container running
+        wait

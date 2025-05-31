@@ -114,10 +114,10 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		default:
 			return fmt.Sprintf("%v", v), nil
 		}
-	case types.Float64:
-		return ReformatFloat64(v)
 	case types.Float32:
 		return ReformatFloat32(v)
+	case types.Float64:
+		return ReformatFloat64(v)
 	case types.Array:
 		if value, isArray := v.([]any); isArray {
 			return value, nil
@@ -134,7 +134,16 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 func ReformatDate(v interface{}) (time.Time, error) {
 	parsed, err := func() (time.Time, error) {
 		switch v := v.(type) {
-		// we assume int64 is in seconds and don't currently scale to the precision
+		case []uint8:
+			strVal := string(v)
+			return parseStringTimestamp(strVal)
+		case []int8:
+			b := make([]byte, 0, len(v))
+			for _, i := range v {
+				b = append(b, byte(i))
+			}
+			strVal := string(b)
+			return parseStringTimestamp(strVal)
 		case int64:
 			return time.Unix(v, 0), nil
 		case *int64:
@@ -221,6 +230,8 @@ func ReformatInt64(v any) (int64, error) {
 		return int64(v), nil
 	case int:
 		return int64(v), nil
+	case int8:
+		return int64(v), nil
 	case int16:
 		return int64(v), nil
 	case int32:
@@ -263,6 +274,11 @@ func ReformatInt32(v any) (int32, error) {
 		return int32(v), nil
 	case float64:
 		return int32(v), nil
+	case int:
+		//nolint:gosec,G115
+		return int32(v), nil
+	case int8:
+		return int32(v), nil
 	case int16:
 		return int32(v), nil
 	case int32:
@@ -291,6 +307,11 @@ func ReformatInt32(v any) (int32, error) {
 			return 0, fmt.Errorf("failed to change string %v to int32: %v", v, err)
 		}
 		return int32(intValue), nil
+	case []uint8:
+		if len(v) == 1 {
+			return int32(v[0]), nil
+		}
+		return 0, fmt.Errorf("unsupported []uint8 of length %d: %v", len(v), v)
 	case *any:
 		return ReformatInt32(*v)
 	}
@@ -300,6 +321,14 @@ func ReformatInt32(v any) (int32, error) {
 
 func ReformatFloat64(v interface{}) (interface{}, error) {
 	switch v := v.(type) {
+	case []uint8:
+		// Convert byte slice to string first
+		strVal := string(v)
+		f, err := strconv.ParseFloat(strVal, 64)
+		if err != nil {
+			return float64(0), fmt.Errorf("failed to change []byte %v to float64: %v", v, err)
+		}
+		return f, nil
 	case float32:
 		return float64(v), nil
 	case float64:
@@ -342,6 +371,15 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 
 func ReformatFloat32(v interface{}) (interface{}, error) {
 	switch v := v.(type) {
+	case []uint8:
+		// Convert byte slice to string first
+		strVal := string(v)
+		f64, err := strconv.ParseFloat(strVal, 32)
+		f := float32(f64)
+		if err != nil {
+			return float32(0), fmt.Errorf("failed to change []byte %v to float32: %v", v, err)
+		}
+		return f, nil
 	case float32:
 		return v, nil
 	case float64:
