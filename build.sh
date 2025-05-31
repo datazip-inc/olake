@@ -22,9 +22,9 @@ function check_and_build_jar() {
     fi
     
     # Check in the target directory
-    if [ -f "writers/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar" ]; then
+    if [ -f "destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar" ]; then
         echo "JAR file found in target directory, copying to base directory..."
-        cp writers/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar ./debezium-server-iceberg-sink.jar
+        cp destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar ./debezium-server-iceberg-sink.jar
         return 0
     fi
     
@@ -35,8 +35,8 @@ function check_and_build_jar() {
     local current_dir=$(pwd)
     
     # Navigate to the Maven project directory
-    if [ -d "writers/iceberg/debezium-server-iceberg-sink" ]; then
-        cd writers/iceberg/debezium-server-iceberg-sink
+    if [ -d "destination/iceberg/debezium-server-iceberg-sink" ]; then
+        cd destination/iceberg/debezium-server-iceberg-sink
     else
         fail "Cannot find Iceberg Maven project directory."
     fi
@@ -48,8 +48,8 @@ function check_and_build_jar() {
     cd "$current_dir"
     
     # Copy the JAR file to the base directory
-    if [ -f "writers/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar" ]; then
-        cp writers/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar ./debezium-server-iceberg-sink.jar
+    if [ -f "destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar" ]; then
+        cp destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar ./debezium-server-iceberg-sink.jar
     else
         fail "Maven build completed but could not find the JAR file."
     fi

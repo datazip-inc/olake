@@ -1,4 +1,4 @@
-package protocol
+package destination
 
 import (
 	"context"
@@ -56,16 +56,18 @@ func WithBackfill(backfill bool) ThreadOptions {
 type WriterPool struct {
 	totalRecords  atomic.Int64
 	recordCount   atomic.Int64
-	threadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
+	ThreadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
 	config        any          // respective writer config
 	init          NewFunc      // To initialize exclusive destination threads
 	group         *errgroup.Group
 	groupCtx      context.Context
-	tmu           sync.Mutex // Mutex between threads
+	tmu           sync.Mutex   // Mutex between threads
+	state         *types.State // Used to log state of the writer pool
+	batchSize     int64        // Default batch size for writing records
 }
 
 // Shouldn't the name be NewWriterPool?
-func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
+func NewWriter(ctx context.Context, config *types.WriterConfig, batchSize int64, state *types.State) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -85,12 +87,14 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 	return &WriterPool{
 		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
-		threadCounter: atomic.Int64{},
+		ThreadCounter: atomic.Int64{},
 		config:        config.WriterConfig,
 		init:          newfunc,
 		group:         group,
 		groupCtx:      ctx,
 		tmu:           sync.Mutex{},
+		batchSize:     batchSize,
+		state:         state,
 	}, nil
 }
 
@@ -100,7 +104,7 @@ type ThreadEvent struct {
 }
 
 // Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ...ThreadOptions) (*ThreadEvent, error) {
+func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterface, options ...ThreadOptions) (*ThreadEvent, error) {
 	// setup options
 	opts := &Options{}
 	for _, one := range options {
@@ -150,7 +154,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 
 	w.group.Go(func() error {
 		err := func() (err error) {
-			w.threadCounter.Add(1)
+			w.ThreadCounter.Add(1)
 			// init writer first
 			if err := initNewWriter(); err != nil {
 				return err
@@ -173,7 +177,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 				if opts.errorChannel != nil {
 					close(opts.errorChannel)
 				}
-				w.threadCounter.Add(-1)
+				w.ThreadCounter.Add(-1)
 			}()
 
 			return func() error {
@@ -202,8 +206,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 							return err
 						}
 						w.recordCount.Add(1) // increase the record count
-						if w.SyncedRecords()%batchSize == 0 {
-							state.LogWithLock()
+						if w.SyncedRecords()%w.batchSize == 0 {
+							w.state.LogWithLock()
 						}
 					}
 				}

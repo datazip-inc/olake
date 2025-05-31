@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -33,16 +33,16 @@ type FileMetadata struct {
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
 type Parquet struct {
-	options          *protocol.Options
+	options          *destination.Options
 	config           *Config
-	stream           protocol.Stream
+	stream           types.StreamInterface
 	basePath         string                    // construct with streamNamespace/streamName
 	partitionedFiles map[string][]FileMetadata // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
-func (p *Parquet) GetConfigRef() protocol.Config {
+func (p *Parquet) GetConfigRef() destination.Config {
 	p.config = &Config{}
 	return p.config
 }
@@ -106,7 +106,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(stream protocol.Stream, options *protocol.Options) error {
+func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Options) error {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]FileMetadata)
@@ -299,7 +299,7 @@ func (p *Parquet) Type() string {
 }
 
 // Flattener returns a flattening function for records.
-func (p *Parquet) Flattener() protocol.FlattenFunction {
+func (p *Parquet) Flattener() destination.FlattenFunction {
 	flattener := typeutils.NewFlattener()
 	return flattener.Flatten
 }
@@ -365,7 +365,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 }
 
 func init() {
-	protocol.RegisteredWriters[types.Parquet] = func() protocol.Writer {
+	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
 		return new(Parquet)
 	}
 }

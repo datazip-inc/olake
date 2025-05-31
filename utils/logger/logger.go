@@ -313,7 +313,7 @@ func SetupProcessLogger(processName string) (*ProcessOutputReader, *ProcessOutpu
 	// Setup stdout reader
 	stdoutReader, stdoutWriter, err := NewProcessLogger(processName, false)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to create stdout reader: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stdout reader: %s", err)
 	}
 
 	// Setup stderr reader
@@ -323,7 +323,7 @@ func SetupProcessLogger(processName string) (*ProcessOutputReader, *ProcessOutpu
 		if stdoutWriter != nil {
 			stdoutWriter.Close()
 		}
-		return nil, nil, nil, nil, fmt.Errorf("failed to create stderr reader: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stderr reader: %s", err)
 	}
 
 	return stdoutReader, stderrReader, stdoutWriter, stderrWriter, nil
@@ -335,7 +335,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	// Set up process output capture using the logger utility
 	stdoutReader, stderrReader, stdoutWriter, stderrWriter, err := SetupProcessLogger(processName)
 	if err != nil {
-		return fmt.Errorf("failed to set up process output capture: %v", err)
+		return fmt.Errorf("failed to set up process output capture: %s", err)
 	}
 
 	// Set the command's stdout and stderr to our pipes
@@ -347,7 +347,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		stderrReader.Close()
 		stdoutWriter.Close()
 		stderrWriter.Close()
-		return fmt.Errorf("failed to start process: %v", err)
+		return fmt.Errorf("failed to start process: %s", err)
 	}
 
 	// Start reading from the process output

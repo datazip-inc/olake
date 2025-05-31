@@ -37,7 +37,7 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 ### Writers / Destination
 1. [Apache Iceberg Docs](https://olake.io/docs/category/apache-iceberg) 
 2. [AWS S3 Docs](https://olake.io/docs/category/aws-s3) 
-3. [Local FileSystem Docs](https://olake.io/docs/writers/local) 
+3. [Local FileSystem Docs](https://olake.io/docs/destination/local) 
 
 
 ## Source/Connector Functionalities

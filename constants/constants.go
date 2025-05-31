@@ -1,9 +1,6 @@
 package constants
 
-import "time"
-
 const (
-	DiscoverTime        = 5 * time.Minute
 	DefaultBackoffCount = 3
 	ParquetFileExt      = "parquet"
 	PartitionRegex      = `\{([^}]+)\}`

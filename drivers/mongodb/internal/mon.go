@@ -7,8 +7,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -24,19 +23,24 @@ const (
 )
 
 type Mongo struct {
-	*base.Driver
-	config *Config
-	client *mongo.Client
+	config     *Config
+	client     *mongo.Client
+	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
+	cdcCursor  any
 }
 
 // config reference; must be pointer
-func (m *Mongo) GetConfigRef() protocol.Config {
+func (m *Mongo) GetConfigRef() abstract.Config {
 	m.config = &Config{}
 	return m.config
 }
 
 func (m *Mongo) Spec() any {
 	return Config{}
+}
+
+func (m *Mongo) CDCSupported() bool {
+	return m.CDCSupport
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
@@ -64,23 +68,10 @@ func (m *Mongo) Setup(ctx context.Context) error {
 		m.config.RetryCount += 1
 	}
 
-	return nil
-}
-
-func (m *Mongo) Check(ctx context.Context) error {
 	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
-}
-
-func (m *Mongo) StateType() types.StateType {
-	return types.StreamType
-}
-
-func (m *Mongo) SetupState(state *types.State) {
-	state.Type = m.StateType()
-	m.State = state
 }
 
 func (m *Mongo) Close(ctx context.Context) error {
@@ -95,25 +86,17 @@ func (m *Mongo) MaxConnections() int {
 	return m.config.MaxThreads
 }
 
-func (m *Mongo) Discover(ctx context.Context) ([]*types.Stream, error) {
-	streams := m.GetStreams()
-	if len(streams) != 0 {
-		return streams, nil
-	}
-
+func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
-	defer cancel()
-
 	database := m.client.Database(m.config.Database)
-	collections, err := database.ListCollections(discoverCtx, bson.M{})
+	collections, err := database.ListCollections(ctx, bson.M{})
 	if err != nil {
 		return nil, err
 	}
 
 	var streamNames []string
 	// Iterate through collections and check if they are views
-	for collections.Next(discoverCtx) {
+	for collections.Next(ctx) {
 		var collectionInfo bson.M
 		if err := collections.Decode(&collectionInfo); err != nil {
 			return nil, fmt.Errorf("failed to decode collection: %s", err)
@@ -125,82 +108,72 @@ func (m *Mongo) Discover(ctx context.Context) ([]*types.Stream, error) {
 		}
 		streamNames = append(streamNames, collectionInfo["name"].(string))
 	}
-	// Either wait for covering 100k records from both sides for all streams
-	// Or wait till discoverCtx exits
-	err = utils.Concurrent(discoverCtx, streamNames, len(streamNames), func(ctx context.Context, streamName string, _ int) error {
-		stream, err := m.produceCollectionSchema(discoverCtx, database, streamName)
-		if err != nil && discoverCtx.Err() == nil { // if discoverCtx did not make an exit then throw an error
-			return fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
-		}
-		stream.SyncMode = m.config.DefaultMode
-		// cache stream
-		m.AddStream(stream)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return m.GetStreams(), nil
+	return streamNames, collections.Err()
 }
 
-func (m *Mongo) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	return m.Driver.Read(ctx, m, pool, standardStreams, cdcStreams)
-}
+func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
+		logger.Infof("producing type schema for stream [%s]", streamName)
 
-// fetch schema types from mongo for streamName
-func (m *Mongo) produceCollectionSchema(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
-	logger.Infof("producing type schema for stream [%s]", streamName)
+		// initialize stream
+		collection := db.Collection(streamName)
+		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
 
-	// initialize stream
-	collection := db.Collection(streamName)
-	stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
-
-	// find primary keys
-	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
-	if err != nil {
-		return nil, err
-	}
-	defer indexesCursor.Close(ctx)
-
-	for indexesCursor.Next(ctx) {
-		var indexes bson.M
-		if err := indexesCursor.Decode(&indexes); err != nil {
+		// find primary keys
+		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
+		if err != nil {
 			return nil, err
 		}
-		for key := range indexes["key"].(bson.M) {
-			stream.WithPrimaryKey(key)
-		}
-	}
+		defer indexesCursor.Close(ctx)
 
-	// Define find options for fetching documents in ascending and descending order.
-	findOpts := []*options.FindOptions{
-		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
-		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
-	}
-
-	return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
-		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
-		if err != nil {
-			return err
-		}
-		defer cursor.Close(ctx)
-
-		for cursor.Next(ctx) {
-
-			var row bson.M
-			if err := cursor.Decode(&row); err != nil {
-				return err
+		for indexesCursor.Next(ctx) {
+			var indexes bson.M
+			if err := indexesCursor.Decode(&indexes); err != nil {
+				return nil, err
 			}
-
-			filterMongoObject(row)
-			if err := typeutils.Resolve(stream, row); err != nil {
-				return err
+			for key := range indexes["key"].(bson.M) {
+				stream.WithPrimaryKey(key)
 			}
 		}
 
-		return cursor.Err()
-	})
+		// Define find options for fetching documents in ascending and descending order.
+		findOpts := []*options.FindOptions{
+			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
+			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
+		}
+
+		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+			cursor, err := collection.Find(ctx, bson.D{}, findOpt)
+			if err != nil {
+				return err
+			}
+			defer cursor.Close(ctx)
+
+			for cursor.Next(ctx) {
+
+				var row bson.M
+				if err := cursor.Decode(&row); err != nil {
+					return err
+				}
+
+				filterMongoObject(row)
+				if err := typeutils.Resolve(stream, row); err != nil {
+					return err
+				}
+			}
+
+			return cursor.Err()
+		})
+	}
+	database := m.client.Database(m.config.Database)
+	// Either wait for covering 100k records from both sides for all streams
+	// Or wait till discoverCtx exits
+	stream, err := produceCollectionSchema(ctx, database, streamName)
+	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
+		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
+	}
+	stream.SyncMode = m.config.DefaultMode
+	return stream, err
 }
 
 func filterMongoObject(doc bson.M) {

@@ -122,7 +122,7 @@ func (c *Config) Validate() error {
 		// Set JarPath based on file existence in two possible locations
 		execDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get current directory for searching jar file: %v", err)
+			return fmt.Errorf("failed to get current directory for searching jar file: %s", err)
 		}
 
 		// Remove /drivers/* from execDir if present
@@ -138,12 +138,12 @@ func (c *Config) Validate() error {
 			c.JarPath = baseJarPath
 		} else {
 			// Otherwise, look in the target directory
-			targetJarPath := fmt.Sprintf("%s/writers/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar", execDir)
+			targetJarPath := fmt.Sprintf("%s/destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar", execDir)
 			if err := utils.CheckIfFilesExists(targetJarPath); err == nil {
 				logger.Infof("Iceberg JAR file found in target directory: %s", targetJarPath)
 				c.JarPath = targetJarPath
 			} else {
-				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to writers/iceberg/debezium-server-iceberg-sink/target/ directory and run mvn clean package -DskipTests",
+				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/debezium-server-iceberg-sink/target/ directory and run mvn clean package -DskipTests",
 					baseJarPath, targetJarPath)
 			}
 		}

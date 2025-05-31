@@ -1,4 +1,4 @@
-package base
+package abstract
 
 import (
 	"time"
