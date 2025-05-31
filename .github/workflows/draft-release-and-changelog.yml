@@ -1,0 +1,54 @@
+name: Olake Draft Release and Changelog
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+
+jobs:
+  create_draft_release:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'master' && github.event.pull_request.head.ref == 'staging'
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest release
+        id: latest-release
+        run: |
+          latest_tag=$(git tag -l | sort -V | tail -1)
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+
+      - name: Generate next version
+        id: generate-next-version
+        run: |
+          if [ -z "$LATEST_TAG" ]; then
+            next_version="v0.0.0"
+          else
+            # Remove 'v' prefix and split version into array
+            version=${LATEST_TAG#v}
+            IFS='.' read -ra VERSION_PARTS <<< "$version" 
+            
+            # Increment the last number (patch version)
+            VERSION_PARTS[2]=$((VERSION_PARTS[2] + 1))
+            
+            # Reconstruct the version with 'v' prefix
+            next_version="v${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.${VERSION_PARTS[2]}"
+          fi
+          echo "NEXT_VERSION=$next_version" >> $GITHUB_ENV
+
+      - name: Create draft release
+        id: create-draft-release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.NEXT_VERSION }}
+          generateReleaseNotes: true
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,28 @@
+name: Draft Release Approval
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      driver:
+        description: "Driver to build"
+        required: true
+      version:
+        description: "Version to release"
+        required: true
+
+jobs:
+  build_all_drivers:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+    name: Build and Release Drivers
+    
+    strategy:
+      matrix:
+        driver: [mongodb, mysql, postgres] # Add new drivers here as they become available
+
+    uses: ./.github/workflows/build-and-release-driver.yml
+    with:
+      driver: ${{ github.event.inputs.driver || matrix.driver }}
+      version: ${{ github.event.inputs.version || github.event.release.tag_name }}
+    secrets: inherit
