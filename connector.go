@@ -3,8 +3,8 @@ package olake
 import (
 	"os"
 
-	_ "github.com/datazip-inc/olake/destination/iceberg" // registering local parquet writer
-	_ "github.com/datazip-inc/olake/destination/parquet" // registering local parquet writer
+	_ "github.com/datazip-inc/olake/destination/iceberg" // registering iceberg destination
+	_ "github.com/datazip-inc/olake/destination/parquet" // registering parquet destination
 	"github.com/datazip-inc/olake/drivers/abstract"
 	protocol "github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/utils/logger"

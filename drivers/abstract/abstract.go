@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -59,18 +60,22 @@ func (a *AbstractDriver) Spec() any {
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	streams, err := a.driver.GetStreamNames(ctx)
+	discoverCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	// set max connections
+	if a.driver.MaxConnections() > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(discoverCtx, a.driver.MaxConnections())
+	}
+
+	streams, err := a.driver.GetStreamNames(discoverCtx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
 	}
 	var streamMap sync.Map
-	// set max connections
-	if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
-	}
 
 	utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, stream string) error {
-		streamSchema, err := a.driver.ProduceSchema(ctx, stream)
+		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 		if err != nil {
 			return err
 		}

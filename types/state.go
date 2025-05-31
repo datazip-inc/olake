@@ -121,7 +121,11 @@ func (s *State) SetGlobal(state any, streams ...string) {
 			s.Global.State = state
 		}
 		if len(streams) > 0 {
-			s.Global.Streams.Insert(streams...)
+			if s.Global.Streams == nil {
+				s.Global.Streams = NewSet[string](streams...)
+			} else {
+				s.Global.Streams.Insert(streams...)
+			}
 		}
 	}
 	s.LogState()

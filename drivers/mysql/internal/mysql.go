@@ -100,11 +100,8 @@ func (m *MySQL) MaxConnections() int {
 
 func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(ctx, constants.DiscoverTime)
-	defer cancel()
-
 	query := jdbc.MySQLDiscoverTablesQuery()
-	rows, err := m.client.QueryContext(discoverCtx, query, m.config.Database)
+	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -124,7 +121,6 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	produceTableSchema := func(ctx context.Context, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
-
 		parts := strings.Split(streamName, ".")
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
@@ -160,23 +156,8 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				stream.WithPrimaryKey(columnName)
 			}
 		}
-
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("error iterating rows: %s", err)
-		}
-		// TODO: Populate cursor fields for incremental purpose
-
-		// Add CDC columns if supported
-		if m.CDCSupport {
-			for column, typ := range abstract.DefaultColumns {
-				stream.UpsertField(column, typ, true)
-			}
-			stream.WithSyncMode(types.CDC)
-
-		}
 		stream.WithSyncMode(types.FULLREFRESH)
-
-		return stream, nil
+		return stream, rows.Err()
 	}
 	stream, err := produceTableSchema(ctx, streamName)
 	if err != nil && ctx.Err() == nil {
