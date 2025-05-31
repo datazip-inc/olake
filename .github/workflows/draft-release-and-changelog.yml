@@ -22,7 +22,7 @@ jobs:
       - name: Get latest release
         id: latest-release
         run: |
-          latest_tag=$(git tag -l | tail -1)
+          latest_tag=$(git tag -l | sort -V | tail -1)
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
 
       - name: Generate next version
