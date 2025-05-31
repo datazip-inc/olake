@@ -28,8 +28,9 @@ type AbstractDriver struct { //nolint:gosec,revive
 }
 
 const (
-	DefaultRetryCount  = 3
-	DefaultThreadCount = 3
+	DefaultRetryCount      = 3
+	DefaultThreadCount     = 3
+	DefaultDiscoverTimeout = 5 * time.Minute
 )
 
 var DefaultColumns = map[string]types.DataType{
@@ -43,7 +44,7 @@ func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDri
 	return &AbstractDriver{
 		driver:          driver,
 		GlobalCtxGroup:  utils.NewCGroup(ctx),
-		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, 10), // default max connections
+		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, DefaultThreadCount), // default max connections
 	}
 }
 
@@ -60,7 +61,7 @@ func (a *AbstractDriver) Spec() any {
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	discoverCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	discoverCtx, cancel := context.WithTimeout(ctx, DefaultDiscoverTimeout)
 	defer cancel()
 
 	// set max connections
