@@ -63,7 +63,6 @@ func (m *Mongo) Setup() error {
 	}
 
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
-	logger.Infof("💛 found: %+v", found)
 	if found {
 		cdc := &CDC{}
 		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
@@ -74,8 +73,6 @@ func (m *Mongo) Setup() error {
 		}
 		m.cdcConfig = *cdc
 	}
-
-	logger.Infof("💛 cdc config: %+v", m.cdcConfig)
 
 	m.client = conn
 	// no need to check from discover if it have cdc support or not

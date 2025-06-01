@@ -124,8 +124,8 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 
 			ts := utils.Ternary(
 				record.WallTime != 0,
-				record.WallTime.Time(),
-				time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)),
+				record.WallTime.Time(), //millisecond precision
+				time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), //seconds only
 			).(time.Time)
 
 			rawRecord := types.CreateRawRecord(

@@ -57,12 +57,12 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 
 	// Get current binlog position if state is empty
 	if gs.ServerID == 0 || gs.State.Position.Name == "" {
-		currentPos, err := m.getCurrentBinlogPosition()
+		pos, err := m.getCurrentBinlogPosition()
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
 		gs.Streams = types.NewSet[string]()
-		gs.State.Position = currentPos
+		gs.State.Position = pos
 		gs.ServerID = uint32(1000 + time.Now().UnixNano()%9000)
 		m.State.SetGlobalState(gs)
 		// Reset streams for creating chunks again
