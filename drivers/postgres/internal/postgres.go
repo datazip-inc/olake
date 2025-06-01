@@ -177,9 +177,7 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
-	// (e.g., varchar(50) -> varchar)
-	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
-	olakeType := pgTypeToDataTypes[baseType]
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, pgTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
 

@@ -144,6 +144,14 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	return m.GetStreams(), nil
 }
 
+func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
+	if value == nil {
+		return nil, typeutils.ErrNullValue
+	}
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
+	return typeutils.ReformatValue(olakeType, value)
+}
+
 // Read handles different sync modes for data retrieval
 func (m *MySQL) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 	switch stream.GetSyncMode() {

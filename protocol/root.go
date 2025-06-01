@@ -42,7 +42,7 @@ var RootCmd = &cobra.Command{
 		// set global variables
 
 		if !noSave {
-			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath != "", filepath.Dir(configPath), filepath.Dir(destinationConfigPath)))
+			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
@@ -59,23 +59,16 @@ var RootCmd = &cobra.Command{
 	},
 }
 
-func CreateRootCommand(isDriver bool, driver any) *cobra.Command {
+func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
-
-	// For drivers, we need a connector else nil
-	if isDriver {
-		connector = driver.(Driver)
-	} else {
-		connector = nil
-	}
-
+	connector = driver.(Driver)
 	return RootCmd
 }
 
 func init() {
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
-	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "", "(Required) Config for connector")
-	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "", "(Required) Destination config for connector")
+	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
+	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
