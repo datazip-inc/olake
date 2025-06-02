@@ -41,6 +41,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
+	// TODO: use ctx while querying
 	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)

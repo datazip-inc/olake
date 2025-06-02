@@ -63,7 +63,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 								err = fmt.Errorf("failed to write record for stream[%s]: %s", streamID, threadErr)
 							}
 						}
-						_ = a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
+						err = a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
 					}()
 					return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
 						pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -110,7 +110,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					}
 				}
 			}
-			_ = a.driver.PostCDC(ctx, a.state, nil, err == nil)
+			err = a.driver.PostCDC(ctx, a.state, nil, err == nil)
 		}()
 		return a.driver.StreamChanges(ctx, nil, func(change CDCChange) error {
 			pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()

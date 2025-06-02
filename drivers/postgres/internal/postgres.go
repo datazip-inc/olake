@@ -89,8 +89,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
-		// init pg connection required for cdc
-
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
