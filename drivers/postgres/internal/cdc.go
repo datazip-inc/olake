@@ -60,6 +60,7 @@ func (p *Postgres) PreCDC(ctx context.Context, state *types.State, streams []typ
 			if err != nil {
 				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
 			}
+			// TODO: handle cursor mismatch with user input (Example: user provide if it has to fail or do full load with new resume token)
 			if parsed != currentLSN {
 				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
 				state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})

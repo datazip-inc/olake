@@ -116,13 +116,17 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	if a.driver.CDCSupported() {
-		if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
+	// run cdc sync
+	if len(cdcStreams) > 0 {
+		if a.driver.CDCSupported() {
+			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+				return fmt.Errorf("failed to run change stream: %s", err)
+			}
+		} else {
+			return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
 		}
-	} else {
-		return fmt.Errorf("CDC configuration is not provided, use full refresh for all streams")
 	}
+
 	// start backfill for standard streams
 	for _, stream := range standardStreams {
 		a.GlobalCtxGroup.Add(func(ctx context.Context) error {
