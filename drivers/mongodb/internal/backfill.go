@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"go.mongodb.org/mongo-driver/bson"
@@ -18,46 +18,39 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) Backfill(backfillCtx context.Context, backfilledStreams chan string, pool *protocol.WriterPool, stream protocol.Stream) error {
-	cursorIteratorFunc := func(ctx context.Context, chunk types.Chunk, OnMessage base.BackfillMessageProcessFunc) (err error) {
-		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
-		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-		cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
-		if err != nil {
-			return fmt.Errorf("collection.Find: %s", err)
-		}
-		defer cursor.Close(ctx)
-		for cursor.Next(ctx) {
-			var doc bson.M
-			if _, err = cursor.Current.LookupErr("_id"); err != nil {
-				return fmt.Errorf("looking up idProperty: %s", err)
-			} else if err = cursor.Decode(&doc); err != nil {
-				return fmt.Errorf("backfill decoding document: %s", err)
-			}
-			// filter mongo object
-			filterMongoObject(doc)
-			if err := OnMessage(doc); err != nil {
-				return fmt.Errorf("failed to send message to writer: %s", err)
-			}
-		}
-		return cursor.Err()
+func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
+	if err != nil {
+		return fmt.Errorf("failed to create cursor: %s", err)
 	}
-	return m.Driver.Backfill(backfillCtx, m.getOrSplitChunks, cursorIteratorFunc, backfilledStreams, pool, stream)
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if _, err = cursor.Current.LookupErr("_id"); err != nil {
+			return fmt.Errorf("looking up idProperty: %s", err)
+		} else if err = cursor.Decode(&doc); err != nil {
+			return fmt.Errorf("backfill decoding document: %s", err)
+		}
+		// filter mongo object
+		filterMongoObject(doc)
+		if err := OnMessage(doc); err != nil {
+			return fmt.Errorf("failed to send message to writer: %s", err)
+		}
+	}
+	return cursor.Err()
 }
 
-func (m *Mongo) getOrSplitChunks(ctx context.Context, pool *protocol.WriterPool, stream protocol.Stream) ([]types.Chunk, error) {
-	chunks := m.State.GetChunks(stream.Self())
+func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	if chunks != nil && chunks.Len() != 0 {
-		return chunks.Array(), nil
-	}
 	recordCount, err := m.totalCountInCollection(ctx, collection)
 	if err != nil {
 		return nil, err
 	}
 	if recordCount == 0 {
 		logger.Infof("Collection is empty, nothing to backfill")
-		return []types.Chunk{}, nil
+		return types.NewSet[types.Chunk](), nil
 	}
 
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
@@ -66,18 +59,17 @@ func (m *Mongo) getOrSplitChunks(ctx context.Context, pool *protocol.WriterPool,
 	// Generate and update chunks
 	var retryErr error
 	var chunksArray []types.Chunk
-	err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
 		chunksArray, retryErr = m.splitChunks(ctx, collection, stream)
 		return retryErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed after retry backoff: %s", err)
 	}
-	m.State.SetChunks(stream.Self(), types.NewSet(chunksArray...))
-	return chunksArray, nil
+	return types.NewSet(chunksArray...), nil
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M

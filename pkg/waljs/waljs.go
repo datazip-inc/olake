@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -103,7 +103,7 @@ func (s *Socket) AcknowledgeLSN(ctx context.Context) error {
 	return nil
 }
 
-func (s *Socket) StreamMessages(ctx context.Context, callback base.MessageProcessingFunc) error {
+func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
 	// TODO: need research on if we need initial wait time or not (currently we are using idle time)
 	if err := pglogrepl.StartReplication(
@@ -172,5 +172,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback base.MessageProces
 
 // cleanUpOnFailure drops replication slot and publication if database snapshotting was failed for any reason
 func (s *Socket) Cleanup(ctx context.Context) {
-	_ = s.pgConn.Close(ctx)
+	if s.pgConn != nil {
+		_ = s.pgConn.Close(ctx)
+	}
 }

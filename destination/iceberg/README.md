@@ -32,7 +32,7 @@ Its based in the directory debezium-server-iceberg-sink. Read more ./debezium-se
 Make sure you have docker installed before you run this
 
 ```shell
-cd writers/iceberg/local-test
+cd destination/iceberg/local-test
 docker compose up
 ```
 This will create 

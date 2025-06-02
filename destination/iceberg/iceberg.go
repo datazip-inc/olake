@@ -7,18 +7,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"github.com/datazip-inc/olake/writers/iceberg/proto"
 	"google.golang.org/grpc"
 )
 
 type Iceberg struct {
-	options       *protocol.Options
+	options       *destination.Options
 	config        *Config
-	stream        protocol.Stream
+	stream        types.StreamInterface
 	records       atomic.Int64
 	cmd           *exec.Cmd
 	client        proto.RecordIngestServiceClient
@@ -29,7 +29,7 @@ type Iceberg struct {
 	partitionInfo map[string]string // map of field names to partition transform
 }
 
-func (i *Iceberg) GetConfigRef() protocol.Config {
+func (i *Iceberg) GetConfigRef() destination.Config {
 	i.config = &Config{}
 	return i.config
 }
@@ -38,7 +38,7 @@ func (i *Iceberg) Spec() any {
 	return Config{}
 }
 
-func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error {
+func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Options) error {
 	i.options = options
 	i.stream = stream
 	i.backfill = options.Backfill
@@ -49,7 +49,7 @@ func (i *Iceberg) Setup(stream protocol.Stream, options *protocol.Options) error
 	if partitionRegex != "" {
 		err := i.parsePartitionRegex(partitionRegex)
 		if err != nil {
-			return fmt.Errorf("failed to parse partition regex: %v", err)
+			return fmt.Errorf("failed to parse partition regex: %s", err)
 		}
 	}
 
@@ -70,7 +70,7 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	// Add the record to the batch
 	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
 	if err != nil {
-		return fmt.Errorf("failed to add record to batch: %v", err)
+		return fmt.Errorf("failed to add record to batch: %s", err)
 	}
 
 	// If the batch was flushed, log the event
@@ -85,13 +85,13 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 func (i *Iceberg) Close() error {
 	err := flushBatch(i.configHash, i.client)
 	if err != nil {
-		logger.Errorf("Error flushing batch on close: %v", err)
+		logger.Errorf("Error flushing batch on close: %s", err)
 		return err
 	}
 
 	err = i.CloseIcebergClient()
 	if err != nil {
-		return fmt.Errorf("error closing Iceberg client: %v", err)
+		return fmt.Errorf("error closing Iceberg client: %s", err)
 	}
 
 	return nil
@@ -109,7 +109,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Create a temporary setup for checking
 	err := i.SetupIcebergClient(false)
 	if err != nil {
-		return fmt.Errorf("failed to setup iceberg: %v", err)
+		return fmt.Errorf("failed to setup iceberg: %s", err)
 	}
 
 	defer func() {
@@ -130,7 +130,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Call the remote procedure
 	res, err := i.client.SendRecords(ctx, req)
 	if err != nil {
-		return fmt.Errorf("error sending record to Iceberg RPC Server: %v", err)
+		return fmt.Errorf("error sending record to Iceberg RPC Server: %s", err)
 	}
 	// Print the response from the server
 	logger.Infof("Server Response: %s", res.GetResult())
@@ -150,7 +150,7 @@ func (i *Iceberg) Type() string {
 	return string(types.Iceberg)
 }
 
-func (i *Iceberg) Flattener() protocol.FlattenFunction {
+func (i *Iceberg) Flattener() destination.FlattenFunction {
 	flattener := typeutils.NewFlattener()
 	return flattener.Flatten
 }
@@ -161,7 +161,7 @@ func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ t
 }
 
 func init() {
-	protocol.RegisteredWriters[types.Iceberg] = func() protocol.Writer {
+	destination.RegisteredWriters[types.Iceberg] = func() destination.Writer {
 		return new(Iceberg)
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -17,12 +17,13 @@ import (
 type Connection struct {
 	syncer          *replication.BinlogSyncer
 	CurrentPos      mysql.Position // Current binlog position
+	ServerID        uint32
 	initialWaitTime time.Duration
 	changeFilter    ChangeFilter // Filter for processing binlog events
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
-func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []protocol.Stream) (*Connection, error) {
+func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface) (*Connection, error) {
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
 		Flavor:          config.Flavor,
@@ -34,20 +35,20 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		VerifyChecksum:  config.VerifyChecksum,
 		HeartbeatPeriod: config.HeartbeatPeriod,
 	}
-	syncer := replication.NewBinlogSyncer(syncerConfig)
 	return &Connection{
-		syncer:          syncer,
+		ServerID:        config.ServerID,
+		syncer:          replication.NewBinlogSyncer(syncerConfig),
 		CurrentPos:      pos,
 		initialWaitTime: config.InitialWaitTime,
 		changeFilter:    NewChangeFilter(streams...),
 	}, nil
 }
 
-func (c *Connection) StreamMessages(ctx context.Context, callback base.MessageProcessingFunc) error {
+func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
 	if err != nil {
-		return fmt.Errorf("failed to start binlog sync: %w", err)
+		return fmt.Errorf("failed to start binlog sync: %s", err)
 	}
 	startTime := time.Now()
 	for {
@@ -67,7 +68,7 @@ func (c *Connection) StreamMessages(ctx context.Context, callback base.MessagePr
 					// Timeout means no event, continue to monitor idle time
 					continue
 				}
-				return fmt.Errorf("failed to get binlog event: %w", err)
+				return fmt.Errorf("failed to get binlog event: %s", err)
 			}
 			// Update current position
 			c.CurrentPos.Pos = ev.Header.LogPos

@@ -22,7 +22,7 @@ Golang Code  --gRPC-->  Java (This Project)  --Write to Iceberg-->  S3 + Iceberg
 ### Setup local storage and catalog (Minio + JDBC catalog)
 
 ```shell
-cd writers/iceberg/local-test
+cd destination/iceberg/local-test
 docker compose up
 ```
 This will create 

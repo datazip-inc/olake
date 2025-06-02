@@ -121,7 +121,11 @@ func (s *State) SetGlobal(state any, streams ...string) {
 			s.Global.State = state
 		}
 		if len(streams) > 0 {
-			s.Global.Streams.Insert(streams...)
+			if s.Global.Streams == nil {
+				s.Global.Streams = NewSet[string](streams...)
+			} else {
+				s.Global.Streams.Insert(streams...)
+			}
 		}
 	}
 	s.LogState()
@@ -183,7 +187,6 @@ func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
 func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 	s.Lock()
 	defer s.Unlock()
-
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
