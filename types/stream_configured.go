@@ -2,15 +2,12 @@ package types
 
 import (
 	"fmt"
-	"sync"
-
-	"github.com/datazip-inc/olake/utils"
 )
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
-	streamState             *StreamState `json:"-"` // in-memory state copy for individual stream
-	InitialCursorStateValue any          `json:"-"` // Cached initial state value
+	StreamMetadata          StreamMetadata `json:"-"`
+	InitialCursorStateValue any            `json:"-"` // Cached initial state value
 
 	Stream *Stream `json:"stream,omitempty"`
 
@@ -58,68 +55,18 @@ func (s *ConfiguredStream) Cursor() string {
 	return s.CursorField
 }
 
-// Returns empty and missing
-func (s *ConfiguredStream) SetupState(state *State) {
-	// Initialize a state or map the already present state
-	if !state.IsZero() {
-		i, contains := utils.ArrayContains(state.Streams, func(elem *StreamState) bool {
-			return elem.Namespace == s.Namespace() && elem.Stream == s.Name()
-		})
-
-		if contains {
-			s.InitialCursorStateValue, _ = state.Streams[i].State.Load(s.CursorField)
-			s.streamState = state.Streams[i]
-			return
-		}
-	}
-
-	ss := &StreamState{
-		Stream:    s.Name(),
-		Namespace: s.Namespace(),
-		State:     sync.Map{},
-	}
-
-	// save references of stream state and add it to connector state
-	s.streamState = ss
-	state.Streams = append(state.Streams, ss)
-}
-
-func (s *ConfiguredStream) InitialState() any {
-	return s.InitialCursorStateValue
-}
-
-func (s *ConfiguredStream) SetStateCursor(value any) {
-	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Store(s.Cursor(), value)
-}
-
-func (s *ConfiguredStream) SetStateKey(key string, value any) {
-	s.streamState.HoldsValue.Store(true)
-	s.streamState.State.Store(key, value)
-}
-
-func (s *ConfiguredStream) GetStateCursor() any {
-	val, _ := s.streamState.State.Load(s.Cursor())
-	return val
-}
-
-func (s *ConfiguredStream) GetStateKey(key string) any {
-	val, _ := s.streamState.State.Load(key)
-	return val
-}
-
 // Delete keys from Stream State
-func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
-	values := []any{}
-	for _, key := range keys {
-		val, _ := s.streamState.State.Load(key)
-		values = append(values, val) // cache
+// func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
+// 	values := []any{}
+// 	for _, key := range keys {
+// 		val, _ := s.streamState.State.Load(key)
+// 		values = append(values, val) // cache
 
-		s.streamState.State.Delete(key) // delete
-	}
+// 		s.streamState.State.Delete(key) // delete
+// 	}
 
-	return values
-}
+// 	return values
+// }
 
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {
@@ -137,4 +84,8 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	return nil
+}
+
+func (s *ConfiguredStream) NormalizationEnabled() bool {
+	return s.StreamMetadata.Normalization
 }

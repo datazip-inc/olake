@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/typeutils"
@@ -16,15 +15,16 @@ import (
 )
 
 type NewFunc func() Writer
-type InsertFunction func(record types.RawRecord) (exit bool, err error)
+type InsertFunction func(record types.RawRecord) (err error)
 type CloseFunction func()
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
 
 type Options struct {
-	Identifier  string
-	Number      int64
-	WaitChannel chan struct{}
+	Identifier   string
+	Number       int64
+	errorChannel chan error
+	Backfill     bool
 }
 
 type ThreadOptions func(opt *Options)
@@ -41,13 +41,20 @@ func WithNumber(number int64) ThreadOptions {
 	}
 }
 
-func WithWaitChannel(waitChannel chan struct{}) ThreadOptions {
+func WithErrorChannel(errChan chan error) ThreadOptions {
 	return func(opt *Options) {
-		opt.WaitChannel = waitChannel
+		opt.errorChannel = errChan
+	}
+}
+
+func WithBackfill(backfill bool) ThreadOptions {
+	return func(opt *Options) {
+		opt.Backfill = backfill
 	}
 }
 
 type WriterPool struct {
+	totalRecords  atomic.Int64
 	recordCount   atomic.Int64
 	threadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
 	config        any          // respective writer config
@@ -76,6 +83,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 
 	group, ctx := errgroup.WithContext(ctx)
 	return &WriterPool{
+		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
 		threadCounter: atomic.Int64{},
 		config:        config.WriterConfig,
@@ -107,16 +115,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	fields.FromSchema(stream.Schema())
 
 	initNewWriter := func() error {
+		w.tmu.Lock() // lock for concurrent access of w.config
+		defer w.tmu.Unlock()
 		thread = w.init() // set the thread variable
-		err := func() error {
-			w.tmu.Lock() // lock for concurrent access of w.config
-			defer w.tmu.Unlock()
-			if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
-				return err
-			}
-			return nil
-		}()
-		if err != nil {
+		if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
 			return err
 		}
 		return thread.Setup(stream, opts)
@@ -128,29 +130,15 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 			return nil, err
 		}
 
-		// add constants key fields
-		flattenedData[constants.OlakeID] = rawRecord.OlakeID
-		flattenedData[constants.OlakeTimestamp] = rawRecord.OlakeTimestamp
-		if rawRecord.DeleteTime != 0 {
-			flattenedData[constants.CDCDeletedAt] = rawRecord.DeleteTime
-		}
-
 		// schema evolution
 		change, typeChange, mutations := fields.Process(flattenedData)
 		if change || typeChange {
 			w.tmu.Lock()
 			stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
 			w.tmu.Unlock()
-			if (typeChange && thread.ReInitiationOnTypeChange()) || (change && thread.ReInitiationOnNewColumns()) {
-				thread.Close()
-				if err := initNewWriter(); err != nil { // init new writer
-					return nil, err
-				}
-			} else {
-				err := thread.EvolveSchema(mutations.ToProperties())
-				if err != nil {
-					return nil, fmt.Errorf("failed to evolve schema: %s", err)
-				}
+			err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData, rawRecord.OlakeTimestamp)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evolve schema: %s", err)
 			}
 		}
 		err = typeutils.ReformatRecord(fields, flattenedData)
@@ -163,34 +151,41 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	w.group.Go(func() error {
 		err := func() error {
 			w.threadCounter.Add(1)
-			defer func() {
-				childCancel()  // no more inserts
-				thread.Close() // close it after closing inserts
-				// if wait channel is provided, close it
-				if opts.WaitChannel != nil {
-					close(opts.WaitChannel)
-				}
-				w.threadCounter.Add(-1)
-			}()
 			// init writer first
 			if err := initNewWriter(); err != nil {
 				return err
 			}
 
+			defer func() {
+				// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
+				w.tmu.Lock()
+				defer w.tmu.Unlock()
+				childCancel() // no more inserts
+				// if wait channel is provided, close it
+				if opts.errorChannel != nil {
+					close(opts.errorChannel)
+				}
+				thread.Close() // close it after closing inserts
+				w.threadCounter.Add(-1)
+			}()
+
 			return func() error {
 				for {
 					select {
 					case <-parent.Done():
-						return parent.Err()
+						return nil
 					default:
 						record, ok := <-recordChan
 						if !ok {
 							return nil
 						}
 						// add insert time
-						record.OlakeTimestamp = time.Now().UTC().UnixMilli()
+						record.OlakeTimestamp = time.Now().UTC()
+
+						//TODO: we need to capture error on thread.Close()
+
 						// check for normalization
-						if thread.Normalization() {
+						if stream.NormalizationEnabled() {
 							normalizedData, err := normalizeFunc(record)
 							if err != nil {
 								return err
@@ -203,10 +198,8 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 						}
 						w.recordCount.Add(1) // increase the record count
 
-						if w.TotalRecords()%batchSize == 0 {
-							if !state.IsZero() {
-								logger.LogState(state)
-							}
+						if w.SyncedRecords()%batchSize == 0 {
+							state.LogWithLock()
 						}
 					}
 				}
@@ -219,12 +212,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	})
 
 	return &ThreadEvent{
-		Insert: func(record types.RawRecord) (bool, error) {
+		Insert: func(record types.RawRecord) error {
 			select {
 			case <-child.Done():
-				return false, fmt.Errorf("main writer closed")
+				return fmt.Errorf("main writer closed")
 			case recordChan <- record:
-				return false, nil
+				return nil
 			}
 		},
 		Close: func() {
@@ -234,8 +227,16 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 }
 
 // Returns total records fetched at runtime
-func (w *WriterPool) TotalRecords() int64 {
+func (w *WriterPool) SyncedRecords() int64 {
 	return w.recordCount.Load()
+}
+
+func (w *WriterPool) AddRecordsToSync(recordCount int64) {
+	w.totalRecords.Add(recordCount)
+}
+
+func (w *WriterPool) GetRecordsToSync() int64 {
+	return w.totalRecords.Load()
 }
 
 func (w *WriterPool) Wait() error {

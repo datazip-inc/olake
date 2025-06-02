@@ -10,17 +10,19 @@ import (
 )
 
 type Config struct {
-	Hosts          []string       `json:"hosts" validate:"required" min:"1"`
-	Username       string         `json:"username" validate:"required"`
-	Password       string         `json:"password" validate:"required"`
-	AuthDB         string         `json:"authdb" validate:"required"`
-	ReplicaSet     string         `json:"replica_set"`
-	ReadPreference string         `json:"read_preference"`
-	Srv            bool           `json:"srv"`
-	ServerRAM      uint           `json:"server_ram" validate:"required" gt:"0"`
-	MaxThreads     int            `json:"max_threads" validate:"required" gt:"0"`
-	Database       string         `json:"database" validate:"required"`
-	DefaultMode    types.SyncMode `json:"default_mode"`
+	Hosts            []string       `json:"hosts" validate:"required" min:"1"`
+	Username         string         `json:"username" validate:"required"`
+	Password         string         `json:"password" validate:"required"`
+	AuthDB           string         `json:"authdb" validate:"required"`
+	ReplicaSet       string         `json:"replica_set"`
+	ReadPreference   string         `json:"read_preference"`
+	Srv              bool           `json:"srv"`
+	ServerRAM        uint           `json:"server_ram" validate:"required" gt:"0"`
+	MaxThreads       int            `json:"max_threads" validate:"required" gt:"0"`
+	Database         string         `json:"database" validate:"required"`
+	DefaultMode      types.SyncMode `json:"default_mode"`
+	RetryCount       int            `json:"backoff_retry_count"`
+	ChunkingStrategy string         `json:"chunking_strategy"`
 }
 
 func (c *Config) URI() string {
@@ -44,9 +46,16 @@ func (c *Config) URI() string {
 		options = fmt.Sprintf("%s&replicaSet=%s&readPreference=%s", options, c.ReplicaSet, c.ReadPreference)
 	}
 
+	//  Handle auth credentials
+	auth := ""
+	if c.Username != "" {
+		auth = utils.Ternary(c.Password != "", c.Username+":"+c.Password+"@", c.Username+"@").(string)
+	}
+
+	// Final MongoDB URI
 	return fmt.Sprintf(
-		"%s://%s:%s@%s/?%s", connectionPrefix,
-		c.Username, c.Password, strings.Join(c.Hosts, ","), options,
+		"%s://%s%s/%s",
+		connectionPrefix, auth, strings.Join(c.Hosts, ","), options,
 	)
 }
 

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +38,7 @@ var discoverCmd = &cobra.Command{
 			return errors.New("no streams found in connector")
 		}
 
-		logger.LogCatalog(streams)
+		types.LogCatalog(streams)
 		return nil
 	},
 }

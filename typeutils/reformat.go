@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/types"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type StringInterface interface {
@@ -47,7 +48,6 @@ func ReformatRecord(fields Fields, record types.Record) error {
 		if !found {
 			return fmt.Errorf("missing field [%s]", key)
 		}
-
 		updated, err := ReformatValue(field.getType(), val)
 		if err != nil && err != ErrNullValue {
 			return fmt.Errorf("failed to reformat value[%s] to datatype[%s] for key[%s]: %s", val, field.getType(), key, err)
@@ -93,6 +93,8 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 	case types.Int64:
 		return ReformatInt64(v)
+	case types.Int32:
+		return ReformatInt32(v)
 	case types.Timestamp:
 		return ReformatDate(v)
 	case types.String:
@@ -112,6 +114,8 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		default:
 			return fmt.Sprintf("%v", v), nil
 		}
+	case types.Float32:
+		return ReformatFloat32(v)
 	case types.Float64:
 		return ReformatFloat64(v)
 	case types.Array:
@@ -130,7 +134,16 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 func ReformatDate(v interface{}) (time.Time, error) {
 	parsed, err := func() (time.Time, error) {
 		switch v := v.(type) {
-		// we assume int64 is in seconds and don't currently scale to the precision
+		case []uint8:
+			strVal := string(v)
+			return parseStringTimestamp(strVal)
+		case []int8:
+			b := make([]byte, 0, len(v))
+			for _, i := range v {
+				b = append(b, byte(i))
+			}
+			strVal := string(b)
+			return parseStringTimestamp(strVal)
 		case int64:
 			return time.Unix(v, 0), nil
 		case *int64:
@@ -170,9 +183,10 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		case *string:
 			if v == nil || *v == "" {
 				return time.Time{}, fmt.Errorf("empty string passed")
-			} else {
-				return parseStringTimestamp(*v)
 			}
+			return parseStringTimestamp(*v)
+		case primitive.DateTime:
+			return v.Time(), nil
 		case *any:
 			return ReformatDate(*v)
 		}
@@ -216,6 +230,8 @@ func ReformatInt64(v any) (int64, error) {
 		return int64(v), nil
 	case int:
 		return int64(v), nil
+	case int8:
+		return int64(v), nil
 	case int16:
 		return int64(v), nil
 	case int32:
@@ -235,7 +251,16 @@ func ReformatInt64(v any) (int64, error) {
 		//nolint:gosec,G115
 		return int64(v), nil
 	case bool:
-		return 1, nil
+		if v {
+			return 1, nil
+		}
+		return 0, nil
+	case string:
+		intValue, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return int64(0), fmt.Errorf("failed to change string %v to int64: %v", v, err)
+		}
+		return intValue, nil
 	case *any:
 		return ReformatInt64(*v)
 	}
@@ -243,8 +268,67 @@ func ReformatInt64(v any) (int64, error) {
 	return int64(0), fmt.Errorf("failed to change %v (type:%T) to int64", v, v)
 }
 
+func ReformatInt32(v any) (int32, error) {
+	switch v := v.(type) {
+	case float32:
+		return int32(v), nil
+	case float64:
+		return int32(v), nil
+	case int:
+		//nolint:gosec,G115
+		return int32(v), nil
+	case int8:
+		return int32(v), nil
+	case int16:
+		return int32(v), nil
+	case int32:
+		return v, nil
+	case int64:
+		//nolint:gosec,G115
+		return int32(v), nil
+	case uint:
+		//nolint:gosec,G115
+		return int32(v), nil
+	case uint8:
+		return int32(v), nil
+	case uint16:
+		return int32(v), nil
+	case uint64:
+		//nolint:gosec,G115
+		return int32(v), nil
+	case bool:
+		if v {
+			return int32(1), nil
+		}
+		return int32(0), nil
+	case string:
+		intValue, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("failed to change string %v to int32: %v", v, err)
+		}
+		return int32(intValue), nil
+	case []uint8:
+		if len(v) == 1 {
+			return int32(v[0]), nil
+		}
+		return 0, fmt.Errorf("unsupported []uint8 of length %d: %v", len(v), v)
+	case *any:
+		return ReformatInt32(*v)
+	}
+
+	return int32(0), fmt.Errorf("failed to change %v (type:%T) to int32", v, v)
+}
+
 func ReformatFloat64(v interface{}) (interface{}, error) {
 	switch v := v.(type) {
+	case []uint8:
+		// Convert byte slice to string first
+		strVal := string(v)
+		f, err := strconv.ParseFloat(strVal, 64)
+		if err != nil {
+			return float64(0), fmt.Errorf("failed to change []byte %v to float64: %v", v, err)
+		}
+		return f, nil
 	case float32:
 		return float64(v), nil
 	case float64:
@@ -270,7 +354,10 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 	case uint64:
 		return float64(v), nil
 	case bool:
-		return 1.0, nil
+		if v {
+			return float64(1.0), nil
+		}
+		return 0.0, nil
 	case string:
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -280,6 +367,57 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 	}
 
 	return float64(0), fmt.Errorf("failed to change %v (type:%T) to float64", v, v)
+}
+
+func ReformatFloat32(v interface{}) (interface{}, error) {
+	switch v := v.(type) {
+	case []uint8:
+		// Convert byte slice to string first
+		strVal := string(v)
+		f64, err := strconv.ParseFloat(strVal, 32)
+		f := float32(f64)
+		if err != nil {
+			return float32(0), fmt.Errorf("failed to change []byte %v to float32: %v", v, err)
+		}
+		return f, nil
+	case float32:
+		return v, nil
+	case float64:
+		return float32(v), nil
+	case int:
+		return float32(v), nil
+	case int8:
+		return float32(v), nil
+	case int16:
+		return float32(v), nil
+	case int32:
+		return float32(v), nil
+	case int64:
+		return float32(v), nil
+	case uint:
+		return float32(v), nil
+	case uint8:
+		return float32(v), nil
+	case uint16:
+		return float32(v), nil
+	case uint32:
+		return float32(v), nil
+	case uint64:
+		return float32(v), nil
+	case bool:
+		if v {
+			return float32(1.0), nil
+		}
+		return float32(0.0), nil
+	case string:
+		f64, err := strconv.ParseFloat(v, 32)
+		if err != nil {
+			return float32(0), fmt.Errorf("failed to change string %s to float32: %v", v, err)
+		}
+		return float32(f64), nil
+	}
+
+	return float32(0), fmt.Errorf("failed to change %v (type:%T) to float32", v, v)
 }
 
 func ReformatByteArraysToString(data map[string]any) map[string]any {

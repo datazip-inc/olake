@@ -10,7 +10,31 @@ function chalk() {
     elif [[ $color == "green" ]]; then
         color_code=2
     fi
-    echo -e "$(tput setaf $color_code)${text}$(tput sgr0)"
+    # Check if TERM is set before using tput
+    if [[ -n "$TERM" ]]; then
+        echo -e "$(tput setaf $color_code)${text}$(tput sgr0)"
+    else
+        # Fallback if TERM is not set
+        if [[ $color == "red" ]]; then
+            echo -e "\033[31m${text}\033[0m"
+        elif [[ $color == "green" ]]; then
+            echo -e "\033[32m${text}\033[0m"
+        else
+            echo -e "${text}"
+        fi
+    fi
+}
+
+# Function to build the Java project with Maven
+function build_java_project() {
+    echo "Building Java project with Maven..."
+    # Change to the directory containing the POM file
+    cd writers/iceberg/debezium-server-iceberg-sink || fail "Failed to change to Maven project directory"
+    echo "Building Maven project in $(pwd)"
+    mvn clean package -Dmaven.test.skip=true || fail "Maven build failed"
+    # Return to the original directory
+    cd - || fail "Failed to return to original directory"
+    echo "$(chalk green "✅ Java project successfully built")"
 }
 
 # Function to fail with a message
@@ -34,26 +58,45 @@ function setup_buildx() {
 function release() {
     local version=$1
     local platform=$2
+    local branch=${3:-master}
     local image_name="$DHID/$type-$connector"
+    
+    # Default to dev mode
+    local tag_version="dev-${version}"
+    local latest_tag="dev-latest"
+
+    # Override for special branches
+    if [[ "$branch" == "master" ]]; then
+        tag_version="${version}"
+        latest_tag="latest"
+    elif [[ "$branch" == "staging" ]]; then
+        tag_version="stag-${version}"
+        latest_tag="stag-latest"
+    fi
 
     echo "Logging into Docker..."
     docker login -u="$DOCKER_LOGIN" -p="$DOCKER_PASSWORD" || fail "Docker login failed for $DOCKER_LOGIN"
-    echo "**** Releasing $type-$connector for platforms [$platform] with version [$version] ****"
+    echo "**** Releasing $image_name for platforms [$platform] with version [$tag_version] ****"
 
     # Attempt multi-platform build
     echo "Attempting multi-platform build..."
+    
     docker buildx build --platform "$platform" --push \
-        -t "${image_name}:${version}" \
-        -t "${image_name}:latest" \
+        -t "${image_name}:${tag_version}" \
+        -t "${image_name}:${latest_tag}" \
         --build-arg DRIVER_NAME="$connector" \
         --build-arg DRIVER_VERSION="$VERSION" . || fail "Multi-platform build failed. Exiting..."
-    echo "$(chalk green "Release successful for $type-$connector version $version")"
+    
+    echo "$(chalk green "Release successful for $image_name version $tag_version")"
 }
 
 # Main script execution
-SEMVER_EXPRESSION='v([0-9].[0-9].[0-9]+(\S*))'
+SEMVER_EXPRESSION='v([0-9]+\.[0-9]+\.[0-9]+)$'
+STAGING_VERSION_EXPRESSION='v([0-9]+\.[0-9]+\.[0-9]+)-[a-zA-Z0-9_.-]+'
+
 echo "Release tool running..."
 CURRENT_BRANCH=$(git branch --show-current)
+echo "Building on branch: $CURRENT_BRANCH"
 echo "Fetching remote changes from git with git fetch"
 git fetch origin "$CURRENT_BRANCH" >/dev/null 2>&1
 GIT_COMMITSHA=$(git rev-parse HEAD | cut -c 1-8)
@@ -65,20 +108,20 @@ echo "Running checks..."
 docker login -u="$DOCKER_LOGIN" -p="$DOCKER_PASSWORD" >/dev/null 2>&1 || fail "❌ Docker login failed. Ensure DOCKER_LOGIN and DOCKER_PASSWORD are set."
 echo "✅ Docker login successful"
 
-# Check branch
-if [[ $CURRENT_BRANCH == "master" ]]; then
-    echo "✅ Git branch is $CURRENT_BRANCH"
-else
-    echo "⚠️ Git branch $CURRENT_BRANCH is not master. Proceeding anyway."
-fi
-
-# Check version
+# Version validation based on branch (default is dev with no restrictions)
 if [[ -z "$VERSION" ]]; then
     fail "❌ Version not set. Empty version passed."
-elif [[ $VERSION =~ $SEMVER_EXPRESSION ]]; then
-    echo "✅ Version $VERSION matches semantic versioning."
+fi
+
+# Only validate special branches
+if [[ "$CURRENT_BRANCH" == "master" ]]; then
+    [[ $VERSION =~ $SEMVER_EXPRESSION ]] || fail "❌ Version $VERSION does not match semantic versioning required for master branch (e.g., v1.0.0)"
+    echo "✅ Version $VERSION matches semantic versioning for master branch"
+elif [[ "$CURRENT_BRANCH" == "staging" ]]; then
+    [[ $VERSION =~ $STAGING_VERSION_EXPRESSION ]] || fail "❌ Version $VERSION does not match staging version format (e.g., v1.0.0-rc1)"
+    echo "✅ Version $VERSION matches format for staging branch"
 else
-    fail "❌ Version $VERSION does not match semantic versioning. Example: v1.0.0, v1.0.0-alpha.beta, v0.6.0-rc.6fd"
+    echo "✅ Flexible versioning allowed for development branch: $VERSION"
 fi
 
 # Setup buildx and QEMU
@@ -86,12 +129,16 @@ setup_buildx
 
 # Release the driver
 platform="linux/amd64,linux/arm64"
-echo "✅ Releasing driver $DRIVER for version $VERSION to platforms: $platform"
+echo "✅ Releasing driver $DRIVER for version $VERSION on branch $CURRENT_BRANCH to platforms: $platform"
 
 chalk green "=== Releasing driver: $DRIVER ==="
-chalk green "=== Release channel: $RELEASE_CHANNEL ==="
+chalk green "=== Branch: $CURRENT_BRANCH ==="
 chalk green "=== Release version: $VERSION ==="
 connector=$DRIVER
 type="source"
 
-release "$VERSION" "$platform"
+
+# Build Java project
+build_java_project
+
+release "$VERSION" "$platform" "$CURRENT_BRANCH"

@@ -20,8 +20,16 @@ var typecastTree = &typeNode{
 	left: &typeNode{
 		t: types.Float64,
 		left: &typeNode{
-			t:    types.Int64,
-			left: &typeNode{t: types.Bool},
+			t: types.Int64,
+			left: &typeNode{
+				t: types.Int32,
+				left: &typeNode{
+					t: types.Bool,
+				},
+			},
+		},
+		right: &typeNode{
+			t: types.Float32,
 		},
 	},
 	right: &typeNode{
@@ -241,23 +249,36 @@ func GetCommonAncestorType(t1, t2 types.DataType) types.DataType {
 	return lowestCommonAncestor(typecastTree, t1, t2)
 }
 
-func lowestCommonAncestor(root *typeNode, t1, t2 types.DataType) types.DataType {
-	// Start from the root node of the tree
+func lowestCommonAncestor(
+	root *typeNode,
+	t1, t2 types.DataType,
+) types.DataType {
 	node := root
 
-	// Traverse the tree
 	for node != nil {
-		if t1 > node.t && t2 > node.t {
-			// If both t1 and t2 are greater than parent
+		wt1, t1Exist := types.TypeWeights[t1]
+		wt2, t2Exist := types.TypeWeights[t2]
+		rootW, rootExist := types.TypeWeights[node.t]
+
+		if !rootExist {
+			return types.Unknown
+		}
+
+		// If any type is not found in weights map, return Unknown
+		if !t1Exist || !t2Exist {
+			return node.t
+		}
+
+		if wt1 > rootW && wt2 > rootW {
+			// If both t1 and t2 have greater weights than parent
 			node = node.right
-		} else if t1 < node.t && t2 < node.t {
-			// If both t1 and t2 are lesser than parent
+		} else if wt1 < rootW && wt2 < rootW {
+			// If both t1 and t2 have lesser weights than parent
 			node = node.left
 		} else {
 			// We have found the split point, i.e. the LCA node.
 			return node.t
 		}
 	}
-
 	return types.Unknown
 }

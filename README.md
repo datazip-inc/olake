@@ -5,22 +5,12 @@
     <br>OLake
 </h1>
 
-<p align="center">Fastest open-source tool for replicating Databases to Apache Iceberg or Data Lakehouse. ⚡ Efficient, quick and scalable data ingestion for real-time analytics. Starting with MongoDB. Visit <a href="https://datazip.io/olake" target="_blank">datazip.io/olake</a> for the full documentation, and benchmarks</p>
+<p align="center">Fastest open-source tool for replicating Databases to Apache Iceberg or Data Lakehouse. ⚡ Efficient, quick and scalable data ingestion for real-time analytics. Starting with MongoDB. Visit <a href="https://olake.io/" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
 
 <p align="center">
-    <img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"> </a>
-    <a href="https://twitter.com/intent/tweet?text=Use%20the%20fastest%20open-source%20tool,%20OLake,%20for%20replicating%20Databases%20to%20S3%20and%20Apache%20Iceberg%20or%20Data%20Lakehouse.%20It%E2%80%99s%20Efficient,%20quick%20and%20scalable%20data%20ingestion%20for%20real-time%20analytics.%20Check%20at%20https://datazip.io/%20%23opensource%20%23olake%20via%20%40datazipio">
-        <img alt="tweet" src="https://img.shields.io/twitter/url/http/shields.io.svg?style=social"></a> 
-    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag">
-        <img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"> 
-    </a> 
+    <a href="https://github.com/datazip-inc/olake/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"/></a> <a href="https://olake.io/docs"><img alt="Documentation" height="22" src="https://img.shields.io/badge/view-Documentation-blue?style=for-the-badge"/></a>
+    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag"><img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/></a>
 </p>
-  
-  
-<h3 align="center">
-  <a href="https://datazip.io/olake/docs"><b>Documentation</b></a> &bull;
-  <a href="https://twitter.com/datazipio"><b>Twitter</b></a>
-</h3>
 
 
 ![undefined](https://github.com/user-attachments/assets/fe37e142-556a-48f0-a649-febc3dbd083c)
@@ -30,98 +20,85 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 - **Connector Autonomy**
 - **Avoid operations that don't contribute to increasing record throughput**
 
+## Performance Benchmarks* 
+1. **Postgres Connector to Apache Iceberg:** ([See Detailed Benchmark](https://olake.io/docs/connectors/postgres/benchmarks))
+    1. **Full load** - Syncs at 46,262 RPS for 4 billion rows. (101x Airbyte, 11.6x Estuary, 3.1x Debezium (memiiso))
+    2. **CDC** - Sync at 36 982 RPS for 50 million changes. (63 Airbyte, 12x Estuary, 2.7x Debezium (memiiso), 1.4x fivetran)
 
-## Olake Framework Structure
-![diagram](/.github/assets/Olake.jpg)
+2. **MongoDB Connector to Apache Iceberg:** ([See Detailed Benchmark](https://olake.io/docs/connectors/mongodb/benchmarks))  
+    1. Syncs 35,694 records/sec; 230 million rows in 46 minutes for a 664 GB dataset (20× Airbyte, 15× Embedded Debezium, 6× Fivetran)
 
-## Benchmark Results: Refer this doc for complete information
+*These are preliminary performances, we'll published fully reproducible benchmark scores soon.
 
-### Speed Comparison: Full Load Performance
+## Getting Started with OLake
 
-For a collection of 230 million rows (664.81GB) from [Twitter data](https://archive.org/details/archiveteam-twitter-stream-2017-11), here's how Olake compares to other tools:
+### Source / Connectors
+1. [Getting started Postgres -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/postgres) | [Postgres Docs](https://olake.io/docs/connectors/postgres/overview)
+2. [Getting started MongoDB -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb) | [MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview)
+3. [Getting started MySQL -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)  | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview)
 
-| Tool              | Full Load Time    | Performance          |
-|-------------------|-------------------|----------------------|
-| **Olake**         | 46 mins           | X times faster       |
-| **Fivetran**      | 4 hours 39 mins (279 mins) | 6x slower          |
-| **Airbyte**       | 16 hours (960 mins) | 20x slower         |
-| **Debezium (Embedded)** | 11.65 hours (699 mins) | 15x slower     |
-
-
-### Incremental Sync Performance
-
-| Tool                 | Incremental Sync Time | Records per Second (r/s) | Performance      |
-|----------------------|------------------------|---------------------------|------------------|
-| **Olake**            | 28.3 sec              | 35,694 r/s                | X times faster   |
-| **Fivetran**         | 3 min 10 sec          | 5,260 r/s                 | 6.7x slower      |
-| **Airbyte**          | 12 min 44 sec         | 1,308 r/s                 | 27.3x slower     |
-| **Debezium (Embedded)** | 12 min 44 sec       | 1,308 r/s                 | 27.3x slower     |
-
-Cost Comparison: (Considering 230 million first full load & 50 million rows incremental rows per month) as dated 30th September: Find more [here](https://datazip.io/olake/docs/olake/mongodb/benchmark).
+### Writers / Destination
+1. [Apache Iceberg Docs](https://olake.io/docs/writers/iceberg/overview) 
+2. [AWS S3 Docs](https://olake.io/docs/writers/s3/overview) 
+3. [Local FileSystem Docs](https://olake.io/docs/writers/local) 
 
 
+## Source/Connector Functionalities
+|  Functionality | MongoDB | Postgres | MySQL |
+| ------------------------- | ------- | -------- | ----- |
+| Full Refresh Sync Mode    | ✅       | ✅        | ✅     |
+| Incremental Sync Mode     | ❌       | ❌        | ❌     |
+| CDC Sync Mode             | ✅       | ✅        | ✅     |
+| Full Parallel Processing  | ✅       | ✅        | ✅     |
+| CDC Parallel Processing   | ✅       | ❌        | ❌     |
+| Resumable Full Load       | ✅       | ✅        | ✅     |
+| CDC Heart Beat            | ❌       | ❌        | ❌     |
 
-### Testing Infrastructure
-
-Virtual Machine: `Standard_D64as_v5`
-
-- CPU: `64` vCPUs
-- Memory: `256` GiB RAM
-- Storage: `250` GB of shared storage
-
-### MongoDB Setup:
-
-- 3 Nodes running in a replica set configuration:
-  - 1 Primary Node (Master) that handles all write operations.
-  - 2 Secondary Nodes (Replicas) that replicate data from the primary node.
-
-Find more [here](https://datazip.io/olake/docs/olake/mongodb/benchmark).
+We have additionally planned the following sources -  [AWS S3](https://github.com/datazip-inc/olake/issues/86) |  [Kafka](https://github.com/datazip-inc/olake/issues/87) 
 
 
-## Components
-### Drivers
+## Writer Functionalities
+| Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
+| ------------------------------- | ---------------- | ------ | -------------- |
+| Flattening & Normalization (L1) | ✅                      | ✅             |     ✅        |
+| Partitioning                    | ✅                      | ✅             |      ✅       |
+| Schema Changes                  | ✅                      | ✅             |       WIP      |
+| Schema Evolution                | ✅                      | ✅             |          ✅   |
+## Supported Catalogs For Iceberg Writer
+| Catalog                 | Status                                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Glue Catalog               | Supported                                                                                                      |
+| Hive Meta Store            | Supported                                                                                                 |
+| JDBC Catalogue             | Supported                                                                                                 |
+| REST Catalogue             | Supported                                                                                                 |
+| Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
+| BigLake Metastore          | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 
-Drivers aka Connectors/Source that includes the logic for interacting with database. Upcoming drivers being planned are
-- [x] MongoDB ([Documentation](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb))
-- [ ] Kafka
-- [ ] Postgres
-- [ ] DynamoDB
+## Core
+Core or framework is the component/logic that has been abstracted out from Connectors to follow DRY. This includes base CLI commands, State logic, Validation logic, Type detection for unstructured data, handling Config, State, Streams, and Writer config file, logging etc.
 
-
-
-### Writers
-
-Writers are directly integrated into drivers to avoid blockage of writing/reading into/from os.StdOut or any other type of I/O. This enables direct insertion of records from each individual fired query to the destination.
-
-Writers are being planned in this order
-- [x] Parquet Writer (Writes Parquet files on Local/S3)
-- [ ] S3 Iceberg Parquet
-- [ ] Snowflake
-- [ ] BigQuery
-- [ ] RedShift
-
-### Core
-
-Core or framework is the component/logic that has been abstracted out from Connectors to follow DRY. This includes base CLI commands, State logic, Validation logic, Type detection for unstructured data, handling Config, State, Catalog, and Writer config file, logging etc.
-
-Core includes http server that directly exposes live stats about running sync such as
+Core includes http server that directly exposes live stats about running sync such as:
 - Possible finish time
 - Concurrently running processes
 - Live record count
 
-Core handles the commands to interact with a driver via these
-- spec command: Returns render-able JSON Schema that can be consumed by rjsf libraries in frontend
-- check command: performs all necessary checks on the Config, Catalog, State and Writer config
-- discover command: Returns all streams and their schema
-- sync command: Extracts data out of Source and writes into destinations
+Core handles the commands to interact with a driver via these:
+- `spec` command: Returns render-able JSON Schema that can be consumed by rjsf libraries in frontend
+- `check` command: performs all necessary checks on the Config, Streams, State and Writer config
+- `discover` command: Returns all streams and their schema
+- `sync` command: Extracts data out of Source and writes into destinations
 
+Find more about how OLake works [here.](https://olake.io/docs)
 
-### SDKs
+## Roadmap
+Checkout [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track and influence the way we build it. 
+If you have any ideas, questions, or any feedback, please share on our [Github Discussions](https://github.com/datazip-inc/olake/discussions) or raise an issue.
 
-SDKs are libraries/packages that can orchestrate the connector in two environments i.e. Docker and Kubernetes. These SDKs can be directly consumed by users similar to PyAirbyte, DLT-hub.
+## Contributing
+We ❤️ contributions big or small check our [Bounty Program](https://olake.io/docs/community/issues-and-prs#goodies). As always, thanks to our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors).
+- To contribute to Olake Check [CONTRIBUTING.md](CONTRIBUTING.md)
+- To contribute to UI, visit [OLake UI Repository](https://github.com/datazip-inc/olake-frontend/).
+- To contribute to OLake website and documentation (olake.io), visit [Olake Docs Repository][GITHUB_DOCS].
 
-(Unconfirmed) SDKs can interact with Connectors via potential GRPC server to override certain default behavior of the system by adding custom functions to enable features like Transformation, Custom Table Name via writer, or adding hooks.
-
-### Olake
-
-Olake will be built on top of SDK providing persistent storage and a user interface that enables orchestration directly from your machine with default writer mode as `S3 Iceberg Parquet`
+<!----variables---->
+[GITHUB_DOCS]: https://github.com/datazip-inc/olake-docs/

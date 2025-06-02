@@ -3,13 +3,16 @@
 Thanks for taking the time and for your help in improving this project!
 
 ## Table of contents
-
+- [Olake Framework Structure](#olake-framework-structure)
 - [Olake Contributing Agreement](#olake-contributor-agreement)
 - [How You Can Contribute to Olake](#how-you-can-contribute-to-olake)
 - [Submitting a Pull Request](#submitting-a-pull-request)
 - [Committing](#committing)
 - [Installing and Setting Up Olake](#installing-and-setting-up-olake)
 - [Getting Help](#getting-help)
+
+## Olake Framework Structure
+![diagram](/.github/assets/Olake.jpg)
 
 ## Olake Contributor Agreement
 
@@ -40,11 +43,11 @@ For example to contribute a new driver, you need to create a pull request (PR). 
 
 ## Committing
 
-We prefer squash or rebase commits so that all changes from a branch are committed to master as a single commit. All pull requests are squashed when merged, but rebasing prior to merge gives you better control over the commit message. Only signed commits are accepted for contribution.
+We prefer squash or rebase commits so that all changes from a branch are committed to master as a single commit. All pull requests are squashed when merged, but rebasing prior to merge gives you better control over the commit message. Run `make pre-commit` command before commiting.
 
 ## Installing and setting up Olake
 
-To contribute to this project, you may need to install Olake on your machine. You can do so by following our [**docs**](https://datazip.io/olake/docs/olake/mongodb/how-to-start-contributing-on-olake) and set up Olake in no time.
+To contribute to this project, you may need to install Olake on your machine. You can do so by following our [**docs**](https://olake.io/docs) and set up Olake in no time.
 
 ## Getting help
 

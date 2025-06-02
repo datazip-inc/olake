@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"context"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 )
@@ -30,20 +31,12 @@ type Driver interface {
 	// Read is dedicatedly designed for FULL_REFRESH and INCREMENTAL mode
 	Read(pool *WriterPool, stream Stream) error
 	ChangeStreamSupported() bool
+	SetupState(state *types.State)
 }
 
 // Bulk Read Driver
 type ChangeStreamDriver interface {
 	RunChangeStream(pool *WriterPool, streams ...Stream) error
-	SetupGlobalState(state *types.State) error
-	StateType() types.StateType
-}
-
-// JDBC Driver
-type JDBCDriver interface {
-	FullLoad(stream Stream, channel chan<- types.Record) error
-	RunChangeStream(channel chan<- types.Record, streams ...Stream) error
-	SetupGlobalState(state *types.State) error
 	StateType() types.StateType
 }
 
@@ -61,11 +54,10 @@ type Writer interface {
 	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
 	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
 	// schema update with an Alter Query
-	ReInitiationOnTypeChange() bool
-	ReInitiationOnNewColumns() bool
-	Normalization() bool
 	Flattener() FlattenFunction
-	EvolveSchema(map[string]*types.Property) error
+	// EvolveSchema updates the schema based on changes.
+	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
+	EvolveSchema(bool, bool, map[string]*types.Property, types.Record, time.Time) error
 	Close() error
 }
 
@@ -79,15 +71,17 @@ type Stream interface {
 	GetSyncMode() types.SyncMode
 	SupportedSyncModes() *types.Set[types.SyncMode]
 	Cursor() string
-	InitialState() any
-	GetStateCursor() any
-	GetStateKey(key string) any
-	SetStateCursor(value any)
-	SetStateKey(key string, value any)
 	Validate(source *types.Stream) error
+	NormalizationEnabled() bool
 }
 
 type State interface {
+	ResetStreams()
 	SetType(typ types.StateType)
-	IsZero() bool
+	GetCursor(stream *types.ConfiguredStream, key string) any
+	SetCursor(stream *types.ConfiguredStream, key, value any)
+	GetChunks(stream *types.ConfiguredStream) *types.Set[types.Chunk]
+	SetChunks(stream *types.ConfiguredStream, chunks *types.Set[types.Chunk])
+	RemoveChunk(stream *types.ConfiguredStream, chunk types.Chunk)
+	SetGlobalState(globalState any)
 }

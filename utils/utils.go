@@ -6,16 +6,15 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
-	"github.com/sirupsen/logrus"
 
 	"github.com/spf13/cobra"
 )
@@ -59,6 +58,14 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 	}
 
 	return -1, false
+}
+
+// returns cond ? a ; b
+func Ternary(cond bool, a, b any) any {
+	if cond {
+		return a
+	}
+	return b
 }
 
 // Unmarshal serializes and deserializes any from into the object
@@ -143,7 +150,7 @@ func UnmarshalFile(file string, dest any) error {
 
 	err = json.Unmarshal(data, dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
 	}
 
 	return nil
@@ -200,18 +207,16 @@ func ULID() string {
 func genULID(t time.Time) string {
 	ulidMutex.Lock()
 	defer ulidMutex.Unlock()
-
 	newUlid, err := ulid.New(ulid.Timestamp(t), entropy)
 	if err != nil {
-		logrus.Fatal(err)
+		logger.Fatalf("failed to generate ulid: %s", err)
 	}
-
 	return newUlid.String()
 }
 
 // Returns a timestamped
 func TimestampedFileName(extension string) string {
-	now := time.Now()
+	now := time.Now().UTC()
 	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
@@ -222,6 +227,10 @@ func IsJSON(str string) bool {
 
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
+	// If no primary key is present, the entire record is hashed to generate the olakeID.
+	if len(keys) == 0 {
+		return GetHash(m)
+	}
 	sort.Strings(keys)
 
 	var str strings.Builder
@@ -243,28 +252,53 @@ func GetHash(m map[string]interface{}) string {
 	return GetKeysHash(m, keys...)
 }
 
-// CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
-func CreateFile(content any, filePath string, fileName, fileExtension string) error {
-	// Construct the full file path
-	contentBytes, err := json.Marshal(content)
-	if err != nil {
-		return fmt.Errorf("failed to marshal content: %v", err)
+func AddConstantToInterface(val interface{}, increment int) (interface{}, error) {
+	switch v := val.(type) {
+	case int:
+		return v + increment, nil
+	case int64:
+		return v + int64(increment), nil
+	case float32:
+		return v + float32(increment), nil
+	case float64:
+		return v + float64(increment), nil
+	default:
+		return nil, fmt.Errorf("failed to add contant values to interface, unsupported type %T", val)
 	}
+}
 
-	fullPath := filepath.Join(filePath, fileName+fileExtension)
-
-	// Create or truncate the file
-	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create or open file: %v", err)
+// return 0 for equal, -1 if a < b else 1 if a>b
+func CompareInterfaceValue(a, b interface{}) int {
+	switch a.(type) {
+	case int, int64, float32, float64:
+		af := 0.0
+		if a != nil {
+			af = reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
+		}
+		bf := 0.0
+		if b != nil {
+			bf = reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
+		}
+		if af < bf {
+			return -1
+		} else if af > bf {
+			return 1
+		}
+	case string:
+		if a != nil && b != nil {
+			return strings.Compare(a.(string), b.(string))
+		}
+		return Ternary(a == nil, -1, 1).(int)
 	}
-	defer file.Close()
-
-	// Write data to the file
-	_, err = file.Write(contentBytes)
-	if err != nil {
-		return fmt.Errorf("failed to write data to file: %v", err)
+	return 0
+}
+func ConvertToString(value interface{}) string {
+	switch v := value.(type) {
+	case []byte:
+		return string(v) // Convert byte slice to string
+	case string:
+		return v // Already a string
+	default:
+		return fmt.Sprintf("%v", v) // Fallback
 	}
-
-	return nil
 }

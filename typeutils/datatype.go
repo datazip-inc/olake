@@ -3,6 +3,7 @@ package typeutils
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
@@ -35,12 +36,20 @@ func TypeFromValue(v interface{}) types.DataType {
 		return types.Null
 	case reflect.Bool:
 		return types.Bool
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
+		return types.Int32
+	case reflect.Int64, reflect.Uint64:
 		return types.Int64
-	case reflect.Float32, reflect.Float64:
+	case reflect.Float32:
+		return types.Float32
+	case reflect.Float64:
 		return types.Float64
 	case reflect.String:
+		t, err := ReformatDate(v)
+		if err == nil {
+			return detectTimestampPrecision(t)
+		}
 		return types.String
 	case reflect.Slice, reflect.Array:
 		return types.Array
@@ -108,4 +117,10 @@ func detectTimestampPrecision(t time.Time) types.DataType {
 	default:
 		return types.TimestampNano // store in nanoseconds
 	}
+}
+
+func ExtractAndMapColumnType(columnType string, typeMapping map[string]types.DataType) types.DataType {
+	// extracts the base type (e.g., varchar(50) -> varchar)
+	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
+	return typeMapping[baseType]
 }
