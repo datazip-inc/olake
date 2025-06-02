@@ -82,7 +82,6 @@ var syncCmd = &cobra.Command{
 				selectedStreamsMap[fmt.Sprintf("%s.%s", namespace, streamMetadata.StreamName)] = streamMetadata
 			}
 		}
-
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
 		cdcStreams := []Stream{}
@@ -107,8 +106,7 @@ var syncCmd = &cobra.Command{
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-
-			err := elem.Validate(source)
+			err = elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false

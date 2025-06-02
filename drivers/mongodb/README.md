@@ -1,5 +1,6 @@
 # MongoDB Driver
-The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
+
+The MongoDB Driver enables data synchronization from MongoDB to your desired destination. It supports **Full Refresh**, **CDC (Change Data Capture)**, and **Query-Based Incremental Sync** modes.
 
 ---
 
@@ -8,6 +9,8 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
    Fetches the complete dataset from MongoDB.
 2. **CDC (Change Data Capture)**  
    Tracks and syncs incremental changes from MongoDB in real time.
+3. **Query-Based Incremental Sync**
+   Fetches only newly inserted or modified documents since the last sync.
 
 ---
 
@@ -40,7 +43,8 @@ Add MongoDB credentials in following format in `config.json` file. To check more
       "max_threads": 50,
       "default_mode" : "cdc",
       "backoff_retry_count": 2,
-      "partition_strategy":""
+      "partition_strategy":"",
+      "batch_size": 5000                     // docs fetched per internal page for incremental sync
    }
 ```
 
@@ -92,10 +96,6 @@ Before running the Sync command, the generated `streams.json` file must be confi
 
 - Modify Each Stream:<br>
    For each stream you want to sync:<br>
-   - Add the following properties:
-      ```json
-      "sync_mode": "cdc",
-      ```
    - Specify the cursor field (only for incremental syncs):
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
@@ -135,7 +135,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                "name": "incr2",
                "namespace": "incr",
                ...
-               "sync_mode": "cdc"
+                  "sync_mode": "cdc",
             }
          }
       ]
