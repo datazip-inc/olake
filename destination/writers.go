@@ -1,4 +1,4 @@
-package protocol
+package destination
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"golang.org/x/sync/errgroup"
 )
@@ -56,7 +55,7 @@ func WithBackfill(backfill bool) ThreadOptions {
 type WriterPool struct {
 	totalRecords  atomic.Int64
 	recordCount   atomic.Int64
-	threadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
+	ThreadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
 	config        any          // respective writer config
 	init          NewFunc      // To initialize exclusive destination threads
 	group         *errgroup.Group
@@ -76,7 +75,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 		return nil, err
 	}
 
-	err := adapter.Check()
+	err := adapter.Check(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
@@ -85,7 +84,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 	return &WriterPool{
 		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
-		threadCounter: atomic.Int64{},
+		ThreadCounter: atomic.Int64{},
 		config:        config.WriterConfig,
 		init:          newfunc,
 		group:         group,
@@ -100,12 +99,17 @@ type ThreadEvent struct {
 }
 
 // Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ...ThreadOptions) (*ThreadEvent, error) {
+func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterface, options ...ThreadOptions) (*ThreadEvent, error) {
 	// setup options
 	opts := &Options{}
 	for _, one := range options {
 		one(opts)
 	}
+
+	if opts.errorChannel == nil {
+		return nil, fmt.Errorf("error channel is not set in options")
+	}
+
 	var thread Writer
 	recordChan := make(chan types.RawRecord)
 	child, childCancel := context.WithCancel(parent)
@@ -149,67 +153,62 @@ func (w *WriterPool) NewThread(parent context.Context, stream Stream, options ..
 	}
 
 	w.group.Go(func() error {
-		err := func() error {
-			w.threadCounter.Add(1)
-			// init writer first
-			if err := initNewWriter(); err != nil {
-				return err
+		var err error // to access in defer
+		w.ThreadCounter.Add(1)
+		// init writer first
+		if err := initNewWriter(); err != nil {
+			return fmt.Errorf("failed to initialize writer: %s", err)
+		}
+
+		defer func() {
+			// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
+			w.tmu.Lock()
+			defer w.tmu.Unlock()
+			defer func() {
+				w.ThreadCounter.Add(-1)
+				close(opts.errorChannel)
+			}()
+
+			childCancel() // no more inserts
+			// capture error if there is any
+			if err != nil {
+				opts.errorChannel <- err
+				return
 			}
 
-			defer func() {
-				// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
-				w.tmu.Lock()
-				defer w.tmu.Unlock()
-				childCancel() // no more inserts
-				// capture error on thread close
-				threadCloseErr := thread.Close()
-				if len(opts.errorChannel) == 0 && threadCloseErr != nil {
-					opts.errorChannel <- threadCloseErr
-				}
-				// if wait channel is provided, close it
-				if opts.errorChannel != nil {
-					close(opts.errorChannel)
-				}
-				w.threadCounter.Add(-1)
-			}()
-
-			return func() error {
-				for {
-					select {
-					case <-parent.Done():
-						return nil
-					default:
-						record, ok := <-recordChan
-						if !ok {
-							return nil
-						}
-						// add insert time
-						record.OlakeTimestamp = time.Now().UTC()
-
-						// check for normalization
-						if stream.NormalizationEnabled() {
-							normalizedData, err := normalizeFunc(record)
-							if err != nil {
-								return err
-							}
-							record.Data = normalizedData
-						}
-						// insert record
-						if err := thread.Write(child, record); err != nil {
-							return err
-						}
-						w.recordCount.Add(1) // increase the record count
-						if w.SyncedRecords()%batchSize == 0 {
-							state.LogWithLock()
-						}
-					}
-				}
-			}()
+			// capture error on thread close
+			if threadCloseErr := thread.Close(); threadCloseErr != nil {
+				opts.errorChannel <- threadCloseErr
+			}
 		}()
-		if err != nil {
-			logger.Errorf("main writer closed, with error: %s", err)
+
+		for {
+			select {
+			case <-parent.Done():
+				return nil
+			default:
+				record, ok := <-recordChan
+				if !ok {
+					return nil
+				}
+				// add insert time
+				record.OlakeTimestamp = time.Now().UTC()
+
+				// check for normalization
+				if stream.NormalizationEnabled() {
+					normalizedData, err := normalizeFunc(record)
+					if err != nil {
+						return fmt.Errorf("failed to normalize recordmo: %s", err)
+					}
+					record.Data = normalizedData
+				}
+				// insert record
+				if err := thread.Write(child, record); err != nil {
+					return fmt.Errorf("failed to write record: %s", err)
+				}
+				w.recordCount.Add(1) // increase the record count
+			}
 		}
-		return err
 	})
 
 	return &ThreadEvent{

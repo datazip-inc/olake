@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -16,8 +17,6 @@ import (
 )
 
 const (
-	discoverTime = 5 * time.Minute
-	// TODO: make these queries Postgres version specific
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
 		relname as table_name
@@ -35,17 +34,18 @@ const (
 )
 
 type Postgres struct {
-	*base.Driver
-	client    *sqlx.DB
-	config    *Config // postgres driver connection config
-	cdcConfig CDC
+	client     *sqlx.DB
+	config     *Config // postgres driver connection config
+	CDCSupport bool    // indicates if the Postgres instance supports CDC
+	cdcConfig  CDC
+	Socket     *waljs.Socket
 }
 
-func (p *Postgres) ChangeStreamSupported() bool {
+func (p *Postgres) CDCSupported() bool {
 	return p.CDCSupport
 }
 
-func (p *Postgres) Setup() error {
+func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
@@ -57,7 +57,7 @@ func (p *Postgres) Setup() error {
 	}
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	// force a connection and test that it worked
@@ -102,12 +102,7 @@ func (p *Postgres) StateType() types.StateType {
 	return types.GlobalType
 }
 
-func (p *Postgres) SetupState(state *types.State) {
-	state.Type = p.StateType()
-	p.State = state
-}
-
-func (p *Postgres) GetConfigRef() protocol.Config {
+func (p *Postgres) GetConfigRef() abstract.Config {
 	p.config = &Config{}
 
 	return p.config
@@ -115,10 +110,6 @@ func (p *Postgres) GetConfigRef() protocol.Config {
 
 func (p *Postgres) Spec() any {
 	return Config{}
-}
-
-func (p *Postgres) Check() error {
-	return p.Setup()
 }
 
 func (p *Postgres) CloseConnection() {
@@ -130,48 +121,74 @@ func (p *Postgres) CloseConnection() {
 	}
 }
 
-func (p *Postgres) Discover(discoverSchema bool) ([]*types.Stream, error) {
-	// if not cached already; discover
-	streams := p.GetStreams()
-	if len(streams) != 0 {
-		return streams, nil
-	}
-
+func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
-
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
-	defer cancel()
-
 	var tableNamesOutput []Table
 	err := p.client.Select(&tableNamesOutput, getPrivilegedTablesTmpl)
 	if err != nil {
-		return streams, fmt.Errorf("failed to retrieve table names: %s", err)
+		return nil, fmt.Errorf("failed to retrieve table names: %s", err)
 	}
-
-	if len(tableNamesOutput) == 0 {
-		logger.Warnf("no tables found")
-		return streams, nil
+	tablesNames := []string{}
+	for _, table := range tableNamesOutput {
+		tablesNames = append(tablesNames, fmt.Sprintf("%s.%s", table.Schema, table.Name))
 	}
+	return tablesNames, nil
+}
 
-	err = utils.Concurrent(discoverCtx, tableNamesOutput, len(tableNamesOutput), func(ctx context.Context, pgTable Table, _ int) error {
-		stream, err := p.populateStream(pgTable)
-		if err != nil && discoverCtx.Err() == nil {
-			return err
+func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+	populateStream := func(streamName string) (*types.Stream, error) {
+		streamParts := strings.Split(streamName, ".")
+		schemaName, streamName := streamParts[0], streamParts[1]
+		stream := types.NewStream(streamName, schemaName)
+		var columnSchemaOutput []ColumnDetails
+		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
+		if err != nil {
+			return stream, fmt.Errorf("failed to retrieve column details for table %s: %s", streamName, err)
 		}
-		stream.SyncMode = p.config.DefaultSyncMode
-		// cache stream
-		p.AddStream(stream)
-		return err
-	})
-	if err != nil {
+
+		if len(columnSchemaOutput) == 0 {
+			logger.Warnf("no columns found in table [%s.%s]", schemaName, streamName)
+			return stream, nil
+		}
+
+		var primaryKeyOutput []ColumnDetails
+		err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, schemaName, streamName)
+		if err != nil {
+			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
+		}
+
+		for _, column := range columnSchemaOutput {
+			datatype := types.Unknown
+			if val, found := pgTypeToDataTypes[*column.DataType]; found {
+				datatype = val
+			} else {
+				logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
+				datatype = types.String
+			}
+
+			stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
+		}
+
+		stream.WithSyncMode(types.FULLREFRESH)
+		// add primary keys for stream
+		for _, column := range primaryKeyOutput {
+			stream.WithPrimaryKey(column.Name)
+		}
+
+		return stream, nil
+	}
+
+	stream, err := populateStream(streamName)
+	if err != nil && ctx.Err() == nil {
 		return nil, err
 	}
+	stream.SyncMode = p.config.DefaultSyncMode
 
-	return p.GetStreams(), nil
+	return stream, nil
 }
 
 func (p *Postgres) Type() string {
-	return "Postgres"
+	return string(constants.Postgres)
 }
 
 func (p *Postgres) MaxConnections() int {
@@ -186,77 +203,4 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
 	olakeType := pgTypeToDataTypes[baseType]
 	return typeutils.ReformatValue(olakeType, value)
-}
-
-func (p *Postgres) Read(ctx context.Context, pool *protocol.WriterPool, standardStreams, cdcStreams []protocol.Stream) error {
-	if p.CDCSupport {
-		if err := p.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-			return fmt.Errorf("failed to run change stream: %s", err)
-		}
-	} else {
-		return fmt.Errorf("CDC is not supported, use full refresh for all streams")
-	}
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
-		protocol.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return p.backfill(ctx, pool, stream)
-		})
-	}
-	return nil
-}
-
-func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
-	// create new stream
-	stream := types.NewStream(table.Name, table.Schema)
-	var columnSchemaOutput []ColumnDetails
-	err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, table.Schema, table.Name)
-	if err != nil {
-		return stream, fmt.Errorf("failed to retrieve column details for table %s[%s]: %s", table.Name, table.Schema, err)
-	}
-
-	if len(columnSchemaOutput) == 0 {
-		logger.Warnf("no columns found in table %s[%s]", table.Name, table.Schema)
-		return stream, nil
-	}
-
-	var primaryKeyOutput []ColumnDetails
-	err = p.client.Select(&primaryKeyOutput, getTablePrimaryKey, table.Schema, table.Name)
-	if err != nil {
-		return stream, fmt.Errorf("failed to retrieve primary key columns for table %s[%s]: %s", table.Name, table.Schema, err)
-	}
-
-	for _, column := range columnSchemaOutput {
-		datatype := types.Unknown
-		if val, found := pgTypeToDataTypes[*column.DataType]; found {
-			datatype = val
-		} else {
-			logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
-			datatype = types.String
-		}
-
-		stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
-	}
-
-	// cdc additional fields
-	if p.CDCSupport {
-		for column, typ := range base.DefaultColumns {
-			stream.UpsertField(column, typ, true)
-		}
-	}
-
-	// TODO: Populate cursor fields for incremental purpose
-	if p.CDCSupport {
-		stream.WithSyncMode(types.FULLREFRESH)
-		stream.WithSyncMode(types.CDC)
-
-	} else {
-		stream.WithSyncMode(types.FULLREFRESH)
-	}
-
-	// add primary keys for stream
-	for _, column := range primaryKeyOutput {
-		stream.WithPrimaryKey(column.Name)
-	}
-
-	return stream, nil
 }
