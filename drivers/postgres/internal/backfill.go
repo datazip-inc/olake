@@ -12,7 +12,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, callback abstract.BackfillMsgFn) error {
+func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return err
@@ -32,9 +32,9 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		// Scan the row into the map
 		err := jdbc.MapScan(rows, record, p.dataTypeConverter)
 		if err != nil {
-			return fmt.Errorf("failed to mapScan record data: %s", err)
+			return fmt.Errorf("failed to scan record data as map: %s", err)
 		}
-		return callback(record)
+		return OnMessage(record)
 	})
 }
 

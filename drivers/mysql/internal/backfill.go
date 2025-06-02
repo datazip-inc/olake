@@ -29,7 +29,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			record := make(types.Record)
 			err := jdbc.MapScan(rows, record, nil)
 			if err != nil {
-				return fmt.Errorf("failed to mapScan record data: %s", err)
+				return fmt.Errorf("failed to scan record data as map: %s", err)
 			}
 			return OnMessage(record)
 		})

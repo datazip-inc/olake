@@ -93,7 +93,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			cmd := bson.D{
 				{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
 				{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
-				{Key: "maxChunkSize", Value: 1},
+				{Key: "maxChunkSize", Value: 1024},
 			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
 				return nil, fmt.Errorf("failed to run splitVector command: %s", err)

@@ -61,8 +61,8 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	m.CDCSupport = true
 	// check for default backoff count
 	if m.config.RetryCount < 0 {
-		logger.Info("setting backoff retry count to default value %d", constants.DefaultBackoffCount)
-		m.config.RetryCount = constants.DefaultBackoffCount
+		logger.Info("setting backoff retry count to default value %d", constants.DefaultRetryCount)
+		m.config.RetryCount = constants.DefaultRetryCount
 	} else {
 		// add 1 for first run
 		m.config.RetryCount += 1
@@ -150,7 +150,6 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			defer cursor.Close(ctx)
 
 			for cursor.Next(ctx) {
-
 				var row bson.M
 				if err := cursor.Decode(&row); err != nil {
 					return err

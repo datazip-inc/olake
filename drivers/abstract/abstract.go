@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -27,12 +26,6 @@ type AbstractDriver struct { //nolint:gosec,revive
 	GlobalCtxGroup  *utils.CxGroup
 }
 
-const (
-	DefaultRetryCount      = 3
-	DefaultThreadCount     = 3
-	DefaultDiscoverTimeout = 5 * time.Minute
-)
-
 var DefaultColumns = map[string]types.DataType{
 	constants.OlakeID:        types.String,
 	constants.OlakeTimestamp: types.Int64,
@@ -44,7 +37,7 @@ func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDri
 	return &AbstractDriver{
 		driver:          driver,
 		GlobalCtxGroup:  utils.NewCGroup(ctx),
-		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, DefaultThreadCount), // default max connections
+		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, constants.DefaultThreadCount), // default max connections
 	}
 }
 
@@ -61,7 +54,7 @@ func (a *AbstractDriver) Spec() any {
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	discoverCtx, cancel := context.WithTimeout(ctx, DefaultDiscoverTimeout)
+	discoverCtx, cancel := context.WithTimeout(ctx, constants.DefaultDiscoverTimeout)
 	defer cancel()
 
 	// set max connections

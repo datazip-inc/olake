@@ -15,7 +15,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/spf13/cobra"
 )
@@ -298,11 +297,6 @@ func CompareInterfaceValue(a, b interface{}) int {
 	case string:
 		if a != nil && b != nil {
 			return strings.Compare(a.(string), b.(string))
-		}
-		return Ternary(a == nil, -1, 1).(int)
-	case *primitive.ObjectID:
-		if a != nil && b != nil {
-			return strings.Compare(a.(*primitive.ObjectID).Hex(), b.(*primitive.ObjectID).Hex())
 		}
 		return Ternary(a == nil, -1, 1).(int)
 	}

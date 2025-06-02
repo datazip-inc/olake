@@ -43,12 +43,14 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			inserter.Close()
 			if err == nil {
 				// wait for chunk completion
-				err = <-errorChannel
+				if writerErr := <-errorChannel; writerErr != nil {
+					err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s: %s", chunk.Min, chunk.Max, stream.ID(), writerErr)
+				}
 			}
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
-				remCount := a.state.RemoveChunk(stream.Self(), chunk)
-				if remCount == 0 && backfilledStreams != nil {
+				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
 			}
@@ -56,12 +58,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		// TODO: add backoff for connection errors
 		return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-			rawRecord := types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0))
-			err := inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
-			if err != nil {
-				return fmt.Errorf("failed to insert raw record[%v]: %s", rawRecord, err)
-			}
-			return nil
+			return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
 		})
 	}
 	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)

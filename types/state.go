@@ -107,7 +107,7 @@ func (s *State) GetGlobal() *GlobalState {
 	return s.Global
 }
 
-// Set global state if is it not nil and streams are not empty
+// Set global state if state is not nil and streams are not empty
 func (s *State) SetGlobal(state any, streams ...string) {
 	s.Lock()
 	defer s.Unlock()

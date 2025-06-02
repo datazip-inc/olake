@@ -9,7 +9,6 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"golang.org/x/sync/errgroup"
 )
@@ -61,13 +60,11 @@ type WriterPool struct {
 	init          NewFunc      // To initialize exclusive destination threads
 	group         *errgroup.Group
 	groupCtx      context.Context
-	tmu           sync.Mutex   // Mutex between threads
-	state         *types.State // Used to log state of the writer pool
-	batchSize     int64        // Default batch size for writing records
+	tmu           sync.Mutex // Mutex between threads
 }
 
 // Shouldn't the name be NewWriterPool?
-func NewWriter(ctx context.Context, config *types.WriterConfig, batchSize int64, state *types.State) (*WriterPool, error) {
+func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -93,8 +90,6 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, batchSize int64,
 		group:         group,
 		groupCtx:      ctx,
 		tmu:           sync.Mutex{},
-		batchSize:     batchSize,
-		state:         state,
 	}, nil
 }
 
@@ -153,70 +148,66 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 	}
 
 	w.group.Go(func() error {
-		err := func() (err error) {
-			w.ThreadCounter.Add(1)
-			// init writer first
-			if err := initNewWriter(); err != nil {
-				return err
+		var err error // to access in defer
+		w.ThreadCounter.Add(1)
+		// init writer first
+		if err := initNewWriter(); err != nil {
+			return fmt.Errorf("failed to initialize writer: %s", err)
+		}
+
+		defer func() {
+			// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
+			w.tmu.Lock()
+			defer w.tmu.Unlock()
+			childCancel() // no more inserts
+
+			w.ThreadCounter.Add(-1)
+			if opts.errorChannel == nil {
+				return
 			}
 
-			defer func() {
-				// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
-				w.tmu.Lock()
-				defer w.tmu.Unlock()
-				childCancel() // no more inserts
-				if err != nil {
-					opts.errorChannel <- err
-				}
-				// capture error on thread close
-				threadCloseErr := thread.Close()
-				if len(opts.errorChannel) == 0 && threadCloseErr != nil {
-					opts.errorChannel <- threadCloseErr
-				}
-				// if wait channel is provided, close it
-				if opts.errorChannel != nil {
-					close(opts.errorChannel)
-				}
-				w.ThreadCounter.Add(-1)
-			}()
+			// capture error if there is any
+			if err != nil {
+				opts.errorChannel <- err
+				return
+			}
 
-			return func() error {
-				for {
-					select {
-					case <-parent.Done():
-						return nil
-					default:
-						record, ok := <-recordChan
-						if !ok {
-							return nil
-						}
-						// add insert time
-						record.OlakeTimestamp = time.Now().UTC()
+			// capture error on thread close
+			if threadCloseErr := thread.Close(); threadCloseErr != nil {
+				opts.errorChannel <- threadCloseErr
+			}
 
-						// check for normalization
-						if stream.NormalizationEnabled() {
-							normalizedData, err := normalizeFunc(record)
-							if err != nil {
-								return err
-							}
-							record.Data = normalizedData
-						}
-						// insert record
-						if err := thread.Write(child, record); err != nil {
-							return err
-						}
-						w.recordCount.Add(1) // increase the record count
-						if w.SyncedRecords()%w.batchSize == 0 {
-							w.state.LogWithLock()
-						}
-					}
-				}
-			}()
+			// close wait channel
+			close(opts.errorChannel)
 		}()
-		if err != nil {
-			logger.Errorf("main writer closed, with error: %s", err)
+
+		for {
+			select {
+			case <-parent.Done():
+				return nil
+			default:
+				record, ok := <-recordChan
+				if !ok {
+					return nil
+				}
+				// add insert time
+				record.OlakeTimestamp = time.Now().UTC()
+
+				// check for normalization
+				if stream.NormalizationEnabled() {
+					normalizedData, err := normalizeFunc(record)
+					if err != nil {
+						return fmt.Errorf("failed to normalize recordmo: %s", err)
+					}
+					record.Data = normalizedData
+				}
+				// insert record
+				if err := thread.Write(child, record); err != nil {
+					return fmt.Errorf("failed to write record: %s", err)
+				}
+				w.recordCount.Add(1) // increase the record count
+			}
 		}
-		return err
 	})
 
 	return &ThreadEvent{
