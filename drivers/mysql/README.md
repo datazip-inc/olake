@@ -72,7 +72,8 @@ Before running _Sync_, adjust the generated `streams.json`:
       {
         "partition_regex": "",
         "stream_name": "table_1",
-         "normalization": false
+         "normalization": false,
+         "append_only": false
       }
     ]
   },
