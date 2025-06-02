@@ -105,6 +105,11 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 	for _, one := range options {
 		one(opts)
 	}
+
+	if opts.errorChannel == nil {
+		return nil, fmt.Errorf("error channel is not set in options")
+	}
+
 	var thread Writer
 	recordChan := make(chan types.RawRecord)
 	child, childCancel := context.WithCancel(parent)
@@ -159,13 +164,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 			// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
 			w.tmu.Lock()
 			defer w.tmu.Unlock()
+			defer func() {
+				w.ThreadCounter.Add(-1)
+				close(opts.errorChannel)
+			}()
+
 			childCancel() // no more inserts
-
-			w.ThreadCounter.Add(-1)
-			if opts.errorChannel == nil {
-				return
-			}
-
 			// capture error if there is any
 			if err != nil {
 				opts.errorChannel <- err
@@ -176,9 +180,6 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 			if threadCloseErr := thread.Close(); threadCloseErr != nil {
 				opts.errorChannel <- threadCloseErr
 			}
-
-			// close wait channel
-			close(opts.errorChannel)
 		}()
 
 		for {
