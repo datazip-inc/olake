@@ -82,7 +82,7 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	return nil
 }
 
-func (i *Iceberg) Close() error {
+func (i *Iceberg) Close(_ context.Context) error {
 	err := flushBatch(i.configHash, i.client)
 	if err != nil {
 		logger.Errorf("Error flushing batch on close: %s", err)
@@ -113,7 +113,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	}
 
 	defer func() {
-		i.Close()
+		i.Close(ctx)
 		// Restore original stream and partition info
 		i.stream = originalStream
 		i.partitionInfo = originalPartitionInfo

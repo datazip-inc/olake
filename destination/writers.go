@@ -177,7 +177,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 			}
 
 			// capture error on thread close
-			if threadCloseErr := thread.Close(); threadCloseErr != nil {
+			if threadCloseErr := thread.Close(child); threadCloseErr != nil {
 				opts.errorChannel <- threadCloseErr
 			}
 		}()
