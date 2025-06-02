@@ -76,7 +76,8 @@ Before running _Sync_, adjust the generated `streams.json`:
       {
         "partition_regex": "",
         "stream_name": "incr",
-        "normalization": false
+        "normalization": false,
+        "append_only": false  
       }
     ]
   },
