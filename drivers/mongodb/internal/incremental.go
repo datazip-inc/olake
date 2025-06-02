@@ -17,7 +17,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -70,8 +69,7 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 		bookmark = coerceBookmark(stateVal)
 	}
 	if stateField != cursorField || bookmark == nil {
-		logger.Infof("cursor changed (%v→%s) or empty bookmark – switching to back-fill",
-			stateField, cursorField)
+		logger.Infof("cursor changed (%v→%s) or empty bookmark – switching to back-fill", stateField, cursorField)
 		if err := m.backfill(stream, pool); err != nil {
 			return err
 		}
@@ -95,15 +93,24 @@ func (m *Mongo) incrementalSync(stream protocol.Stream, pool *protocol.WriterPoo
 		chunks = []Range{{Field: cursorField, Min: bookmark, Max: snapshotMax}}
 	}
 
-	logger.Infof("incremental sync on %s.%s (%d chunks, cursor=%s, start≥%v)",
-		db, collName, len(chunks), cursorField, bookmark)
-
+	logger.Infof("incremental sync on %s.%s (%d chunks, cursor=%s, start≥%v)", db, collName, len(chunks), cursorField, bookmark)
 	processChunk := func(rng Range) error {
-		w, err := pool.NewThread(ctx, stream, protocol.WithBackfill(true))
+		waitChannel := make(chan error, 1)
+
+		w, err := pool.NewThread(ctx, stream,
+			protocol.WithErrorChannel(waitChannel),
+			protocol.WithBackfill(true),
+		)
 		if err != nil {
 			return err
 		}
-		defer w.Close()
+
+		defer func() {
+			w.Close()
+			if err == nil {
+				err = <-waitChannel
+			}
+		}()
 
 		return scanIntoWriter(ctx, coll, rng, int32(m.effectiveBatch()), w)
 	}
@@ -159,9 +166,7 @@ func scanIntoWriter(
 			}
 			handleMongoObject(doc)
 			hash := utils.GetKeysHash(doc, constants.MongoPrimaryID)
-			if err := writer.Insert(
-				types.CreateRawRecord(hash, doc, "r", time.Unix(0, 0)),
-			); err != nil {
+			if err := writer.Insert(types.CreateRawRecord(hash, doc, "r", time.Unix(0, 0))); err != nil {
 				return err
 			}
 		}
@@ -272,50 +277,6 @@ func splitIncrementalChunks(
 	return parts, nil
 }
 
-func spawnWriters(
-	g *errgroup.Group,
-	ctx context.Context,
-	n int,
-	stream protocol.Stream,
-	pool *protocol.WriterPool,
-	in <-chan bson.M,
-) {
-	if n <= 0 {
-		n = 1
-	}
-	for i := 0; i < n; i++ {
-		g.Go(func() error { return writeWorker(ctx, stream, pool, in) })
-	}
-}
-
-func writeWorker(
-	ctx context.Context,
-	stream protocol.Stream,
-	pool *protocol.WriterPool,
-	in <-chan bson.M,
-) error {
-	writer, err := pool.NewThread(ctx, stream, protocol.WithBackfill(false))
-	if err != nil {
-		return err
-	}
-	defer writer.Close()
-
-	for {
-		select {
-		case doc, ok := <-in:
-			if !ok {
-				return nil
-			}
-			hash := utils.GetKeysHash(doc, constants.MongoPrimaryID)
-			if e := writer.Insert(types.CreateRawRecord(hash, doc, "r", time.Unix(0, 0))); e != nil {
-				return e
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
 func coerceBookmark(v any) any {
 	switch t := v.(type) {
 	case primitive.DateTime, primitive.ObjectID:
@@ -352,67 +313,4 @@ func snapMaxAsBookmark(
 		logger.Infof("bookmark initialised to %v on field %s", v, field)
 	}
 	return nil
-}
-
-func (sc *ScanConfig) ScanRange(
-	ctx context.Context,
-	rng Range,
-	stream protocol.Stream,
-) (lastSeen any, err error) {
-
-	filter := bson.M{}
-	if rng.Min != nil {
-		filter[rng.Field] = bson.M{"$gte": rng.Min}
-	}
-	if rng.Max != nil {
-		if m, ok := filter[rng.Field].(bson.M); ok {
-			m["$lt"] = rng.Max
-		} else {
-			filter[rng.Field] = bson.M{"$lt": rng.Max}
-		}
-	}
-	opts := options.Find().
-		SetSort(bson.D{{Key: rng.Field, Value: 1}}).
-		SetBatchSize(sc.BatchSize).
-		SetHint(bson.D{{Key: rng.Field, Value: 1}})
-
-	if sc.MaxThreads <= 0 {
-		sc.MaxThreads = 1
-	}
-	docsCh := make(chan bson.M, 32*sc.MaxThreads)
-	g, ctx := errgroup.WithContext(ctx)
-	spawnWriters(g, ctx, sc.MaxThreads, stream, sc.WriterPool, docsCh)
-
-	g.Go(func() error {
-		return base.RetryOnBackoff(sc.RetryCount, time.Minute, func() error {
-			cur, e := sc.Coll.Find(ctx, filter, opts)
-			if e != nil {
-				return e
-			}
-			defer cur.Close(ctx)
-
-			for cur.Next(ctx) {
-				var doc bson.M
-				if e := cur.Decode(&doc); e != nil {
-					return e
-				}
-				sc.Transform(doc)
-				lastSeen = doc[rng.Field]
-
-				select {
-				case docsCh <- doc:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			if e := cur.Err(); e != nil {
-				return e
-			}
-			close(docsCh)
-			return nil
-		})
-	})
-
-	err = g.Wait()
-	return
 }
