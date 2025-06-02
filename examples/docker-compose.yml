@@ -1,5 +1,5 @@
 x-app-defaults:
-  host_persistence_path: &hostPersistencePath   /tmp/olake-data
+  host_persistence_path: &hostPersistencePath   /your/chosen/host/path/olake-data
   worker_config_volume_details: &workerConfigVolumeDetails
     type: bind
     source: *hostPersistencePath
@@ -150,23 +150,28 @@ services:
         echo 'Global binlog_row_metadata set to FULL.';
         # --- End of tasks init-cdc-user ---
 
-        # --- Start of large data load (replaces simple data-loader) ---
-        echo 'init-mysql-tasks: Preparing to load employees sample database from datacharmer/test_db...';
+        # --- Start of weather data load (replaces large employees database) ---
+        echo 'init-mysql-tasks: Preparing to load weather sample database...';
 
-        echo \"init-mysql-tasks: Downloading datacharmer/test_db into /tmp/test_db (this may take a moment)...\";
-        # Using --depth 1 for a faster clone as we only need the latest version of the scripts and data
-        curl -SLJk -o /tmp/test_db-1.0.7.tar.gz https://github.com/datacharmer/test_db/releases/download/v1.0.7/test_db-1.0.7.tar.gz;
-        tar -xzf /tmp/test_db-1.0.7.tar.gz -C /tmp;
-        echo 'init-mysql-tasks: datacharmer/test_db repository downloaded.';
+        echo 'init-mysql-tasks: Downloading weather CSV data...';
+        curl -SLJk -o /tmp/weather.csv https://corgis-edu.github.io/corgis/datasets/csv/weather/weather.csv;
+        echo 'init-mysql-tasks: Weather CSV downloaded.';
 
-        echo 'init-mysql-tasks: Starting to load employees database into primary_mysql. This WILL take several minutes...';
-        # The employees.sql script connects to MySQL, creates the 'employees' database,
-        # creates tables, and then uses SOURCE commands to load data from .dump files.
-        # This command will block until the entire script is processed by MySQL.
-        cd /tmp/test_db;
-        mysql -h primary_mysql -u root -ppassword < employees.sql;
-        echo 'init-mysql-tasks: Employees database loading process complete.';
-        # --- End of large data load ---
+        echo 'init-mysql-tasks: Creating weather database...';
+        mysql -h primary_mysql -u root -ppassword -e \"CREATE DATABASE IF NOT EXISTS weather;\";
+
+        echo 'init-mysql-tasks: Creating weather table...';
+        mysql -h primary_mysql -u root -ppassword weather -e \"CREATE TABLE IF NOT EXISTS weather (id INT AUTO_INCREMENT PRIMARY KEY, precipitation FLOAT, date_full VARCHAR(20), date_month INT, date_week_of INT, date_year INT, station_city VARCHAR(100), station_code VARCHAR(10), station_location VARCHAR(100), station_state VARCHAR(50), temperature_avg FLOAT, temperature_max FLOAT, temperature_min FLOAT, wind_direction INT, wind_speed FLOAT);\";
+
+        echo 'init-mysql-tasks: Loading weather data into MySQL (this should be much faster)...';
+        mysql --local-infile=1 -h primary_mysql -u root -ppassword weather -e \"LOAD DATA LOCAL INFILE '/tmp/weather.csv' INTO TABLE weather FIELDS TERMINATED BY ',' ENCLOSED BY '\\\"' LINES TERMINATED BY '\\n' IGNORE 1 ROWS (precipitation, date_full, date_month, date_week_of, date_year, station_city, station_code, station_location, station_state, temperature_avg, temperature_max, temperature_min, wind_direction, wind_speed);\";
+        
+        echo 'init-mysql-tasks: Verifying data load with sample queries...';
+        mysql -h primary_mysql -u root -ppassword weather -e \"SELECT COUNT(*) as total_rows FROM weather;\";
+        mysql -h primary_mysql -u root -ppassword weather -e \"SELECT * FROM weather LIMIT 5;\";
+        
+        echo 'init-mysql-tasks: Weather database loading process complete.';
+        # --- End of weather data load ---
 
         # --- Start of tasks binlog-checker ---
         echo 'Performing MySQL binlog check...';
