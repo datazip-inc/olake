@@ -73,18 +73,21 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	if err != nil {
 		return fmt.Errorf("failed to prepare binlog config: %s", err)
 	}
+
 	// Backfill streams that haven't been processed yet
 	var needsBackfill []protocol.Stream
 	for _, s := range streams {
-		// check if full refresh state present or not
-		_, exist := utils.ArrayContains(m.State.Streams, func(streamState *types.StreamState) bool {
-			if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
-				return true
+		if s.GetSyncMode() == types.CDC {
+			// check if full refresh state present or not
+			_, exist := utils.ArrayContains(m.State.Streams, func(streamState *types.StreamState) bool {
+				if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
+					return true
+				}
+				return false
+			})
+			if !exist || !gs.Streams.Exists(s.ID()) {
+				needsBackfill = append(needsBackfill, s)
 			}
-			return false
-		})
-		if !exist || !gs.Streams.Exists(s.ID()) {
-			needsBackfill = append(needsBackfill, s)
 		}
 	}
 

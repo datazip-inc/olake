@@ -185,6 +185,8 @@ func (p *Postgres) Read(pool *protocol.WriterPool, stream protocol.Stream) error
 	switch stream.GetSyncMode() {
 	case types.FULLREFRESH:
 		return p.backfill(pool, stream)
+	case types.STRICTCDC:
+		return p.RunChangeStream(pool, stream)
 	case types.CDC:
 		return p.RunChangeStream(pool, stream)
 	}
@@ -235,6 +237,7 @@ func (p *Postgres) populateStream(table Table) (*types.Stream, error) {
 	if p.CDCSupport {
 		stream.WithSyncMode(types.FULLREFRESH)
 		stream.WithSyncMode(types.CDC)
+		stream.WithSyncMode(types.STRICTCDC)
 
 	} else {
 		stream.WithSyncMode(types.FULLREFRESH)

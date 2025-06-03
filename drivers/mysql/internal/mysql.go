@@ -157,6 +157,8 @@ func (m *MySQL) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
 	switch stream.GetSyncMode() {
 	case types.FULLREFRESH:
 		return m.backfill(pool, stream)
+	case types.STRICTCDC:
+		return m.RunChangeStream(pool, stream)
 	case types.CDC:
 		return m.RunChangeStream(pool, stream)
 	}
@@ -215,7 +217,7 @@ func (m *MySQL) produceTableSchema(ctx context.Context, streamName string) (*typ
 			stream.UpsertField(column, typ, true)
 		}
 		stream.WithSyncMode(types.CDC)
-
+		stream.WithSyncMode(types.STRICTCDC)
 	}
 	stream.WithSyncMode(types.FULLREFRESH)
 

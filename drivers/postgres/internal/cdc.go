@@ -49,6 +49,7 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 	defer socket.Cleanup(ctx)
 
 	currentLSN := socket.ConfirmedFlushLSN
+
 	if gs.State.IsEmpty() {
 		gs.Streams, gs.State.LSN = types.NewSet[string](), currentLSN.String()
 		p.State.SetGlobalState(gs)
@@ -70,15 +71,17 @@ func (p *Postgres) RunChangeStream(pool *protocol.WriterPool, streams ...protoco
 
 	var needsBackfill []protocol.Stream
 	for _, s := range streams {
-		// check if full refresh state present or not
-		_, exist := utils.ArrayContains(p.State.Streams, func(streamState *types.StreamState) bool {
-			if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
-				return true
+		if s.GetSyncMode() == types.CDC {
+			// check if full refresh state present or not
+			_, exist := utils.ArrayContains(p.State.Streams, func(streamState *types.StreamState) bool {
+				if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
+					return true
+				}
+				return false
+			})
+			if !exist || !gs.Streams.Exists(s.ID()) {
+				needsBackfill = append(needsBackfill, s)
 			}
-			return false
-		})
-		if !exist || !gs.Streams.Exists(s.ID()) {
-			needsBackfill = append(needsBackfill, s)
 		}
 	}
 	if err = utils.Concurrent(ctx, needsBackfill, len(needsBackfill), func(ctx context.Context, s protocol.Stream, _ int) error {

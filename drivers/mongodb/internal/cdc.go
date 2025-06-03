@@ -56,29 +56,34 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
 	chunks := m.State.GetChunks(stream.Self())
 
-	if prevResumeToken == nil || chunks == nil || chunks.Len() != 0 {
-		// get current resume token and do full load for stream
+	if stream.GetSyncMode() == types.STRICTCDC {
+		if prevResumeToken == nil {
+			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
+			if err != nil {
+				return err
+			}
+			if resumeToken != nil {
+				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
+				m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+			}
+		}
+	} else if prevResumeToken == nil || chunks == nil || chunks.Len() != 0 {
 		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
 		if err != nil {
 			return err
 		}
 		if resumeToken != nil {
 			prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
+			m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 		}
-
-		// save resume token
-		m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 
 		if err := m.backfill(stream, pool); err != nil {
 			return err
 		}
-		logger.Infof("backfill done for stream[%s]", stream.ID())
 	}
 
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
-	// resume cdc sync from prev resume token
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken}).SetMaxAwaitTime(time.Duration(m.cdcConfig.InitialWaitTime) * time.Second)
 	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
-
 	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
 	if err != nil {
 		return fmt.Errorf("failed to open change stream: %s", err)
@@ -91,45 +96,67 @@ func (m *Mongo) changeStreamSync(stream protocol.Stream, pool *protocol.WriterPo
 	}
 	defer insert.Close()
 
-	// Iterates over the cursor to print the change stream events
-	for cursor.TryNext(cdcCtx) {
-		var record CDCDocument
-		if err := cursor.Decode(&record); err != nil {
-			return fmt.Errorf("error while decoding: %s", err)
+	idleTimeout := time.Duration(m.cdcConfig.InitialWaitTime) * time.Second
+	idleStartTime := time.Now()
+
+	for {
+		hasNext := cursor.TryNext(cdcCtx)
+
+		if hasNext {
+			idleStartTime = time.Now()
+
+			var record CDCDocument
+			if err := cursor.Decode(&record); err != nil {
+				return fmt.Errorf("error while decoding: %s", err)
+			}
+
+			if record.OperationType == "delete" {
+				// replace full document(null) with documentKey
+				record.FullDocument = record.DocumentKey
+			}
+
+			handleMongoObject(record.FullDocument)
+
+			opType := utils.Ternary(
+				record.OperationType == "update", "u",
+				utils.Ternary(record.OperationType == "delete", "d", "c"),
+			).(string)
+
+			ts := utils.Ternary(
+				record.WallTime != 0,
+				record.WallTime.Time(), //millisecond precision
+				time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), //seconds only
+			).(time.Time)
+
+			rawRecord := types.CreateRawRecord(
+				utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
+				record.FullDocument,
+				opType,
+				ts,
+			)
+
+			if err := insert.Insert(rawRecord); err != nil {
+				return err
+			}
+
+			// Save latest resume token
+			prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
+
+		} else if err := cursor.Err(); err != nil {
+			return fmt.Errorf("failed to iterate change streams cursor: %s", err)
 		}
 
-		if record.OperationType == "delete" {
-			// replace full document(null) with documentKey
-			record.FullDocument = record.DocumentKey
+		// Check idle timeout
+		if time.Since(idleStartTime) > idleTimeout {
+			logger.Infof("Idle timeout reached while waiting for new messages")
+			break
 		}
-		handleMongoObject(record.FullDocument)
-		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
-
-		ts := utils.Ternary(record.WallTime != 0,
-			record.WallTime.Time(), // millisecond precision
-			time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
-		).(time.Time)
-
-		rawRecord := types.CreateRawRecord(
-			utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
-			record.FullDocument,
-			opType,
-			ts,
-		)
-		err := insert.Insert(rawRecord)
-		if err != nil {
-			return err
-		}
-
-		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
 	}
-	if err := cursor.Err(); err != nil {
-		return fmt.Errorf("failed to iterate change streams cursor: %s", err)
-	}
 
-	// save state for the current stream
 	m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+
 	return nil
+
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
