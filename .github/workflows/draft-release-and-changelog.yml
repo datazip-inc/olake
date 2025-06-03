@@ -1,4 +1,4 @@
-name: Olake Draft Release and Changelog
+name: Draft Releaser From Master 
 
 on:
   pull_request:
