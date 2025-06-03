@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -105,6 +106,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 // testAndBuildAbstractDriver initializes and returns an AbstractDriver with default configuration
 func testAndBuildAbstractDriver(t *testing.T) (*sqlx.DB, *abstract.AbstractDriver) {
 	t.Helper()
+	logger.Init()
 
 	config := Config{
 		Username:   defaultMySQLUser,

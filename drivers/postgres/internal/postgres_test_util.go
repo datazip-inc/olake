@@ -9,6 +9,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
@@ -105,6 +106,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 // testPostgresClient initializes and returns a PostgreSQL test client with default configuration
 func testPostgresClient(t *testing.T) (*sqlx.DB, *abstract.AbstractDriver) {
 	t.Helper()
+	logger.Init()
 
 	config := Config{
 		Host:     defaultPostgresHost,
