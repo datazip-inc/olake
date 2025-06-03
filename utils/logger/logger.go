@@ -166,6 +166,10 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 }
 
 func Init() {
+	// check working directory
+	if viper.GetString("CONFIG_FOLDER") == "" {
+		viper.SetDefault("CONFIG_FOLDER", os.TempDir())
+	}
 	// Set up timestamp for log file names
 	currentTimestamp := time.Now().UTC()
 	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d",

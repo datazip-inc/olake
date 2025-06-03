@@ -6,19 +6,23 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
-	streams map[string]types.StreamInterface // Keyed by "schema.table"
+	streams   map[string]types.StreamInterface // Keyed by "schema.table"
+	converter func(value interface{}, columnType string) (interface{}, error)
 }
 
 // NewChangeFilter creates a filter for the given streams.
-func NewChangeFilter(streams ...types.StreamInterface) ChangeFilter {
+func NewChangeFilter(typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
 	filter := ChangeFilter{
-		streams: make(map[string]types.StreamInterface),
+		streams:   make(map[string]types.StreamInterface),
+		converter: typeConverter,
 	}
 	for _, stream := range streams {
 		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
@@ -47,6 +51,12 @@ func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.
 		return nil
 	}
 
+	columnTypes := make([]string, len(e.Table.ColumnType))
+	for i, ct := range e.Table.ColumnType {
+		columnTypes[i] = mysqlTypeName(ct)
+	}
+	logger.Debugf("Column types: %v", columnTypes)
+
 	var rowsToProcess [][]interface{}
 	if operationType == "update" {
 		// For an "update" operation, the rows contain pairs of (before, after) images: [before, after, before, after, ...]
@@ -59,7 +69,7 @@ func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.
 	}
 
 	for _, row := range rowsToProcess {
-		record, err := convertRowToMap(row, e.Table.ColumnNameString())
+		record, err := convertRowToMap(row, e.Table.ColumnNameString(), columnTypes, f.converter)
 		if err != nil {
 			return err
 		}
@@ -80,13 +90,77 @@ func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.
 }
 
 // convertRowToMap converts a binlog row to a map.
-func convertRowToMap(row []interface{}, columns []string) (map[string]interface{}, error) {
+func convertRowToMap(row []interface{}, columns []string, columnTypes []string, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
 	if len(columns) != len(row) {
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(columns), len(row))
 	}
+
 	record := make(map[string]interface{})
 	for i, val := range row {
-		record[columns[i]] = val
+		convertedVal, err := converter(val, columnTypes[i])
+		if err != nil && err != typeutils.ErrNullValue {
+			return nil, err
+		}
+		record[columns[i]] = convertedVal
 	}
 	return record, nil
+}
+
+func mysqlTypeName(t byte) string {
+	switch t {
+	case mysql.MYSQL_TYPE_DECIMAL:
+		return "DECIMAL"
+	case mysql.MYSQL_TYPE_TINY:
+		return "TINYINT"
+	case mysql.MYSQL_TYPE_SHORT:
+		return "SMALLINT"
+	case mysql.MYSQL_TYPE_LONG:
+		return "INT"
+	case mysql.MYSQL_TYPE_FLOAT:
+		return "FLOAT"
+	case mysql.MYSQL_TYPE_DOUBLE:
+		return "DOUBLE"
+	case mysql.MYSQL_TYPE_NULL:
+		return "NULL"
+	case mysql.MYSQL_TYPE_TIMESTAMP:
+		return "TIMESTAMP"
+	case mysql.MYSQL_TYPE_LONGLONG:
+		return "BIGINT"
+	case mysql.MYSQL_TYPE_INT24:
+		return "MEDIUMINT"
+	case mysql.MYSQL_TYPE_DATE:
+		return "DATE"
+	case mysql.MYSQL_TYPE_TIME:
+		return "TIME"
+	case mysql.MYSQL_TYPE_DATETIME:
+		return "DATETIME"
+	case mysql.MYSQL_TYPE_YEAR:
+		return "YEAR"
+	case mysql.MYSQL_TYPE_VARCHAR:
+		return "VARCHAR"
+	case mysql.MYSQL_TYPE_BIT:
+		return "BIT"
+	case mysql.MYSQL_TYPE_JSON:
+		return "JSON"
+	case mysql.MYSQL_TYPE_NEWDECIMAL:
+		return "DECIMAL"
+	case mysql.MYSQL_TYPE_ENUM:
+		return "ENUM"
+	case mysql.MYSQL_TYPE_SET:
+		return "SET"
+	case mysql.MYSQL_TYPE_TINY_BLOB:
+		return "TINYBLOB"
+	case mysql.MYSQL_TYPE_BLOB:
+		return "BLOB"
+	case mysql.MYSQL_TYPE_MEDIUM_BLOB:
+		return "MEDIUMBLOB"
+	case mysql.MYSQL_TYPE_LONG_BLOB:
+		return "LONGBLOB"
+	case mysql.MYSQL_TYPE_STRING:
+		return "STRING"
+	case mysql.MYSQL_TYPE_GEOMETRY:
+		return "GEOMETRY"
+	default:
+		return fmt.Sprintf("UNKNOWN_TYPE: %d", t)
+	}
 }

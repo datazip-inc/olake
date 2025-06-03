@@ -23,7 +23,7 @@ type Connection struct {
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
-func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface) (*Connection, error) {
+func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
 		Flavor:          config.Flavor,
@@ -40,7 +40,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
 		CurrentPos:      pos,
 		initialWaitTime: config.InitialWaitTime,
-		changeFilter:    NewChangeFilter(streams...),
+		changeFilter:    NewChangeFilter(typeConverter, streams...),
 	}, nil
 }
 

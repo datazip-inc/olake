@@ -35,7 +35,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 		HeartbeatPeriod: 30 * time.Second,
 		InitialWaitTime: time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
 	}
-	return binlog.NewConnection(ctx, config, globalState.State.Position, streams)
+	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
 }
 
 func (m *MySQL) PreCDC(ctx context.Context, state *types.State, streams []types.StreamInterface) error {
@@ -85,7 +85,18 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMe
 
 // getCurrentBinlogPosition retrieves the current binlog position from MySQL.
 func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
-	rows, err := m.client.Query(jdbc.MySQLMasterStatusQuery())
+	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
+
+	// Get MySQL version
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
+	}
+
+	// Use the appropriate query based on the MySQL version
+	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+
+	rows, err := m.client.Query(query)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
 	}

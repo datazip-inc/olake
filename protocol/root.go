@@ -34,8 +34,9 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// set global variables
+
 		if !noSave {
-			viper.Set("CONFIG_FOLDER", filepath.Dir(configPath))
+			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
@@ -61,8 +62,8 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 
 func init() {
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
-	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "", "(Required) Config for connector")
-	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "", "(Required) Destination config for connector")
+	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
+	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")

@@ -61,8 +61,6 @@ function build_and_run() {
     local connector="$1"
     if [[ $2 == "driver" ]]; then
         path=drivers/$connector
-    elif [[ $2 == "adapter" ]]; then
-        path=adapters/$connector
     else
         fail "The argument does not have a recognized prefix."
     fi
@@ -94,11 +92,11 @@ function build_and_run() {
     if [[ "$using_iceberg" == true ]]; then
         check_and_build_jar "iceberg"
     fi
-    
+
     cd $path || fail "Failed to navigate to path: $path"
+    
     go mod tidy
     go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
-
     echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
     ./olake $joined_arguments
 }
@@ -117,10 +115,6 @@ if [ $# -gt 0 ]; then
         driver="${argument#driver-}"
         echo "============================== Building driver: $driver =============================="
         build_and_run "$driver" "driver" "$joined_arguments"
-    elif [[ $argument == adapter-* ]]; then
-        adapter="${argument#adapter-}"
-        echo "============================== Building adapter: $adapter =============================="
-        build_and_run "$adapter" "adapter" "$joined_arguments"
     else
         fail "The argument does not have a recognized prefix."
     fi

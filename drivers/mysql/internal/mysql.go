@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/jmoiron/sqlx"
 
 	// MySQL driver
 	_ "github.com/go-sql-driver/mysql"
@@ -23,7 +23,7 @@ import (
 // MySQL represents the MySQL database driver
 type MySQL struct {
 	config     *Config
-	client     *sql.DB
+	client     *sqlx.DB
 	CDCSupport bool // indicates if the MySQL instance supports CDC
 	cdcConfig  CDC
 	BinlogConn *binlog.Connection
@@ -57,7 +57,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 	// Open database connection
-	client, err := sql.Open("mysql", m.config.URI())
+	client, err := sqlx.Open("mysql", m.config.URI())
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %s", err)
 	}
@@ -165,6 +165,14 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	}
 	stream.SyncMode = m.config.DefaultMode
 	return stream, nil
+}
+
+func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
+	if value == nil {
+		return nil, typeutils.ErrNullValue
+	}
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
+	return typeutils.ReformatValue(olakeType, value)
 }
 
 // Close ensures proper cleanup
