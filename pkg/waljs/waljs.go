@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -29,8 +30,6 @@ type Socket struct {
 	pgConn *pgconn.PgConn
 	// clientXLogPos tracks the current position in the Write-Ahead Log (WAL)
 	ClientXLogPos pglogrepl.LSN
-	// idleStartTime tracks when the connection last received data
-	idleStartTime time.Time
 	// changeFilter filters WAL changes based on configured tables
 	changeFilter ChangeFilter
 	// confirmedLSN is the position from which replication should start (Prev marked lsn)
@@ -104,7 +103,7 @@ func (s *Socket) AcknowledgeLSN(ctx context.Context) error {
 	return nil
 }
 
-func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
+func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
 	// TODO: need research on if we need initial wait time or not (currently we are using idle time)
 	if err := pglogrepl.StartReplication(
@@ -117,13 +116,13 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
 	logger.Infof("Started logical replication on slot[%s]", s.replicationSlot)
-	s.idleStartTime = time.Now()
+	startTime := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			if time.Since(s.idleStartTime) > s.initialWaitTime {
+			if time.Since(startTime) > s.initialWaitTime {
 				logger.Debug("Idle timeout reached while waiting for new messages")
 				return nil
 			}
@@ -150,7 +149,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 
 			case pglogrepl.XLogDataByteID:
 				// Reset the idle timer on receiving WAL data.
-				s.idleStartTime = time.Now()
+				startTime = time.Now()
 				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
 					return fmt.Errorf("failed to parse XLogData: %s", err)
@@ -158,7 +157,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 				// Calculate new LSN based on the received WAL data.
 				newLSN := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 				// Process change with the provided callback.
-				if err := s.changeFilter.FilterChange(newLSN, xld.WALData, callback); err != nil {
+				if err := s.changeFilter.FilterChange(xld.WALData, callback); err != nil {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}
 				// Update the current LSN pointer.
@@ -173,5 +172,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 
 // cleanUpOnFailure drops replication slot and publication if database snapshotting was failed for any reason
 func (s *Socket) Cleanup(ctx context.Context) {
-	_ = s.pgConn.Close(ctx)
+	if s.pgConn != nil {
+		_ = s.pgConn.Close(ctx)
+	}
 }

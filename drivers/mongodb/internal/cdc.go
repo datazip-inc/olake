@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -25,73 +25,51 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
-func (m *Mongo) RunChangeStream(ctx context.Context, pool *protocol.WriterPool, streams ...protocol.Stream) error {
-	// TODO: concurrency based on configuration
-	return utils.Concurrent(context.TODO(), streams, len(streams), func(ctx context.Context, stream protocol.Stream, executionNumber int) error {
-		return m.changeStreamSync(ctx, stream, pool)
-	})
-}
+func (m *Mongo) PreCDC(cdcCtx context.Context, state *types.State, streams []types.StreamInterface) error {
+	for _, stream := range streams {
+		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{
+				{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
+			}}},
+		}
 
-func (m *Mongo) SetupGlobalState(state *types.State) error {
-	// mongo db does not support any global state
-	// stream level states can be used
+		prevResumeToken := state.GetCursor(stream.Self(), cdcCursorField)
+		if prevResumeToken == nil {
+			// get current resume token and do full load for stream
+			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
+			if err != nil {
+				return err
+			}
+			if resumeToken != nil {
+				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
+				state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+			}
+		}
+		m.cdcCursor = prevResumeToken
+	}
 	return nil
 }
 
-func (m *Mongo) StateType() types.StateType {
-	return types.StreamType
-}
-
-// does full load on empty state
-func (m *Mongo) changeStreamSync(cdcCtx context.Context, stream protocol.Stream, pool *protocol.WriterPool) error {
-	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
+func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
 		}}},
 	}
+	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	prevResumeToken := m.State.GetCursor(stream.Self(), cdcCursorField)
-	chunks := m.State.GetChunks(stream.Self())
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: m.cdcCursor})
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), m.cdcCursor)
 
-	if prevResumeToken == nil || chunks == nil || chunks.Len() != 0 {
-		// get current resume token and do full load for stream
-		resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
-		if err != nil {
-			return err
-		}
-		if resumeToken != nil {
-			prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-		}
-
-		// save resume token
-		m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
-
-		if err := m.backfill(cdcCtx, pool, stream); err != nil {
-			return err
-		}
-		logger.Infof("backfill done for stream[%s]", stream.ID())
-	}
-
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
-	// resume cdc sync from prev resume token
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
-
-	cursor, err := collection.Watch(cdcCtx, pipeline, changeStreamOpts)
+	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		return fmt.Errorf("failed to open change stream: %s", err)
 	}
-	defer cursor.Close(cdcCtx)
+	defer cursor.Close(ctx)
 
-	insert, err := pool.NewThread(cdcCtx, stream, protocol.WithBackfill(false))
-	if err != nil {
-		return err
-	}
-	defer insert.Close()
-
-	// Iterates over the cursor to print the change stream events
-	for cursor.TryNext(cdcCtx) {
+	for cursor.TryNext(ctx) {
 		var record CDCDocument
 		if err := cursor.Decode(&record); err != nil {
 			return fmt.Errorf("error while decoding: %s", err)
@@ -101,40 +79,36 @@ func (m *Mongo) changeStreamSync(cdcCtx context.Context, stream protocol.Stream,
 			// replace full document(null) with documentKey
 			record.FullDocument = record.DocumentKey
 		}
-		handleMongoObject(record.FullDocument)
-		opType := utils.Ternary(record.OperationType == "update", "u", utils.Ternary(record.OperationType == "delete", "d", "c")).(string)
-
+		filterMongoObject(record.FullDocument)
 		ts := utils.Ternary(record.WallTime != 0,
 			record.WallTime.Time(), // millisecond precision
 			time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
 		).(time.Time)
-
-		rawRecord := types.CreateRawRecord(
-			utils.GetKeysHash(record.FullDocument, constants.MongoPrimaryID),
-			record.FullDocument,
-			opType,
-			ts,
-		)
-		err := insert.Insert(rawRecord)
-		if err != nil {
-			return err
+		change := abstract.CDCChange{
+			Stream:    stream,
+			Timestamp: typeutils.Time{Time: ts},
+			Data:      record.FullDocument,
+			Kind:      record.OperationType,
 		}
-
-		prevResumeToken = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
+		m.cdcCursor = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
+		if err := OnMessage(change); err != nil {
+			return fmt.Errorf("failed to process message: %s", err)
+		}
 	}
-	if err := cursor.Err(); err != nil {
-		return fmt.Errorf("failed to iterate change streams cursor: %s", err)
-	}
+	return cursor.Err()
+}
 
-	// save state for the current stream
-	m.State.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+func (m *Mongo) PostCDC(ctx context.Context, state *types.State, stream types.StreamInterface, noErr bool) error {
+	if noErr {
+		state.SetCursor(stream.Self(), cdcCursorField, m.cdcCursor)
+	}
 	return nil
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
 	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream())
 	if err != nil {
-		return nil, fmt.Errorf("failed to open change stream: %v", err)
+		return nil, fmt.Errorf("failed to open change stream: %s", err)
 	}
 	defer cursor.Close(cdcCtx)
 

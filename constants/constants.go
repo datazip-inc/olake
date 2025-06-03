@@ -1,12 +1,25 @@
 package constants
 
+import "time"
+
 const (
-	ParquetFileExt = "parquet"
-	PartitionRegex = `\{([^}]+)\}`
-	MongoPrimaryID = "_id"
-	OlakeID        = "_olake_id"
-	OlakeTimestamp = "_olake_timestamp"
-	OpType         = "_op_type"
-	CdcTimestamp   = "_cdc_timestamp"
-	DBName         = "_db"
+	DefaultRetryCount      = 3
+	DefaultThreadCount     = 3
+	DefaultDiscoverTimeout = 5 * time.Minute
+	ParquetFileExt         = "parquet"
+	PartitionRegex         = `\{([^}]+)\}`
+	MongoPrimaryID         = "_id"
+	OlakeID                = "_olake_id"
+	OlakeTimestamp         = "_olake_timestamp"
+	OpType                 = "_op_type"
+	CdcTimestamp           = "_cdc_timestamp"
+	DBName                 = "_db"
+)
+
+type DriverType string
+
+const (
+	MongoDB  DriverType = "mongodb"
+	Postgres DriverType = "postgres"
+	MySQL    DriverType = "mysql"
 )
