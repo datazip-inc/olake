@@ -1,4 +1,4 @@
-name: Draft Release Approval
+name: Olake Driver Releaser
 
 on:
   release:
