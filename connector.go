@@ -7,6 +7,7 @@ import (
 	protocol "github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/safego"
 	_ "github.com/datazip-inc/olake/writers/iceberg" // registering local parquet writer
+	_ "github.com/datazip-inc/olake/writers/iceberggo"
 	_ "github.com/datazip-inc/olake/writers/parquet" // registering local parquet writer
 )
 
