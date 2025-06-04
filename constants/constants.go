@@ -6,6 +6,7 @@ const (
 	DefaultRetryCount      = 3
 	DefaultThreadCount     = 3
 	DefaultDiscoverTimeout = 5 * time.Minute
+	DefaultRetryTimeout    = 60 * time.Second
 	ParquetFileExt         = "parquet"
 	PartitionRegex         = `\{([^}]+)\}`
 	MongoPrimaryID         = "_id"

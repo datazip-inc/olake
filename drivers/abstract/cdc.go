@@ -8,6 +8,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
@@ -17,15 +18,18 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	}
 
 	backfillWaitChannel := make(chan string, len(streams))
+	backfillErrorChannel := make(chan error, len(streams))
 	defer close(backfillWaitChannel)
+	defer close(backfillErrorChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
 		if !a.state.HasCompletedBackfill(stream.Self()) {
 			// remove chunks state
-			err := a.Backfill(ctx, backfillWaitChannel, pool, stream)
+			err := a.Backfill(ctx, backfillWaitChannel, backfillErrorChannel, pool, stream)
 			if err != nil {
 				return err
 			}
 		} else {
+			logger.Infof("backfill already completed for stream[%s], skipping", stream.ID())
 			backfillWaitChannel <- stream.ID()
 		}
 		return nil
@@ -40,6 +44,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-backfillErrorChannel:
+			if err != nil {
+				return fmt.Errorf("error during backfill: %s", err)
+			}
 		case streamID, ok := <-backfillWaitChannel:
 			if !ok {
 				return fmt.Errorf("backfill channel closed unexpectedly")
@@ -52,10 +60,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				a.GlobalConnGroup.Add(func(ctx context.Context) error {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 					errChan := make(chan error, 1)
-					inserter, err := pool.NewThread(ctx, streams[index], destination.WithErrorChannel(errChan))
-					if err != nil {
-						return fmt.Errorf("failed to create writer thread for stream[%s]: %s", streamID, err)
-					}
+					inserter := pool.NewThread(ctx, streams[index], errChan)
 					defer func() {
 						inserter.Close()
 						if err == nil {
@@ -65,15 +70,17 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						}
 						err = a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
 					}()
-					return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
-						pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-						opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-						return inserter.Insert(types.CreateRawRecord(
-							utils.GetKeysHash(change.Data, pkFields...),
-							change.Data,
-							opType,
-							change.Timestamp.Time,
-						))
+					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+						return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
+							pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+							opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
+							return inserter.Insert(types.CreateRawRecord(
+								utils.GetKeysHash(change.Data, pkFields...),
+								change.Data,
+								opType,
+								change.Timestamp.Time,
+							))
+						})
 					})
 				})
 			} else {
@@ -91,11 +98,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		errChans := make(map[types.StreamInterface]chan error)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
 			errChan := make(chan error, 1)
-			inserter, err := pool.NewThread(ctx, stream, destination.WithErrorChannel(errChan))
-			if err != nil {
-				return fmt.Errorf("failed to create writer thread for stream[%s]: %s", stream.ID(), err)
-			}
-			inserters[stream], errChans[stream] = inserter, errChan
+			inserters[stream], errChans[stream] = pool.NewThread(ctx, stream, errChan), errChan
 			return nil
 		})
 		if err != nil {
@@ -112,15 +115,19 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			}
 			err = a.driver.PostCDC(ctx, a.state, nil, err == nil)
 		}()
-		return a.driver.StreamChanges(ctx, nil, func(change CDCChange) error {
-			pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-			opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-			return inserters[change.Stream].Insert(types.CreateRawRecord(
-				utils.GetKeysHash(change.Data, pkFields...),
-				change.Data,
-				opType,
-				change.Timestamp.Time,
-			))
+		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+			return utils.ForEach(streams, func(stream types.StreamInterface) error {
+				return a.driver.StreamChanges(ctx, stream, func(change CDCChange) error {
+					pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+					opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
+					return inserters[stream].Insert(types.CreateRawRecord(
+						utils.GetKeysHash(change.Data, pkFields...),
+						change.Data,
+						opType,
+						change.Timestamp.Time,
+					))
+				})
+			})
 		})
 	})
 	return nil

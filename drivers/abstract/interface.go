@@ -22,6 +22,8 @@ type DriverInterface interface {
 	Setup(ctx context.Context) error
 	// max connnection to be used
 	MaxConnections() int
+	// Max Retries returns the maximum number of retries for driver operations
+	MaxRetries() int
 	// GetStreamNames returns the names of the streams
 	GetStreamNames(ctx context.Context) ([]string, error)
 	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)

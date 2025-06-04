@@ -6,13 +6,14 @@ import (
 	"sort"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
+func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, backfillErrChan chan error, pool *destination.WriterPool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
 	if chunksSet == nil || chunksSet.Len() == 0 {
@@ -35,10 +36,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		errorChannel := make(chan error, 1)
-		inserter, err := pool.NewThread(ctx, stream, destination.WithErrorChannel(errorChannel), destination.WithBackfill(true))
-		if err != nil {
-			return err
-		}
+		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
 			inserter.Close()
 			if err == nil {
@@ -53,12 +51,15 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
+			} else if backfillErrChan != nil {
+				backfillErrChan <- err
 			}
 		}()
-		// TODO: add backoff for connection errors
-		return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
-			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-			return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
+		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
+				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
+			})
 		})
 	}
 	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)

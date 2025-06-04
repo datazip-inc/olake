@@ -65,14 +65,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	// no need to check from discover if it have cdc support or not
 	m.CDCSupport = true
 	// check for default backoff count
-	if m.config.RetryCount < 0 {
-		logger.Info("setting backoff retry count to default value %d", constants.DefaultRetryCount)
-		m.config.RetryCount = constants.DefaultRetryCount
-	} else {
-		// add 1 for first run
-		m.config.RetryCount += 1
-	}
-
+	m.config.RetryCount = utils.Ternary(m.config.RetryCount == 0, 1, m.config.RetryCount+1).(int)
 	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
@@ -89,6 +82,10 @@ func (m *Mongo) Type() string {
 
 func (m *Mongo) MaxConnections() int {
 	return m.config.MaxThreads
+}
+
+func (m *Mongo) MaxRetries() int {
+	return m.config.RetryCount
 }
 
 func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
@@ -123,7 +120,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		// initialize stream
 		collection := db.Collection(streamName)
 		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
-
+		stream.SyncMode = m.config.DefaultMode
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
@@ -176,7 +173,6 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
-	stream.SyncMode = m.config.DefaultMode
 	return stream, err
 }
 

@@ -94,6 +94,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		logger.Info("Standard Replication is selected")
 	}
 	p.client = pgClient
+	p.config.RetryCount = utils.Ternary(p.config.RetryCount <= 0, 1, p.config.RetryCount+1).(int)
 	return nil
 }
 
@@ -139,6 +140,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		streamParts := strings.Split(streamName, ".")
 		schemaName, streamName := streamParts[0], streamParts[1]
 		stream := types.NewStream(streamName, schemaName)
+		stream.SyncMode = p.config.DefaultSyncMode
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {
@@ -181,8 +183,6 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 	if err != nil && ctx.Err() == nil {
 		return nil, err
 	}
-	stream.SyncMode = p.config.DefaultSyncMode
-
 	return stream, nil
 }
 
@@ -192,6 +192,10 @@ func (p *Postgres) Type() string {
 
 func (p *Postgres) MaxConnections() int {
 	return p.config.MaxThreads
+}
+
+func (p *Postgres) MaxRetries() int {
+	return p.config.RetryCount
 }
 
 func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {

@@ -237,6 +237,13 @@ func IsJSON(str string) bool {
 
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
+	// if single primary key is present use as it is
+	if len(keys) == 1 {
+		if _, ok := m[keys[0]]; ok {
+			return fmt.Sprint(m[keys[0]])
+		}
+	}
+
 	// If no primary key is present, the entire record is hashed to generate the olakeID.
 	if len(keys) == 0 {
 		return GetHash(m)

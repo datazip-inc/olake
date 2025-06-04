@@ -83,6 +83,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		m.cdcConfig = *cdc
 	}
 	m.client = client
+	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if binlog is configured
 	//TODO : check for mysql binlog permisssions
 	m.CDCSupport = true
@@ -96,6 +97,10 @@ func (m *MySQL) Type() string {
 
 func (m *MySQL) MaxConnections() int {
 	return m.config.MaxThreads
+}
+
+func (m *MySQL) MaxRetries() int {
+	return m.config.RetryCount
 }
 
 func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
@@ -127,7 +132,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		schemaName, tableName := parts[0], parts[1]
 		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC)
-
+		stream.SyncMode = m.config.DefaultMode
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -163,7 +168,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
-	stream.SyncMode = m.config.DefaultMode
 	return stream, nil
 }
 

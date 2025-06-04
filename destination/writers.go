@@ -13,6 +13,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const DestError = "destination error"
+
 type NewFunc func() Writer
 type InsertFunction func(record types.RawRecord) (err error)
 type CloseFunction func()
@@ -20,10 +22,9 @@ type CloseFunction func()
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
 
 type Options struct {
-	Identifier   string
-	Number       int64
-	errorChannel chan error
-	Backfill     bool
+	Identifier string
+	Number     int64
+	Backfill   bool
 }
 
 type ThreadOptions func(opt *Options)
@@ -37,12 +38,6 @@ func WithIdentifier(identifier string) ThreadOptions {
 func WithNumber(number int64) ThreadOptions {
 	return func(opt *Options) {
 		opt.Number = number
-	}
-}
-
-func WithErrorChannel(errChan chan error) ThreadOptions {
-	return func(opt *Options) {
-		opt.errorChannel = errChan
 	}
 }
 
@@ -99,15 +94,11 @@ type ThreadEvent struct {
 }
 
 // Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterface, options ...ThreadOptions) (*ThreadEvent, error) {
+func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterface, errChan chan error, options ...ThreadOptions) *ThreadEvent {
 	// setup options
 	opts := &Options{}
 	for _, one := range options {
 		one(opts)
-	}
-
-	if opts.errorChannel == nil {
-		return nil, fmt.Errorf("error channel is not set in options")
 	}
 
 	var thread Writer
@@ -152,8 +143,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 		return flattenedData, nil
 	}
 
-	w.group.Go(func() error {
-		var err error // to access in defer
+	w.group.Go(func() (err error) {
 		w.ThreadCounter.Add(1)
 		// init writer first
 		if err := initNewWriter(); err != nil {
@@ -166,19 +156,19 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 			defer w.tmu.Unlock()
 			defer func() {
 				w.ThreadCounter.Add(-1)
-				close(opts.errorChannel)
+				close(errChan)
 			}()
 
-			childCancel() // no more inserts
-			// capture error if there is any
 			if err != nil {
-				opts.errorChannel <- err
+				errChan <- fmt.Errorf("%s, %s", DestError, err)
 				return
 			}
 
+			childCancel() // no more inserts
+
 			// capture error on thread close
 			if threadCloseErr := thread.Close(child); threadCloseErr != nil {
-				opts.errorChannel <- threadCloseErr
+				errChan <- fmt.Errorf("%s, failed to close thread: %s", DestError, threadCloseErr)
 			}
 		}()
 
@@ -198,7 +188,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 				if stream.NormalizationEnabled() {
 					normalizedData, err := normalizeFunc(record)
 					if err != nil {
-						return fmt.Errorf("failed to normalize recordmo: %s", err)
+						return fmt.Errorf("failed to normalize record: %s", err)
 					}
 					record.Data = normalizedData
 				}
@@ -215,7 +205,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 		Insert: func(record types.RawRecord) error {
 			select {
 			case <-child.Done():
-				return fmt.Errorf("main writer closed")
+				return fmt.Errorf("%s, main writer closed", DestError)
 			case recordChan <- record:
 				return nil
 			}
@@ -223,7 +213,7 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 		Close: func() {
 			close(recordChan)
 		},
-	}, nil
+	}
 }
 
 // Returns total records fetched at runtime
