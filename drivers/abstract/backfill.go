@@ -26,9 +26,13 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	}
 	chunks := chunksSet.Array()
 	if len(chunks) == 0 {
-		backfilledStreams <- stream.ID()
+		if backfilledStreams != nil {
+			backfilledStreams <- stream.ID()
+		}
 		return nil
 	}
+
+	// Sort chunks by their minimum value
 	sort.Slice(chunks, func(i, j int) bool {
 		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
 	})
@@ -39,12 +43,11 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
 			inserter.Close()
-			if err == nil {
-				// wait for chunk completion
-				if writerErr := <-errorChannel; writerErr != nil {
-					err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s: %s", chunk.Min, chunk.Max, stream.ID(), writerErr)
-				}
+			// wait for chunk completion
+			if writerErr := <-errorChannel; writerErr != nil {
+				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
 			}
+
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
@@ -52,6 +55,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 					backfilledStreams <- stream.ID()
 				}
 			} else if backfillErrChan != nil {
+				// to close backfill wait loop on error
 				backfillErrChan <- err
 			}
 		}()

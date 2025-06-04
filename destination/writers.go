@@ -145,6 +145,15 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 
 	w.group.Go(func() (err error) {
 		w.ThreadCounter.Add(1)
+		defer func() {
+			w.ThreadCounter.Add(-1)
+			childCancel() // no more inserts
+			// must be called before return
+			if err != nil {
+				errChan <- fmt.Errorf("%s, %s", DestError, err)
+			}
+			close(errChan)
+		}()
 		// init writer first
 		if err := initNewWriter(); err != nil {
 			return fmt.Errorf("failed to initialize writer: %s", err)
@@ -154,21 +163,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 			// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
 			w.tmu.Lock()
 			defer w.tmu.Unlock()
-			defer func() {
-				w.ThreadCounter.Add(-1)
-				close(errChan)
-			}()
-
-			if err != nil {
-				errChan <- fmt.Errorf("%s, %s", DestError, err)
-				return
-			}
-
-			childCancel() // no more inserts
 
 			// capture error on thread close
-			if threadCloseErr := thread.Close(child); threadCloseErr != nil {
-				errChan <- fmt.Errorf("%s, failed to close thread: %s", DestError, threadCloseErr)
+			if err == nil {
+				if threadCloseErr := thread.Close(child); threadCloseErr != nil {
+					err = fmt.Errorf("failed to close thread: %s", threadCloseErr)
+				}
 			}
 		}()
 

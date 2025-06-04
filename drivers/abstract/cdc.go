@@ -57,18 +57,19 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			// run parallel change stream
 			// TODO: remove duplicate code
 			if isParallelChangeStream(a.driver.Type()) {
-				a.GlobalConnGroup.Add(func(ctx context.Context) error {
+				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 					errChan := make(chan error, 1)
 					inserter := pool.NewThread(ctx, streams[index], errChan)
 					defer func() {
 						inserter.Close()
-						if err == nil {
-							if threadErr := <-errChan; threadErr != nil {
-								err = fmt.Errorf("failed to write record for stream[%s]: %s", streamID, threadErr)
-							}
+						if threadErr := <-errChan; threadErr != nil {
+							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
-						err = a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
+						if postCDCErr != nil {
+							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+						}
 					}()
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 						return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
@@ -107,13 +108,14 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		defer func() {
 			for stream, insert := range inserters {
 				insert.Close()
-				if err == nil {
-					if threadErr := <-errChans[stream]; threadErr != nil {
-						err = fmt.Errorf("failed to write record for stream[%s]: %s", stream.ID(), threadErr)
-					}
+				if threadErr := <-errChans[stream]; threadErr != nil {
+					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
-			err = a.driver.PostCDC(ctx, a.state, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(ctx, a.state, nil, err == nil)
+			if postCDCErr != nil {
+				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 			return utils.ForEach(streams, func(stream types.StreamInterface) error {
