@@ -12,6 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
+	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
 type Kafka struct {
@@ -26,30 +27,42 @@ func createKafkaClient(cfg Config) (*kgo.Client, error) {
 		kgo.SeedBrokers(strings.Split(cfg.BootstrapServers, ",")...),
 	}
 
+	username, password, err := parseSASLPlain(cfg.Protocol.SASLJAASConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	switch cfg.Protocol.SecurityProtocol {
 	case "PLAINTEXT":
+		// No SASL
 	case "SASL_PLAINTEXT":
-		// For now only PLAIN mechanism is supported
-		if cfg.Protocol.SASLMechanism != "PLAIN" {
-			return nil, fmt.Errorf("only PLAIN mechanism is supported")
+		switch cfg.Protocol.SASLMechanism {
+		case "PLAIN":
+			sasl := plain.Auth{User: username, Pass: password}.AsMechanism()
+			opts = append(opts, kgo.SASL(sasl))
+		case "SCRAM-SHA-512":
+			sasl := scram.Auth{
+				User: username,
+				Pass: password,
+			}.AsSha512Mechanism()
+			opts = append(opts, kgo.SASL(sasl))
+		default:
+			return nil, fmt.Errorf("unsupported SASL mechanism: %s", cfg.Protocol.SASLMechanism)
 		}
-		username, password, err := parseSASLPlain(cfg.Protocol.SASLJAASConfig)
-		if err != nil {
-			return nil, err
-		}
-		sasl := plain.Auth{User: username, Pass: password}.AsMechanism()
-		opts = append(opts, kgo.SASL(sasl))
 	case "SASL_SSL":
-		// For now only PLAIN mechanism is supported
-		if cfg.Protocol.SASLMechanism != "PLAIN" {
-			return nil, fmt.Errorf("only PLAIN mechanism is supported")
+		switch cfg.Protocol.SASLMechanism {
+		case "PLAIN":
+			sasl := plain.Auth{User: username, Pass: password}.AsMechanism()
+			opts = append(opts, kgo.SASL(sasl), kgo.DialTLS())
+		case "SCRAM-SHA-512":
+			sasl := scram.Auth{
+				User: username,
+				Pass: password,
+			}.AsSha512Mechanism()
+			opts = append(opts, kgo.SASL(sasl), kgo.DialTLS())
+		default:
+			return nil, fmt.Errorf("unsupported SASL mechanism: %s", cfg.Protocol.SASLMechanism)
 		}
-		username, password, err := parseSASLPlain(cfg.Protocol.SASLJAASConfig)
-		if err != nil {
-			return nil, err
-		}
-		sasl := plain.Auth{User: username, Pass: password}.AsMechanism()
-		opts = append(opts, kgo.SASL(sasl), kgo.DialTLS())
 	default:
 		return nil, fmt.Errorf("unsupported security protocol: %s", cfg.Protocol.SecurityProtocol)
 	}
