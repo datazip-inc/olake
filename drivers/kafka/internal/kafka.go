@@ -96,7 +96,7 @@ func (k *Kafka) Check() error {
 	return err
 }
 
-func (k *Kafka) Discover(discoverSchema bool) ([]*types.Stream, error) {
+func (k *Kafka) Discover(_ bool) ([]*types.Stream, error) {
 	cl, err := createKafkaClient(*k.config)
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func generateStreams(topics []string, defaultMode string) []*types.Stream {
 }
 
 // To be implemented later
-func (k *Kafka) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
+func (k *Kafka) Read(_ *protocol.WriterPool, _ protocol.Stream) error {
 	// TODO: Implement Kafka read logic here
 	return nil
 }
