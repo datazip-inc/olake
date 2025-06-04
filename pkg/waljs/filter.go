@@ -25,7 +25,6 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 	for _, stream := range streams {
 		filter.tables[stream.ID()] = stream
 	}
-
 	return filter
 }
 

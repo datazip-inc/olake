@@ -32,7 +32,7 @@ type StatusRow struct {
 }
 
 type StreamMetadata struct {
-	SplitColumn    string `json:"split_column,omitempty"`
+	ChunkColumn    string `json:"chunk_column,omitempty"`
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode,omitempty"`

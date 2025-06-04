@@ -287,7 +287,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
-	switch m.config.PartitionStrategy {
+	switch m.config.ChunkingStrategy {
 	case "timestamp":
 		return timestampStrategy()
 	default:
