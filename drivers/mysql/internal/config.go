@@ -22,6 +22,7 @@ type Config struct {
 	DefaultMode   types.SyncMode `json:"default_mode"`
 	MaxThreads    int            `json:"max_threads"`
 	RetryCount    int            `json:"backoff_retry_count"`
+	SelectAll      bool         `json:"select_all"`
 }
 type CDC struct {
 	InitialWaitTime int `json:"intial_wait_time"`
