@@ -42,6 +42,9 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
 		pool.AddRecordsToSync(recordCount)
+		
+		// Store record count in state for future resumed syncs
+		m.State.SetStreamTotalRecords(stream.Self(), recordCount)
 
 		// Generate and update chunks
 		var retryErr error
@@ -54,7 +57,23 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		}
 		m.State.SetChunks(stream.Self(), types.NewSet(chunksArray...))
 	} else {
-		// TODO: to get estimated time need to update pool.AddRecordsToSync(totalCount) (Can be done via storing some vars in state)
+		// Resume case - get total records from state
+		totalRecords := m.State.GetStreamTotalRecords(stream.Self())
+		if totalRecords > 0 {
+			logger.Infof("Resuming sync for stream %s with %d total records", stream.ID(), totalRecords)
+			pool.AddRecordsToSync(totalRecords)
+		} else {
+			// If total records not found in state, try to get it now
+			recordCount, err := m.totalCountInCollection(backfillCtx, collection)
+			if err != nil {
+				logger.Warnf("Could not determine total record count for resumed sync: %s", err)
+			} else if recordCount > 0 {
+				logger.Infof("Determined total records for resumed stream %s: %d", stream.ID(), recordCount)
+				pool.AddRecordsToSync(recordCount)
+				m.State.SetStreamTotalRecords(stream.Self(), recordCount)
+			}
+		}
+
 		rawChunkArray := chunks.Array()
 		for _, chunk := range rawChunkArray {
 			minID, _ := primitive.ObjectIDFromHex(chunk.Min.(string))
