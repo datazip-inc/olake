@@ -112,6 +112,10 @@ func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
 
 // set chunks
 func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
+	if stream.GetSyncMode() == FULLREFRESH {
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -374,4 +378,11 @@ func (g *Global[T]) UnmarshalJSON(data []byte) error {
 
 	*g = Global[T](temp)
 	return nil
+}
+func NewState(typ StateType) *State {
+	return &State{
+		RWMutex: &sync.RWMutex{},
+		Type:    typ,
+		Streams: []*StreamState{},
+	}
 }

@@ -87,8 +87,14 @@ var syncCmd = &cobra.Command{
 		selectedStreams := []string{}
 		cdcStreams := []Stream{}
 		standardModeStreams := []Stream{}
-		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
+		cdcStreamsState := []*types.StreamState{}
 
+		var stateStreamMap = make(map[string]*types.StreamState)
+		for _, stream := range state.Streams {
+			stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
+		}
+
+		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 			// Check if the stream is in the selectedStreamMap
 			if !(catalog.SelectedStreams == nil || selected) {
@@ -113,12 +119,18 @@ var syncCmd = &cobra.Command{
 
 			if elem.Stream.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)
+				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+				if exists {
+					cdcStreamsState = append(cdcStreamsState, streamState)
+				}
 			} else {
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
 			return false
 		})
+
+		state.Streams = cdcStreamsState
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
 		// start monitoring stats
