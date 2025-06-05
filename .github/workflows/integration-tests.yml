@@ -33,7 +33,7 @@ jobs:
         run: |
           docker compose -f ./drivers/mysql/docker-compose.yml up -d
           docker compose -f ./drivers/postgres/docker-compose.yml up -d
-          docker compose -f ./writers/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+          docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
         uses: nick-fields/retry@v2
@@ -55,11 +55,11 @@ jobs:
 
       - name: Set up Data Directories
         run: |
-            sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/postgres-data
-            sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/minio-data
-            sudo mkdir -p /home/runner/work/olake/olake/writers/iceberg/local-test/data/ivy-cache
-            sudo chown -R 999:999 /home/runner/work/olake/olake/writers/iceberg/local-test/data
-            sudo chmod -R 777 /home/runner/work/olake/olake/writers/iceberg/local-test/data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
+            sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+            sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
 
       - name: Install Go Dependencies
         run: go mod download
@@ -68,7 +68,7 @@ jobs:
         run: go build -v ./...
 
       - name: Build Iceberg Sink
-        working-directory: ./writers/iceberg/debezium-server-iceberg-sink
+        working-directory: ./destination/iceberg/debezium-server-iceberg-sink
         run: mvn clean package -DskipTests
 
       - name: Run MySQL Integration Tests
@@ -80,6 +80,6 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f ./writers/iceberg/local-test/docker-compose.yml down
+          docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
           docker compose -f ./drivers/mysql/docker-compose.yml down
           docker compose -f ./drivers/postgres/docker-compose.yml down

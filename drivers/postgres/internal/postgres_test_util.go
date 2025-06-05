@@ -3,12 +3,13 @@ package driver
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
-	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
@@ -103,8 +104,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 }
 
 // testPostgresClient initializes and returns a PostgreSQL test client with default configuration
-func testPostgresClient(t *testing.T) (*sqlx.DB, Config, *Postgres) {
+func testPostgresClient(t *testing.T) (*sqlx.DB, *abstract.AbstractDriver) {
 	t.Helper()
+	logger.Init()
 
 	config := Config{
 		Host:     defaultPostgresHost,
@@ -119,7 +121,6 @@ func testPostgresClient(t *testing.T) (*sqlx.DB, Config, *Postgres) {
 	}
 
 	pgDriver := &Postgres{
-		Driver: base.NewBase(),
 		config: &config,
 	}
 
@@ -130,12 +131,14 @@ func testPostgresClient(t *testing.T) (*sqlx.DB, Config, *Postgres) {
 		ReplicationSlot: defaultReplicationSlot,
 	}
 
-	// Initialize state
-	state := types.NewState(types.GlobalType)
-	pgDriver.SetupState(state)
+	absDriver := abstract.NewAbstractDriver(context.Background(), pgDriver)
 
-	_ = protocol.ChangeStreamDriver(pgDriver)
-	require.NoError(t, pgDriver.Setup(), "Failed to setup PostgreSQL driver")
+	state := &types.State{
+		Type:    types.StreamType,
+		RWMutex: &sync.RWMutex{},
+	}
+	absDriver.SetupState(state)
+	require.NoError(t, absDriver.Setup(context.Background()), "Failed to setup PostgreSQL driver")
 
-	return pgDriver.client, *pgDriver.config, pgDriver
+	return pgDriver.client, absDriver
 }

@@ -35,6 +35,7 @@ Add MySql credentials in following format in `config.json` file. [More details.]
     "tls_skip_verify": true,
     "default_mode":"cdc",
     "max_threads":10,
+    "reader_batch_size": 100000,
     "backoff_retry_count": 2
   }
 ```

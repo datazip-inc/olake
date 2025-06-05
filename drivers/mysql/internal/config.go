@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
@@ -21,6 +21,7 @@ type Config struct {
 	UpdateMethod  interface{}    `json:"update_method"`
 	DefaultMode   types.SyncMode `json:"default_mode"`
 	MaxThreads    int            `json:"max_threads"`
+	BatchSize     int            `json:"reader_batch_size"`
 	RetryCount    int            `json:"backoff_retry_count"`
 }
 type CDC struct {
@@ -76,14 +77,19 @@ func (c *Config) Validate() error {
 		c.Database = "mysql"
 	}
 
+	// Set default values if not provided
+	if c.BatchSize <= 0 {
+		c.BatchSize = 10000 // default batch size
+	}
+
 	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = base.DefaultThreadCount // Aligned with PostgreSQL default
+		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
 	}
 
 	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
-		c.RetryCount = base.DefaultRetryCount // Reasonable default for retries
+		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
 
 	return utils.Validate(c)
