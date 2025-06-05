@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +29,15 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	chunks := m.State.GetChunks(stream.Self())
 	backfillCtx := context.TODO()
 	var chunksArray []types.Chunk
+	var parsedFilter bson.D
+	filter := stream.Self().StreamMetadata.Filter
+	if filter != "" {
+		var err error
+		parsedFilter, err = parseFilter(filter)
+		if err != nil {
+			return fmt.Errorf("failed to parse filter: %s", err)
+		}
+	}
 	if chunks == nil || chunks.Len() == 0 {
 		// Full load case
 		logger.Infof("Starting full load for stream [%s]", stream.ID())
@@ -46,7 +57,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 		// Generate and update chunks
 		var retryErr error
 		err = base.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream)
+			// Filter added during chunk creation
+			chunksArray, retryErr = m.splitChunks(backfillCtx, collection, stream, parsedFilter)
 			return retryErr
 		})
 		if err != nil {
@@ -89,7 +101,8 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 
 		opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 		cursorIterationFunc := func() error {
-			cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max), opts)
+			// Filter added during chunk processing
+			cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, parsedFilter), opts)
 			if err != nil {
 				return fmt.Errorf("collection.Find: %s", err)
 			}
@@ -127,11 +140,15 @@ func (m *Mongo) backfill(stream protocol.Stream, pool *protocol.WriterPool) erro
 	})
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream protocol.Stream, parsedFilter bson.D) ([]types.Chunk, error) {
+	if parsedFilter == nil {
+		parsedFilter = bson.D{}
+	}
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
-			err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+			// pass here in place of bson.D{}
+			err := collection.FindOne(ctx, parsedFilter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
 			if err == mongo.ErrNoDocuments {
 				return primitive.NilObjectID, nil
 			}
@@ -152,6 +169,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				{Key: "splitVector", Value: fmt.Sprintf("%s.%s", collection.Database().Name(), collection.Name())},
 				{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
 				{Key: "maxChunkSize", Value: 1024},
+				{Key: "filter", Value: parsedFilter},
 			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
 				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
@@ -189,6 +207,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		logger.Info("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: parsedFilter}},
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 			{{Key: "$bucketAuto", Value: bson.D{
 				{Key: "groupBy", Value: "$_id"},
@@ -233,7 +252,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
-		first, last, err := m.fetchExtremes(collection)
+		first, last, err := m.fetchExtremes(collection, parsedFilter)
 		if err != nil {
 			return nil, err
 		}
@@ -297,12 +316,12 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 
 	return int64(countResult["count"].(int32)), nil
 }
-func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Time, error) {
+func (m *Mongo) fetchExtremes(collection *mongo.Collection, parsedFilter bson.D) (time.Time, time.Time, error) {
 	extreme := func(sortby int) (time.Time, error) {
 		// Find the first document
 		var result bson.M
 		// Sort by _id ascending to get the first document
-		err := collection.FindOne(context.Background(), bson.D{}, options.FindOne().SetSort(bson.D{{
+		err := collection.FindOne(context.Background(), parsedFilter, options.FindOne().SetSort(bson.D{{
 			Key: "_id", Value: sortby}})).Decode(&result)
 		if err != nil {
 			return time.Time{}, err
@@ -333,7 +352,8 @@ func (m *Mongo) fetchExtremes(collection *mongo.Collection) (time.Time, time.Tim
 	return start, end, nil
 }
 
-func generatePipeline(start, end any) mongo.Pipeline {
+func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
+	// Parse the filter string into a BSON query
 	andOperation := bson.A{
 		bson.D{
 			{
@@ -365,6 +385,10 @@ func generatePipeline(start, end any) mongo.Pipeline {
 				Value: end,
 			}},
 		}})
+	}
+
+	if len(parsedFilter) > 0 {
+		andOperation = append(andOperation, parsedFilter)
 	}
 
 	// Define the aggregation pipeline
@@ -425,4 +449,124 @@ func handleMongoObject(doc bson.M) {
 			doc[key] = value
 		}
 	}
+}
+
+func parseFilter(filter string) (bson.D, error) {
+	filter = strings.TrimSpace(filter)
+	if filter == "" {
+		return bson.D{}, nil
+	}
+
+	// If user provides, Json or Bson like string then parsing directly
+	if strings.HasPrefix(filter, "{") {
+		var parsedFilter bson.D
+		err := bson.UnmarshalExtJSON([]byte(filter), false, &parsedFilter)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse filter: %v", err)
+		}
+		return parsedFilter, nil
+	}
+	return parseDSLFilter(filter)
+}
+
+func parseDSLFilter(input string) (bson.D, error) {
+	// Split top-level on unquoted AND/OR
+	opKey, parts := splitTopLevel(input)
+
+	var clauses []interface{}
+	pattern := regexp.MustCompile(`^\s*([a-zA-Z0-9_]+)\s*(>=|<=|!=|=|>|<)\s*(?:"([^"]*)"|(\S+))\s*$`)
+
+	// operator mapping
+	opMap := map[string]string{
+		">":  "$gt",
+		">=": "$gte",
+		"<":  "$lt",
+		"<=": "$lte",
+		"=":  "$eq",
+		"!=": "$ne",
+	}
+
+	for _, part := range parts {
+		matches := pattern.FindStringSubmatch(part)
+		if matches == nil {
+			return nil, fmt.Errorf("invalid filter clause %q", part)
+		}
+		field, op := matches[1], matches[2]
+		raw := matches[3]
+		if raw == "" {
+			raw = matches[4]
+		}
+
+		// attempt timestamp parsing (RFC3339)
+		var val interface{} = raw
+		if field == "_id" && len(raw) == 24 {
+			if oid, err := primitive.ObjectIDFromHex(raw); err == nil {
+				val = oid
+			}
+		} else if strings.ToLower(raw) == "true" {
+			val = true
+		} else if strings.ToLower(raw) == "false" {
+			val = false
+		} else if t, err := time.Parse(time.RFC3339, raw); err == nil {
+			val = t
+		} else if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			val = i
+		}
+
+		clauses = append(clauses, bson.D{{Key: field, Value: bson.D{{Key: opMap[op], Value: val}}}})
+	}
+
+	// Single clause: return directly
+	if len(clauses) == 1 {
+		return clauses[0].(bson.D), nil
+	}
+	return bson.D{{Key: opKey, Value: clauses}}, nil
+}
+
+// splitTopLevel splits on unquoted " or " or " and ", returning the Mongo op key and parts
+func splitTopLevel(input string) (string, []string) {
+	inQuotes := false
+	var buf strings.Builder
+	var parts []string
+	opKey := ""
+
+	for i := 0; i < len(input); {
+		ch := input[i]
+		if ch == '"' {
+			inQuotes = !inQuotes
+			buf.WriteByte(ch)
+			i++
+			continue
+		}
+		if !inQuotes {
+			// check OR
+			if strings.HasPrefix(input[i:], " or ") {
+				if opKey == "" || opKey == "$or" {
+					opKey = "$or"
+					parts = append(parts, strings.TrimSpace(buf.String()))
+					buf.Reset()
+					i += len(" or ")
+					continue
+				}
+			}
+			// check AND
+			if strings.HasPrefix(input[i:], " and ") {
+				if opKey == "" || opKey == "$and" {
+					opKey = "$and"
+					parts = append(parts, strings.TrimSpace(buf.String()))
+					buf.Reset()
+					i += len(" and ")
+					continue
+				}
+			}
+		}
+		buf.WriteByte(ch)
+		i++
+	}
+	// final part
+	parts = append(parts, strings.TrimSpace(buf.String()))
+	if opKey == "" {
+		opKey = "$and"
+	}
+	return opKey, parts
 }
