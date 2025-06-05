@@ -503,6 +503,10 @@ func parseDSLFilter(input string) (bson.D, error) {
 			if oid, err := primitive.ObjectIDFromHex(raw); err == nil {
 				val = oid
 			}
+		} else if strings.ToLower(raw) == "true" {
+			val = true
+		} else if strings.ToLower(raw) == "false" {
+			val = false
 		} else if t, err := time.Parse(time.RFC3339, raw); err == nil {
 			val = t
 		} else if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
