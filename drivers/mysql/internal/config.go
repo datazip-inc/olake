@@ -21,6 +21,7 @@ type Config struct {
 	UpdateMethod  interface{}    `json:"update_method"`
 	DefaultMode   types.SyncMode `json:"default_mode"`
 	MaxThreads    int            `json:"max_threads"`
+	BatchSize     int            `json:"reader_batch_size"`
 	RetryCount    int            `json:"backoff_retry_count"`
 }
 type CDC struct {
@@ -74,6 +75,11 @@ func (c *Config) Validate() error {
 	// Optional database name, default to 'mysql'
 	if c.Database == "" {
 		c.Database = "mysql"
+	}
+
+	// Set default values if not provided
+	if c.BatchSize <= 0 {
+		c.BatchSize = 10000 // default batch size
 	}
 
 	// Set default number of threads if not provided
