@@ -62,7 +62,7 @@ type Config struct {
 }
 
 var (
-	arrowBuildersThreshold int64 = 1024 * 1024 // 1MB
+	arrowBuildersThreshold int64 = 1024 * 1024 * 1024 // 1GB
 )
 
 func (w *NewIcebergGo) SetupIcebergClient() error {
