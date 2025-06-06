@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -26,7 +27,7 @@ type Mongo struct {
 	config     *Config
 	client     *mongo.Client
 	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
-	cdcCursor  any
+	cdcCursor  sync.Map
 }
 
 // config reference; must be pointer

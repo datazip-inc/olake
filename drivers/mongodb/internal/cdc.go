@@ -36,7 +36,6 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, state *types.State, streams []typ
 
 		prevResumeToken := state.GetCursor(stream.Self(), cdcCursorField)
 		if prevResumeToken == nil {
-			// get current resume token and do full load for stream
 			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
 			if err != nil {
 				return err
@@ -46,7 +45,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, state *types.State, streams []typ
 				state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
-		m.cdcCursor = prevResumeToken
+		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
 	return nil
 }
@@ -60,8 +59,12 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: m.cdcCursor})
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), m.cdcCursor)
+	resumeToken, ok := m.cdcCursor.Load(stream.ID())
+	if !ok {
+		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
+	}
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: resumeToken})
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), resumeToken)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -90,7 +93,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 			Data:      record.FullDocument,
 			Kind:      record.OperationType,
 		}
-		m.cdcCursor = cursor.ResumeToken().Lookup(cdcCursorField).StringValue()
+		m.cdcCursor.Store(stream.ID(), cursor.ResumeToken().Lookup(cdcCursorField).StringValue())
 		if err := OnMessage(change); err != nil {
 			return fmt.Errorf("failed to process message: %s", err)
 		}
@@ -100,7 +103,12 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 
 func (m *Mongo) PostCDC(ctx context.Context, state *types.State, stream types.StreamInterface, noErr bool) error {
 	if noErr {
-		state.SetCursor(stream.Self(), cdcCursorField, m.cdcCursor)
+		val, ok := m.cdcCursor.Load(stream.ID())
+		if ok {
+			state.SetCursor(stream.Self(), cdcCursorField, val)
+		} else {
+			logger.Warnf("no resume token found for stream: %s", stream.ID())
+		}
 	}
 	return nil
 }
