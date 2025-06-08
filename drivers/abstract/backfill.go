@@ -13,7 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, backfillErrChan chan error, pool *destination.WriterPool, stream types.StreamInterface) error {
+func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
 	if chunksSet == nil || chunksSet.Len() == 0 {
@@ -54,9 +54,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
-			} else if backfillErrChan != nil {
-				// to close backfill wait loop on error
-				backfillErrChan <- err
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {

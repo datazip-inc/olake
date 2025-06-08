@@ -123,7 +123,7 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	// start backfill for standard streams
 	for _, stream := range standardStreams {
 		a.GlobalCtxGroup.Add(func(ctx context.Context) error {
-			return a.Backfill(ctx, nil, nil, pool, stream)
+			return a.Backfill(ctx, nil, pool, stream)
 		})
 	}
 

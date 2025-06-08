@@ -18,13 +18,11 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	}
 
 	backfillWaitChannel := make(chan string, len(streams))
-	backfillErrorChannel := make(chan error, len(streams))
 	defer close(backfillWaitChannel)
-	defer close(backfillErrorChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
 		if !a.state.HasCompletedBackfill(stream.Self()) {
 			// remove chunks state
-			err := a.Backfill(ctx, backfillWaitChannel, backfillErrorChannel, pool, stream)
+			err := a.Backfill(ctx, backfillWaitChannel, pool, stream)
 			if err != nil {
 				return err
 			}
@@ -43,11 +41,11 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	for len(backfilledStreams) < len(streams) {
 		select {
 		case <-ctx.Done():
+			// if main context stuck in error
 			return ctx.Err()
-		case err := <-backfillErrorChannel:
-			if err != nil {
-				return fmt.Errorf("error during backfill: %s", err)
-			}
+		case <-a.GlobalConnGroup.Ctx().Done():
+			// if global conn group stuck in error
+			return nil
 		case streamID, ok := <-backfillWaitChannel:
 			if !ok {
 				return fmt.Errorf("backfill channel closed unexpectedly")
