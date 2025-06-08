@@ -9,6 +9,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/goccy/go-json"
+	"github.com/jackc/pglogrepl"
 )
 
 type ChangeFilter struct {
@@ -28,15 +29,18 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 	return filter
 }
 
-func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) error {
+func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) (*pglogrepl.LSN, error) {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
-		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
+		return nil, fmt.Errorf("failed to parse change received from wal logs: %s", err)
+	}
+	nextLSN, err := pglogrepl.ParseLSN(changes.NextLSN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse received lsn: %s", err)
 	}
 	if len(changes.Change) == 0 {
-		return nil
+		return &nextLSN, nil
 	}
-
 	buildChangesMap := func(values []interface{}, types []string, names []string) (map[string]any, error) {
 		data := make(map[string]any)
 		for i, val := range values {
@@ -66,7 +70,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 		}
 
 		if err != nil {
-			return fmt.Errorf("failed to convert change data: %s", err)
+			return &nextLSN, fmt.Errorf("failed to convert change data: %s", err)
 		}
 
 		if err := OnFiltered(abstract.CDCChange{
@@ -75,8 +79,8 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 			Timestamp: changes.Timestamp,
 			Data:      changesMap,
 		}); err != nil {
-			return fmt.Errorf("failed to write filtered change: %s", err)
+			return &nextLSN, fmt.Errorf("failed to write filtered change: %s", err)
 		}
 	}
-	return nil
+	return &nextLSN, nil
 }

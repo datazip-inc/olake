@@ -86,16 +86,19 @@ func (p *Postgres) PostCDC(ctx context.Context, state *types.State, _ types.Stre
 }
 
 func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {
-	var exists bool
+	var walStatus, lagBytes string
 	err := conn.QueryRow(
-		"SELECT EXISTS(Select 1 from pg_replication_slots where slot_name = $1)",
+		"SELECT wal_status,  pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn) as lag_bytes FROM pg_replication_slots WHERE slot_name = $1",
 		slotName,
-	).Scan(&exists)
+	).Scan(&walStatus, &lagBytes)
 	if err != nil {
 		return false, err
 	}
-
-	return exists, validateReplicationSlot(conn, slotName)
+	if walStatus == "extended" {
+		return false, fmt.Errorf("replication slot got extended create new to proceed")
+	}
+	logger.Infof("total replication lag bytes: %s", lagBytes)
+	return true, validateReplicationSlot(conn, slotName)
 }
 
 func validateReplicationSlot(conn *sqlx.DB, slotName string) error {

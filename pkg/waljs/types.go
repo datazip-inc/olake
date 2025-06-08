@@ -34,7 +34,7 @@ type ReplicationSlot struct {
 }
 
 type WALMessage struct {
-	// NextLSN   pglogrepl.LSN `json:"nextlsn"`
+	NextLSN   string         `json:"nextlsn"`
 	Timestamp typeutils.Time `json:"timestamp"`
 	Change    []struct {
 		Kind         string        `json:"kind"`
