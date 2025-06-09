@@ -68,7 +68,7 @@ jobs:
         run: go build -v ./...
 
       - name: Build Iceberg Sink
-        working-directory: ./destination/iceberg/debezium-server-iceberg-sink
+        working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
       - name: Run MySQL Integration Tests

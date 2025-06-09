@@ -22,7 +22,7 @@ Important reason why we are using Java to write is, current Golang-iceberg proje
 
 ### Java Iceberg Writer/sink : 
 
-Its based in the directory debezium-server-iceberg-sink. Read more ./debezium-server-iceberg-sink/README.md on how to run it in standalone mode and test.
+Its based in the directory olake-iceberg-java-writer. Read more ./olake-iceberg-java-writer/README.md on how to run it in standalone mode and test.
 
 
 ## How to run 

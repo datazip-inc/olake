@@ -32,4 +32,6 @@ which requires that any modified files carry prominent notices stating that the 
 The full text of the Apache License, Version 2.0 can be found at:
 http://www.apache.org/licenses/LICENSE-2.0
 
+We have also changed the name of the project to olake-iceberg-java-writer
+
 Copyright 2025 Datazip Inc.
