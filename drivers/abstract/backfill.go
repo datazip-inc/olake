@@ -37,7 +37,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
 	})
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
-
+	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))

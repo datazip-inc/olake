@@ -91,6 +91,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		// parallel change streams already processed
 		return nil
 	}
+	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream
 		inserters := make(map[types.StreamInterface]*destination.ThreadEvent)

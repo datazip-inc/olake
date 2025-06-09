@@ -23,6 +23,7 @@ const (
 	cdcProcessingWait     = 60 * time.Second
 )
 
+// TODO: redesign integration tests according to new structure
 var currentTestTable = fmt.Sprintf("%s_%d", testTablePrefix, time.Now().Unix())
 
 type ExecuteQuery func(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string)
