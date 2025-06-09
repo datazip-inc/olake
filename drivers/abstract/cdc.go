@@ -117,17 +117,15 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return utils.ForEach(streams, func(stream types.StreamInterface) error {
-				return a.driver.StreamChanges(ctx, stream, func(change CDCChange) error {
-					pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-					opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-					return inserters[stream].Insert(types.CreateRawRecord(
-						utils.GetKeysHash(change.Data, pkFields...),
-						change.Data,
-						opType,
-						change.Timestamp.Time,
-					))
-				})
+			return a.driver.StreamChanges(ctx, nil, func(change CDCChange) error {
+				pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+				opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
+				return inserters[change.Stream].Insert(types.CreateRawRecord(
+					utils.GetKeysHash(change.Data, pkFields...),
+					change.Data,
+					opType,
+					change.Timestamp.Time,
+				))
 			})
 		})
 	})
