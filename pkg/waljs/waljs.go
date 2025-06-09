@@ -53,6 +53,19 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		return nil, fmt.Errorf("failed to parse connection url: %s", err)
 	}
 
+	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
+		logger.Warnf("notice received from pg conn: %s", n.Message)
+	}
+
+	cfg.OnNotification = func(_ *pgconn.PgConn, n *pgconn.Notification) {
+		logger.Warnf("notification received from pg conn: %s", n.Payload)
+	}
+
+	cfg.OnPgError = func(_ *pgconn.PgConn, pe *pgconn.PgError) bool {
+		logger.Warnf("pg conn thrown code[%s] and error: %s", pe.Code, pe.Message)
+		// close connection and fail sync
+		return false
+	}
 	if config.TLSConfig != nil {
 		// TODO: use proper TLS Configurations
 		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: false, MinVersion: tls.VersionTLS12}
