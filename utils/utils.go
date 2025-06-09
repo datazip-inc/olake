@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
 
@@ -68,17 +68,27 @@ func Ternary(cond bool, a, b any) any {
 	return b
 }
 
+func ForEach[T any](set []T, action func(elem T) error) error {
+	for _, elem := range set {
+		err := action(elem)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Unmarshal serializes and deserializes any from into the object
 // return error if occurred
 func Unmarshal(from, object any) error {
 	reformatted := reformatInnerMaps(from)
 	b, err := json.Marshal(reformatted)
 	if err != nil {
-		return fmt.Errorf("error marshaling object: %v", err)
+		return fmt.Errorf("error marshaling object: %s", err)
 	}
 	err = json.Unmarshal(b, object)
 	if err != nil {
-		return fmt.Errorf("error unmarshalling from object: %v", err)
+		return fmt.Errorf("error unmarshalling from object: %s", err)
 	}
 
 	return nil
@@ -227,6 +237,13 @@ func IsJSON(str string) bool {
 
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
+	// if single primary key is present use as it is
+	if len(keys) == 1 {
+		if _, ok := m[keys[0]]; ok {
+			return fmt.Sprint(m[keys[0]])
+		}
+	}
+
 	// If no primary key is present, the entire record is hashed to generate the olakeID.
 	if len(keys) == 0 {
 		return GetHash(m)

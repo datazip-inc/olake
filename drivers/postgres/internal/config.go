@@ -23,6 +23,7 @@ type Config struct {
 	DefaultSyncMode  types.SyncMode    `json:"default_mode"`
 	BatchSize        int               `json:"reader_batch_size"`
 	MaxThreads       int               `json:"max_threads"`
+	RetryCount       int               `json:"retry_count"`
 }
 
 // Capture Write Ahead Logs
