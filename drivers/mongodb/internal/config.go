@@ -24,6 +24,7 @@ type Config struct {
 	RetryCount        int            `json:"backoff_retry_count"`
 	PartitionStrategy string         `json:"partition_strategy"`
 	BatchSize         int32          `json:"batch_size,omitempty"`
+	ChunkingStrategy  string         `json:"chunking_strategy"`
 }
 
 func (c *Config) URI() string {

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -27,6 +28,32 @@ const (
 	TimestampMicro DataType = "timestamp_micro" // storing datetime up to 6 precisions
 	TimestampNano  DataType = "timestamp_nano"  // storing datetime up to 9 precisions
 )
+
+// Tree Representation of TypeWeights
+//
+//                                5 (String)
+//                               /       	 \
+//                3 (Float64)  /              \ 9 (TimestampNano)
+//                           /  \             /
+//             2 (Int64)   /     \ 4(Float32)/ 8 (TimestampMicro)
+//                        /                 /
+//            1 (Int32) /                  / 7 (TimestampMilli)
+//                     /                  /
+//        0 (Bool)   /                   / 6 (Timestamp)
+//
+
+var TypeWeights = map[DataType]int{
+	Bool:           0,
+	Int32:          1,
+	Int64:          2,
+	Float64:        3,
+	Float32:        4,
+	String:         5,
+	TimestampNano:  9,
+	TimestampMicro: 8,
+	TimestampMilli: 7,
+	Timestamp:      6,
+}
 
 type Record map[string]any
 
@@ -120,6 +147,9 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 	})
 
 	if normalization {
+		// Collect data fields for sorting
+		dataFields := make([]map[string]interface{}, 0, len(r.Data))
+
 		// Add individual data fields
 		for key, value := range r.Data {
 			field := map[string]interface{}{
@@ -144,8 +174,17 @@ func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization
 				field["type"] = "string"
 			}
 
-			fields = append(fields, field)
+			dataFields = append(dataFields, field)
 		}
+
+		// Sorting basis on field names is needed because
+		// Iceberg writer detects different schemas for
+		// schema evolution based on order columns passed
+		sort.Slice(dataFields, func(i, j int) bool {
+			return dataFields[i]["field"].(string) < dataFields[j]["field"].(string)
+		})
+
+		fields = append(fields, dataFields...)
 	} else {
 		// For non-normalized mode, add a single data field as string
 		fields = append(fields, map[string]interface{}{

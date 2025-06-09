@@ -53,6 +53,11 @@ func (m *Mongo) Setup() error {
 		return err
 	}
 
+	// Validate the connection by pinging the database
+	if err := conn.Ping(connectCtx, nil); err != nil {
+		return fmt.Errorf("failed to connect to MongoDB: %w", err)
+	}
+
 	m.client = conn
 	// no need to check from discover if it have cdc support or not
 	m.CDCSupport = true
@@ -68,10 +73,7 @@ func (m *Mongo) Setup() error {
 }
 
 func (m *Mongo) Check() error {
-	pingCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	return m.client.Ping(pingCtx, options.Client().ReadPreference)
+	return m.Setup()
 }
 
 func (m *Mongo) SetupState(state *types.State) {

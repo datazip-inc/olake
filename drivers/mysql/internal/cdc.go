@@ -76,7 +76,14 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	// Backfill streams that haven't been processed yet
 	var needsBackfill []protocol.Stream
 	for _, s := range streams {
-		if !gs.Streams.Exists(s.ID()) {
+		// check if full refresh state present or not
+		_, exist := utils.ArrayContains(m.State.Streams, func(streamState *types.StreamState) bool {
+			if streamState.Namespace == s.Namespace() && streamState.Stream == s.Name() {
+				return true
+			}
+			return false
+		})
+		if !exist || !gs.Streams.Exists(s.ID()) {
 			needsBackfill = append(needsBackfill, s)
 		}
 	}
@@ -126,15 +133,14 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 	defer conn.Close()
 
 	// Create change filter for all streams
-	filter := binlog.NewChangeFilter(streams...)
+	filter := binlog.NewChangeFilter(m.dataTypeConverter, streams...)
 	// Stream and process events
 	logger.Infof("Starting MySQL CDC from binlog position %s:%d", gs.State.Position.Name, gs.State.Position.Pos)
 	return conn.StreamMessages(ctx, filter, func(change binlog.CDCChange) error {
 		stream := change.Stream
-		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
 		opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 		record := types.CreateRawRecord(
-			utils.GetKeysHash(change.Data, pkColumn),
+			utils.GetKeysHash(change.Data, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
 			change.Data,
 			opType,
 			change.Timestamp,
@@ -150,7 +156,18 @@ func (m *MySQL) RunChangeStream(pool *protocol.WriterPool, streams ...protocol.S
 
 // getCurrentBinlogPosition retrieves the current binlog position from MySQL.
 func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
-	rows, err := m.client.Query(jdbc.MySQLMasterStatusQuery())
+	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
+
+	// Get MySQL version
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
+	}
+
+	// Use the appropriate query based on the MySQL version
+	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+
+	rows, err := m.client.Query(query)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
 	}
