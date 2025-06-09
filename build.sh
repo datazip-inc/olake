@@ -22,9 +22,9 @@ function check_and_build_jar() {
     fi
     
     # Check in the target directory
-    if [ -f "writers/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar" ]; then
+    if [ -f "destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar" ]; then
         echo "JAR file found in target directory, copying to base directory..."
-        cp writers/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar ./olake-iceberg-java-writer.jar
+        cp destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar ./olake-iceberg-java-writer.jar
         return 0
     fi
     
@@ -35,8 +35,13 @@ function check_and_build_jar() {
     local current_dir=$(pwd)
     
     # Navigate to the Maven project directory
+<<<<<<< HEAD
     if [ -d "writers/iceberg/olake-iceberg-java-writer" ]; then
         cd writers/iceberg/olake-iceberg-java-writer
+=======
+    if [ -d "destination/iceberg/debezium-server-iceberg-sink" ]; then
+        cd destination/iceberg/debezium-server-iceberg-sink
+>>>>>>> staging
     else
         fail "Cannot find Iceberg Maven project directory."
     fi
@@ -48,8 +53,13 @@ function check_and_build_jar() {
     cd "$current_dir"
     
     # Copy the JAR file to the base directory
+<<<<<<< HEAD
     if [ -f "writers/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar" ]; then
         cp writers/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar ./olake-iceberg-java-writer.jar
+=======
+    if [ -f "destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar" ]; then
+        cp destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar ./debezium-server-iceberg-sink.jar
+>>>>>>> staging
     else
         fail "Maven build completed but could not find the JAR file."
     fi
@@ -61,8 +71,6 @@ function build_and_run() {
     local connector="$1"
     if [[ $2 == "driver" ]]; then
         path=drivers/$connector
-    elif [[ $2 == "adapter" ]]; then
-        path=adapters/$connector
     else
         fail "The argument does not have a recognized prefix."
     fi
@@ -94,11 +102,11 @@ function build_and_run() {
     if [[ "$using_iceberg" == true ]]; then
         check_and_build_jar "iceberg"
     fi
-    
+
     cd $path || fail "Failed to navigate to path: $path"
+    
     go mod tidy
     go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
-
     echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
     ./olake $joined_arguments
 }
@@ -117,10 +125,6 @@ if [ $# -gt 0 ]; then
         driver="${argument#driver-}"
         echo "============================== Building driver: $driver =============================="
         build_and_run "$driver" "driver" "$joined_arguments"
-    elif [[ $argument == adapter-* ]]; then
-        adapter="${argument#adapter-}"
-        echo "============================== Building adapter: $adapter =============================="
-        build_and_run "$adapter" "adapter" "$joined_arguments"
     else
         fail "The argument does not have a recognized prefix."
     fi

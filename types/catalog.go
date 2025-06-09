@@ -32,9 +32,10 @@ type StatusRow struct {
 }
 
 type StreamMetadata struct {
-	SplitColumn    string `json:"split_column"`
+	ChunkColumn    string `json:"chunk_column,omitempty"`
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
+	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization" default:"false"`
 }
 
@@ -58,6 +59,7 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:     stream.Name,
 			PartitionRegex: "",
+			AppendMode:     false,
 		})
 	}
 

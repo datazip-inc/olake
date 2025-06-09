@@ -4,9 +4,9 @@ The Postgres Driver enables data synchronization from Postgres to your desired d
 ---
 
 ## Supported Modes
-1. **Full Refresh**  
+1. **Full Refresh**
    Fetches the complete dataset from Postgres.
-2. **CDC (Change Data Capture)**  
+2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from Postgres in real time.
 
 ---
@@ -14,13 +14,13 @@ The Postgres Driver enables data synchronization from Postgres to your desired d
 ## Setup and Configuration
 To run the Postgres Driver, configure the following files with your specific credentials and settings:
 
-- **`config.json`**: postgres connection details.  
-- **`streams.json`**: List of collections and fields to sync (generated using the *Discover* command).  
+- **`config.json`**: postgres connection details.
+- **`streams.json`**: List of collections and fields to sync (generated using the *Discover* command).
 - **`write.json`**: Configuration for the destination where the data will be written.
 
 Place these files in your project directory before running the commands.
 
-### Config File 
+### Config File
 Add Postgres credentials in following format in `config.json` file. [More details.](https://olake.io/docs/connectors/postgres/config)
    ```json
    {
@@ -33,13 +33,14 @@ Add Postgres credentials in following format in `config.json` file. [More detail
     "ssl": {
         "mode": "disable"
     },
-    "update_method": { 
+    "update_method": {
         "replication_slot": "postgres_slot",
         "intial_wait_time":10
     },
     "reader_batch_size": 100000,
     "default_mode":"cdc",
     "max_threads" :50,
+    "retry_count" :2,
   }
 ```
 
@@ -53,7 +54,7 @@ The *Discover* command generates json content for `streams.json` file, which def
 #### Usage
 To run the Discover command, use the following syntax
    ```bash
-   ./build.sh driver-postgres discover --config /postgres/examples/config.json 
+   ./build.sh driver-postgres discover --config /postgres/examples/config.json
    ```
 
 #### Example Response (Formatted)
@@ -67,8 +68,9 @@ After executing the Discover command, a formatted response will look like this:
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "split_column":"",
-                  "normalization": false
+                  "chunk_column":"",
+                  "normalization": false,
+                  "append_only": false
                }
          ]
       },
@@ -91,7 +93,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
    Remove streams from selected streams.
 - Add Partition based on Column Value
    Modify partition_regex field to partition destination data based on column value
-- Add split column (primary key) based on which full load chunks can be created 
+- Add split column (primary key) based on which full load chunks can be created
 
 - Modify Each Stream:<br>
    For each stream you want to sync:<br>
@@ -103,8 +105,25 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
+   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration. \
+      Similarly, for `chunk_column`, ensure it is defined in the stream settings as required.
+      ```json
+         "selected_streams": {
+            "public": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "table_1",
+                     "chunk_column":"",         //column name to be specified
+                     "normalization": false,
+                     "append_only": false
+                  }
+            ]
+         },
+      ```
+
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
+<br> The `append_only` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow)<br>
    ```json
    {
       "selected_streams": {
@@ -112,8 +131,8 @@ Before running the Sync command, the generated `streams.json` file must be confi
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "split_column":"",
-                  "normalization": false
+                  "normalization": false,
+                  "append_only": false
                }
          ]
       },
@@ -130,7 +149,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
    }
    ```
 
-### Writer File 
+### Writer File
 The Writer file defines the configuration for the destination where data needs to be added.<br>
 Example (For Local):
    ```
@@ -146,10 +165,10 @@ Example (For S3):
    {
       "type": "PARQUET",
       "writer": {
-         "s3_bucket": "olake",  
+         "s3_bucket": "olake",
          "s3_region": "",
-         "s3_access_key": "", 
-         "s3_secret_key": "", 
+         "s3_access_key": "",
+         "s3_secret_key": "",
          "s3_path": ""
       }
    }
@@ -199,13 +218,13 @@ The *Sync* command fetches data from Postgres and ingests it into the destinatio
 ./build.sh driver-postgres sync --config /postgres/examples/config.json --catalog /postgres/examples/streams.json --destination /postgres/examples/write.json
 ```
 
-To run sync with state 
+To run sync with state
 ```bash
 ./build.sh driver-postgres sync --config /postgres/examples/config.json --catalog /postgres/examples/streams.json --destination /postgres/examples/write.json --state /postgres/examples/state.json
 ```
 
 
-### State File 
+### State File
 The State file is generated by the CLI command at the completion of a batch or the end of a sync. This file can be used to save the sync progress and later resume from a specific checkpoint.
 #### State File Format
 You can save the state in a `state.json` file using the following format:

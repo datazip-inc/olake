@@ -3,7 +3,7 @@ package binlog
 import (
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
@@ -28,7 +28,7 @@ type Binlog struct {
 
 // CDCChange represents a change event captured from the binlog.
 type CDCChange struct {
-	Stream    protocol.Stream
+	Stream    types.StreamInterface
 	Timestamp time.Time
 	Position  mysql.Position
 	Kind      string

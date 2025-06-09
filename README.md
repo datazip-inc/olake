@@ -20,23 +20,26 @@ Connector ecosystem for Olake, the key points Olake Connectors focuses on are th
 - **Connector Autonomy**
 - **Avoid operations that don't contribute to increasing record throughput**
 
-## Performance Benchmarks*
-1. **MongoDB Connector:** Syncs 35,694 records/sec; 230 million rows in 46 minutes for a 664 GB dataset (20× Airbyte, 15× Embedded Debezium, 6× Fivetran) -> ([See Detailed Benchmark](https://olake.io/docs/connectors/mongodb/benchmarks))  
-2. **Postgres Connector:**  Syncs 1,000,000 records/sec for 50GB -> ([See Detailed Benchmark](https://olake.io/docs/connectors/postgres/benchmarks))  
-3. **MySQL Connector:** Syncs 1,000,000 records/sec for 10GB; ~209 mins for 100+GB ->  ([See Detailed Benchmark](https://olake.io/docs/connectors/mysql/benchmarks))  
+## Performance Benchmarks* 
+1. **Postgres Connector to Apache Iceberg:** ([See Detailed Benchmark](https://olake.io/docs/connectors/postgres/benchmarks))
+    1. **Full load** - Syncs at 46,262 RPS for 4 billion rows. (101x Airbyte, 11.6x Estuary, 3.1x Debezium (memiiso))
+    2. **CDC** - Sync at 36 982 RPS for 50 million changes. (63 Airbyte, 12x Estuary, 2.7x Debezium (memiiso), 1.4x fivetran)
+
+2. **MongoDB Connector to Apache Iceberg:** ([See Detailed Benchmark](https://olake.io/docs/connectors/mongodb/benchmarks))  
+    1. Syncs 35,694 records/sec; 230 million rows in 46 minutes for a 664 GB dataset (20× Airbyte, 15× Embedded Debezium, 6× Fivetran)
 
 *These are preliminary performances, we'll published fully reproducible benchmark scores soon.
 
 ## Getting Started with OLake
 
 ### Source / Connectors
-1. [Getting started Postgres -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/postgres) | [Postgres Docs](https://olake.io/docs/category/postgres)
-2. [Getting started MongoDB -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb) | [MongoDB Docs](https://olake.io/docs/category/mongodb)
-3. [Getting started MySQL -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)  | [MySQL Docs](https://olake.io/docs/category/mysql)
+1. [Getting started Postgres -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/postgres) | [Postgres Docs](https://olake.io/docs/connectors/postgres/overview)
+2. [Getting started MongoDB -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mongodb) | [MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview)
+3. [Getting started MySQL -> Writers](https://github.com/datazip-inc/olake/tree/master/drivers/mysql)  | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview)
 
 ### Writers / Destination
-1. [Apache Iceberg Docs](https://olake.io/docs/category/apache-iceberg) 
-2. [AWS S3 Docs](https://olake.io/docs/category/aws-s3) 
+1. [Apache Iceberg Docs](https://olake.io/docs/writers/iceberg/overview) 
+2. [AWS S3 Docs](https://olake.io/docs/writers/s3/overview) 
 3. [Local FileSystem Docs](https://olake.io/docs/writers/local) 
 
 
@@ -57,16 +60,15 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 ## Writer Functionalities
 | Functionality          | Local Filesystem | AWS S3 | Apache Iceberg |
 | ------------------------------- | ---------------- | ------ | -------------- |
-| Flattening & Normalization (L1) | ✅                | ✅      |  ✅              |
-| Partitioning                    | ✅                | ✅      |                |
-| Schema Changes                  | ✅                | ✅      |                |
-| Schema Evolution                | ✅                | ✅      |                |
-
+| Flattening & Normalization (L1) | ✅                      | ✅             |     ✅        |
+| Partitioning                    | ✅                      | ✅             |      ✅       |
+| Schema Changes                  | ✅                      | ✅             |       WIP      |
+| Schema Evolution                | ✅                      | ✅             |          ✅   |
 ## Supported Catalogs For Iceberg Writer
 | Catalog                 | Status                                                                                                  |
 | -------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Glue Catalog               | Supported                                                                                                      |
-| Hive Meta Store            | Upcoming                                                                                                 |
+| Hive Meta Store            | Supported                                                                                                 |
 | JDBC Catalogue             | Supported                                                                                                 |
 | REST Catalogue             | Supported                                                                                                 |
 | Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
@@ -86,7 +88,7 @@ Core handles the commands to interact with a driver via these:
 - `discover` command: Returns all streams and their schema
 - `sync` command: Extracts data out of Source and writes into destinations
 
-Find more about how OLake works [here.](https://olake.io/docs/category/understanding-olake)
+Find more about how OLake works [here.](https://olake.io/docs)
 
 ## Roadmap
 Checkout [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track and influence the way we build it. 
