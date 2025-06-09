@@ -113,5 +113,9 @@ func validateReplicationSlot(conn *sqlx.DB, slotName string) error {
 		return fmt.Errorf("only logical slots are supported: %s", slot.SlotType)
 	}
 
+	if slot.WalStatus == "extended" {
+		return fmt.Errorf("replication slot got extended, create new to sync data")
+	}
+
 	return nil
 }

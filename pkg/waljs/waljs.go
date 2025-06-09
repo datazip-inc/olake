@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	ReplicationSlotTempl = "SELECT plugin, wal_status, slot_type, confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
 )
 
 var pluginArguments = []string{
@@ -105,7 +106,11 @@ func (s *Socket) AcknowledgeLSN(ctx context.Context) error {
 
 func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
-	// TODO: need research on if we need initial wait time or not (currently we are using idle time)
+	var tables []string
+	for key := range s.changeFilter.tables {
+		tables = append(tables, key)
+	}
+	pluginArguments = append(pluginArguments, fmt.Sprintf("\"add-tables\" '%s'", strings.Join(tables, ",")))
 	if err := pglogrepl.StartReplication(
 		ctx,
 		s.pgConn,
@@ -115,7 +120,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 	); err != nil {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
-	logger.Infof("Started logical replication on slot[%s]", s.replicationSlot)
+	logger.Infof("Started logical replication for slot[%s] on lsn[%s]", s.replicationSlot, s.ConfirmedFlushLSN)
 	startTime := time.Now()
 	for {
 		select {
@@ -154,15 +159,12 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 				if err != nil {
 					return fmt.Errorf("failed to parse XLogData: %s", err)
 				}
-				// Calculate new LSN based on the received WAL data.
-				newLSN := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 				// Process change with the provided callback.
-				if err := s.changeFilter.FilterChange(xld.WALData, callback); err != nil {
+				nextLSN, err := s.changeFilter.FilterChange(xld.WALData, callback)
+				if err != nil {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}
-				// Update the current LSN pointer.
-				s.ClientXLogPos = newLSN
-
+				s.ClientXLogPos = *nextLSN
 			default:
 				logger.Debugf("received unhandled message type: %v", copyData.Data[0])
 			}

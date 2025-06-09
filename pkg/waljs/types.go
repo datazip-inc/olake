@@ -28,13 +28,14 @@ func (s *WALState) IsEmpty() bool {
 }
 
 type ReplicationSlot struct {
-	SlotType string        `db:"slot_type"`
-	Plugin   string        `db:"plugin"`
-	LSN      pglogrepl.LSN `db:"confirmed_flush_lsn"`
+	SlotType  string        `db:"slot_type"`
+	Plugin    string        `db:"plugin"`
+	LSN       pglogrepl.LSN `db:"confirmed_flush_lsn"`
+	WalStatus string        `db:"wal_status"`
 }
 
 type WALMessage struct {
-	// NextLSN   pglogrepl.LSN `json:"nextlsn"`
+	NextLSN   string         `json:"nextlsn"`
 	Timestamp typeutils.Time `json:"timestamp"`
 	Change    []struct {
 		Kind         string        `json:"kind"`
