@@ -10,6 +10,7 @@ import (
 
 	"github.com/brainicorn/ganno"
 	"github.com/datazip-inc/olake/jsonschema/schema"
+	"github.com/datazip-inc/olake/logger"
 	"golang.org/x/tools/go/loader"
 )
 
@@ -172,7 +173,7 @@ func (g *JSONSchemaGenerator) SubGenerate(basePackage, rootType string) (schema.
 	rootSchema, err = g.doGenerate()
 
 	g.LogInfoF("generation completed in %s for %s\n", time.Since(start), g.basePackage+"/"+g.rootType)
-
+	logger.Info("💛Sub Generate JSON Schema Successfully")
 	return rootSchema, err
 }
 
