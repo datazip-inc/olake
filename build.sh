@@ -35,13 +35,8 @@ function check_and_build_jar() {
     local current_dir=$(pwd)
     
     # Navigate to the Maven project directory
-<<<<<<< HEAD
-    if [ -d "writers/iceberg/olake-iceberg-java-writer" ]; then
-        cd writers/iceberg/olake-iceberg-java-writer
-=======
-    if [ -d "destination/iceberg/debezium-server-iceberg-sink" ]; then
-        cd destination/iceberg/debezium-server-iceberg-sink
->>>>>>> staging
+    if [ -d "destination/iceberg/olake-iceberg-java-writer" ]; then
+        cd destination/iceberg/olake-iceberg-java-writer
     else
         fail "Cannot find Iceberg Maven project directory."
     fi
@@ -53,13 +48,8 @@ function check_and_build_jar() {
     cd "$current_dir"
     
     # Copy the JAR file to the base directory
-<<<<<<< HEAD
-    if [ -f "writers/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar" ]; then
-        cp writers/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar ./olake-iceberg-java-writer.jar
-=======
-    if [ -f "destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar" ]; then
-        cp destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar ./debezium-server-iceberg-sink.jar
->>>>>>> staging
+    if [ -f "destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar" ]; then
+        cp destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar ./olake-iceberg-java-writer.jar
     else
         fail "Maven build completed but could not find the JAR file."
     fi
