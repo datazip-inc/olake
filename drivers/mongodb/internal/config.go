@@ -22,6 +22,8 @@ type Config struct {
 	Database          string         `json:"database"`
 	DefaultMode       types.SyncMode `json:"default_mode"`
 	RetryCount        int            `json:"backoff_retry_count"`
+	PartitionStrategy string         `json:"partition_strategy"`
+	BatchSize         int32          `json:"batch_size,omitempty"`
 	ChunkingStrategy  string         `json:"chunking_strategy"`
 }
 
@@ -45,7 +47,6 @@ func (c *Config) URI() string {
 		}
 		options = fmt.Sprintf("%s&replicaSet=%s&readPreference=%s", options, c.ReplicaSet, c.ReadPreference)
 	}
-
 	//  Handle auth credentials
 	auth := ""
 	if c.Username != "" {
