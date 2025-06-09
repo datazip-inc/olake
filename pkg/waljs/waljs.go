@@ -128,7 +128,6 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 			}
 			// Use a context with timeout for receiving a message.
 			msg, err := s.pgConn.ReceiveMessage(ctx)
-			// If the receive timed out, log the idle state and continue waiting.
 			if err != nil {
 				return fmt.Errorf("failed to receive message from wal: %s", err)
 			}
