@@ -2,10 +2,13 @@ package protocol
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/datazip-inc/olake/jsonschema"
-	"github.com/datazip-inc/olake/jsonschema/schema"
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/jsonschema"
+	"github.com/datazip-inc/olake/utils/jsonschema/schema"
+	"github.com/datazip-inc/olake/utils/logger"
 
 	"github.com/spf13/cobra"
 )
@@ -15,7 +18,25 @@ var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
 	RunE: func(_ *cobra.Command, _ []string) error {
-		config := connector.Spec()
+		var config any
+		if destinationConfigPath == "not-set" {
+			config = connector.Spec()
+		} else {
+			// Create a writer config with the specified destination type
+			writerConfig := types.WriterConfig{
+				Type: types.AdapterType(strings.ToUpper(destinationConfigPath)),
+			}
+
+			// Get the new function for the destination type
+			newFunc, found := destination.RegisteredWriters[writerConfig.Type]
+			if !found {
+				return fmt.Errorf("invalid destination type has been passed [%s]", writerConfig.Type)
+			}
+
+			writer := newFunc()
+			config = writer.Spec()
+		}
+
 		schemaVal, err := jsonschema.Reflect(config)
 		if err != nil {
 			return fmt.Errorf("failed to reflect config: %v", err)

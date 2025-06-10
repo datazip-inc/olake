@@ -136,6 +136,7 @@ type Config struct {
 	//   order=11
 	// )
 	MaxThreads int `json:"max_threads"`
+	RetryCount int `json:"retry_count"`
 }
 
 // CDC represents the Change Data Capture configuration
@@ -166,6 +167,8 @@ type CDC struct {
 	//   default=10
 	// )
 	InitialWaitTime int `json:"intial_wait_time"`
+
+	RetryCount int `json:"retry_count"`
 }
 
 // FullRefresh represents the full refresh configuration

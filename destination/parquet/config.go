@@ -5,34 +5,63 @@ import (
 )
 
 type Config struct {
-	Path      string `json:"local_path,omitempty"` // Local file path (for local file system usage)
-	Bucket    string `json:"s3_bucket,omitempty"`
-	Region    string `json:"s3_region,omitempty"`
-	AccessKey string `json:"s3_access_key,omitempty"`
-	SecretKey string `json:"s3_secret_key,omitempty"`
-	Prefix    string `json:"s3_path,omitempty"`
-}
+	Path string `json:"local_path,omitempty"` // Local file path (for local file system usage)
 
-// ParquetSchema represents the schema for the parquet writer
-//
-// @jsonSchema(
-//
-//	title="Writer Settings"
-//
-// )
-type ParquetSchema struct {
-	// Type
+	// Bucket
 	//
 	// @jsonSchema(
-	//   title="File Type",
-	//   description="Type of file to write (e.g., PARQUET)",
+	//   title="S3 Bucket",
+	//   description="The name of an existing Amazon S3 bucket with appropriate access permissions to store output files",
 	//   type="string",
-	//   enum=["PARQUET"],
-	//   default="PARQUET"
+	//   order=1,
+	//   required=true
 	// )
-	Type string `json:"type"`
+	Bucket string `json:"s3_bucket,omitempty"`
 
-	Writer Config `json:"writer"`
+	// Region
+	//
+	// @jsonSchema(
+	//   title="S3 Region",
+	//   description="Specify the AWS region where the S3 bucket is hosted",
+	//   type="string",
+	//   order=2,
+	//   required=true
+	// )
+	Region string `json:"s3_region,omitempty"`
+
+	// AccessKey
+	//
+	// @jsonSchema(
+	//   title="S3 Access Key",
+	//   description="Specify the AWS access key for the S3 bucket",
+	//   type="string",
+	//   order=3,
+	//   required=true
+	// )
+	AccessKey string `json:"s3_access_key,omitempty"`
+
+	// SecretKey
+	//
+	// @jsonSchema(
+	//   title="AWS Secret Key",
+	//   description="The AWS secret key for S3 authentication—typically 40+ characters long",
+	//   type="string",
+	//   format="password",
+	//   order=4,
+	//   required=true
+	// )
+	SecretKey string `json:"s3_secret_key,omitempty"`
+
+	// Prefix
+	//
+	// @jsonSchema(
+	//   title="S3 Prefix",
+	//   description="Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')",
+	//   type="string",
+	//   default="",
+	//   order=5
+	// )
+	Prefix string `json:"s3_path,omitempty"`
 }
 
 func (c *Config) Validate() error {
