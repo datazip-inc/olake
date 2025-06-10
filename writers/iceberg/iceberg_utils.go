@@ -222,6 +222,9 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	case RestCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.rest.RESTCatalog"
 		serverConfig["uri"] = i.config.RestCatalogURL
+		serverConfig["rest.signing-name"] = i.config.RestSigningName
+		serverConfig["rest.signing-region"] = i.config.RestSigningRegion
+		serverConfig["rest.sigv4-enabled"] = i.config.RestSigningV4
 
 	default:
 		return nil, fmt.Errorf("unsupported catalog type: %s", i.config.CatalogType)
