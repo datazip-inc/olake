@@ -183,7 +183,7 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
 func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	// Create the server configuration map
-	serverConfig := map[string]string{
+	serverConfig := map[string]interface{}{
 		"port":                 fmt.Sprintf("%d", port),
 		"warehouse":            i.config.IcebergS3Path,
 		"table-namespace":      i.config.IcebergDatabase,
@@ -222,6 +222,9 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	case RestCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.rest.RESTCatalog"
 		serverConfig["uri"] = i.config.RestCatalogURL
+		serverConfig["rest.signing-name"] = i.config.RestSigningName
+		serverConfig["rest.signing-region"] = i.config.RestSigningRegion
+		serverConfig["rest.sigv4-enabled"] = i.config.RestSigningV4
 
 	default:
 		return nil, fmt.Errorf("unsupported catalog type: %s", i.config.CatalogType)

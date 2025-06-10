@@ -114,6 +114,32 @@ Create a json for writer config (writer.json)
 }
 ```
 
+### S3 Table Bucket
+Create a json for writer config (writer.json)
+```json
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "rest",
+    "rest_catalog_url": "https://s3tables.us-east-1.amazonaws.com/iceberg",
+    "iceberg_s3_path": "arn:aws:s3tables:<REGION>:<ACCOUNT_ID>:bucket/<BUCKET_NAME>",
+    "iceberg_db": "<NAMESPACE>",
+    "aws_access_key": "",
+    "aws_secret_key": "",
+    "aws_region": "<REGION>",
+    "rest_signing_name": "s3tables",
+    "rest_signing_region": "<REGION>",
+    "rest_signing_v_4": true
+  }
+}
+```
+
+change the placeholders with actual values
+* `REGION` -> Region for AWS bucket and catalog
+* `NAMESPACE` -> This will be your s3 table bucket namespace
+* `ACCOUNT_ID` -> AWS account identifier
+* `BUCKET_NAME` -> Table Bucket Name
+
 ### Hive Catalog
 Create a json for writer config (writer.json)
 ```json
