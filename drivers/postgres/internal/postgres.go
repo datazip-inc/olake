@@ -77,6 +77,9 @@ func (p *Postgres) Setup(ctx context.Context) error {
 
 		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
 		if err != nil {
+			if strings.Contains(err.Error(), "sql: no rows in result set") {
+				err = fmt.Errorf("no record found")
+			}
 			return fmt.Errorf("failed to check existence of replication slot %s: %s", cdc.ReplicationSlot, err)
 		}
 
