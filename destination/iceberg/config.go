@@ -58,6 +58,12 @@ type Config struct {
 	ServerHost      string `json:"sink_rpc_server_host,omitempty"` // gRPC server host
 
 	DebugMode bool `json:"debug_mode,omitempty"`
+	// S3 Table Bucket Config
+	RestSigningName   string `json:"rest_signing_name,omitempty"`
+	RestSigningRegion string `json:"rest_signing_region,omitempty"`
+	RestSigningV4     string `json:"rest_signing_v_4,omitempty"`
+
+	Normalization bool `json:"normalization,omitempty"`
 }
 
 func (c *Config) Validate() error {
