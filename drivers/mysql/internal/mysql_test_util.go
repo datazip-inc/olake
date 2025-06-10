@@ -3,11 +3,12 @@ package driver
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
-	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -102,9 +103,10 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	}
 }
 
-// testMySQLClient initializes and returns a MySQL test client with default configuration
-func testMySQLClient(t *testing.T) (*sqlx.DB, Config, *MySQL) {
+// testAndBuildAbstractDriver initializes and returns an AbstractDriver with default configuration
+func testAndBuildAbstractDriver(t *testing.T) (*sqlx.DB, *abstract.AbstractDriver) {
 	t.Helper()
+	logger.Init()
 
 	config := Config{
 		Username:   defaultMySQLUser,
@@ -117,18 +119,20 @@ func testMySQLClient(t *testing.T) (*sqlx.DB, Config, *MySQL) {
 	}
 
 	mysqlDriver := &MySQL{
-		Driver: base.NewBase(),
 		config: &config,
 		cdcConfig: CDC{
 			InitialWaitTime: initialCDCWaitTime,
 		},
 	}
 	mysqlDriver.CDCSupport = true
-	state := types.NewState(types.GlobalType)
-	mysqlDriver.SetupState(state)
+	absDriver := abstract.NewAbstractDriver(context.Background(), mysqlDriver)
 
-	_ = protocol.ChangeStreamDriver(mysqlDriver)
-	require.NoError(t, mysqlDriver.Setup(), "Failed to setup MySQL driver")
+	state := &types.State{
+		Type:    types.StreamType,
+		RWMutex: &sync.RWMutex{},
+	}
+	absDriver.SetupState(state)
+	require.NoError(t, absDriver.Setup(context.Background()), "Failed to setup MySQL driver")
 
-	return mysqlDriver.client, *mysqlDriver.config, mysqlDriver
+	return mysqlDriver.client, absDriver
 }

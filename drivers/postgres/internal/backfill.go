@@ -4,103 +4,54 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math/big"
-	"sort"
-	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
 
-// Simple Full Refresh Sync; Loads table fully
-func (p *Postgres) backfill(pool *protocol.WriterPool, stream protocol.Stream) error {
-	backfillCtx := context.TODO()
-	var approxRowCount int64
-	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
-	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
+func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
-		return fmt.Errorf("failed to get approx row count: %s", err)
+		return err
 	}
-	pool.AddRecordsToSync(approxRowCount)
-
-	stateChunks := p.State.GetChunks(stream.Self())
-	var splitChunks []types.Chunk
-	if stateChunks == nil {
-		// check for data distribution
-		// TODO: remove chunk intersections where chunks can be {0, 100} {100, 200}. Need to {0, 99} {100, 200}
-		splitChunks, err = p.splitTableIntoChunks(stream)
-		if err != nil {
-			return fmt.Errorf("failed to start backfill: %s", err)
-		}
-		p.State.SetChunks(stream.Self(), types.NewSet(splitChunks...))
-	} else {
-		splitChunks = stateChunks.Array()
-	}
-	sort.Slice(splitChunks, func(i, j int) bool {
-		return utils.CompareInterfaceValue(splitChunks[i].Min, splitChunks[j].Min) < 0
+	defer tx.Rollback()
+	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
+	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
+	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk)
+	setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		return tx.Query(query, args...)
 	})
 
-	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(splitChunks))
-	processChunk := func(ctx context.Context, chunk types.Chunk, number int) (err error) {
-		tx, err := p.client.BeginTx(backfillCtx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	return setter.Capture(func(rows *sql.Rows) error {
+		// Create a map to hold column names and values
+		record := make(types.Record)
+
+		// Scan the row into the map
+		err := jdbc.MapScan(rows, record, p.dataTypeConverter)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to scan record data as map: %s", err)
 		}
-		defer tx.Rollback()
-		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
-		chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
-		stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk)
-
-		setter := jdbc.NewReader(backfillCtx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-			return tx.Query(query, args...)
-		})
-		batchStartTime := time.Now()
-		waitChannel := make(chan error, 1)
-		insert, err := pool.NewThread(backfillCtx, stream, protocol.WithErrorChannel(waitChannel), protocol.WithBackfill(true))
-		if err != nil {
-			return fmt.Errorf("failed to create writer thread: %s", err)
-		}
-		defer func() {
-			insert.Close()
-			if err == nil {
-				// wait for chunk completion
-				err = <-waitChannel
-			}
-			// no error in writer as well
-			if err == nil {
-				logger.Infof("chunk[%d] with min[%v]-max[%v] completed in %0.2f seconds", number, chunk.Min, chunk.Max, time.Since(batchStartTime).Seconds())
-				p.State.RemoveChunk(stream.Self(), chunk)
-			}
-		}()
-		return setter.Capture(func(rows *sql.Rows) error {
-			// Create a map to hold column names and values
-			record := make(types.Record)
-
-			// Scan the row into the map
-			err := jdbc.MapScan(rows, record, p.dataTypeConverter)
-			if err != nil {
-				return fmt.Errorf("failed to mapScan record data: %s", err)
-			}
-
-			// generate olake id
-			olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-			// insert record
-			err = insert.Insert(types.CreateRawRecord(olakeID, record, "r", time.Unix(0, 0)))
-			if err != nil {
-				return err
-			}
-
-			return nil
-		})
-	}
-	return utils.Concurrent(backfillCtx, splitChunks, p.config.MaxThreads, processChunk)
+		return OnMessage(record)
+	})
 }
 
-func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, error) {
-	generateCTIDRanges := func(stream protocol.Stream) ([]types.Chunk, error) {
+func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+	var approxRowCount int64
+	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
+	// TODO: use ctx while querying
+	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get approx row count: %s", err)
+	}
+	pool.AddRecordsToSync(approxRowCount)
+	return p.splitTableIntoChunks(stream)
+}
+
+func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		var relPages uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
 		err := p.client.QueryRow(relPagesQuery).Scan(&relPages)
@@ -108,20 +59,20 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 			return nil, fmt.Errorf("failed to get relPages: %s", err)
 		}
 		relPages = utils.Ternary(relPages == uint32(0), uint32(1), relPages).(uint32)
-		var chunks []types.Chunk
+		chunks := types.NewSet[types.Chunk]()
 		batchSize := uint32(p.config.BatchSize)
 		for start := uint32(0); start < relPages; start += batchSize {
 			end := start + batchSize
 			if end >= relPages {
 				end = ^uint32(0) // Use max uint32 value for the last range
 			}
-			chunks = append(chunks, types.Chunk{Min: fmt.Sprintf("'(%d,0)'", start), Max: fmt.Sprintf("'(%d,0)'", end)})
+			chunks.Insert(types.Chunk{Min: fmt.Sprintf("'(%d,0)'", start), Max: fmt.Sprintf("'(%d,0)'", end)})
 		}
 		return chunks, nil
 	}
 
-	splitViaBatchSize := func(min, max interface{}, dynamicChunkSize int) ([]types.Chunk, error) {
-		var splits []types.Chunk
+	splitViaBatchSize := func(min, max interface{}, dynamicChunkSize int) (*types.Set[types.Chunk], error) {
+		splits := types.NewSet[types.Chunk]()
 		chunkStart := min
 		chunkEnd, err := utils.AddConstantToInterface(min, dynamicChunkSize)
 		if err != nil {
@@ -129,7 +80,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 		}
 
 		for utils.CompareInterfaceValue(chunkEnd, max) <= 0 {
-			splits = append(splits, types.Chunk{Min: chunkStart, Max: chunkEnd})
+			splits.Insert(types.Chunk{Min: chunkStart, Max: chunkEnd})
 			chunkStart = chunkEnd
 			newChunkEnd, err := utils.AddConstantToInterface(chunkEnd, dynamicChunkSize)
 			if err != nil {
@@ -137,24 +88,24 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 			}
 			chunkEnd = newChunkEnd
 		}
-		return append(splits, types.Chunk{Min: chunkStart, Max: nil}), nil
+		splits.Insert(types.Chunk{Min: chunkStart, Max: nil})
+		return splits, nil
 	}
 
-	splitViaNextQuery := func(min interface{}, stream protocol.Stream, chunkColumn string) ([]types.Chunk, error) {
+	splitViaNextQuery := func(min interface{}, stream types.StreamInterface, chunkColumn string) (*types.Set[types.Chunk], error) {
 		chunkStart := min
-		var splits []types.Chunk
-
+		splits := types.NewSet[types.Chunk]()
 		for {
 			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, chunkColumn)
 			if err != nil {
 				return nil, fmt.Errorf("failed to split chunks based on next query size: %s", err)
 			}
 			if chunkEnd == nil || chunkEnd == chunkStart {
-				splits = append(splits, types.Chunk{Min: chunkStart, Max: nil})
+				splits.Insert(types.Chunk{Min: chunkStart, Max: nil})
 				break
 			}
 
-			splits = append(splits, types.Chunk{Min: chunkStart, Max: chunkEnd})
+			splits.Insert(types.Chunk{Min: chunkStart, Max: chunkEnd})
 			chunkStart = chunkEnd
 		}
 		return splits, nil
@@ -170,7 +121,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 			return nil, fmt.Errorf("failed to fetch table min max: %s", err)
 		}
 		if minValue == maxValue {
-			return []types.Chunk{{Min: minValue, Max: maxValue}}, nil
+			return types.NewSet(types.Chunk{Min: minValue, Max: nil}), nil
 		}
 
 		_, contains := utils.ArrayContains(stream.GetStream().SourceDefinedPrimaryKey.Array(), func(element string) bool {
@@ -191,7 +142,7 @@ func (p *Postgres) splitTableIntoChunks(stream protocol.Stream) ([]types.Chunk, 
 	}
 }
 
-func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
+func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
 	var chunkEnd interface{}
 	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd, p.config.BatchSize)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
@@ -199,43 +150,4 @@ func (p *Postgres) nextChunkEnd(stream protocol.Stream, previousChunkEnd interfa
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
 	}
 	return chunkEnd, nil
-}
-
-func (p *Postgres) calculateDistributionFactor(min, max interface{}, approximateRowCnt int64) (float64, error) {
-	if approximateRowCnt == 0 {
-		return float64(^uint(0) >> 1), nil // Return the maximum float64 value
-	}
-	var minBig, maxBig *big.Float
-	switch min := min.(type) {
-	case int:
-		minBig = big.NewFloat(float64(min))
-	case int64:
-		minBig = big.NewFloat(float64(min))
-	case float32:
-		minBig = big.NewFloat(float64(min))
-	case float64:
-		minBig = big.NewFloat(min)
-	}
-
-	switch max := max.(type) {
-	case int:
-		maxBig = big.NewFloat(float64(max))
-	case int64:
-		maxBig = big.NewFloat(float64(max))
-	case float32:
-		maxBig = big.NewFloat(float64(max))
-	case float64:
-		maxBig = big.NewFloat(max)
-	}
-
-	if minBig == nil || maxBig == nil {
-		return 0.0, fmt.Errorf("failed to convert min or max value to big.Float")
-	}
-	difference := new(big.Float).Sub(maxBig, minBig)
-	subRowCnt := new(big.Float).Add(difference, big.NewFloat(1))
-	approxRowCntBig := new(big.Float).SetInt64(approximateRowCnt)
-	distributionFactor := new(big.Float).Quo(subRowCnt, approxRowCntBig)
-	factor, _ := distributionFactor.Float64()
-
-	return factor, nil
 }
