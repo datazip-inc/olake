@@ -134,20 +134,23 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
 	logger.Infof("Started logical replication for slot[%s] on lsn[%s]", s.replicationSlot, s.ConfirmedFlushLSN)
-	startTime := time.Now()
+	messageReceived := false
+	cdcStartTime := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			if time.Since(startTime) > s.initialWaitTime {
-				logger.Debug("Idle timeout reached while waiting for new messages")
-				return nil
+			if !messageReceived && s.initialWaitTime > 0 && time.Since(cdcStartTime) > s.initialWaitTime {
+				return fmt.Errorf("failed to get wal messages in given initial wait time")
 			}
-			// Use a context with timeout for receiving a message.
+
 			msg, err := s.pgConn.ReceiveMessage(ctx)
 			if err != nil {
-				return fmt.Errorf("failed to receive message from wal: %s", err)
+				if pgconn.Timeout(err) || strings.Contains(err.Error(), "EOF") {
+					return nil
+				}
+				return fmt.Errorf("failed to receive message from wal logs: %s", err)
 			}
 
 			// Process only CopyData messages.
@@ -159,14 +162,17 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 			switch copyData.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				// For keepalive messages, process them (but no ack is sent here).
-				_, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
+				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %s", err)
 				}
-
+				logger.Warnf("keep alive message received: %v", pkm)
+				if pkm.ReplyRequested {
+					return nil
+				}
 			case pglogrepl.XLogDataByteID:
+				messageReceived = true
 				// Reset the idle timer on receiving WAL data.
-				startTime = time.Now()
 				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
 					return fmt.Errorf("failed to parse XLogData: %s", err)

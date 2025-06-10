@@ -55,6 +55,11 @@ func (p *Postgres) PreCDC(ctx context.Context, state *types.State, streams []typ
 		if postgresGlobalState.LSN == "" {
 			state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
 			state.ResetStreams()
+			// commit the lsn as we are going to start syncing from this point after backfill
+			if err := p.Socket.AcknowledgeLSN(ctx); err != nil {
+				return fmt.Errorf("failed to acknowledge lsn after global state not found")
+			}
+			logger.Infof("sent standby mode on lsn: %s", p.Socket.ClientXLogPos)
 		} else {
 			parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
@@ -65,6 +70,11 @@ func (p *Postgres) PreCDC(ctx context.Context, state *types.State, streams []typ
 				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
 				state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
 				state.ResetStreams()
+				// commit the lsn as we are going to start syncing from this point after backfill
+				if err := p.Socket.AcknowledgeLSN(ctx); err != nil {
+					return fmt.Errorf("failed to acknowledge lsn after global state not found")
+				}
+				logger.Infof("sent standby mode on lsn: %s", p.Socket.ClientXLogPos)
 			}
 		}
 	}

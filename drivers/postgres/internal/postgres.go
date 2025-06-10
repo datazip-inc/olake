@@ -83,10 +83,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		if !exists {
 			return fmt.Errorf("provided replication slot %s does not exist", cdc.ReplicationSlot)
 		}
-		if cdc.InitialWaitTime == 0 {
-			// default set 10 sec
-			cdc.InitialWaitTime = 10
-		}
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
@@ -163,7 +159,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val
 			} else {
-				logger.Warnf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
+				logger.Debugf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
 				datatype = types.String
 			}
 
