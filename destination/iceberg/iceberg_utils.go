@@ -183,7 +183,7 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
 func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	// Create the server configuration map
-	serverConfig := map[string]string{
+	serverConfig := map[string]interface{}{
 		"port":                 fmt.Sprintf("%d", port),
 		"warehouse":            i.config.IcebergS3Path,
 		"table-namespace":      i.config.IcebergDatabase,

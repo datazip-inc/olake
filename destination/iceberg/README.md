@@ -129,7 +129,7 @@ Create a json for writer config (writer.json)
     "aws_region": "<REGION>",
     "rest_signing_name": "s3tables",
     "rest_signing_region": "<REGION>",
-    "rest_signing_v_4": "true"
+    "rest_signing_v_4": true
   }
 }
 ```

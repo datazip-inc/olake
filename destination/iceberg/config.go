@@ -61,7 +61,7 @@ type Config struct {
 
 	RestSigningName   string `json:"rest_signing_name,omitempty"`
 	RestSigningRegion string `json:"rest_signing_region,omitempty"`
-	RestSigningV4     string `json:"rest_signing_v_4,omitempty"`
+	RestSigningV4     bool   `json:"rest_signing_v_4,omitempty"`
 }
 
 func (c *Config) Validate() error {
