@@ -57,6 +57,7 @@ type Config struct {
 	JarPath         string `json:"sink_jar_path,omitempty"`        // Path to the Iceberg sink JAR
 	ServerHost      string `json:"sink_rpc_server_host,omitempty"` // gRPC server host
 
+	DebugMode bool `json:"debug_mode,omitempty"`
 }
 
 func (c *Config) Validate() error {
@@ -131,19 +132,19 @@ func (c *Config) Validate() error {
 		}
 
 		// First, check if the JAR exists in the base directory
-		baseJarPath := fmt.Sprintf("%s/debezium-server-iceberg-sink.jar", execDir)
+		baseJarPath := fmt.Sprintf("%s/olake-iceberg-java-writer.jar", execDir)
 		if err := utils.CheckIfFilesExists(baseJarPath); err == nil {
 			// JAR file exists in base directory
 			logger.Infof("Iceberg JAR file found in base directory: %s", baseJarPath)
 			c.JarPath = baseJarPath
 		} else {
 			// Otherwise, look in the target directory
-			targetJarPath := fmt.Sprintf("%s/destination/iceberg/debezium-server-iceberg-sink/target/debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar", execDir)
+			targetJarPath := fmt.Sprintf("%s/destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar", execDir)
 			if err := utils.CheckIfFilesExists(targetJarPath); err == nil {
 				logger.Infof("Iceberg JAR file found in target directory: %s", targetJarPath)
 				c.JarPath = targetJarPath
 			} else {
-				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/debezium-server-iceberg-sink/target/ directory and run mvn clean package -DskipTests",
+				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/olake-iceberg-java-writer/target/ directory and run mvn clean package -DskipTests",
 					baseJarPath, targetJarPath)
 			}
 		}
