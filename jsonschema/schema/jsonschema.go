@@ -78,6 +78,7 @@ type JSONSchema interface {
 	GetNot() JSONSchema
 	GetDefinitions() map[string]JSONSchema
 	GetDefault() interface{}
+	GetOrder() int
 
 	AddDefinition(key string, def JSONSchema)
 	SetSchemaURI(uri string)
@@ -94,6 +95,7 @@ type JSONSchema interface {
 	SetDefault(def string) error
 	SetConstant(def interface{})
 	SetType(typeList string)
+	SetOrder(order int)
 }
 
 // Definitions hold schema definitions.
@@ -116,6 +118,7 @@ type basicSchema struct {
 	Definitions  map[string]JSONSchema `json:"definitions,omitempty"`
 	DefaultValue interface{}           `json:"default,omitempty"`
 	Const        interface{}           `json:"const,omitempty"`
+	Order        int                   `json:"order,omitempty"`
 }
 
 // FromJSON returns a JSONSchema object from the given json bytes.
@@ -338,11 +341,19 @@ func (s *basicSchema) GetDefault() interface{} {
 	return s.DefaultValue
 }
 
+func (s *basicSchema) GetOrder() int {
+	return s.Order
+}
+
 func (s *basicSchema) AddDefinition(key string, def JSONSchema) {
 	s.Definitions[key] = def
 }
 func (s *basicSchema) SetSchemaURI(uri string) {
 	s.SchemaURI = uri
+}
+
+func (s *basicSchema) SetOrder(order int) {
+	s.Order = order
 }
 
 func (s *basicSchema) SetID(id string) {

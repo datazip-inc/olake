@@ -14,7 +14,7 @@ type Config struct {
 	// Connection
 	//
 	// @jsonSchema(
-	//   title="Connection",
+	//   title="Connection URL",
 	//   description="Connection URL",
 	//   type="string"
 	// )
@@ -26,7 +26,8 @@ type Config struct {
 	//   title="Postgres Host",
 	//   description="Hostname or IP address of the PostgreSQL server",
 	//   type="string",
-	//   required=true
+	//   required=true,
+	//   order=1
 	// )
 	Host string `json:"host"`
 
@@ -37,7 +38,8 @@ type Config struct {
 	//   description="Port number of the PostgreSQL server",
 	//   type="integer",
 	//   default=5432,
-	//   required=true
+	//   required=true,
+	//   order=2
 	// )
 	Port int `json:"port"`
 
@@ -47,7 +49,8 @@ type Config struct {
 	//   title="Database Name",
 	//   description="Name of the PostgreSQL database",
 	//   type="string",
-	//   required=true
+	//   required=true,
+	//   order=3
 	// )
 	Database string `json:"database"`
 
@@ -57,7 +60,8 @@ type Config struct {
 	//   title="Username",
 	//   description="Database user for authentication",
 	//   type="string",
-	//   required=true
+	//   required=true,
+	//   order=4
 	// )
 	Username string `json:"username"`
 
@@ -68,7 +72,8 @@ type Config struct {
 	//   description="Password for the database user",
 	//   type="string",
 	//   format="password",
-	//   required=true
+	//   required=true,
+	//   order=5
 	// )
 	Password string `json:"password"`
 
@@ -77,7 +82,8 @@ type Config struct {
 	// @jsonSchema(
 	//   title="JDBC URL Parameters",
 	//   description="Optional JDBC parameters as key-value pairs",
-	//   type="string"
+	//   type="string",
+	//   order=6
 	// )
 	JDBCURLParams map[string]string `json:"jdbc_url_params"`
 
@@ -85,40 +91,18 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="SSL Configuration",
-	//   type="object",
-	//   properties={
-	//     "mode": {
-	//       "type": "string",
-	//       "title": "SSL Mode",
-	//       "description": "SSL mode to connect (disable, require, verify-ca, etc.)",
-	//       "enum": ["disable", "require", "verify-ca", "verify-full"],
-	//       "default": "disable"
-	//     }
-	//   }
+	//   description="SSL configuration for the database connection",
+	//   order=7
 	// )
 	SSLConfiguration *utils.SSLConfig `json:"ssl"`
 
-	// UpdateMethod
-	//
 	// @jsonSchema(
 	//   title="Update Method",
-	//   type="object",
-	//   properties={
-	//     "replication_slot": {
-	//       "type": "string",
-	//       "title": "Replication Slot",
-	//       "description": "Slot name for CDC",
-	//       "default": "postgres_slot"
-	//     },
-	//     "intial_wait_time": {
-	//       "type": "integer",
-	//       "title": "Initial Wait Time",
-	//       "description": "Seconds to wait before starting CDC",
-	//       "default": 10
-	//     }
-	//   }
+	//   description="Method to use for updates",
+	//   oneOf=["CDC","FullRefresh"],
+	//   order=8
 	// )
-	UpdateMethod CDC `json:"update_method"`
+	UpdateMethod interface{} `json:"update_method"`
 
 	// DefaultSyncMode
 	//
@@ -126,7 +110,8 @@ type Config struct {
 	//   title="Default Mode",
 	//   description="Extraction mode (e.g., full or cdc)",
 	//   type="string",
-	//   default="cdc"
+	//   default="cdc",
+	//   order=10
 	// )
 	DefaultSyncMode types.SyncMode `json:"default_mode"`
 
@@ -136,7 +121,8 @@ type Config struct {
 	//   title="Reader Batch Size",
 	//   description="Number of records to read in each batch",
 	//   type="integer",
-	//   default=100000
+	//   default=100000,
+	//   order=9
 	// )
 	BatchSize int `json:"reader_batch_size"`
 
@@ -146,12 +132,20 @@ type Config struct {
 	//   title="Max Threads",
 	//   description="Number of threads to use for backfill",
 	//   type="integer",
-	//   default=5
+	//   default=5,
+	//   order=11
 	// )
 	MaxThreads int `json:"max_threads"`
 }
 
-// Capture Write Ahead Logs
+// CDC represents the Change Data Capture configuration
+//
+// @jsonSchema(
+//
+//	title="CDC",
+//	description="Change Data Capture configuration"
+//
+// )
 type CDC struct {
 	// ReplicationSlot
 	//
@@ -173,6 +167,16 @@ type CDC struct {
 	// )
 	InitialWaitTime int `json:"intial_wait_time"`
 }
+
+// FullRefresh represents the full refresh configuration
+//
+// @jsonSchema(
+//
+//	title="Full Refresh",
+//	description="Full Refresh configuration"
+//
+// )
+type FullRefresh struct{}
 
 func (c *Config) Validate() error {
 	if c.Host == "" {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/brainicorn/ganno"
 	"github.com/datazip-inc/olake/jsonschema/schema"
-	"github.com/datazip-inc/olake/logger"
 	"golang.org/x/tools/go/loader"
 )
 
@@ -173,7 +172,6 @@ func (g *JSONSchemaGenerator) SubGenerate(basePackage, rootType string) (schema.
 	rootSchema, err = g.doGenerate()
 
 	g.LogInfoF("generation completed in %s for %s\n", time.Since(start), g.basePackage+"/"+g.rootType)
-	logger.Info("💛Sub Generate JSON Schema Successfully")
 	return rootSchema, err
 }
 
@@ -622,9 +620,55 @@ func (g *JSONSchemaGenerator) generateArraySchema(ownerDecl *declInfo, elemExpr 
 
 func (g *JSONSchemaGenerator) generateInterfaceSchemaForField(decl *declInfo, field *ast.Field, parentKey string) (schema.JSONSchema, error) {
 	var err error
-	var hasAnno, fhasXof, dhasAnno bool
 	var iSchema schema.JSONSchema
 
+	// First check for schema annotations with type
+	schemaAnno, err := g.findJSONSchemaAnnotationForField(field)
+	if err != nil {
+		return nil, err
+	}
+
+	if schemaAnno != nil {
+		if len(schemaAnno.oneOf) > 0 || len(schemaAnno.allOf) > 0 || len(schemaAnno.anyOf) > 0 {
+			iSchema = schema.NewBasicSchema("")
+
+			err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
+			if err != nil {
+				return nil, err
+			}
+
+			return iSchema, nil
+		}
+
+		if len(schemaAnno.schemaType) > 0 {
+			// Create schema based on the type specified in the annotation
+			switch schemaAnno.schemaType[0] {
+			case "string":
+				iSchema = schema.NewStringSchema()
+			case "integer":
+				iSchema = schema.NewNumericSchema("integer")
+			case "number":
+				iSchema = schema.NewNumericSchema("number")
+			case "boolean":
+				iSchema = schema.NewBasicSchema("boolean")
+			case "object":
+				iSchema = schema.NewObjectSchema(g.options.SupressXAttrs)
+			case "array":
+				iSchema = schema.NewArraySchema()
+			default:
+				iSchema = schema.NewBasicSchema(schemaAnno.schemaType[0])
+			}
+
+			err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
+			if err != nil {
+				return nil, err
+			}
+			return iSchema, nil
+		}
+
+	}
+
+	var hasAnno, fhasXof, dhasAnno bool
 	fhasXof, err = g.fieldHasXofAnnotation(field)
 
 	if err == nil {

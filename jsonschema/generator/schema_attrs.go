@@ -273,6 +273,10 @@ func (g *JSONSchemaGenerator) addCommonAttrs(schema schema.JSONSchema, anno *sch
 		schema.SetNot(schemas[0])
 	}
 
+	if anno.order > 0 {
+		schema.SetOrder(anno.order)
+	}
+
 	return nil
 }
 
