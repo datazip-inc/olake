@@ -43,7 +43,7 @@ func (c *Config) URI() string {
 	return fmt.Sprintf(
 		"%s:%s@tcp(%s:%d)/%s",
 		url.QueryEscape(c.Username),
-		url.QueryEscape(c.Password),
+		c.Password,
 		hostStr,
 		c.Port,
 		url.QueryEscape(c.Database),
