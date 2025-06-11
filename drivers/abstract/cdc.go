@@ -13,7 +13,7 @@ import (
 
 func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	// run pre cdc of drivers
-	if err := a.driver.PreCDC(ctx, a.state, streams); err != nil {
+	if err := a.driver.PreCDC(ctx, streams); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
 	}
 
@@ -64,7 +64,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						if threadErr := <-errChan; threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
-						postCDCErr := a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -111,7 +111,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
-			postCDCErr := a.driver.PostCDC(ctx, a.state, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}

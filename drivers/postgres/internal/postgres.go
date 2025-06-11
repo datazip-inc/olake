@@ -40,6 +40,7 @@ type Postgres struct {
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
 	cdcConfig  CDC
 	Socket     *waljs.Socket
+	state      *types.State // reference to globally present state
 }
 
 func (p *Postgres) CDCSupported() bool {
@@ -99,6 +100,10 @@ func (p *Postgres) Setup(ctx context.Context) error {
 
 func (p *Postgres) StateType() types.StateType {
 	return types.GlobalType
+}
+
+func (p *Postgres) SetupState(state *types.State) {
+	p.state = state
 }
 
 func (p *Postgres) GetConfigRef() abstract.Config {

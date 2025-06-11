@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,6 +18,7 @@ import (
 
 const (
 	ReplicationSlotTempl = "SELECT plugin, wal_status, slot_type, confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	noRecordErr          = "no record found"
 )
 
 var pluginArguments = []string{
@@ -117,7 +119,7 @@ func (s *Socket) AcknowledgeLSN(ctx context.Context) error {
 	return nil
 }
 
-func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
+func (s *Socket) StreamMessages(ctx context.Context, state *types.State, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
 	var tables []string
 	for key := range s.changeFilter.tables {
@@ -142,7 +144,8 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 			return nil
 		default:
 			if !messageReceived && s.initialWaitTime > 0 && time.Since(cdcStartTime) > s.initialWaitTime {
-				return fmt.Errorf("failed to get wal messages in given initial wait time")
+				logger.Warnf("no records found in given initial wait time")
+				return nil
 			}
 
 			msg, err := s.pgConn.ReceiveMessage(ctx)
@@ -166,12 +169,22 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %s", err)
 				}
-				logger.Warnf("keep alive message received: %v", pkm)
+				logger.Infof("keep alive message received: %v", pkm)
 				if pkm.ReplyRequested {
-					return nil
+					s.ClientXLogPos = pkm.ServerWALEnd
+					if !messageReceived {
+						// set state first for fallback
+						state.SetGlobal(WALState{LSN: s.ClientXLogPos.String()})
+						// acknowledge lsn until no message received
+						err := s.AcknowledgeLSN(ctx)
+						if err != nil {
+							return fmt.Errorf("failed to ack lsn: %s", err)
+						}
+					} else {
+						return nil
+					}
 				}
 			case pglogrepl.XLogDataByteID:
-				messageReceived = true
 				// Reset the idle timer on receiving WAL data.
 				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
@@ -179,12 +192,13 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 				}
 				// Process change with the provided callback.
 				nextLSN, err := s.changeFilter.FilterChange(xld.WALData, callback)
-				if err != nil {
+				if err != nil && !strings.EqualFold(err.Error(), noRecordErr) {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}
+				messageReceived = err == nil || messageReceived
 				s.ClientXLogPos = *nextLSN
 			default:
-				logger.Debugf("received unhandled message type: %v", copyData.Data[0])
+				logger.Warnf("received unhandled message type: %v", copyData.Data[0])
 			}
 		}
 	}

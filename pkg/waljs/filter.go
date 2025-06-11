@@ -40,7 +40,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 	}
 
 	if len(changes.Change) == 0 {
-		return &nextLSN, nil
+		return &nextLSN, fmt.Errorf("%s", noRecordErr)
 	}
 	buildChangesMap := func(values []interface{}, types []string, names []string) (map[string]any, error) {
 		data := make(map[string]any)
