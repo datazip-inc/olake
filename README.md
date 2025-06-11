@@ -5,7 +5,7 @@
     <br>OLake
 </h1>
 
-<p align="center">The fastest open-source tool for replicating databases to Apache Iceberg. OLake provides an easy-to-use web interface and a powerful CLI for efficient, scalable, and real-time data ingestion. Visit <a href="https://olake.io/" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
+<p align="center">The fastest open-source tool for replicating databases to Apache Iceberg. OLake, an easy-to-use web interface and a CLI for efficient, scalable, & real-time data ingestion. Visit <a href="https://olake.io/" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
 
 <p align="center">
     <a href="https://github.com/datazip-inc/olake/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"/></a> <a href="https://olake.io/docs"><img alt="Documentation" height="22" src="https://img.shields.io/badge/view-Documentation-blue?style=for-the-badge"/></a>
@@ -25,20 +25,31 @@ OLake UI is a web-based interface for managing OLake jobs, sources, destinations
     cd olake-ui
     ```
 
-2. **Start all services:**
+2. **Edit persistence/config paths (required):**
+
+   - The docker-compose.yml uses `/your/chosen/host/path/olake-data` as a placeholder for the host directory where OLake's persistent data and configuration will be stored. You **must** replace this with an actual path on your system before starting the services. You can change this by editing the `x-app-defaults` section at the top of `docker-compose.yml`:
+
+   ```yaml
+   x-app-defaults:
+   host_persistence_path: &hostPersistencePath /your/host/path
+   ```
+
+   - Make sure the directory exists and is writable by the user running Docker (see how to change [file permissions for Linux/macOS](https://wiki.archlinux.org/title/File_permissions_and_attributes#Changing_permissions)).
+
+3. **Start all services:**
 
     ```bash
     docker compose up -d
     ```
 
-3. **Access the UI:**
+4. **Access the UI:**
 
       * **OLake UI:** [http://localhost:8000](http://localhost:8000)
       * Log in with default credentials: `admin` / `password`.
 
 Detailed getting started using OLake UI can be found [here](https://olake.io/docs/getting-started/olake-ui).
 
-![olake-ui](https://github.com/user-attachments/assets/7bdf1a88-0677-4c5d-ad5f-11f6713932c4)
+![olake-ui](https://github.com/user-attachments/assets/6081e9ad-7aef-465f-bde1-5b41b19ec6cd)
 
 ### Creating Your First Job
 
@@ -89,10 +100,10 @@ Below are different ways you can run OLake:
 1. [Apache Iceberg Docs](https://olake.io/docs/writers/iceberg/overview) 
    1. [AWS Glue Catalog](https://olake.io/docs/writers/iceberg/catalog/glue)
    2. [REST Catalog](https://olake.io/docs/writers/iceberg/catalog/rest)
+      1. S3 Tables Supported
    3. [JDBC Catalog](https://olake.io/docs/writers/iceberg/catalog/jdbc)
    4. [Hive Catalog](https://olake.io/docs/writers/iceberg/catalog/hive)
 2. [AWS S3 Docs](https://olake.io/docs/writers/s3/overview) 
-   1. S3 Tables Supported
 3. [Azure ADLS Gen2](https://olake.io/docs/writers/azure-adls/overview)
 4. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/gcs/overview)
 5. [MinIO](https://olake.io/docs/writers/iceberg/docker-compose#local-catalog-test-setup)
