@@ -28,10 +28,9 @@ func (s *WALState) IsEmpty() bool {
 }
 
 type ReplicationSlot struct {
-	SlotType  string        `db:"slot_type"`
-	Plugin    string        `db:"plugin"`
-	LSN       pglogrepl.LSN `db:"confirmed_flush_lsn"`
-	WalStatus string        `db:"wal_status"`
+	SlotType string        `db:"slot_type"`
+	Plugin   string        `db:"plugin"`
+	LSN      pglogrepl.LSN `db:"confirmed_flush_lsn"`
 }
 
 type WALMessage struct {

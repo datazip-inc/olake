@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	ReplicationSlotTempl = "SELECT plugin, wal_status, slot_type, confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
 	noRecordErr          = "no record found"
 )
 

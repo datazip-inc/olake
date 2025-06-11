@@ -76,6 +76,10 @@ func (p *Postgres) Setup(ctx context.Context) error {
 			return err
 		}
 
+		if cdc.InitialWaitTime < 120 || cdc.InitialWaitTime > 2400 {
+			return fmt.Errorf("The CDC initial wait time must be at least 120 seconds and less than 2400 seconds.")
+		}
+
 		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
 		if err != nil {
 			if strings.Contains(err.Error(), "sql: no rows in result set") {
