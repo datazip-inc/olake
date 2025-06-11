@@ -35,7 +35,7 @@ func (i *Iceberg) GetConfigRef() destination.Config {
 }
 
 func (i *Iceberg) Spec() any {
-	return Config{}
+	return SpecConfig{}
 }
 
 func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Options) error {

@@ -238,6 +238,19 @@ func (g *JSONSchemaGenerator) addCommonAttrs(schema schema.JSONSchema, anno *sch
 		if len(anno.anyOf) > 0 || len(anno.allOf) > 0 || len(anno.oneOf) > 0 {
 			return fmt.Errorf("error setting 'enum', one of these present['anyOf', 'allOf', 'oneOf']")
 		}
+		// Set enum values for string schema
+		if stringSchema, ok := schema.(interface{ SetEnum([]string) }); ok {
+			stringSchema.SetEnum(anno.enum)
+		} else if numericSchema, ok := schema.(interface{ SetIntEnum([]string) error }); ok {
+			// For numeric schemas, use SetIntEnum
+			err := numericSchema.SetIntEnum(anno.enum)
+			if err != nil {
+				return err
+			}
+		} else {
+			// For other schemas, use the basic schema's SetEnum
+			schema.SetEnum(anno.enum)
+		}
 	}
 
 	if len(anno.allOf) > 0 {

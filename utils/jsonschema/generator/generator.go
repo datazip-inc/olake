@@ -311,23 +311,33 @@ func (g *JSONSchemaGenerator) generateObjectSchema(declInfo *declInfo, field *as
 		} else if propField.Names[0] != nil && propField.Names[0].IsExported() {
 			g.LogVerboseF("processing field '%s' on struct %s\n", propField.Names[0].Name, declInfo.typeSpec.Name.Name)
 
-			propName, propIgnore := jsonTagInfo(propField)
-
-			if propIgnore {
-				continue
+			// Check if the field has @jsonSchema annotation
+			// We will be using only the fields with @jsonSchema annotation specified explicitly
+			schemaAnno, err := g.findJSONSchemaAnnotationForField(propField)
+			if err != nil {
+				return nil, err
 			}
 
-			fschema, e := g.generateSchemaForExpr(declInfo, propField.Type, propField, declInfo.defKey)
+			if schemaAnno != nil {
 
-			if e != nil {
-				err = e
-				break
-			}
+				propName, propIgnore := jsonTagInfo(propField)
 
-			props[propName] = fschema
+				if propIgnore {
+					continue
+				}
 
-			if g.fieldIsRequired(propField) {
-				objectSchema.AddRequiredField(propName)
+				fschema, e := g.generateSchemaForExpr(declInfo, propField.Type, propField, declInfo.defKey)
+
+				if e != nil {
+					err = e
+					break
+				}
+
+				props[propName] = fschema
+
+				if g.fieldIsRequired(propField) {
+					objectSchema.AddRequiredField(propName)
+				}
 			}
 		}
 	}
