@@ -137,7 +137,7 @@ Below are different ways you can run OLake:
 | **Glue Catalog**      | Supported                                                                                                |
 | **Hive Metastore**    | Supported                                                                                                |
 | **JDBC Catalog**      | Supported                                                                                                |
-| **REST Catalog**      | Supported                                                                                                |
+| **REST Catalog**      | Supported (with AWS S3 table)                                                                                               |
 | **Azure Purview**     | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 | **BigLake Metastore** | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 
