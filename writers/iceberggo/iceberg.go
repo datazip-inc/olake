@@ -26,8 +26,9 @@ func (w *NewIcebergGo) Setup(stream protocol.Stream, options *protocol.Options) 
 	w.options = options
 	w.stream = stream
 	w.allocator = memory.NewGoAllocator() 
-	w.configHash = getConfigHash(w.config.Namespace, w.config.TableName, true)
-	config.EnvConfig.MaxWorkers = 20 // iceberg-go max workers
+	w.configHash = getConfigHash(w.config.IcebergDB, w.stream.Name(), true)
+	logger.Infof("Confighash: %s", w.configHash)
+	config.EnvConfig.MaxWorkers = 20 
 	w.partitionInfo = make(map[string]string) 
 
 	partitionRegex := w.stream.Self().StreamMetadata.PartitionRegex
@@ -71,10 +72,6 @@ func (w *NewIcebergGo) createIcebergSchema() ([]iceberg.NestedField, error) {
 				fieldType = &iceberg.StringType{}
 			case types.Bool:
 				fieldType = &iceberg.BooleanType{}
-			case types.Array:
-				fieldType = &iceberg.ListType{}
-			case types.Object:
-				fieldType = &iceberg.StructType{}
 			case types.Timestamp:
 				fieldType = &iceberg.TimestampType{}
 			case types.TimestampMilli:
@@ -93,7 +90,6 @@ func (w *NewIcebergGo) createIcebergSchema() ([]iceberg.NestedField, error) {
 			Required: false,
 		})
 
-		logger.Infof("Field: %v, Type: %v, FieldType: %v", name, typeStr, fieldType.String())
 		return true
 	})
 
@@ -132,6 +128,7 @@ func (w *NewIcebergGo) createRecordBuilder() {
 			Type:     arrowType,
 			Nullable: !field.Required,
 		})
+
 	}
 
 	arrowSchema := arrow.NewSchema(fields, nil)
@@ -144,6 +141,7 @@ func (w *NewIcebergGo) Write(_ context.Context, record types.RawRecord) error {
 
 	for i:=0; i<numFields; i++ {
 		field := schema.Field(i)
+
 		val, ok := record.Data[field.Name]
 		if !ok || val == nil {
 			w.recordBuilder.Field(i).AppendNull()
@@ -207,6 +205,7 @@ func (w *NewIcebergGo) Write(_ context.Context, record types.RawRecord) error {
 		default:
 			builder.AppendNull()
 		}
+
 	}
 	
 	currentCount := w.recordsSize.Add(1)

@@ -38,28 +38,20 @@ type NewIcebergGo struct {
 	partitionInfo   map[string]string
 	recordsSize     atomic.Int64
 	flushing        atomic.Bool
+	TableLocation   string
 }
 
 type Config struct {
-	CatalogType    string `json:"catalog_type"`
-	RestCatalogURL string `json:"rest_catalog_url"`
-	GlueDatabase   string `json:"glue_database"`   
-	GlueRegion     string `json:"glue_region"`    
-	S3Endpoint   string `json:"s3_endpoint"`
-	S3Bucket     string `json:"s3_bucket"`
-	AwsRegion    string `json:"aws_region"`
-	AwsAccessKey string `json:"aws_access_key"`
-	AwsSecretKey string `json:"aws_secret_key"`
-	S3UseSSL     bool   `json:"s3_use_ssl"`
-	S3PathStyle  bool   `json:"s3_path_style"`
-	IcebergDB string `json:"iceberg_db"`
-	Namespace string `json:"namespace"`
-	CreateTableIfNotExists bool `json:"create_table_if_not_exists"`
-	BatchSize              int  `json:"batch_size"`
-	Normalization          bool `json:"normalization"`
-	TableName          string `json:"glue_table_name"`
-	TableLocation          string `json:"table_location"`
-	S3Prefix               string `json:"S3Prefix"`
+	CatalogType    	string `json:"catalog_type"`
+	RestCatalogURL 	string `json:"rest_catalog_url"` 
+	S3Bucket     	string `json:"s3_bucket"`
+	S3Endpoint		string `json:"s3_endpoint"`
+	AwsRegion    	string `json:"aws_region"`
+	AwsAccessKey 	string `json:"aws_access_key"`
+	AwsSecretKey 	string `json:"aws_secret_key"`
+	IcebergDB 		string `json:"iceberg_db"`
+	BatchSize    	int  `json:"batch_size"`
+	Warehouse 		string `json:"iceberg_s3_path"`
 }
 
 var (
@@ -81,20 +73,21 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 	ctx = utils.WithAwsConfig(ctx, &cfg)
 	
 	if w.config.CatalogType == "glue" {
-		w.config.TableLocation = fmt.Sprintf("s3://%s/%s/%s", w.config.S3Bucket, w.config.S3Prefix, w.config.TableName)
+		w.TableLocation = fmt.Sprintf("s3://%s/%s/%s", w.config.S3Bucket, w.config.IcebergDB, w.stream.Name())
+		logger.Infof("Glue: Table Location: %s", w.TableLocation)
 		glueCatalog, err := w.initializeGlueCatalog(ctx)
 		w.catalog = glueCatalog
 		if err != nil {
 			logger.Errorf("Failed to initialize Glue catalog: %v", err)
 		}
 
-		tbl, err := w.createOrLoadTable(ctx, glueCatalog) // need to check if it is even required or not
+		tbl, err := w.createOrLoadTable(ctx, glueCatalog) 
 		w.iceTable = tbl
 		if err != nil {
 			logger.Errorf("Failed to create or load table: %v", err)
 		}
 	} else if w.config.CatalogType == "rest" {
-		w.config.TableLocation = fmt.Sprintf("s3://%s/%s", w.config.S3Prefix, w.config.TableName)
+		w.TableLocation = fmt.Sprintf("s3://%s/%s", w.config.IcebergDB, w.stream.Name())
 		
 		restCatalog, err := w.initializeRestCatalog(ctx)
 		if err != nil {
@@ -128,7 +121,7 @@ func (w *NewIcebergGo) initializeRestCatalog(ctx context.Context) (catalog.Catal
 	
 	cat, err := rest.NewCatalog(ctx, "rest", w.config.RestCatalogURL, 
 	rest.WithAdditionalProps(props),
-	rest.WithWarehouseLocation("warehouse"),
+	rest.WithWarehouseLocation(w.config.Warehouse),
 	)
 	return cat, err
 }
@@ -139,10 +132,7 @@ func (w *NewIcebergGo) initializeGlueCatalog(ctx context.Context) (catalog.Catal
 		"glue.region":            w.config.AwsRegion, // fix it to aws region keep one only
 		"glue.access-key-id":     w.config.AwsAccessKey,
 		"glue.secret-access-key": w.config.AwsSecretKey,
-		"warehouse":              fmt.Sprintf("s3://%s/%s", w.config.S3Bucket, w.config.S3Prefix),
-		"s3.region":              w.config.AwsRegion, // keep it one only
-		"s3.access-key-id":       w.config.AwsAccessKey,
-		"s3.secret-access-key":   w.config.AwsSecretKey,
+		"warehouse":              fmt.Sprintf("s3://%s/%s", w.config.S3Bucket, w.config.IcebergDB),
 	}
 
 	cat, err := catalog.Load(ctx, "glue", props)
@@ -154,7 +144,7 @@ func (w *NewIcebergGo) initializeGlueCatalog(ctx context.Context) (catalog.Catal
 }
 
 func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalog) (*table.Table, error) {
-	w.tableIdent = table.Identifier{w.config.Namespace, w.config.TableName}	
+	w.tableIdent = table.Identifier{w.config.IcebergDB, w.stream.Name()}	
 
 	exists, err := cat.CheckTableExists(ctx, w.tableIdent)
 	if err != nil {
@@ -171,7 +161,7 @@ func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalo
 		return tbl, nil
 	}
 
-	dbIdentifier := table.Identifier{w.config.Namespace}
+	dbIdentifier := table.Identifier{w.config.IcebergDB}
 	dbExists, err := cat.CheckNamespaceExists(ctx, dbIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if namespace exists: %w", err)
@@ -179,12 +169,12 @@ func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalo
 
 	if !dbExists {
 		err = cat.CreateNamespace(ctx, dbIdentifier, iceberg.Properties{
-			"description": "Database created by iceberg-go sample script",
+			"description": "",
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create namespace: %w", err)
 		}
-		logger.Infof("Created Namespace: %s", w.config.Namespace)
+		logger.Infof("Created Namespace: %s", w.config.IcebergDB)
 	}
 
 	schemaFields, err := w.createIcebergSchema()
@@ -194,10 +184,10 @@ func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalo
 	w.schema = iceberg.NewSchema(0, schemaFields...)
 
 	tbl, err := cat.CreateTable(ctx, w.tableIdent, w.schema,
-		catalog.WithLocation(w.config.TableLocation),
+		catalog.WithLocation(w.TableLocation),
 		catalog.WithProperties(iceberg.Properties{
 			"format-version": "2",
-			"description":    "Sample Iceberg table created by iceberg-go",
+			"description":    "",
 		}),
 	)
 	if err != nil {
@@ -233,44 +223,6 @@ func (w *NewIcebergGo) Close() error {
 }
 
 func (w *NewIcebergGo) Check() error {
-	if w.config.CatalogType == "" {
-		w.config.CatalogType = "rest" 
-	}
-
-	if w.config.CatalogType == "rest" {
-		if w.config.RestCatalogURL == "" {
-			return fmt.Errorf("rest_catalog_url is required when catalog_type is 'rest'")
-		}
-	} else if w.config.CatalogType == "glue" {
-		if w.config.GlueDatabase == "" {
-			return fmt.Errorf("glue_database is required when catalog_type is 'glue'")
-		}
-		if w.config.GlueRegion == "" && w.config.AwsRegion == "" {
-			return fmt.Errorf("glue_region or aws_region is required when catalog_type is 'glue'")
-		}
-	} else {
-		return fmt.Errorf("unsupported catalog_type: %s. Supported types are 'rest' and 'glue'", w.config.CatalogType)
-	}
-
-	if w.config.S3Endpoint == "" {
-		return fmt.Errorf("s3_endpoint is required")
-	}
-	if w.config.S3Bucket == "" {
-		return fmt.Errorf("s3_bucket is required")
-	}
-	if w.config.AwsRegion == "" {
-		return fmt.Errorf("aws_region is required")
-	}
-	if w.config.AwsAccessKey == "" {
-		return fmt.Errorf("aws_access_key is required")
-	}
-	if w.config.AwsSecretKey == "" {
-		return fmt.Errorf("aws_secret_key is required")
-	}
-	if w.config.IcebergDB == "" {
-		return fmt.Errorf("iceberg_db is required")
-	}
-
 	return nil
 }
 
@@ -289,7 +241,7 @@ func (w *NewIcebergGo) Flattener() protocol.FlattenFunction {
 }
 
 func (w *NewIcebergGo) Normalization() bool {
-	return w.config.Normalization
+	return false
 }
 
 func (w *NewIcebergGo) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record, _ time.Time) error {
@@ -298,48 +250,51 @@ func (w *NewIcebergGo) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property
 
 func (c *Config) Validate() error {
 	if c.CatalogType == "" {
-		c.CatalogType = "rest"
+		c.CatalogType = "glue"
 	}
 	
-	if c.CatalogType == "rest" {
+	if c.CatalogType == "glue" {
+		if c.AwsAccessKey == "" {
+			return fmt.Errorf("aws_access_key is required when catalog_type is 'rest'")
+		}
+		if c.AwsSecretKey == "" {
+			return fmt.Errorf("aws_secret_key is required when catalog_type is 'rest'")
+		}
+		if c.AwsRegion == "" {
+			return fmt.Errorf("aws_region is required when catalog_type is 'rest'")
+		}
+		if c.S3Bucket == "" {
+			return fmt.Errorf("s3_bucket is required when catalog_type is 'rest'")
+		}
+		if c.IcebergDB == "" {
+			c.IcebergDB = "olake_iceberg"
+		}
+	} else if c.CatalogType == "rest" {
 		if c.RestCatalogURL == "" {
 			return fmt.Errorf("rest_catalog_url is required when catalog_type is 'rest'")
 		}
-	} else if c.CatalogType == "glue" {
-		if c.GlueDatabase == "" {
-			return fmt.Errorf("glue_database is required when catalog_type is 'glue'")
+		if c.AwsAccessKey == "" {
+			return fmt.Errorf("aws_access_key is required when catalog_type is 'rest'")
 		}
-		if c.GlueRegion == "" {
-			c.GlueRegion = c.AwsRegion
+		if c.AwsSecretKey == "" {
+			return fmt.Errorf("aws_secret_key is required when catalog_type is 'rest'")
+		}
+		if c.AwsRegion == "" {
+			return fmt.Errorf("aws_region is required when catalog_type is 'rest'")
+		}
+		if c.S3Endpoint == "" {
+			return fmt.Errorf("s3_endpoint is required when catalog_type is 'rest'")
+		}
+		if c.Warehouse == "" {
+			c.Warehouse = "warehouse"
+		}
+		if c.IcebergDB == "" {
+			c.IcebergDB = "olake_iceberg"
 		}
 	} else {
 		return fmt.Errorf("unsupported catalog_type: %s. Supported types are 'rest' and 'glue'", c.CatalogType)
 	}
-	
-	if c.S3Endpoint == "" {
-		return fmt.Errorf("s3_endpoint is required")
-	}
-	if c.S3Bucket == "" {
-		return fmt.Errorf("s3_bucket is required")
-	}
-	if c.AwsRegion == "" {
-		return fmt.Errorf("aws_region is required")
-	}
-	if c.AwsAccessKey == "" {
-		return fmt.Errorf("aws_access_key is required")
-	}
-	if c.AwsSecretKey == "" {
-		return fmt.Errorf("aws_secret_key is required")
-	}
-	if c.IcebergDB == "" {
-		return fmt.Errorf("iceberg_db is required")
-	}
-	if c.Namespace == "" {
-		c.Namespace = c.IcebergDB 
-	}
-	if c.BatchSize <= 0 {
-		c.BatchSize = 1000
-	}
+
 	return nil
 }
 
