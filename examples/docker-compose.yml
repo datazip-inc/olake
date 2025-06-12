@@ -193,7 +193,7 @@ services:
       - app-network
 
   olake-app:
-    image: olakego/ui:dev-latest
+    image: olakego/ui:latest
     pull_policy: always
     container_name: olake-app
     environment:
