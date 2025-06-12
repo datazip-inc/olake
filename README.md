@@ -85,7 +85,7 @@ OLake is engineered for high-throughput data replication.
 Below are different ways you can run OLake:
 
 1. [OLake UI (Recommended)](https://olake.io/docs/getting-started/olake-ui)
-2. [Stand-alone Docker container](https://olake.io/docs/install/docker)
+2. [Standalone Docker container](https://olake.io/docs/install/docker)
 3. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2?utm_source=chatgpt.com)
 4. [Airflow on Kubernetes](https://olake.io/blog/olake-airflow)
 
