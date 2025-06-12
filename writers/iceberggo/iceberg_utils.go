@@ -12,8 +12,12 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
-	"github.com/apache/iceberg-go/catalog/glue"
+	"github.com/apache/iceberg-go/catalog/rest"
+	"github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
+	"github.com/apache/iceberg-go/utils"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/protocol"
@@ -21,21 +25,19 @@ import (
 )
 
 type NewIcebergGo struct {
-	config *Config
-	stream protocol.Stream
-	catalog    catalog.Catalog
-	iceTable   *table.Table
-	schema     *iceberg.Schema
-	tableIdent table.Identifier
-	allocator     memory.Allocator
-	recordBuilder *array.RecordBuilder
-	writerID string
+	options     	*protocol.Options
+	config 			*Config
+	stream      	protocol.Stream
+	catalog    		catalog.Catalog
+	iceTable   		*table.Table
+	schema     		*iceberg.Schema
+	tableIdent 		table.Identifier
+	allocator     	memory.Allocator
+	recordBuilder 	*array.RecordBuilder
 	configHash 		string
 	partitionInfo   map[string]string
-	recordsSize      atomic.Int64
-	flushing         atomic.Bool
-	glueCatalog *glue.Catalog
-	thread int32
+	recordsSize     atomic.Int64
+	flushing        atomic.Bool
 }
 
 type Config struct {
@@ -55,10 +57,9 @@ type Config struct {
 	CreateTableIfNotExists bool `json:"create_table_if_not_exists"`
 	BatchSize              int  `json:"batch_size"`
 	Normalization          bool `json:"normalization"`
-	GlueTableName          string `json:"glue_table_name"`
+	TableName          string `json:"glue_table_name"`
 	TableLocation          string `json:"table_location"`
 	S3Prefix               string `json:"S3Prefix"`
-	MaxThreads             int `json:"max_threads"`
 }
 
 var (
@@ -72,9 +73,15 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 	}
 
 	ctx := context.Background()
+	staticCreds := aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(w.config.AwsAccessKey, w.config.AwsSecretKey, ""))
+	cfg := aws.Config{
+		Region: w.config.AwsRegion,
+		Credentials: staticCreds,
+	}
+	ctx = utils.WithAwsConfig(ctx, &cfg)
 	
 	if w.config.CatalogType == "glue" {
-		w.config.TableLocation = fmt.Sprintf("s3://%s/%s/%s", w.config.S3Bucket, w.config.S3Prefix, w.config.GlueTableName)
+		w.config.TableLocation = fmt.Sprintf("s3://%s/%s/%s", w.config.S3Bucket, w.config.S3Prefix, w.config.TableName)
 		glueCatalog, err := w.initializeGlueCatalog(ctx)
 		w.catalog = glueCatalog
 		if err != nil {
@@ -86,11 +93,44 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 		if err != nil {
 			logger.Errorf("Failed to create or load table: %v", err)
 		}
+	} else if w.config.CatalogType == "rest" {
+		w.config.TableLocation = fmt.Sprintf("s3://%s/%s", w.config.S3Prefix, w.config.TableName)
+		
+		restCatalog, err := w.initializeRestCatalog(ctx)
+		if err != nil {
+			logger.Errorf("Failed to initialize Rest catalog: %v", err)
+		}
+		w.catalog = restCatalog
+		tbl, err := w.createOrLoadTable(ctx, restCatalog)
+		if err != nil {
+			logger.Errorf("Failed to create or load table: %v", err)
+		}
+		logger.Infof("Table location: %s", tbl.Location())
+
+		w.iceTable = tbl
 	}
 
 	w.createRecordBuilder()
 
 	return  nil
+}
+
+func (w *NewIcebergGo) initializeRestCatalog(ctx context.Context) (catalog.Catalog, error) {
+	logger.Infof("Initializing Rest catalog")
+	
+	props := iceberg.Properties{
+		io.S3Region:          w.config.AwsRegion,
+		io.S3EndpointURL:     w.config.S3Endpoint,
+		io.S3AccessKeyID:     w.config.AwsAccessKey,
+		io.S3SecretAccessKey: w.config.AwsSecretKey,
+		"s3.path-style":      "true",
+	}
+	
+	cat, err := rest.NewCatalog(ctx, "rest", w.config.RestCatalogURL, 
+	rest.WithAdditionalProps(props),
+	rest.WithWarehouseLocation("warehouse"),
+	)
+	return cat, err
 }
 
 func (w *NewIcebergGo) initializeGlueCatalog(ctx context.Context) (catalog.Catalog, error) {
@@ -114,7 +154,7 @@ func (w *NewIcebergGo) initializeGlueCatalog(ctx context.Context) (catalog.Catal
 }
 
 func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalog) (*table.Table, error) {
-	w.tableIdent = table.Identifier{w.config.GlueDatabase, w.config.GlueTableName}	
+	w.tableIdent = table.Identifier{w.config.Namespace, w.config.TableName}	
 
 	exists, err := cat.CheckTableExists(ctx, w.tableIdent)
 	if err != nil {
@@ -144,10 +184,13 @@ func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalo
 		if err != nil {
 			return nil, fmt.Errorf("failed to create namespace: %w", err)
 		}
-		logger.Infof("[%s] Created Namespace: %s", w.writerID, w.config.Namespace)
+		logger.Infof("Created Namespace: %s", w.config.Namespace)
 	}
 
-	schemaFields, _ := w.createIcebergSchema()
+	schemaFields, err := w.createIcebergSchema()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create iceberg schema: %w", err)
+	}
 	w.schema = iceberg.NewSchema(0, schemaFields...)
 
 	tbl, err := cat.CreateTable(ctx, w.tableIdent, w.schema,
@@ -160,7 +203,7 @@ func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalo
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
 	}
-	logger.Infof("[%s] Table Created %s", w.writerID, w.tableIdent)
+	logger.Infof("Table Created %s", w.tableIdent)
 
 	return tbl, nil
 }
@@ -175,20 +218,15 @@ func (w *NewIcebergGo) Spec() any {
 }
 
 func (w *NewIcebergGo) Close() error {
-	closeStartTime := time.Now()
-	defer func() {
-		logger.Infof("[%s] Successfully closed writer thread in %v", w.writerID, time.Since(closeStartTime))
-	}()
-
 	if w.recordsSize.Load() > 0 {
-		logger.Infof("[%s] Close | Flushing %d remaining records on close", w.writerID, w.recordsSize.Load())
+		logger.Infof("Close | Flushing %d remaining records on close", w.recordsSize.Load())
 		flushStartTime := time.Now()
 		err := w.flushArrowBuilder()
 		if err != nil {
 			logger.Errorf("Error flushing remaining records on close: %v", err)
 			return err
 		}
-		logger.Infof("[%s] Final flush on close took %v", w.writerID, time.Since(flushStartTime))
+		logger.Infof("Final flush on close took %v", time.Since(flushStartTime))
 	}
 
 	return nil
@@ -336,52 +374,3 @@ func getConfigHash(namespace string, streamID string, appendMode bool) string {
 	}
 	return strings.Join(hashComponents, "-")
 }
-
-type BatchMetrics struct {
-	TotalRecordsProcessed atomic.Int64
-	TotalBatchesFlushed   atomic.Int64
-	TotalFlushTime        atomic.Int64 
-	LastFlushSize         atomic.Int64
-	SetupTime             atomic.Int64
-	SchemaCreationTime    atomic.Int64
-	CatalogInitTime       atomic.Int64
-	TableOperationTime    atomic.Int64
-}
-
-var (
-	batchMetrics = &BatchMetrics{}
-)
-
-// GetPerformanceSummary returns a summary of performance metrics
-func (w *NewIcebergGo) GetPerformanceSummary() map[string]interface{} {
-	totalRecords := batchMetrics.TotalRecordsProcessed.Load()
-	totalBatches := batchMetrics.TotalBatchesFlushed.Load()
-	totalFlushTimeNs := batchMetrics.TotalFlushTime.Load()
-	lastFlushSize := batchMetrics.LastFlushSize.Load()
-
-	avgFlushTime := float64(0)
-	if totalBatches > 0 {
-		avgFlushTime = float64(totalFlushTimeNs) / float64(totalBatches) / 1e9 // Convert to seconds
-	}
-
-	avgRecordsPerBatch := float64(0)
-	if totalBatches > 0 {
-		avgRecordsPerBatch = float64(totalRecords) / float64(totalBatches)
-	}
-
-	summary := map[string]interface{}{
-		"writer_id":                w.writerID,
-		"total_records_processed":  totalRecords,
-		"total_batches_flushed":    totalBatches,
-		"total_flush_time_seconds": float64(totalFlushTimeNs) / 1e9,
-		"avg_flush_time_seconds":   avgFlushTime,
-		"avg_records_per_batch":    avgRecordsPerBatch,
-		"last_flush_size":          lastFlushSize,
-		"current_pending_records":  w.recordsSize.Load(),
-		"batch_threshold":          arrowBuildersThreshold,
-	}
-
-	logger.Infof("[%s] Performance Summary: %+v", w.writerID, summary)
-	return summary
-}
-
