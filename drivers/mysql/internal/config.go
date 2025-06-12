@@ -2,8 +2,9 @@ package driver
 
 import (
 	"fmt"
-	"github.com/go-sql-driver/mysql"
 	"strings"
+
+	"github.com/go-sql-driver/mysql"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
@@ -20,6 +21,7 @@ type Config struct {
 	TLSSkipVerify bool           `json:"tls_skip_verify"` // Add this field
 	UpdateMethod  interface{}    `json:"update_method"`
 	DefaultMode   types.SyncMode `json:"default_mode"`
+	BatchSize     int            `json:"reader_batch_size"`
 	MaxThreads    int            `json:"max_threads"`
 	RetryCount    int            `json:"backoff_retry_count"`
 }
@@ -76,7 +78,9 @@ func (c *Config) Validate() error {
 	if c.Database == "" {
 		c.Database = "mysql"
 	}
-
+	if c.BatchSize <= 0 {
+		c.BatchSize = 10000 // default batch size
+	}
 	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
