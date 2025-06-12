@@ -55,11 +55,6 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 		if postgresGlobalState.LSN == "" {
 			p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
 			p.state.ResetStreams()
-			// commit the lsn as we are going to start syncing from this point after backfill
-			if err := p.Socket.AcknowledgeLSN(ctx); err != nil {
-				return fmt.Errorf("failed to acknowledge lsn after global state not found")
-			}
-			logger.Infof("sent standby mode on lsn: %s", p.Socket.ClientXLogPos)
 		} else {
 			parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
@@ -70,11 +65,6 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
 				p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
 				p.state.ResetStreams()
-				// commit the lsn as we are going to start syncing from this point after backfill
-				if err := p.Socket.AcknowledgeLSN(ctx); err != nil {
-					return fmt.Errorf("failed to acknowledge lsn after global state not found")
-				}
-				logger.Infof("sent standby mode on lsn: %s", p.Socket.ClientXLogPos)
 			}
 		}
 	}
@@ -82,7 +72,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 }
 
 func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
-	return p.Socket.StreamMessages(ctx, p.state, callback)
+	return p.Socket.StreamMessages(ctx, callback)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
@@ -90,7 +80,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr b
 	if noErr {
 		p.state.SetGlobal(waljs.WALState{LSN: p.Socket.ClientXLogPos.String()})
 		// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
-		return p.Socket.AcknowledgeLSN(ctx)
+		return p.Socket.AcknowledgeLSN(ctx, false)
 	}
 	return nil
 }

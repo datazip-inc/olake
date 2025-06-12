@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,7 +16,7 @@ import (
 )
 
 const (
-	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn, pg_current_wal_lsn() as current_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
 	noRecordErr          = "no record found"
 )
 
@@ -37,6 +36,8 @@ type Socket struct {
 	changeFilter ChangeFilter
 	// confirmedLSN is the position from which replication should start (Prev marked lsn)
 	ConfirmedFlushLSN pglogrepl.LSN
+	// Current wal position till where sync has to happen
+	currentWalPosition pglogrepl.LSN
 	// replicationSlot is the name of the PostgreSQL replication slot being used
 	replicationSlot string
 	// initialWaitTime is the duration to wait for initial data before timing out
@@ -95,31 +96,36 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 
 	// Create and return final connection object
 	return &Socket{
-		pgConn:            pgConn,
-		changeFilter:      NewChangeFilter(typeConverter, config.Tables.Array()...),
-		ConfirmedFlushLSN: slot.LSN,
-		ClientXLogPos:     slot.LSN,
-		replicationSlot:   config.ReplicationSlotName,
-		initialWaitTime:   config.InitialWaitTime,
+		pgConn:             pgConn,
+		changeFilter:       NewChangeFilter(typeConverter, config.Tables.Array()...),
+		ConfirmedFlushLSN:  slot.LSN,
+		ClientXLogPos:      slot.LSN,
+		currentWalPosition: slot.CurrentLSN,
+		replicationSlot:    config.ReplicationSlotName,
+		initialWaitTime:    config.InitialWaitTime,
 	}, nil
 }
 
 // Confirm that Logs has been recorded
-func (s *Socket) AcknowledgeLSN(ctx context.Context) error {
+func (s *Socket) AcknowledgeLSN(ctx context.Context, fakeAck bool) error {
+	walPosition := s.ClientXLogPos
+	if fakeAck {
+		walPosition = s.ConfirmedFlushLSN
+	}
 	err := pglogrepl.SendStandbyStatusUpdate(ctx, s.pgConn, pglogrepl.StandbyStatusUpdate{
-		WALWritePosition: s.ClientXLogPos,
-		WALFlushPosition: s.ClientXLogPos,
+		WALWritePosition: walPosition,
+		WALFlushPosition: walPosition,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send standby status message: %s", err)
 	}
 
 	// Update local pointer and state
-	logger.Debugf("sent standby status message at LSN#%s", s.ClientXLogPos.String())
+	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
 	return nil
 }
 
-func (s *Socket) StreamMessages(ctx context.Context, state *types.State, callback abstract.CDCMsgFn) error {
+func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
 	var tables []string
 	for key := range s.changeFilter.tables {
@@ -135,7 +141,7 @@ func (s *Socket) StreamMessages(ctx context.Context, state *types.State, callbac
 	); err != nil {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
-	logger.Infof("Started logical replication for slot[%s] on lsn[%s]", s.replicationSlot, s.ConfirmedFlushLSN)
+	logger.Infof("Started logical replication for slot[%s] from lsn[%s] to lsn[%s]", s.replicationSlot, s.ConfirmedFlushLSN, s.currentWalPosition)
 	messageReceived := false
 	cdcStartTime := time.Now()
 	for {
@@ -144,13 +150,18 @@ func (s *Socket) StreamMessages(ctx context.Context, state *types.State, callbac
 			return nil
 		default:
 			if !messageReceived && s.initialWaitTime > 0 && time.Since(cdcStartTime) > s.initialWaitTime {
-				logger.Warnf("no records found in given initial wait time")
+				logger.Warnf("no records found in given initial wait time, try increasing it or do full load")
+				return nil
+			}
+
+			if s.ClientXLogPos >= s.currentWalPosition {
+				logger.Infof("finishing sync, reached wal position: %s", s.currentWalPosition)
 				return nil
 			}
 
 			msg, err := s.pgConn.ReceiveMessage(ctx)
 			if err != nil {
-				if pgconn.Timeout(err) || strings.Contains(err.Error(), "EOF") {
+				if strings.Contains(err.Error(), "EOF") {
 					return nil
 				}
 				return fmt.Errorf("failed to receive message from wal logs: %s", err)
@@ -169,20 +180,14 @@ func (s *Socket) StreamMessages(ctx context.Context, state *types.State, callbac
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %s", err)
 				}
-				logger.Infof("keep alive message received: %v", pkm)
 				if pkm.ReplyRequested {
-					s.ClientXLogPos = pkm.ServerWALEnd
-					if !messageReceived {
-						// set state first for fallback
-						state.SetGlobal(WALState{LSN: s.ClientXLogPos.String()})
-						// acknowledge lsn until no message received
-						err := s.AcknowledgeLSN(ctx)
-						if err != nil {
-							return fmt.Errorf("failed to ack lsn: %s", err)
-						}
-					} else {
-						return nil
+					logger.Debugf("keep alive message received: %v", pkm)
+					// send fake acknowledgement
+					err := s.AcknowledgeLSN(ctx, true)
+					if err != nil {
+						return fmt.Errorf("failed to ack lsn: %s", err)
 					}
+					s.ClientXLogPos = pkm.ServerWALEnd
 				}
 			case pglogrepl.XLogDataByteID:
 				// Reset the idle timer on receiving WAL data.
@@ -191,11 +196,11 @@ func (s *Socket) StreamMessages(ctx context.Context, state *types.State, callbac
 					return fmt.Errorf("failed to parse XLogData: %s", err)
 				}
 				// Process change with the provided callback.
-				nextLSN, err := s.changeFilter.FilterChange(xld.WALData, callback)
-				if err != nil && !strings.EqualFold(err.Error(), noRecordErr) {
+				nextLSN, records, err := s.changeFilter.FilterChange(xld.WALData, callback)
+				if err != nil {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}
-				messageReceived = err == nil || messageReceived
+				messageReceived = records > 0 || messageReceived
 				s.ClientXLogPos = *nextLSN
 			default:
 				logger.Warnf("received unhandled message type: %v", copyData.Data[0])
