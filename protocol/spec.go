@@ -1,14 +1,12 @@
 package protocol
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/jsonschema"
-	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"github.com/datazip-inc/olake/utils/logger"
 
 	"github.com/spf13/cobra"
@@ -40,20 +38,8 @@ var specCmd = &cobra.Command{
 			return fmt.Errorf("failed to reflect config: %v", err)
 		}
 
-		schemaBytes, err := json.Marshal(schemaVal)
-		if err != nil {
-			return fmt.Errorf("failed to marshal schemaVal for sorting: %v", err)
-		}
-
-		var genericSchema map[string]interface{}
-		if err := json.Unmarshal(schemaBytes, &genericSchema); err != nil {
-			return fmt.Errorf("failed to unmarshal schema to generic map for sorting: %v", err)
-		}
-
-		schema.SortSchemaProperties(genericSchema)
-
 		specSchema := map[string]interface{}{
-			"spec": genericSchema,
+			"spec": schemaVal,
 		}
 
 		logger.FileLogger(specSchema, "spec", ".json")
