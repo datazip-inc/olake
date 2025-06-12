@@ -1,5 +1,5 @@
 x-app-defaults:
-  host_persistence_path: &hostPersistencePath   /your/chosen/host/path/olake-data
+  host_persistence_path: &hostPersistencePath   ${PWD}/olake-data
   worker_config_volume_details: &workerConfigVolumeDetails
     type: bind
     source: *hostPersistencePath

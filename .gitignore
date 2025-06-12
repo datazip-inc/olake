@@ -6,6 +6,7 @@ __debug_bin*
 go.sum
 go.work.sum
 */**/examples
+olake-data/
 debezium-server-iceberg-sink-0.0.1-SNAPSHOT.jar
 writers/iceberg/debezium-server-iceberg-sink/target/
 writers/iceberg/debezium-server-iceberg-sink/target/**/
