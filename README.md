@@ -61,7 +61,7 @@ With the UI running, you can create a data pipeline in a few steps:
 4. **Select Streams:** Choose which tables to sync and configure their sync mode (`CDC` or `Full Refresh`).
 5. **Configure & Run:** Give your job a name, set a schedule, and click **Create Job** to finish.
 
-For a detailed walkthrough, refer to the [Create a Job documentation](https://olake.io/docs/jobs/create-jobs).
+For a detailed walkthrough, refer to the [Job documentation](https://olake.io/docs/jobs/create-jobs).
 
 ## Performance Benchmarks*
 
