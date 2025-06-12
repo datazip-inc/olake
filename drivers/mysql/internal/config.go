@@ -15,7 +15,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="MySQL Host",
-	//   description="Comma-separated list of MySQL hosts",
+	//   description="Database host addresses for connection",
 	//   type="string",
 	//   default="mysql-host",
 	//   order=1
@@ -26,7 +26,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Username",
-	//   description="MySQL username",
+	//   description="Username used to authenticate with the database",
 	//   type="string",
 	//   default="mysql-user",
 	//   order=4
@@ -37,7 +37,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Password",
-	//   description="Password for the MySQL user",
+	//   description="Password for database authentication",
 	//   type="string",
 	//   format="password",
 	//   default="mysql-password",
@@ -49,7 +49,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Database",
-	//   description="Target MySQL database name",
+	//   description="Name of the database to use for connection",
 	//   type="string",
 	//   default="mysql-database",
 	//   order=3
@@ -60,7 +60,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Port",
-	//   description="Port number for MySQL",
+	//   description="Database server listening port",
 	//   type="integer",
 	//   default=3306,
 	//   order=2
@@ -71,7 +71,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Skip TLS Verification",
-	//   description="Whether to skip TLS certificate verification",
+	//   description="Determines if TLS certificate verification should be skipped for secure connections",
 	//   type="boolean",
 	//   default=true,
 	//   order=10
@@ -92,7 +92,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Default Mode",
-	//   description="Extraction mode (e.g., full or cdc)",
+	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
 	//   type="string",
 	//   default="cdc",
 	//   order=7
@@ -103,7 +103,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Max Threads",
-	//   description="Number of parallel threads",
+	//   description="Maximum concurrent threads for data sync",
 	//   type="integer",
 	//   default=5,
 	//   order=8
@@ -114,7 +114,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Backoff Retry Count",
-	//   description="Retry attempts before failing",
+	//   description="Number of sync retries (exponential backoff on failure)",
 	//   type="integer",
 	//   default=2,
 	//   order=9
@@ -135,7 +135,7 @@ type CDC struct {
 	//
 	// @jsonSchema(
 	//   title="Initial Wait Time",
-	//   description="Wait time in seconds before retrying",
+	//   description="Idle timeout for Bin log reading",
 	//   type="integer",
 	//   default=10
 	// )
@@ -146,8 +146,7 @@ type CDC struct {
 //
 // @jsonSchema(
 //
-//	title="Full Refresh",
-//	description="Full Refresh configuration"
+//	title="Full Refresh"
 //
 // )
 type FullRefresh struct{}

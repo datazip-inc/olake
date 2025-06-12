@@ -11,20 +11,13 @@ import (
 )
 
 type Config struct {
-	// Connection
-	//
-	// @jsonSchema(
-	//   title="Connection URL",
-	//   description="Connection URL",
-	//   type="string"
-	// )
 	Connection *url.URL `json:"-"`
 
 	// Host
 	//
 	// @jsonSchema(
 	//   title="Postgres Host",
-	//   description="Hostname or IP address of the PostgreSQL server",
+	//   description="Database host address for connection",
 	//   type="string",
 	//   required=true,
 	//   order=1
@@ -35,7 +28,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Postgres Port",
-	//   description="Port number of the PostgreSQL server",
+	//   description="Database server listening port",
 	//   type="integer",
 	//   default=5432,
 	//   required=true,
@@ -47,7 +40,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Database Name",
-	//   description="Name of the PostgreSQL database",
+	//   description="Name of the database to use for connection",
 	//   type="string",
 	//   required=true,
 	//   order=3
@@ -58,7 +51,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Username",
-	//   description="Database user for authentication",
+	//   description="Username used to authenticate with the database",
 	//   type="string",
 	//   required=true,
 	//   order=4
@@ -69,7 +62,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Password",
-	//   description="Password for the database user",
+	//   description="Password for database authentication",
 	//   type="string",
 	//   format="password",
 	//   required=true,
@@ -81,7 +74,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="JDBC URL Parameters",
-	//   description="Optional JDBC parameters as key-value pairs",
+	//   description="Additional JDBC URL parameters for connection tuning (optional)",
 	//   type="string",
 	//   order=6
 	// )
@@ -91,14 +84,14 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="SSL Configuration",
-	//   description="SSL configuration for the database connection",
+	//   description="Database connection SSL configuration (e.g., SSL mode)",
 	//   order=7
 	// )
 	SSLConfiguration *utils.SSLConfig `json:"ssl"`
 
 	// @jsonSchema(
 	//   title="Update Method",
-	//   description="Method to use for updates",
+	//   description="Method to use for updates (CDC - Change Data Capture or Full Refresh)",
 	//   oneOf=["CDC","FullRefresh"],
 	//   order=8
 	// )
@@ -108,7 +101,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Default Mode",
-	//   description="Extraction mode (e.g., full or cdc)",
+	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
 	//   type="string",
 	//   default="cdc",
 	//   order=10
@@ -119,7 +112,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Reader Batch Size",
-	//   description="Number of records to read in each batch",
+	//   description="Max batch size for read operations",
 	//   type="integer",
 	//   default=100000,
 	//   order=9
@@ -130,7 +123,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Max Threads",
-	//   description="Number of threads to use for backfill",
+	//   description="Max parallel threads for chunk snapshotting",
 	//   type="integer",
 	//   default=5,
 	//   order=11
@@ -152,7 +145,7 @@ type CDC struct {
 	//
 	// @jsonSchema(
 	// title="Replication Slot",
-	// description="Slot name for CDC",
+	// description="Slot to retain WAL logs for consistent replication",
 	// type="string",
 	// default="postgres_slot"
 	// )
@@ -162,7 +155,7 @@ type CDC struct {
 	//
 	// @jsonSchema(
 	//   title="Initial Wait Time",
-	//   description="Seconds to wait before starting CDC",
+	//   description="Idle timeout for WAL log reading",
 	//   type="integer",
 	//   default=10
 	// )
@@ -175,8 +168,7 @@ type CDC struct {
 //
 // @jsonSchema(
 //
-//	title="Full Refresh",
-//	description="Full Refresh configuration"
+//	title="Full Refresh"
 //
 // )
 type FullRefresh struct{}

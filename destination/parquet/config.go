@@ -33,7 +33,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="S3 Access Key",
-	//   description="Specify the AWS access key for the S3 bucket",
+	//   description="The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string",
 	//   type="string",
 	//   order=3,
 	//   required=true

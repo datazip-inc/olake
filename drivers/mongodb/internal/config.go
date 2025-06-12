@@ -14,7 +14,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Hosts",
-	//   description="List of MongoDB hosts (with port)",
+	//   description="Specifies the hostnames or IP addresses of MongoDB for connection",
 	//   type="array",
 	//   default=["host1:27017", "host2:27017"],
 	//   order=1
@@ -25,7 +25,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Database Name",
-	//   description="MongoDB target database",
+	//   description="Name of the mongodb database selected for replication",
 	//   type="string",
 	//   default="database",
 	//   order=2
@@ -36,7 +36,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Auth DB",
-	//   description="Authentication database",
+	//   description="Authentication database (mostly admin)",
 	//   type="string",
 	//   default="admin",
 	//   order=3
@@ -47,7 +47,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Username",
-	//   description="MongoDB username",
+	//   description="Username for MongoDB authentication",
 	//   type="string",
 	//   default="test",
 	//   order=4
@@ -70,7 +70,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Replica Set",
-	//   description="MongoDB replica set name",
+	//   description="MongoDB replica set name (if applicable)",
 	//   type="string",
 	//   default="rs0",
 	//   order=6
@@ -81,7 +81,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Read Preference",
-	//   description="Read preference (e.g., primary, secondaryPreferred)",
+	//   description="Read preference for MongoDB (e.g., primary, secondaryPreferred)",
 	//   type="string",
 	//   default="",
 	//   order=7
@@ -92,7 +92,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Use SRV",
-	//   description="Whether to use DNS SRV",
+	//   description="Enable this option if using DNS SRV connection strings. When set to true, the hosts field must contain only one entry - a DNS SRV address (['mongodataset.pigiy.mongodb.net'])",
 	//   type="boolean",
 	//   default=false,
 	//   order=8
@@ -103,7 +103,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Max Threads",
-	//   description="Maximum threads to use for ingestion",
+	//   description="Max parallel threads for chunk snapshotting",
 	//   type="integer",
 	//   default=5,
 	//   order=9
@@ -114,7 +114,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Default Mode",
-	//   description="Extraction mode (e.g., full_refresh, cdc)",
+	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
 	//   type="string",
 	//   default="cdc",
 	//   order=10
@@ -125,7 +125,7 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Retry Count",
-	//   description="Number of retries before failure",
+	//   description="Number of sync retry attempts using exponential backoff",
 	//   type="integer",
 	//   default=2,
 	//   order=11
@@ -136,22 +136,12 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="Chunking Strategy",
-	//   description="Strategy for collection chunking",
+	//   description="Chunking strategy (timestamp, uses split vector strategy if the field is left empty)",
 	//   type="string",
-	//   default="",
 	//   order=12
 	// )
 	ChunkingStrategy string `json:"chunking_strategy"`
 
-	// ServerRAM
-	//
-	// @jsonSchema(
-	//   title="Server RAM",
-	//   description="Server memory in GB",
-	//   type="integer",
-	//   default=16,
-	//   order=13
-	// )
 	ServerRAM int `json:"server_ram" validate:"required" gt:"0"`
 }
 

@@ -30,7 +30,7 @@ type SpecConfig struct {
 	//
 	// @jsonSchema(
 	//   title="Iceberg S3 Path",
-	//   description="Specifies the S3 path for storing Iceberg data, such as 's3a://warehouse/', representing the target bucket or directory",
+	//   description="Specifies the S3 path in AWS where the iceberg data will be stored",
 	//   type="string",
 	//   required=true
 	// )
@@ -80,6 +80,35 @@ type JDBCCatalogSpec struct {
 	//   required=true
 	// )
 	JDBCPassword string `json:"jdbc_password"`
+
+	//
+	// @jsonSchema(
+	//   title="S3 Endpoint",
+	//   description="Specifies the endpoint URL for S3 services (e.g., MinIO)",
+	//   type="string",
+	//   order=6
+	// )
+	S3Endpoint string `json:"s3_endpoint,omitempty"`
+
+	//
+	// @jsonSchema(
+	//   title="Use SSL for S3",
+	//   description="Indicates if SSL is enabled for S3 connections; 'false' disables SSL",
+	//   type="boolean",
+	//   default=false,
+	//   order=8
+	// )
+	UseSSL bool `json:"s3_use_ssl,omitempty"`
+
+	//
+	// @jsonSchema(
+	//   default=true,
+	//   description="Specifies whether path-style access is used for S3; 'true' enables path-style addressing instead of the default virtual-hosted style",
+	//   order=9,
+	//   title="Use Path Style for S3",
+	//   type="boolean"
+	// )
+	UsePathStyle bool `json:"s3_path_style,omitempty"`
 }
 
 // Hive catalog configuration
@@ -118,6 +147,26 @@ type HiveCatalogSpec struct {
 	//   order=12
 	// )
 	HiveSaslEnabled bool `json:"hive_sasl_enabled,omitempty"`
+
+	//
+	// @jsonSchema(
+	//   title="Use SSL for S3",
+	//   description="Indicates if SSL is enabled for S3 connections; 'false' disables SSL",
+	//   type="boolean",
+	//   default=false,
+	//   order=8
+	// )
+	UseSSL bool `json:"s3_use_ssl,omitempty"`
+
+	//
+	// @jsonSchema(
+	//   default=true,
+	//   description="Specifies whether path-style access is used for S3; 'true' enables path-style addressing instead of the default virtual-hosted style",
+	//   order=9,
+	//   title="Use Path Style for S3",
+	//   type="boolean"
+	// )
+	UsePathStyle bool `json:"s3_path_style,omitempty"`
 }
 
 // Rest catalog configuration
