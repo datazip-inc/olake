@@ -5,6 +5,7 @@ type AdapterType string
 const (
 	Parquet AdapterType = "PARQUET"
 	Iceberg AdapterType = "ICEBERG"
+	IcebergGo AdapterType = "ICEBERGGO"
 )
 
 // TODO: Add validations
