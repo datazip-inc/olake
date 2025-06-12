@@ -38,7 +38,7 @@ var discoverCmd = &cobra.Command{
 			return errors.New("no streams found in connector")
 		}
 
-		types.LogCatalog(streams)
+		types.LogCatalog(streams, connector.Type())
 		return nil
 	},
 }

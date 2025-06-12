@@ -1,5 +1,7 @@
 package types
 
+import "github.com/datazip-inc/olake/constants"
+
 // Message is a dto for olake output row representation
 type Message struct {
 	Type             MessageType            `json:"type"`
@@ -45,7 +47,7 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-func GetWrappedCatalog(streams []*Stream) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driverType string) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -60,6 +62,7 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			AppendMode:     false,
+			Normalization:  driverType == string(constants.Postgres) || driverType == string(constants.MySQL),// Set normalization based on driver type
 		})
 	}
 
