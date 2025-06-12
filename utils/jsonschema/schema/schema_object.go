@@ -1,6 +1,12 @@
 package schema
 
-import "github.com/goccy/go-json"
+import (
+	"bytes"
+	"fmt"
+	"sort"
+
+	"github.com/goccy/go-json"
+)
 
 // BoolOrSchema holds a bool or a JSONSchema for values that can take either.
 // This is used for things like additionalProperties
@@ -89,6 +95,17 @@ type defaultObjectSchema struct {
 	//Dependencies         map[string]StringArrayOrObject `json:"dependencies,omitempty"`
 }
 
+type propertyEntry struct {
+	Key   string
+	Value interface{}
+	Order int
+}
+
+type OrderedProperties struct {
+	Properties map[string]interface{}
+	Order      []string
+}
+
 // NewObjectSchema creates a new object schema
 func NewObjectSchema(suppressXAttrs bool) ObjectSchema {
 	return &defaultObjectSchema{
@@ -148,7 +165,137 @@ func (s *defaultObjectSchema) UnmarshalJSON(b []byte) error {
 	}
 
 	return err
+}
 
+func (op OrderedProperties) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteString("{")
+	first := true
+	for _, key := range op.Order {
+		if !first {
+			b.WriteString(",")
+		}
+		first = false
+
+		keyBytes, err := json.Marshal(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal property key %s: %w", key, err)
+		}
+		b.Write(keyBytes)
+		b.WriteString(":")
+
+		// Marshal value (the property's schema definition, which might itself be an OrderedProperties)
+		valBytes, err := json.Marshal(op.Properties[key])
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal property value for key %s: %w", key, err)
+		}
+		b.Write(valBytes)
+	}
+	b.WriteString("}")
+	return b.Bytes(), nil
+}
+
+func SortSchemaProperties(schemaMap map[string]interface{}) {
+	if propertiesMap, ok := schemaMap["properties"].(map[string]interface{}); ok {
+		var entries []propertyEntry
+
+		for key, val := range propertiesMap {
+			order := -1
+			if propVal, isMap := val.(map[string]interface{}); isMap {
+				if orderVal, exists := propVal["order"]; exists {
+					if floatOrder, ok := orderVal.(float64); ok {
+						order = int(floatOrder)
+					}
+				}
+			}
+			entries = append(entries, propertyEntry{Key: key, Value: val, Order: order})
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].Order != -1 && entries[j].Order == -1 {
+				return true
+			}
+			if entries[i].Order == -1 && entries[j].Order != -1 {
+				return false
+			}
+
+			// If both have 'order' or neither has 'order', compare based on 'order' value
+			if entries[i].Order != entries[j].Order {
+				return entries[i].Order < entries[j].Order
+			}
+
+			// If 'order' values are equal (or both are -1), sort alphabetically by key
+			return entries[i].Key < entries[j].Key
+		})
+
+		// Create a new map to store the potentially sorted nested schemas
+		newPropertiesMap := make(map[string]interface{})
+		sortedKeys := make([]string, 0, len(entries))
+
+		// Populate the newPropertiesMap and sortedKeys, and recursively sort nested properties
+		for _, entry := range entries {
+			if nestedSchema, isMap := entry.Value.(map[string]interface{}); isMap {
+				// Recursively sort properties within this nested object
+				SortSchemaProperties(nestedSchema)
+				newPropertiesMap[entry.Key] = nestedSchema
+			} else {
+				newPropertiesMap[entry.Key] = entry.Value
+			}
+			sortedKeys = append(sortedKeys, entry.Key)
+		}
+
+		schemaMap["properties"] = OrderedProperties{
+			Properties: newPropertiesMap,
+			Order:      sortedKeys,
+		}
+	}
+
+	// Handle 'oneOf' keyword
+	if oneOfArray, ok := schemaMap["oneOf"].([]interface{}); ok {
+		for i, item := range oneOfArray {
+			if subSchema, isMap := item.(map[string]interface{}); isMap {
+				SortSchemaProperties(subSchema)
+				oneOfArray[i] = subSchema
+			}
+		}
+		schemaMap["oneOf"] = oneOfArray
+	}
+
+	// Handle 'anyOf' keyword
+	if anyOfArray, ok := schemaMap["anyOf"].([]interface{}); ok {
+		for i, item := range anyOfArray {
+			if subSchema, isMap := item.(map[string]interface{}); isMap {
+				SortSchemaProperties(subSchema)
+				anyOfArray[i] = subSchema
+			}
+		}
+		schemaMap["anyOf"] = anyOfArray
+	}
+
+	// Handle 'allOf' keyword
+	if allOfArray, ok := schemaMap["allOf"].([]interface{}); ok {
+		for i, item := range allOfArray {
+			if subSchema, isMap := item.(map[string]interface{}); isMap {
+				SortSchemaProperties(subSchema)
+				allOfArray[i] = subSchema
+			}
+		}
+		schemaMap["allOf"] = allOfArray
+	}
+
+	// Handle 'items'
+	if itemsVal, ok := schemaMap["items"].(map[string]interface{}); ok {
+		SortSchemaProperties(itemsVal)
+		schemaMap["items"] = itemsVal
+	} else if itemsArr, ok := schemaMap["items"].([]interface{}); ok {
+		for i, item := range itemsArr {
+			if subSchema, isMap := item.(map[string]interface{}); isMap {
+				SortSchemaProperties(subSchema)
+				itemsArr[i] = subSchema
+			}
+		}
+		schemaMap["items"] = itemsArr
+	}
 }
 
 func (s *defaultObjectSchema) Clone() JSONSchema {
