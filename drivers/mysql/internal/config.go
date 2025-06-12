@@ -2,7 +2,7 @@ package driver
 
 import (
 	"fmt"
-	"net/url"
+	"github.com/go-sql-driver/mysql"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
@@ -163,15 +163,16 @@ func (c *Config) URI() string {
 		hostStr = "localhost"
 	}
 
-	// Construct full connection string
-	return fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s",
-		url.QueryEscape(c.Username),
-		url.QueryEscape(c.Password),
-		hostStr,
-		c.Port,
-		url.QueryEscape(c.Database),
-	)
+	cfg := mysql.Config{
+		User:                 c.Username,
+		Passwd:               c.Password,
+		Net:                  "tcp",
+		Addr:                 fmt.Sprintf("%s:%d", hostStr, c.Port),
+		DBName:               c.Database,
+		AllowNativePasswords: true,
+	}
+
+	return cfg.FormatDSN()
 }
 
 // Validate checks the configuration for any missing or invalid fields
