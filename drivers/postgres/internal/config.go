@@ -7,7 +7,6 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/lib/pq"
 )
 
 type Config struct {
@@ -65,12 +64,9 @@ func (c *Config) Validate() error {
 
 	// Set additional connection parameters if available
 	if len(c.JDBCURLParams) > 0 {
-		params := ""
 		for k, v := range c.JDBCURLParams {
-			params += fmt.Sprintf("%s=%s ", pq.QuoteIdentifier(k), pq.QuoteLiteral(v))
+			query.Add(k, v)
 		}
-
-		query.Add("options", params)
 	}
 
 	if c.SSLConfiguration == nil {
@@ -100,7 +96,6 @@ func (c *Config) Validate() error {
 	if c.SSLConfiguration.ClientKey != "" {
 		query.Add("sslkey", c.SSLConfiguration.ClientKey)
 	}
-
 	parsed.RawQuery = query.Encode()
 	c.Connection = parsed
 
