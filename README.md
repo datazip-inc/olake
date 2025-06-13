@@ -80,20 +80,20 @@ Below are different ways you can run OLake:
 ### Writers / Destination
 
 1. [Apache Iceberg Docs](https://olake.io/docs/writers/iceberg/overview)
-    1. [Azure ADLS Gen2](https://olake.io/docs/writers/iceberg/azure/overview)
-    2. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/iceberg/gcs/overview)
-    3. [MinIO (local)](https://olake.io/docs/writers/iceberg/docker-compose#local-catalog-test-setup)
-    4. Catalogs
+    1. Catalogs
        1. [AWS Glue Catalog](https://olake.io/docs/writers/iceberg/catalog/glue)
        2. [REST Catalog](https://olake.io/docs/writers/iceberg/catalog/rest)
        3. [JDBC Catalog](https://olake.io/docs/writers/iceberg/catalog/jdbc)
        4. [Hive Catalog](https://olake.io/docs/writers/iceberg/catalog/hive)
+    2. [Azure ADLS Gen2](https://olake.io/docs/writers/iceberg/azure)
+    3. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/iceberg/gcs)
+    4. [MinIO (local)](https://olake.io/docs/writers/iceberg/docker-compose#local-catalog-test-setup)
     5. Iceberg Table Management
-       1. [S3 Tables Supported](https://olake.io/docs/writers/iceberg/compaction/s3-tables)
+       1. [S3 Tables Supported](https://olake.io/docs/writers/iceberg/s3-tables)
 
 2. Parquet Writer
-   1. [AWS S3 Docs](https://olake.io/docs/writers/parquet/s3/overview)
-   2. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/parquet/gcs/overview)
+   1. [AWS S3 Docs](https://olake.io/docs/writers/parquet/s3)
+   2. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/parquet/gcs)
    3. [Local FileSystem Docs](https://olake.io/docs/writers/parquet/local)
 
 
