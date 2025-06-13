@@ -3,8 +3,8 @@ package types
 type AdapterType string
 
 const (
-	Parquet AdapterType = "PARQUET"
-	Iceberg AdapterType = "ICEBERG"
+	Parquet   AdapterType = "PARQUET"
+	Iceberg   AdapterType = "ICEBERG"
 	IcebergGo AdapterType = "ICEBERGGO"
 )
 
