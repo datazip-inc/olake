@@ -43,7 +43,6 @@ var specCmd = &cobra.Command{
 		var specData map[string]interface{}
 		if err := utils.UnmarshalFile(fmt.Sprintf("%s.json", fileName), &specData); err == nil {
 			logger.Info(specData)
-			logger.FileLogger(specData, fileName, ".json")
 			return nil
 		}
 
@@ -57,7 +56,9 @@ var specCmd = &cobra.Command{
 		}
 
 		logger.Info(specSchema)
-		logger.FileLogger(specSchema, fileName, ".json")
+		if err := logger.FileLogger(specSchema, fileName, ".json"); err != nil {
+			return fmt.Errorf("failed to log spec: %v", err)
+		}
 
 		return nil
 	},
