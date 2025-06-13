@@ -95,7 +95,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				}
 				var nextValRaw interface{}
 				err := tx.QueryRow(query, args...).Scan(&nextValRaw)
-				if (err != nil && err == sql.ErrNoRows) || nextValRaw == nil {
+				if err == sql.ErrNoRows || nextValRaw == nil {
 					break
 				} else if err != nil {
 					return fmt.Errorf("failed to get next chunk end: %w", err)

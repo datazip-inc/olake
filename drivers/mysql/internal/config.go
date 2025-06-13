@@ -2,9 +2,8 @@ package driver
 
 import (
 	"fmt"
-	"strings"
-
 	"github.com/go-sql-driver/mysql"
+	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
@@ -73,6 +72,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("password is required")
 	}
 
+	
 	// Optional database name, default to 'mysql'
 	if c.Database == "" {
 		c.Database = "mysql"

@@ -118,11 +118,6 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 
 // MySQL-Specific Queries
 
-// Calculates total number of rows in a table
-func CalculateTotalRows(stream types.StreamInterface) string {
-	return fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", stream.Namespace(), stream.Name())
-}
-
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
 func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk) string {
 	colTuple := "(" + strings.Join(filterColumns, ", ") + ")"
