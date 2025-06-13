@@ -13,6 +13,10 @@ import (
 )
 
 func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+	parsedFilter, err := p.getParsedFilter(stream)
+	if err != nil {
+		return fmt.Errorf("failed to parse filter: %s", err)
+	}
 	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return err
@@ -20,7 +24,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	defer tx.Rollback()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
-	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk)
+	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, parsedFilter)
 	setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 		return tx.Query(query, args...)
 	})
@@ -47,10 +51,14 @@ func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterP
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
 	pool.AddRecordsToSync(approxRowCount)
-	return p.splitTableIntoChunks(stream)
+	parsedFilter, err := p.getParsedFilter(stream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse filter: %s", err)
+	}
+	return p.splitTableIntoChunks(stream, parsedFilter)
 }
 
-func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface, parsedFilter string) (*types.Set[types.Chunk], error) {
 	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		var relPages uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
@@ -96,7 +104,7 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 		chunkStart := min
 		splits := types.NewSet[types.Chunk]()
 		for {
-			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, chunkColumn)
+			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, chunkColumn, parsedFilter)
 			if err != nil {
 				return nil, fmt.Errorf("failed to split chunks based on next query size: %s", err)
 			}
@@ -115,6 +123,9 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 	if chunkColumn != "" {
 		var minValue, maxValue interface{}
 		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, chunkColumn)
+		if parsedFilter != "" {
+			minMaxRowCountQuery = fmt.Sprintf("%s WHERE %s", minMaxRowCountQuery, parsedFilter)
+		}
 		// TODO: Fails on UUID type (Good First Issue)
 		err := p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {
@@ -142,12 +153,24 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 	}
 }
 
-func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
+func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string, parsedFilter string) (interface{}, error) {
 	var chunkEnd interface{}
-	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd, p.config.BatchSize)
+	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd, p.config.BatchSize, parsedFilter)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
 	}
 	return chunkEnd, nil
+}
+
+func (p *Postgres) getParsedFilter(stream types.StreamInterface) (string, error) {
+	filter := stream.Self().StreamMetadata.Filter
+	if filter == "" {
+		return "", nil
+	}
+	parsedFilter, err := jdbc.ParseFilter(filter, "postgres")
+	if err != nil {
+		return "", fmt.Errorf("failed to parse filter: %s", err)
+	}
+	return parsedFilter, nil
 }
