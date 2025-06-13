@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/telemetry" // Add this import
+	"github.com/datazip-inc/olake/telemetry"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/spf13/cobra"
@@ -26,7 +26,7 @@ var discoverCmd = &cobra.Command{
 
 		return nil
 	},
-	RunE: func(_ *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		// Discover Telemetry Tracking
 		startTime := time.Now()
 		var discoverError error
@@ -42,13 +42,12 @@ var discoverCmd = &cobra.Command{
 			)
 			telemetry.Flush()
 		}()
-
-		err := connector.Setup()
+		err := connector.Setup(cmd.Context())
 		if err != nil {
 			discoverError = err
 			return err
 		}
-		streams, err := connector.Discover(true)
+		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
 			discoverError = err
 			return err

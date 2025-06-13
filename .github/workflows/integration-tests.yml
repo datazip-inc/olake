@@ -1,0 +1,85 @@
+name: Integration Tests
+on:
+  push:
+    branches:
+      - "master"
+  pull_request:
+    branches:
+      - "*"
+
+env:
+  MYSQL_ROOT_PASSWORD: root1234
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23.2'
+
+      - name: Set up Java for Maven
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Start Test Infrastructure
+        run: |
+          docker compose -f ./drivers/mysql/docker-compose.yml up -d
+          docker compose -f ./drivers/postgres/docker-compose.yml up -d
+          docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+
+      - name: Wait for MySQL
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec olake_mysql-test mysql -h localhost -u root -p${{ env.MYSQL_ROOT_PASSWORD }} -e "SELECT 1"
+
+      - name: Wait for PostgreSQL
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
+
+      - name: Set up Data Directories
+        run: |
+            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
+            sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+            sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+
+      - name: Install Go Dependencies
+        run: go mod download
+
+      - name: Build Project
+        run: go build -v ./...
+
+      - name: Build Iceberg Sink
+        working-directory: ./destination/iceberg/olake-iceberg-java-writer
+        run: mvn clean package -DskipTests
+
+      - name: Run MySQL Integration Tests
+        run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+
+      - name: Run PostgreSQL Integration Tests
+        run: go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
+          docker compose -f ./drivers/mysql/docker-compose.yml down
+          docker compose -f ./drivers/postgres/docker-compose.yml down

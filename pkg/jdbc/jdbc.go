@@ -4,51 +4,53 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
+	"github.com/jmoiron/sqlx"
 )
 
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a table
-func MinMaxQuery(stream protocol.Stream, column string) string {
+func MinMaxQuery(stream types.StreamInterface, column string) string {
 	return fmt.Sprintf(`SELECT MIN(%[1]s) AS min_value, MAX(%[1]s) AS max_value FROM %[2]s.%[3]s`, column, stream.Namespace(), stream.Name())
 }
 
 // NextChunkEndQuery returns the query to calculate the next chunk boundary
-func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) string {
+func NextChunkEndQuery(stream types.StreamInterface, column string, chunkSize int) string {
 	return fmt.Sprintf(`SELECT MAX(%[1]s) FROM (SELECT %[1]s FROM %[2]s.%[3]s WHERE %[1]s > ? ORDER BY %[1]s LIMIT %[4]d) AS subquery`, column, stream.Namespace(), stream.Name(), chunkSize)
 }
 
 // buildChunkCondition builds the condition for a chunk
 func buildChunkCondition(filterColumn string, chunk types.Chunk) string {
 	if chunk.Min != nil && chunk.Max != nil {
-		return fmt.Sprintf("%s >= %v AND %s <= %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
+		return fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
 	} else if chunk.Min != nil {
 		return fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
 	}
-	return fmt.Sprintf("%s <= %v", filterColumn, chunk.Max)
+	return fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
 }
 
 // PostgreSQL-Specific Queries
 // TODO: Rewrite queries for taking vars as arguments while execution.
 
 // PostgresWithoutState returns the query for a simple SELECT without state
-func PostgresWithoutState(stream protocol.Stream) string {
+func PostgresWithoutState(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor())
 }
 
 // PostgresWithState returns the query for a SELECT with state
-func PostgresWithState(stream protocol.Stream) string {
+func PostgresWithState(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" where "%s">$1 ORDER BY "%s" ASC NULLS FIRST`, stream.Namespace(), stream.Name(), stream.Cursor(), stream.Cursor())
 }
 
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
-func PostgresRowCountQuery(stream protocol.Stream) string {
+func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
-func PostgresRelPageCount(stream protocol.Stream) string {
+func PostgresRelPageCount(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
@@ -58,17 +60,17 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int) string {
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int) string {
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 }
 
 // PostgresMinQuery returns the query to fetch the minimum value of a column in PostgreSQL
-func PostgresMinQuery(stream protocol.Stream, filterColumn string, filterValue interface{}) string {
+func PostgresMinQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
 	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue)
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
-func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
+func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk) string {
 	condition := buildChunkCondition(filterColumn, chunk)
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
 }
@@ -76,7 +78,7 @@ func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk t
 // MySQL-Specific Queries
 
 // MySQLWithoutState builds a chunk scan query for MySql
-func MysqlChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
+func MysqlChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk) string {
 	condition := buildChunkCondition(filterColumn, chunk)
 	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
 }
@@ -135,9 +137,14 @@ func MySQLTableRowsQuery() string {
 	`
 }
 
-// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.3 and below
 func MySQLMasterStatusQuery() string {
 	return "SHOW MASTER STATUS"
+}
+
+// MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.4 and above
+func MySQLMasterStatusQueryNew() string {
+	return "SHOW BINARY LOG STATUS"
 }
 
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
@@ -149,17 +156,44 @@ func MySQLTableColumnsQuery() string {
 		ORDER BY ORDINAL_POSITION
 	`
 }
-func WithIsolation(ctx context.Context, client *sql.DB, fn func(tx *sql.Tx) error) error {
+
+// MySQLVersion returns the version of the MySQL server
+// It returns the major and minor version of the MySQL server
+func MySQLVersion(client *sqlx.DB) (int, int, error) {
+	var version string
+	err := client.QueryRow("SELECT @@version").Scan(&version)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get MySQL version: %w", err)
+	}
+
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("invalid version format")
+	}
+	majorVersion, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid major version: %s", err)
+	}
+
+	minorVersion, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid minor version: %s", err)
+	}
+
+	return majorVersion, minorVersion, nil
+}
+
+func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) error) error {
 	tx, err := client.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
 		ReadOnly:  true,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer func() {
 		if rerr := tx.Rollback(); rerr != nil && rerr != sql.ErrTxDone {
-			fmt.Printf("transaction rollback failed: %v\n", rerr)
+			fmt.Printf("transaction rollback failed: %s", rerr)
 		}
 	}()
 	if err := fn(tx); err != nil {

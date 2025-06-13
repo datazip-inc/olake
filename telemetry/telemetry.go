@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/utils/logger"
 	analytics "github.com/segmentio/analytics-go/v3"
 	"github.com/spf13/viper"
 )
@@ -380,18 +380,14 @@ func (t *Telemetry) TrackSyncResult(configHash string, success bool) *SyncMetric
 	if configHash == "" {
 		return nil
 	}
-
-	// Get the anonymous ID - this function handles its own locking internally
 	anonymousID := GetAnonymousID()
 	metricsPath := filepath.Join(getConfigDir(), syncMetricsFilePrefix+anonymousID)
 
-	// Read existing metrics - file operations don't need mutex protection
+	// Read existing metrics
 	metrics := make(map[string]SyncMetrics)
 	if data, err := os.ReadFile(metricsPath); err == nil {
 		_ = json.Unmarshal(data, &metrics) // Best-effort read
 	}
-
-	// Get current week identifier
 	year, week := time.Now().ISOWeek()
 	weekKey := fmt.Sprintf("%d-W%02d", year, week)
 
@@ -415,7 +411,7 @@ func (t *Telemetry) TrackSyncResult(configHash string, success bool) *SyncMetric
 
 	// Persist updated metrics
 	if data, err := json.Marshal(metrics); err == nil {
-		_ = os.WriteFile(metricsPath, data, 0600) // Best-effort write
+		_ = os.WriteFile(metricsPath, data, 0600)
 	} else {
 		fmt.Printf("Failed to save sync metrics: %v\n", err)
 	}

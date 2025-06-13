@@ -134,6 +134,10 @@ func newCGroup(ctx context.Context, limit int) *CxGroup {
 	return group
 }
 
+func (g *CxGroup) Ctx() context.Context {
+	return g.ctx
+}
+
 func (g *CxGroup) Add(execute func(ctx context.Context) error) {
 	g.executor.Go(func() error {
 		return execute(g.ctx)
