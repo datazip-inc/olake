@@ -27,6 +27,7 @@ type MySQL struct {
 	CDCSupport bool // indicates if the MySQL instance supports CDC
 	cdcConfig  CDC
 	BinlogConn *binlog.Connection
+	state      *types.State // reference to globally present state
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
@@ -93,6 +94,11 @@ func (m *MySQL) Setup(ctx context.Context) error {
 // Type returns the database type
 func (m *MySQL) Type() string {
 	return string(constants.MySQL)
+}
+
+// set state to mysql
+func (m *MySQL) SetupState(state *types.State) {
+	m.state = state
 }
 
 func (m *MySQL) MaxConnections() int {

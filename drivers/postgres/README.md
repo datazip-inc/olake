@@ -35,7 +35,7 @@ Add Postgres credentials in following format in `config.json` file. [More detail
     },
     "update_method": {
         "replication_slot": "postgres_slot",
-        "intial_wait_time":10
+        "intial_wait_time":120
     },
     "reader_batch_size": 100000,
     "default_mode":"cdc",

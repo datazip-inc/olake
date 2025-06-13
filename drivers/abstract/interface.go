@@ -18,13 +18,13 @@ type DriverInterface interface {
 	GetConfigRef() Config
 	Spec() any
 	Type() string
-	// set up client as well as check connection
+	// specific to test & setup
 	Setup(ctx context.Context) error
-	// max connnection to be used
+	SetupState(state *types.State)
+	// sync artifacts
 	MaxConnections() int
-	// Max Retries returns the maximum number of retries for driver operations
 	MaxRetries() int
-	// GetStreamNames returns the names of the streams
+	// specific to discover
 	GetStreamNames(ctx context.Context) ([]string, error)
 	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
 	// specific to backfill
@@ -32,7 +32,7 @@ type DriverInterface interface {
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
-	PreCDC(ctx context.Context, state *types.State, streams []types.StreamInterface) error
+	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error
-	PostCDC(ctx context.Context, state *types.State, stream types.StreamInterface, success bool) error
+	PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error // to save state
 }

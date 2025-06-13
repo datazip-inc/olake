@@ -43,6 +43,7 @@ func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDri
 
 func (a *AbstractDriver) SetupState(state *types.State) {
 	a.state = state
+	a.driver.SetupState(state)
 }
 
 func (a *AbstractDriver) GetConfigRef() Config {
