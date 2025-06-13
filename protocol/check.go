@@ -3,9 +3,10 @@ package protocol
 import (
 	"fmt"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -36,12 +37,12 @@ var checkCmd = &cobra.Command{
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
-				_, err := NewWriter(cmd.Context(), destinationConfig)
+				_, err := destination.NewWriter(cmd.Context(), destinationConfig)
 				return err
 			}
 
 			if configPath != "not-set" {
-				return connector.Check()
+				return connector.Setup(cmd.Context())
 			}
 
 			return nil

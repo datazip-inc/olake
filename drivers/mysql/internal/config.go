@@ -2,10 +2,10 @@ package driver
 
 import (
 	"fmt"
-	"net/url"
+	"github.com/go-sql-driver/mysql"
 	"strings"
 
-	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
@@ -39,15 +39,16 @@ func (c *Config) URI() string {
 		hostStr = "localhost"
 	}
 
-	// Construct full connection string
-	return fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s",
-		url.QueryEscape(c.Username),
-		url.QueryEscape(c.Password),
-		hostStr,
-		c.Port,
-		url.QueryEscape(c.Database),
-	)
+	cfg := mysql.Config{
+		User:                 c.Username,
+		Passwd:               c.Password,
+		Net:                  "tcp",
+		Addr:                 fmt.Sprintf("%s:%d", hostStr, c.Port),
+		DBName:               c.Database,
+		AllowNativePasswords: true,
+	}
+
+	return cfg.FormatDSN()
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -78,12 +79,12 @@ func (c *Config) Validate() error {
 
 	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = base.DefaultThreadCount // Aligned with PostgreSQL default
+		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
 	}
 
 	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
-		c.RetryCount = base.DefaultRetryCount // Reasonable default for retries
+		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
 
 	return utils.Validate(c)
