@@ -25,7 +25,7 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
-func (m *Mongo) PreCDC(cdcCtx context.Context, state *types.State, streams []types.StreamInterface) error {
+func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 		pipeline := mongo.Pipeline{
@@ -34,7 +34,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, state *types.State, streams []typ
 			}}},
 		}
 
-		prevResumeToken := state.GetCursor(stream.Self(), cdcCursorField)
+		prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
 		if prevResumeToken == nil {
 			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
 			if err != nil {
@@ -42,7 +42,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, state *types.State, streams []typ
 			}
 			if resumeToken != nil {
 				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-				state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
 		m.cdcCursor.Store(stream.ID(), prevResumeToken)
@@ -101,11 +101,11 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	return cursor.Err()
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, state *types.State, stream types.StreamInterface, noErr bool) error {
+func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
 	if noErr {
 		val, ok := m.cdcCursor.Load(stream.ID())
 		if ok {
-			state.SetCursor(stream.Self(), cdcCursorField, val)
+			m.state.SetCursor(stream.Self(), cdcCursorField, val)
 		} else {
 			logger.Warnf("no resume token found for stream: %s", stream.ID())
 		}

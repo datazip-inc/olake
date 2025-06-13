@@ -160,8 +160,6 @@ type CDC struct {
 	//   default=10
 	// )
 	InitialWaitTime int `json:"intial_wait_time"`
-
-	RetryCount int `json:"retry_count"`
 }
 
 // FullRefresh represents the full refresh configuration
