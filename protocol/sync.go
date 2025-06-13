@@ -1,15 +1,15 @@
 package protocol
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/destination"
+
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -58,17 +58,17 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		pool, err := NewWriter(cmd.Context(), destinationConfig)
+		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
 		if err != nil {
 			return err
 		}
 		// setup conector first
-		err = connector.Setup()
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
 		// Get Source Streams
-		streams, err := connector.Discover(false)
+		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -85,14 +85,19 @@ var syncCmd = &cobra.Command{
 
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
-		cdcStreams := []Stream{}
-		standardModeStreams := []Stream{}
-		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
+		cdcStreams := []types.StreamInterface{}
+		standardModeStreams := []types.StreamInterface{}
+		cdcStreamsState := []*types.StreamState{}
 
+		var stateStreamMap = make(map[string]*types.StreamState)
+		for _, stream := range state.Streams {
+			stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
+		}
+		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 			// Check if the stream is in the selectedStreamMap
 			if !(catalog.SelectedStreams == nil || selected) {
-				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Name(), elem.Namespace())
+				logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
 				return false
 			}
 
@@ -113,68 +118,37 @@ var syncCmd = &cobra.Command{
 
 			if elem.Stream.SyncMode == types.CDC {
 				cdcStreams = append(cdcStreams, elem)
+				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+				if exists {
+					cdcStreamsState = append(cdcStreamsState, streamState)
+				}
 			} else {
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
 			return false
 		})
+		state.Streams = cdcStreamsState
+		if len(selectedStreams) == 0 {
+			return fmt.Errorf("no valid streams found in catalog")
+		}
+
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
-			return pool.SyncedRecords(), pool.threadCounter.Load(), pool.GetRecordsToSync()
+			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync()
 		})
 
 		// Setup State for Connector
 		connector.SetupState(state)
-
-		// Execute driver ChangeStreams mode
-		GlobalCxGroup.Add(func(_ context.Context) error { // context is not used to keep processes mutually exclusive
-			if connector.ChangeStreamSupported() {
-				driver, yes := connector.(ChangeStreamDriver)
-				if !yes {
-					return fmt.Errorf("%s does not implement ChangeStreamDriver", connector.Type())
-				}
-
-				logger.Info("Starting ChangeStream process in driver")
-
-				err := driver.RunChangeStream(pool, cdcStreams...)
-				if err != nil {
-					return fmt.Errorf("error occurred while reading records: %s", err)
-				}
-			}
-			return nil
-		})
-
-		// Execute streams in Standard Stream mode
-		// TODO: Separate streams with FULL and Incremental here only
-		utils.ConcurrentInGroup(GlobalCxGroup, standardModeStreams, func(_ context.Context, stream Stream) error { // context is not used to keep processes mutually exclusive
-			logger.Infof("Reading stream[%s] in %s", stream.ID(), stream.GetSyncMode())
-
-			streamStartTime := time.Now()
-			err := connector.Read(pool, stream)
-			if err != nil {
-				return fmt.Errorf("error occurred while reading records: %s", err)
-			}
-
-			logger.Infof("Finished reading stream %s[%s] in %s", stream.Name(), stream.Namespace(), time.Since(streamStartTime).String())
-
-			return nil
-		})
-
-		if err := GlobalCxGroup.Block(); err != nil {
-			return err
+		// init group
+		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
+		if err != nil {
+			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
-
-		// wait for writer pool to finish
-		if err := pool.Wait(); err != nil {
-			return fmt.Errorf("error occurred in writer pool: %s", err)
-		}
-
 		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogWithLock()
-
 		return nil
 	},
 }
