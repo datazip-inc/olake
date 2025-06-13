@@ -34,7 +34,7 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //	  ORDER BY id, created_at
 //	  LIMIT 1000
 //	) AS subquery
-func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int) string {
+func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
 	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
@@ -44,6 +44,7 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 	)
 	// WHERE clause for lexicographic "greater than"
 	query.WriteString(" WHERE ")
+	// TODO: Embed primary key columns here directly
 	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
 		if currentColIndex > 0 {
 			query.WriteString(" OR ")

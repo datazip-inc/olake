@@ -107,7 +107,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "stream_name": "table_1",
                      "normalization": false,
                      "append_only": false,
-                     "chunk_column":"user_id"
+                     "chunk_column":""
                   }
             ]
          },
@@ -126,7 +126,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "stream_name": "table_1",
                   "normalization": false,
                   "append_only": false,
-                  "chunk_column":"user_id"
+                  "chunk_column":""
                }
          ]
       },

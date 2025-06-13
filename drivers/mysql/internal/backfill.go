@@ -15,9 +15,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-const (
-	chunkSize = 500000
-) // Default chunk size for MySQL
+const chunkSize int64 = 500000 // Default chunk size for MySQL
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
 	// Begin transaction with repeatable read isolation
@@ -28,7 +26,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		sort.Strings(pkColumns)
 		// Get chunks from state or calculate new ones
 		stmt := utils.Ternary(chunkColumn != "", jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk), utils.Ternary(len(pkColumns) > 0, jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk), jdbc.MysqlLimitOffsetScanQuery(stream, chunk))).(string)
-		logger.Infof("Executing chunk query: %s", stmt)
+		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
@@ -97,7 +95,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				}
 				var nextValRaw interface{}
 				err := tx.QueryRow(query, args...).Scan(&nextValRaw)
-				if err != nil && err == sql.ErrNoRows || nextValRaw == nil {
+				if (err != nil && err == sql.ErrNoRows) || nextValRaw == nil {
 					break
 				} else if err != nil {
 					return fmt.Errorf("failed to get next chunk end: %w", err)
@@ -120,26 +118,19 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil
 		})
 	}
-	limitOffsetChunking := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
+	limitOffsetChunking := func(chunks *types.Set[types.Chunk]) error {
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
-			query := jdbc.CalculateTotalRows(stream)
-			var totalRows int64
-			logger.Infof("Query for total rows: %s", query)
-			err := m.client.QueryRowContext(ctx, query).Scan(&totalRows)
-			if err != nil {
-				return fmt.Errorf("failed to calculate total Rows: %w", err)
-			}
 			chunks.Insert(types.Chunk{
 				Min: nil,
 				Max: utils.ConvertToString(chunkSize),
 			})
-			lastChunk := int64(chunkSize)
-			for lastChunk < totalRows {
+			lastChunk := chunkSize
+			for lastChunk < approxRowCount {
 				chunks.Insert(types.Chunk{
 					Min: utils.ConvertToString(lastChunk),
-					Max: utils.ConvertToString(lastChunk + int64(chunkSize)),
+					Max: utils.ConvertToString(lastChunk + chunkSize),
 				})
-				lastChunk += int64(chunkSize)
+				lastChunk += chunkSize
 			}
 			chunks.Insert(types.Chunk{
 				Min: utils.ConvertToString(lastChunk),
@@ -152,7 +143,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if stream.GetStream().SourceDefinedPrimaryKey.Len() > 0 || chunkColumn != "" {
 		err = splitViaPrimaryKey(stream, chunks)
 	} else {
-		err = limitOffsetChunking(stream, chunks)
+		err = limitOffsetChunking(chunks)
 	}
 	return chunks, err
 }
