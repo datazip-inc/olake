@@ -72,11 +72,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("password is required")
 	}
 
-	
 	// Optional database name, default to 'mysql'
 	if c.Database == "" {
 		c.Database = "mysql"
 	}
+	
 	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
