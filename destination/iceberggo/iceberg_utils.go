@@ -12,8 +12,11 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/iceberg-go"
 	"github.com/apache/iceberg-go/catalog"
-	"github.com/apache/iceberg-go/catalog/rest"
+
+	// Required to register the glue catalog
 	_ "github.com/apache/iceberg-go/catalog/glue"
+
+	"github.com/apache/iceberg-go/catalog/rest"
 	"github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
 	"github.com/apache/iceberg-go/utils"
@@ -26,33 +29,33 @@ import (
 )
 
 type NewIcebergGo struct {
-	options     	*destination.Options
-	config 			*Config
-	stream      	types.StreamInterface
-	catalog    		catalog.Catalog
-	iceTable   		*table.Table
-	schema     		*iceberg.Schema
-	tableIdent 		table.Identifier
-	allocator     	memory.Allocator
-	recordBuilder 	*array.RecordBuilder
-	configHash 		string
-	partitionInfo   map[string]string
-	recordsSize     atomic.Int64
-	flushing        atomic.Bool
-	TableLocation   string
+	options       *destination.Options
+	config        *Config
+	stream        types.StreamInterface
+	catalog       catalog.Catalog
+	iceTable      *table.Table
+	schema        *iceberg.Schema
+	tableIdent    table.Identifier
+	allocator     memory.Allocator
+	recordBuilder *array.RecordBuilder
+	configHash    string
+	partitionInfo map[string]string
+	recordsSize   atomic.Int64
+	flushing      atomic.Bool
+	TableLocation string
 }
 
 type Config struct {
-	CatalogType    	string `json:"catalog_type"`
-	RestCatalogURL 	string `json:"rest_catalog_url"` 
-	S3Bucket     	string `json:"s3_bucket"`
-	S3Endpoint		string `json:"s3_endpoint"`
-	AwsRegion    	string `json:"aws_region"`
-	AwsAccessKey 	string `json:"aws_access_key"`
-	AwsSecretKey 	string `json:"aws_secret_key"`
-	IcebergDB 		string `json:"iceberg_db"`
-	BatchSize    	int  `json:"batch_size"`
-	Warehouse 		string `json:"iceberg_s3_path"`
+	CatalogType    string `json:"catalog_type"`
+	RestCatalogURL string `json:"rest_catalog_url"`
+	S3Bucket       string `json:"s3_bucket"`
+	S3Endpoint     string `json:"s3_endpoint"`
+	AwsRegion      string `json:"aws_region"`
+	AwsAccessKey   string `json:"aws_access_key"`
+	AwsSecretKey   string `json:"aws_secret_key"`
+	IcebergDB      string `json:"iceberg_db"`
+	BatchSize      int    `json:"batch_size"`
+	Warehouse      string `json:"iceberg_s3_path"`
 }
 
 var (
@@ -68,11 +71,11 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 	ctx := context.Background()
 	staticCreds := aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(w.config.AwsAccessKey, w.config.AwsSecretKey, ""))
 	cfg := aws.Config{
-		Region: w.config.AwsRegion,
+		Region:      w.config.AwsRegion,
 		Credentials: staticCreds,
 	}
 	ctx = utils.WithAwsConfig(ctx, &cfg)
-	
+
 	if w.config.CatalogType == "glue" {
 		w.TableLocation = fmt.Sprintf("s3://%s/%s/%s", w.config.S3Bucket, w.config.IcebergDB, w.stream.Name())
 		logger.Infof("Glue: Table Location: %s", w.TableLocation)
@@ -82,14 +85,14 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 		}
 		w.catalog = glueCatalog
 
-		tbl, err := w.createOrLoadTable(ctx, glueCatalog) 
+		tbl, err := w.createOrLoadTable(ctx, glueCatalog)
 		if err != nil {
 			logger.Errorf("Failed to create or load table: %v", err)
 		}
 		w.iceTable = tbl
 	} else if w.config.CatalogType == "rest" {
 		w.TableLocation = fmt.Sprintf("s3://%s/%s", w.config.IcebergDB, w.stream.Name())
-		
+
 		restCatalog, err := w.initializeRestCatalog(ctx)
 		if err != nil {
 			logger.Errorf("Failed to initialize Rest catalog: %v", err)
@@ -106,12 +109,12 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 
 	w.createRecordBuilder()
 
-	return  nil
+	return nil
 }
 
 func (w *NewIcebergGo) initializeRestCatalog(ctx context.Context) (catalog.Catalog, error) {
 	logger.Infof("Initializing Rest catalog")
-	
+
 	props := iceberg.Properties{
 		io.S3Region:          w.config.AwsRegion,
 		io.S3EndpointURL:     w.config.S3Endpoint,
@@ -119,10 +122,10 @@ func (w *NewIcebergGo) initializeRestCatalog(ctx context.Context) (catalog.Catal
 		io.S3SecretAccessKey: w.config.AwsSecretKey,
 		"s3.path-style":      "true",
 	}
-	
-	cat, err := rest.NewCatalog(ctx, "rest", w.config.RestCatalogURL, 
-	rest.WithAdditionalProps(props),
-	rest.WithWarehouseLocation(w.config.Warehouse),
+
+	cat, err := rest.NewCatalog(ctx, "rest", w.config.RestCatalogURL,
+		rest.WithAdditionalProps(props),
+		rest.WithWarehouseLocation(w.config.Warehouse),
 	)
 	return cat, err
 }
@@ -145,7 +148,7 @@ func (w *NewIcebergGo) initializeGlueCatalog(ctx context.Context) (catalog.Catal
 }
 
 func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalog) (*table.Table, error) {
-	w.tableIdent = table.Identifier{w.config.IcebergDB, w.stream.Name()}	
+	w.tableIdent = table.Identifier{w.config.IcebergDB, w.stream.Name()}
 
 	exists, err := cat.CheckTableExists(ctx, w.tableIdent)
 	if err != nil {
@@ -158,7 +161,7 @@ func (w *NewIcebergGo) createOrLoadTable(ctx context.Context, cat catalog.Catalo
 			return nil, fmt.Errorf("failed to load existing table: %w", err)
 		}
 		w.schema = tbl.Schema()
-		
+
 		return tbl, nil
 	}
 
@@ -208,7 +211,7 @@ func (w *NewIcebergGo) Spec() any {
 	return Config{}
 }
 
-func (w *NewIcebergGo) Close(ctx context.Context) error {
+func (w *NewIcebergGo) Close(_ context.Context) error {
 	if w.recordsSize.Load() > 0 {
 		logger.Infof("Close | Flushing %d remaining records on close", w.recordsSize.Load())
 		flushStartTime := time.Now()
@@ -223,7 +226,7 @@ func (w *NewIcebergGo) Close(ctx context.Context) error {
 	return nil
 }
 
-func (w *NewIcebergGo) Check(ctx context.Context) error {
+func (w *NewIcebergGo) Check(_ context.Context) error {
 	return nil
 }
 
@@ -253,7 +256,7 @@ func (c *Config) Validate() error {
 	if c.CatalogType == "" {
 		c.CatalogType = "glue"
 	}
-	
+
 	if c.CatalogType == "glue" {
 		if c.AwsAccessKey == "" {
 			return fmt.Errorf("aws_access_key is required when catalog_type is 'rest'")

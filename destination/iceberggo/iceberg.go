@@ -24,11 +24,13 @@ var commitMutexes sync.Map
 func (w *NewIcebergGo) Setup(stream types.StreamInterface, options *destination.Options) error {
 	w.options = options
 	w.stream = stream
-	w.allocator = memory.NewGoAllocator() 
+	w.allocator = memory.NewGoAllocator()
+
 	w.configHash = getConfigHash(w.config.IcebergDB, w.stream.Name(), true)
 	logger.Infof("Confighash: %s", w.configHash)
-	config.EnvConfig.MaxWorkers = 20 
-	w.partitionInfo = make(map[string]string) 
+
+	config.EnvConfig.MaxWorkers = 20
+	w.partitionInfo = make(map[string]string)
 
 	partitionRegex := w.stream.Self().StreamMetadata.PartitionRegex
 	if partitionRegex != "" {
@@ -37,7 +39,7 @@ func (w *NewIcebergGo) Setup(stream types.StreamInterface, options *destination.
 			return fmt.Errorf("failed to parse partition regex: %v", err)
 		}
 	}
-	
+
 	err := w.SetupIcebergClient()
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg client: %v", err)
@@ -59,33 +61,33 @@ func (w *NewIcebergGo) createIcebergSchema() ([]iceberg.NestedField, error) {
 		typeStr := property.DataType()
 
 		switch typeStr {
-			case types.Int32:
-				fieldType = &iceberg.Int32Type{}
-			case types.Int64:
-				fieldType = &iceberg.Int64Type{}
-			case types.Float32:
-				fieldType = &iceberg.Float32Type{}
-			case types.Float64:
-				fieldType = &iceberg.Float64Type{}
-			case types.String:
-				fieldType = &iceberg.StringType{}
-			case types.Bool:
-				fieldType = &iceberg.BooleanType{}
-			case types.Timestamp:
-				fieldType = &iceberg.TimestampType{}
-			case types.TimestampMilli:
-				fieldType = &iceberg.TimestampType{}
-			case types.TimestampMicro:
-				fieldType = &iceberg.TimestampType{}
-			case types.TimestampNano:
-				fieldType = &iceberg.TimestampType{}
-			default:
-				fieldType = &iceberg.StringType{} 
+		case types.Int32:
+			fieldType = &iceberg.Int32Type{}
+		case types.Int64:
+			fieldType = &iceberg.Int64Type{}
+		case types.Float32:
+			fieldType = &iceberg.Float32Type{}
+		case types.Float64:
+			fieldType = &iceberg.Float64Type{}
+		case types.String:
+			fieldType = &iceberg.StringType{}
+		case types.Bool:
+			fieldType = &iceberg.BooleanType{}
+		case types.Timestamp:
+			fieldType = &iceberg.TimestampType{}
+		case types.TimestampMilli:
+			fieldType = &iceberg.TimestampType{}
+		case types.TimestampMicro:
+			fieldType = &iceberg.TimestampType{}
+		case types.TimestampNano:
+			fieldType = &iceberg.TimestampType{}
+		default:
+			fieldType = &iceberg.StringType{}
 		}
 
-		fields = append(fields, iceberg.NestedField{ 
+		fields = append(fields, iceberg.NestedField{
 			Name:     name,
-			Type:     fieldType, 
+			Type:     fieldType,
 			Required: false,
 		})
 
@@ -102,24 +104,24 @@ func (w *NewIcebergGo) createRecordBuilder() {
 		var arrowType arrow.DataType
 		fieldType := field.Type
 		switch fieldType.(type) {
-			case *iceberg.Int32Type, iceberg.Int32Type:
-				arrowType = arrow.PrimitiveTypes.Int32
-			case *iceberg.Int64Type, iceberg.Int64Type:
-				arrowType = arrow.PrimitiveTypes.Int64
-			case *iceberg.Float32Type, iceberg.Float32Type:
-				arrowType = arrow.PrimitiveTypes.Float32
-			case *iceberg.Float64Type, iceberg.Float64Type:
-				arrowType = arrow.PrimitiveTypes.Float64
-			case *iceberg.StringType, iceberg.StringType:
-				arrowType = arrow.BinaryTypes.String
-			case *iceberg.BooleanType, iceberg.BooleanType:
-				arrowType = arrow.FixedWidthTypes.Boolean
-			case *iceberg.TimestampType, iceberg.TimestampType:
-				arrowType = &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: ""}
-			case *iceberg.TimestampTzType, iceberg.TimestampTzType:
-				arrowType = arrow.FixedWidthTypes.Timestamp_us
-			default:
-				arrowType = arrow.BinaryTypes.String
+		case *iceberg.Int32Type, iceberg.Int32Type:
+			arrowType = arrow.PrimitiveTypes.Int32
+		case *iceberg.Int64Type, iceberg.Int64Type:
+			arrowType = arrow.PrimitiveTypes.Int64
+		case *iceberg.Float32Type, iceberg.Float32Type:
+			arrowType = arrow.PrimitiveTypes.Float32
+		case *iceberg.Float64Type, iceberg.Float64Type:
+			arrowType = arrow.PrimitiveTypes.Float64
+		case *iceberg.StringType, iceberg.StringType:
+			arrowType = arrow.BinaryTypes.String
+		case *iceberg.BooleanType, iceberg.BooleanType:
+			arrowType = arrow.FixedWidthTypes.Boolean
+		case *iceberg.TimestampType, iceberg.TimestampType:
+			arrowType = &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: ""}
+		case *iceberg.TimestampTzType, iceberg.TimestampTzType:
+			arrowType = arrow.FixedWidthTypes.Timestamp_us
+		default:
+			arrowType = arrow.BinaryTypes.String
 		}
 
 		fields = append(fields, arrow.Field{
@@ -127,7 +129,6 @@ func (w *NewIcebergGo) createRecordBuilder() {
 			Type:     arrowType,
 			Nullable: !field.Required,
 		})
-
 	}
 
 	arrowSchema := arrow.NewSchema(fields, nil)
@@ -138,7 +139,7 @@ func (w *NewIcebergGo) Write(_ context.Context, record types.RawRecord) error {
 	schema := w.recordBuilder.Schema()
 	numFields := len(schema.Fields())
 
-	for i:=0; i<numFields; i++ {
+	for i := 0; i < numFields; i++ {
 		field := schema.Field(i)
 
 		val, ok := record.Data[field.Name]
@@ -197,18 +198,17 @@ func (w *NewIcebergGo) Write(_ context.Context, record types.RawRecord) error {
 			case time.Time:
 				builder.Append(arrow.Timestamp(v.UnixMicro()))
 			case int64:
-				builder.Append(arrow.Timestamp(v)) 
+				builder.Append(arrow.Timestamp(v))
 			default:
 				builder.AppendNull()
 			}
 		default:
 			builder.AppendNull()
 		}
-
 	}
-	
+
 	currentCount := w.recordsSize.Add(1)
-	
+
 	if currentCount >= arrowBuildersThreshold && !w.flushing.Load() {
 		logger.Infof("Threshold reached, starting flush")
 		if w.flushing.CompareAndSwap(false, true) {
@@ -245,7 +245,7 @@ func (w *NewIcebergGo) flushArrowBuilder() error {
 		mutex.Unlock()
 		logger.Infof("Mutex unlocked")
 	}()
-	
+
 	arrowRecord := w.recordBuilder.NewRecord()
 	defer arrowRecord.Release()
 
@@ -256,7 +256,7 @@ func (w *NewIcebergGo) flushArrowBuilder() error {
 	ctx := context.Background()
 	staticCreds := aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(w.config.AwsAccessKey, w.config.AwsSecretKey, ""))
 	cfg := aws.Config{
-		Region: w.config.AwsRegion,
+		Region:      w.config.AwsRegion,
 		Credentials: staticCreds,
 	}
 
@@ -268,7 +268,7 @@ func (w *NewIcebergGo) flushArrowBuilder() error {
 		"timestamp":  fmt.Sprintf("%d", time.Now().Unix()),
 		"rows-added": fmt.Sprintf("%d", arrowTable.NumRows()),
 	}
-	
+
 	w.iceTable, err = w.catalog.LoadTable(ctx, w.tableIdent, nil)
 	if err != nil {
 		return fmt.Errorf("failed to load table: %v", err)
@@ -298,7 +298,7 @@ func (w *NewIcebergGo) flushArrowBuilder() error {
 
 func getCommitMutex(configHash string) *sync.Mutex {
 	mutex, _ := commitMutexes.LoadOrStore(configHash, &sync.Mutex{})
-	count := 0	
+	count := 0
 	commitMutexes.Range(func(_, _ interface{}) bool {
 		count++
 		return true
