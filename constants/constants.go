@@ -24,3 +24,12 @@ const (
 	Postgres DriverType = "postgres"
 	MySQL    DriverType = "mysql"
 )
+
+var relationalDriverSet = map[string]bool{
+	string(Postgres): true,
+	string(MySQL):    true,
+}
+
+func IsRelationalDriver(driver string) bool {
+	return relationalDriverSet[driver]
+}

@@ -62,7 +62,7 @@ func GetWrappedCatalog(streams []*Stream, driverType string) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			AppendMode:     false,
-			Normalization:  driverType == string(constants.Postgres) || driverType == string(constants.MySQL), // Set normalization based on driver type
+			Normalization:  constants.IsRelationalDriver(driverType), // Set normalization based on driver type
 		})
 	}
 
