@@ -264,7 +264,7 @@ services:
     restart: "no"
 
   temporal-worker:
-    image: olakego/ui-worker:dev-latest
+    image: olakego/ui-worker:latest
     pull_policy: always
     container_name: olake-temporal-worker
     networks:
