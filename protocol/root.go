@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -20,7 +19,6 @@ var (
 	catalogPath           string
 	batchSize             int64
 	noSave                bool
-	airbyte               bool
 
 	catalog           *types.Catalog
 	state             *types.State
@@ -50,14 +48,6 @@ var RootCmd = &cobra.Command{
 		if ok := utils.IsValidSubcommand(commands, args[0]); !ok {
 			return fmt.Errorf("'%s' is an invalid command. Use 'olake --help' to display usage guide", args[0])
 		}
-		// Initialize configfolder if configPath is empty
-		if configPath == "" {
-			wd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("failed to get working directory: %w", err)
-			}
-			viper.Set("configFolder", wd)
-		}
 
 		return nil
 	},
@@ -78,7 +68,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
-	RootCmd.PersistentFlags().BoolVarP(&airbyte, "airbyte", "", false, "(Optional) Print Config wrapped like airbyte")
 
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
