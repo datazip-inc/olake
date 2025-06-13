@@ -28,6 +28,7 @@ type Mongo struct {
 	client     *mongo.Client
 	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
 	cdcCursor  sync.Map
+	state      *types.State // reference to globally present state
 }
 
 // config reference; must be pointer
@@ -79,6 +80,10 @@ func (m *Mongo) Close(ctx context.Context) error {
 
 func (m *Mongo) Type() string {
 	return string(constants.MongoDB)
+}
+
+func (m *Mongo) SetupState(state *types.State) {
+	m.state = state
 }
 
 func (m *Mongo) MaxConnections() int {
