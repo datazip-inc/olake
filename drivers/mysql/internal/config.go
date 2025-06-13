@@ -76,7 +76,7 @@ func (c *Config) Validate() error {
 	if c.Database == "" {
 		c.Database = "mysql"
 	}
-	
+
 	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
