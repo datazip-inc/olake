@@ -24,6 +24,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		sort.Strings(pkColumns)
 		// Get chunks from state or calculate new ones
 		stmt := utils.Ternary(chunkColumn != "", jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk), utils.Ternary(len(pkColumns) > 0, jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk), jdbc.MysqlLimitOffsetScanQuery(stream, chunk))).(string)
+		logger.Infof("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
@@ -55,15 +56,15 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			// Get primary key column using the provided function
-			pkColumns := []string{chunkColumn}
-			if chunkColumn == "" {
-				pkColumns = stream.GetStream().SourceDefinedPrimaryKey.Array()
-				sort.Strings(pkColumns)
+			pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
+			if chunkColumn != "" {
+				pkColumns = []string{chunkColumn}
 			}
+			sort.Strings(pkColumns)
 			// Get table extremes
 			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get table extremes: %s", err)
 			}
 			if minVal == nil {
 				return nil
@@ -85,12 +86,10 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 				// Create args array with the correct number of arguments for the query
 				args := make([]interface{}, 0)
-				for i := 0; i < len(pkColumns); i++ {
+				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
 					// For each column combination in the WHERE clause, we need to add the necessary parts
-					for j := 0; j <= i; j++ {
-						if j < len(parts) {
-							args = append(args, parts[j])
-						}
+					for partIndex := 0; partIndex <= columnIndex && partIndex < len(parts); partIndex++ {
+						args = append(args, parts[partIndex])
 					}
 				}
 				var nextValRaw interface{}
@@ -119,11 +118,11 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 	limitOffsetChunking := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
-		return jdbc.WithIsolation(context.Background(), m.client, func(tx *sql.Tx) error {
+		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			query := jdbc.CalculateTotalRows(stream)
-			var totalRows uint64
+			var totalRows int64
 			logger.Infof("Query for total rows: %s", query)
-			err = m.client.QueryRow(query).Scan(&totalRows)
+			err := m.client.QueryRowContext(ctx, query).Scan(&totalRows)
 			if err != nil {
 				return fmt.Errorf("failed to calculate total Rows: %w", err)
 			}
@@ -131,13 +130,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				Min: nil,
 				Max: utils.ConvertToString(chunkSize),
 			})
-			lastChunk := uint64(chunkSize)
+			lastChunk := int64(chunkSize)
 			for lastChunk < totalRows {
 				chunks.Insert(types.Chunk{
 					Min: utils.ConvertToString(lastChunk),
-					Max: utils.ConvertToString(lastChunk + uint64(chunkSize)),
+					Max: utils.ConvertToString(lastChunk + int64(chunkSize)),
 				})
-				lastChunk += uint64(chunkSize)
+				lastChunk += int64(chunkSize)
 			}
 			chunks.Insert(types.Chunk{
 				Min: utils.ConvertToString(lastChunk),
@@ -158,8 +157,5 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
 	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
 	err = tx.QueryRow(query).Scan(&min, &max)
-	if err != nil {
-		return "", "", err
-	}
 	return min, max, err
 }

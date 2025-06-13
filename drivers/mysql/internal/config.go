@@ -21,7 +21,7 @@ type Config struct {
 	TLSSkipVerify bool           `json:"tls_skip_verify"` // Add this field
 	UpdateMethod  interface{}    `json:"update_method"`
 	DefaultMode   types.SyncMode `json:"default_mode"`
-	BatchSize     int            `json:"reader_batch_size"`
+	BatchSize     int            `json:"reader_batch_size"` // Default batch size for reading records is 10000
 	MaxThreads    int            `json:"max_threads"`
 	RetryCount    int            `json:"backoff_retry_count"`
 }

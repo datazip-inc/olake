@@ -17,6 +17,23 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 }
 
 // NextChunkEndQuery returns the query to calculate the next chunk boundary
+// Example:
+// Input:
+//
+//	stream.Namespace() = "mydb"
+//	stream.Name() = "users"
+//	columns = []string{"id", "created_at"}
+//	chunkSize = 1000
+//
+// Output:
+//
+//	SELECT MAX(key_str) FROM (
+//	  SELECT CONCAT_WS(',', id, created_at) AS key_str
+//	  FROM `mydb`.`users`
+//	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
+//	  ORDER BY id, created_at
+//	  LIMIT 1000
+//	) AS subquery
 func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int) string {
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
