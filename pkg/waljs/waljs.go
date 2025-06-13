@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -14,7 +16,8 @@ import (
 )
 
 const (
-	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn, pg_current_wal_lsn() as current_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	noRecordErr          = "no record found"
 )
 
 var pluginArguments = []string{
@@ -29,12 +32,12 @@ type Socket struct {
 	pgConn *pgconn.PgConn
 	// clientXLogPos tracks the current position in the Write-Ahead Log (WAL)
 	ClientXLogPos pglogrepl.LSN
-	// idleStartTime tracks when the connection last received data
-	idleStartTime time.Time
 	// changeFilter filters WAL changes based on configured tables
 	changeFilter ChangeFilter
 	// confirmedLSN is the position from which replication should start (Prev marked lsn)
 	ConfirmedFlushLSN pglogrepl.LSN
+	// Current wal position till where sync has to happen
+	currentWalPosition pglogrepl.LSN
 	// replicationSlot is the name of the PostgreSQL replication slot being used
 	replicationSlot string
 	// initialWaitTime is the duration to wait for initial data before timing out
@@ -53,6 +56,19 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		return nil, fmt.Errorf("failed to parse connection url: %s", err)
 	}
 
+	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
+		logger.Warnf("notice received from pg conn: %s", n.Message)
+	}
+
+	cfg.OnNotification = func(_ *pgconn.PgConn, n *pgconn.Notification) {
+		logger.Warnf("notification received from pg conn: %s", n.Payload)
+	}
+
+	cfg.OnPgError = func(_ *pgconn.PgConn, pe *pgconn.PgError) bool {
+		logger.Warnf("pg conn thrown code[%s] and error: %s", pe.Code, pe.Message)
+		// close connection and fail sync
+		return false
+	}
 	if config.TLSConfig != nil {
 		// TODO: use proper TLS Configurations
 		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: false, MinVersion: tls.VersionTLS12}
@@ -80,33 +96,42 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 
 	// Create and return final connection object
 	return &Socket{
-		pgConn:            pgConn,
-		changeFilter:      NewChangeFilter(typeConverter, config.Tables.Array()...),
-		ConfirmedFlushLSN: slot.LSN,
-		ClientXLogPos:     slot.LSN,
-		replicationSlot:   config.ReplicationSlotName,
-		initialWaitTime:   config.InitialWaitTime,
+		pgConn:             pgConn,
+		changeFilter:       NewChangeFilter(typeConverter, config.Tables.Array()...),
+		ConfirmedFlushLSN:  slot.LSN,
+		ClientXLogPos:      slot.LSN,
+		currentWalPosition: slot.CurrentLSN,
+		replicationSlot:    config.ReplicationSlotName,
+		initialWaitTime:    config.InitialWaitTime,
 	}, nil
 }
 
 // Confirm that Logs has been recorded
-func (s *Socket) AcknowledgeLSN(ctx context.Context) error {
+func (s *Socket) AcknowledgeLSN(ctx context.Context, fakeAck bool) error {
+	walPosition := s.ClientXLogPos
+	if fakeAck {
+		walPosition = s.ConfirmedFlushLSN
+	}
 	err := pglogrepl.SendStandbyStatusUpdate(ctx, s.pgConn, pglogrepl.StandbyStatusUpdate{
-		WALWritePosition: s.ClientXLogPos,
-		WALFlushPosition: s.ClientXLogPos,
+		WALWritePosition: walPosition,
+		WALFlushPosition: walPosition,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send standby status message: %s", err)
 	}
 
 	// Update local pointer and state
-	logger.Debugf("sent standby status message at LSN#%s", s.ClientXLogPos.String())
+	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
 	return nil
 }
 
-func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
+func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
-	// TODO: need research on if we need initial wait time or not (currently we are using idle time)
+	var tables []string
+	for key := range s.changeFilter.tables {
+		tables = append(tables, key)
+	}
+	pluginArguments = append(pluginArguments, fmt.Sprintf("\"add-tables\" '%s'", strings.Join(tables, ",")))
 	if err := pglogrepl.StartReplication(
 		ctx,
 		s.pgConn,
@@ -116,22 +141,30 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 	); err != nil {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
-	logger.Infof("Started logical replication on slot[%s]", s.replicationSlot)
-	s.idleStartTime = time.Now()
+	logger.Infof("Started logical replication for slot[%s] from lsn[%s] to lsn[%s]", s.replicationSlot, s.ConfirmedFlushLSN, s.currentWalPosition)
+	messageReceived := false
+	cdcStartTime := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			if time.Since(s.idleStartTime) > s.initialWaitTime {
-				logger.Debug("Idle timeout reached while waiting for new messages")
+			if !messageReceived && s.initialWaitTime > 0 && time.Since(cdcStartTime) > s.initialWaitTime {
+				logger.Warnf("no records found in given initial wait time, try increasing it or do full load")
 				return nil
 			}
-			// Use a context with timeout for receiving a message.
+
+			if s.ClientXLogPos >= s.currentWalPosition {
+				logger.Infof("finishing sync, reached wal position: %s", s.currentWalPosition)
+				return nil
+			}
+
 			msg, err := s.pgConn.ReceiveMessage(ctx)
-			// If the receive timed out, log the idle state and continue waiting.
 			if err != nil {
-				return fmt.Errorf("failed to receive message from wal: %s", err)
+				if strings.Contains(err.Error(), "EOF") {
+					return nil
+				}
+				return fmt.Errorf("failed to receive message from wal logs: %s", err)
 			}
 
 			// Process only CopyData messages.
@@ -143,29 +176,34 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 			switch copyData.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				// For keepalive messages, process them (but no ack is sent here).
-				_, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
+				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %s", err)
 				}
-
+				if pkm.ReplyRequested {
+					logger.Debugf("keep alive message received: %v", pkm)
+					// send fake acknowledgement
+					err := s.AcknowledgeLSN(ctx, true)
+					if err != nil {
+						return fmt.Errorf("failed to ack lsn: %s", err)
+					}
+					s.ClientXLogPos = pkm.ServerWALEnd
+				}
 			case pglogrepl.XLogDataByteID:
 				// Reset the idle timer on receiving WAL data.
-				s.idleStartTime = time.Now()
 				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
 					return fmt.Errorf("failed to parse XLogData: %s", err)
 				}
-				// Calculate new LSN based on the received WAL data.
-				newLSN := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 				// Process change with the provided callback.
-				if err := s.changeFilter.FilterChange(newLSN, xld.WALData, callback); err != nil {
+				nextLSN, records, err := s.changeFilter.FilterChange(xld.WALData, callback)
+				if err != nil {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}
-				// Update the current LSN pointer.
-				s.ClientXLogPos = newLSN
-
+				messageReceived = records > 0 || messageReceived
+				s.ClientXLogPos = *nextLSN
 			default:
-				logger.Debugf("received unhandled message type: %v", copyData.Data[0])
+				logger.Warnf("received unhandled message type: %v", copyData.Data[0])
 			}
 		}
 	}
@@ -173,5 +211,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback OnMessage) error {
 
 // cleanUpOnFailure drops replication slot and publication if database snapshotting was failed for any reason
 func (s *Socket) Cleanup(ctx context.Context) {
-	_ = s.pgConn.Close(ctx)
+	if s.pgConn != nil {
+		_ = s.pgConn.Close(ctx)
+	}
 }

@@ -29,7 +29,7 @@ function chalk() {
 function build_java_project() {
     echo "Building Java project with Maven..."
     # Change to the directory containing the POM file
-    cd writers/iceberg/debezium-server-iceberg-sink || fail "Failed to change to Maven project directory"
+    cd destination/iceberg/olake-iceberg-java-writer || fail "Failed to change to Maven project directory"
     echo "Building Maven project in $(pwd)"
     mvn clean package -Dmaven.test.skip=true || fail "Maven build failed"
     # Return to the original directory
@@ -52,6 +52,20 @@ function setup_buildx() {
     docker buildx create --use --name multiarch-builder || echo "Buildx builder already exists, using it."
     docker buildx inspect --bootstrap || fail "Failed to bootstrap buildx builder"
     echo "✅ Buildx and QEMU setup complete"
+}
+
+function generate_specs() {
+    local driver=$1
+    echo "Generating specs for driver: $driver"
+    
+    # Generate driver spec
+    ./build.sh driver-${driver} spec
+    
+    # Generate destination specs with correct config paths
+    ./build.sh driver-${driver} spec --destination iceberg
+    ./build.sh driver-${driver} spec --destination parquet
+    
+    echo "$(chalk green "✅ Specs generated successfully")"
 }
 
 # Function to perform the release
@@ -80,7 +94,7 @@ function release() {
 
     # Attempt multi-platform build
     echo "Attempting multi-platform build..."
-    
+
     docker buildx build --platform "$platform" --push \
         -t "${image_name}:${tag_version}" \
         -t "${image_name}:${latest_tag}" \
@@ -140,5 +154,8 @@ type="source"
 
 # Build Java project
 build_java_project
+
+# Generate specs for driver and all destinations
+generate_specs "$connector"
 
 release "$VERSION" "$platform" "$CURRENT_BRANCH"

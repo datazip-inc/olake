@@ -70,7 +70,7 @@ We have additionally planned the following sources -  [AWS S3](https://github.co
 | Glue Catalog               | Supported                                                                                                      |
 | Hive Meta Store            | Supported                                                                                                 |
 | JDBC Catalogue             | Supported                                                                                                 |
-| REST Catalogue             | Supported                                                                                                 |
+| REST Catalogue             | Supported (with AWS S3 table)                                                                                                |
 | Azure Purview              | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 | BigLake Metastore          | Not Planned, [submit a request](https://github.com/datazip-inc/olake/issues/new?template=new-feature.md) |
 

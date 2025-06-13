@@ -2,30 +2,154 @@ package driver
 
 import (
 	"fmt"
-	"net/url"
+	"github.com/go-sql-driver/mysql"
 	"strings"
 
-	"github.com/datazip-inc/olake/drivers/base"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
 
-// Config represents the configuration for connecting to a MySQL database
 type Config struct {
-	Host          string         `json:"hosts"`
-	Username      string         `json:"username"`
-	Password      string         `json:"password"`
-	Database      string         `json:"database"`
-	Port          int            `json:"port"`
-	TLSSkipVerify bool           `json:"tls_skip_verify"` // Add this field
-	UpdateMethod  interface{}    `json:"update_method"`
-	DefaultMode   types.SyncMode `json:"default_mode"`
-	MaxThreads    int            `json:"max_threads"`
-	RetryCount    int            `json:"backoff_retry_count"`
+	// Host
+	//
+	// @jsonSchema(
+	//   title="MySQL Host",
+	//   description="Database host addresses for connection",
+	//   type="string",
+	//   default="mysql-host",
+	//   order=1
+	// )
+	Host string `json:"hosts"`
+
+	// Username
+	//
+	// @jsonSchema(
+	//   title="Username",
+	//   description="Username used to authenticate with the database",
+	//   type="string",
+	//   default="mysql-user",
+	//   order=4
+	// )
+	Username string `json:"username"`
+
+	// Password
+	//
+	// @jsonSchema(
+	//   title="Password",
+	//   description="Password for database authentication",
+	//   type="string",
+	//   format="password",
+	//   default="mysql-password",
+	//   order=5
+	// )
+	Password string `json:"password"`
+
+	// Database
+	//
+	// @jsonSchema(
+	//   title="Database",
+	//   description="Name of the database to use for connection",
+	//   type="string",
+	//   default="mysql-database",
+	//   order=3
+	// )
+	Database string `json:"database"`
+
+	// Port
+	//
+	// @jsonSchema(
+	//   title="Port",
+	//   description="Database server listening port",
+	//   type="integer",
+	//   default=3306,
+	//   order=2
+	// )
+	Port int `json:"port"`
+
+	// TLSSkipVerify
+	//
+	// @jsonSchema(
+	//   title="Skip TLS Verification",
+	//   description="Determines if TLS certificate verification should be skipped for secure connections",
+	//   type="boolean",
+	//   default=true,
+	//   order=10
+	// )
+	TLSSkipVerify bool `json:"tls_skip_verify"`
+
+	// UpdateMethod
+	//
+	// @jsonSchema(
+	//   title="Update Method",
+	//   description="Method to use for updates",
+	//   oneOf=["CDC","FullRefresh"],
+	//   order=6
+	// )
+	UpdateMethod interface{} `json:"update_method"`
+
+	// DefaultMode
+	//
+	// @jsonSchema(
+	//   title="Default Mode",
+	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
+	//   type="string",
+	//   default="cdc",
+	//   order=7
+	// )
+	DefaultMode types.SyncMode `json:"default_mode"`
+
+	// MaxThreads
+	//
+	// @jsonSchema(
+	//   title="Max Threads",
+	//   description="Maximum concurrent threads for data sync",
+	//   type="integer",
+	//   default=5,
+	//   order=8
+	// )
+	MaxThreads int `json:"max_threads"`
+
+	// RetryCount
+	//
+	// @jsonSchema(
+	//   title="Backoff Retry Count",
+	//   description="Number of sync retries (exponential backoff on failure)",
+	//   type="integer",
+	//   default=2,
+	//   order=9
+	// )
+	RetryCount int `json:"backoff_retry_count"`
 }
+
+// CDC represents the Change Data Capture configuration
+//
+// @jsonSchema(
+//
+//	title="CDC",
+//	description="Change Data Capture configuration"
+//
+// )
 type CDC struct {
+	// InitialWaitTime
+	//
+	// @jsonSchema(
+	//   title="Initial Wait Time",
+	//   description="Idle timeout for Bin log reading",
+	//   type="integer",
+	//   default=10
+	// )
 	InitialWaitTime int `json:"intial_wait_time"`
 }
+
+// FullRefresh represents the full refresh configuration
+//
+// @jsonSchema(
+//
+//	title="Full Refresh"
+//
+// )
+type FullRefresh struct{}
 
 // URI generates the connection URI for the MySQL database
 func (c *Config) URI() string {
@@ -39,15 +163,16 @@ func (c *Config) URI() string {
 		hostStr = "localhost"
 	}
 
-	// Construct full connection string
-	return fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s",
-		url.QueryEscape(c.Username),
-		url.QueryEscape(c.Password),
-		hostStr,
-		c.Port,
-		url.QueryEscape(c.Database),
-	)
+	cfg := mysql.Config{
+		User:                 c.Username,
+		Passwd:               c.Password,
+		Net:                  "tcp",
+		Addr:                 fmt.Sprintf("%s:%d", hostStr, c.Port),
+		DBName:               c.Database,
+		AllowNativePasswords: true,
+	}
+
+	return cfg.FormatDSN()
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -78,12 +203,12 @@ func (c *Config) Validate() error {
 
 	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = base.DefaultThreadCount // Aligned with PostgreSQL default
+		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
 	}
 
 	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
-		c.RetryCount = base.DefaultRetryCount // Reasonable default for retries
+		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
 
 	return utils.Validate(c)

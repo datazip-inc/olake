@@ -11,25 +11,165 @@ import (
 )
 
 type Config struct {
-	Connection       *url.URL          `json:"-"`
-	Host             string            `json:"host"`
-	Port             int               `json:"port"`
-	Database         string            `json:"database"`
-	Username         string            `json:"username"`
-	Password         string            `json:"password"`
-	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
-	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
-	UpdateMethod     interface{}       `json:"update_method"`
-	DefaultSyncMode  types.SyncMode    `json:"default_mode"`
-	BatchSize        int               `json:"reader_batch_size"`
-	MaxThreads       int               `json:"max_threads"`
+	Connection *url.URL `json:"-"`
+
+	// Host
+	//
+	// @jsonSchema(
+	//   title="Postgres Host",
+	//   description="Database host address for connection",
+	//   type="string",
+	//   required=true,
+	//   order=1
+	// )
+	Host string `json:"host"`
+
+	// Port
+	//
+	// @jsonSchema(
+	//   title="Postgres Port",
+	//   description="Database server listening port",
+	//   type="integer",
+	//   default=5432,
+	//   required=true,
+	//   order=2
+	// )
+	Port int `json:"port"`
+
+	// Database
+	//
+	// @jsonSchema(
+	//   title="Database Name",
+	//   description="Name of the database to use for connection",
+	//   type="string",
+	//   required=true,
+	//   order=3
+	// )
+	Database string `json:"database"`
+
+	// Username
+	//
+	// @jsonSchema(
+	//   title="Username",
+	//   description="Username used to authenticate with the database",
+	//   type="string",
+	//   required=true,
+	//   order=4
+	// )
+	Username string `json:"username"`
+
+	// Password
+	//
+	// @jsonSchema(
+	//   title="Password",
+	//   description="Password for database authentication",
+	//   type="string",
+	//   format="password",
+	//   required=true,
+	//   order=5
+	// )
+	Password string `json:"password"`
+
+	// JDBCURLParams
+	//
+	// @jsonSchema(
+	//   title="JDBC URL Parameters",
+	//   description="Additional JDBC URL parameters for connection tuning (optional)",
+	//   type="string",
+	//   order=6
+	// )
+	JDBCURLParams map[string]string `json:"jdbc_url_params"`
+
+	// SSLConfiguration
+	//
+	// @jsonSchema(
+	//   title="SSL Configuration",
+	//   description="Database connection SSL configuration (e.g., SSL mode)",
+	//   order=7
+	// )
+	SSLConfiguration *utils.SSLConfig `json:"ssl"`
+
+	// @jsonSchema(
+	//   title="Update Method",
+	//   description="Method to use for updates (CDC - Change Data Capture or Full Refresh)",
+	//   oneOf=["CDC","FullRefresh"],
+	//   order=8
+	// )
+	UpdateMethod interface{} `json:"update_method"`
+
+	// DefaultSyncMode
+	//
+	// @jsonSchema(
+	//   title="Default Mode",
+	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
+	//   type="string",
+	//   default="cdc",
+	//   order=10
+	// )
+	DefaultSyncMode types.SyncMode `json:"default_mode"`
+
+	// BatchSize
+	//
+	// @jsonSchema(
+	//   title="Reader Batch Size",
+	//   description="Max batch size for read operations",
+	//   type="integer",
+	//   default=100000,
+	//   order=9
+	// )
+	BatchSize int `json:"reader_batch_size"`
+
+	// MaxThreads
+	//
+	// @jsonSchema(
+	//   title="Max Threads",
+	//   description="Max parallel threads for chunk snapshotting",
+	//   type="integer",
+	//   default=5,
+	//   order=11
+	// )
+	MaxThreads int `json:"max_threads"`
+	RetryCount int `json:"retry_count"`
 }
 
-// Capture Write Ahead Logs
+// CDC represents the Change Data Capture configuration
+//
+// @jsonSchema(
+//
+//	title="CDC",
+//	description="Change Data Capture configuration"
+//
+// )
 type CDC struct {
+	// ReplicationSlot
+	//
+	// @jsonSchema(
+	// title="Replication Slot",
+	// description="Slot to retain WAL logs for consistent replication",
+	// type="string",
+	// default="postgres_slot"
+	// )
 	ReplicationSlot string `json:"replication_slot"`
-	InitialWaitTime int    `json:"intial_wait_time"`
+
+	// InitialWaitTime
+	//
+	// @jsonSchema(
+	//   title="Initial Wait Time",
+	//   description="Idle timeout for WAL log reading",
+	//   type="integer",
+	//   default=10
+	// )
+	InitialWaitTime int `json:"intial_wait_time"`
 }
+
+// FullRefresh represents the full refresh configuration
+//
+// @jsonSchema(
+//
+//	title="Full Refresh"
+//
+// )
+type FullRefresh struct{}
 
 func (c *Config) Validate() error {
 	if c.Host == "" {

@@ -1,22 +1,26 @@
 package constants
 
+import "time"
+
 const (
-	ParquetFileExt       = "parquet"
-	MongoPrimaryID       = "_id"
-	MongoPrimaryIDPrefix = `ObjectID("`
-	MongoPrimaryIDSuffix = `")`
-	OlakeID              = "_olake_id"
-	OlakeTimestamp       = "_olake_timestamp"
-	OpType               = "_op_type"
-	CdcTimestamp         = "_cdc_timestamp"
-	DBName               = "_db"
+	DefaultRetryCount      = 3
+	DefaultThreadCount     = 3
+	DefaultDiscoverTimeout = 5 * time.Minute
+	DefaultRetryTimeout    = 60 * time.Second
+	ParquetFileExt         = "parquet"
+	PartitionRegex         = `\{([^}]+)\}`
+	MongoPrimaryID         = "_id"
+	OlakeID                = "_olake_id"
+	OlakeTimestamp         = "_olake_timestamp"
+	OpType                 = "_op_type"
+	CdcTimestamp           = "_cdc_timestamp"
+	DBName                 = "_db"
 )
 
-// OlakeInternalFieldsMap provides O(1) lookup for checking if a field is internal
-var OlakeInternalFieldsMap = map[string]bool{
-	OlakeID:        true,
-	OlakeTimestamp: true,
-	OpType:         true,
-	CdcTimestamp:   true,
-	DBName:         true,
-}
+type DriverType string
+
+const (
+	MongoDB  DriverType = "mongodb"
+	Postgres DriverType = "postgres"
+	MySQL    DriverType = "mysql"
+)
