@@ -3,7 +3,9 @@ package protocol
 import (
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/datazip-inc/olake/telemetry"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/spf13/cobra"
@@ -25,17 +27,36 @@ var discoverCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		// Discover Telemetry Tracking
+		startTime := time.Now()
+		var discoverError error
+		var streamCount int
+
+		defer func() {
+			telemetry.TrackDiscoverCompleted(
+				time.Since(startTime).Seconds(),
+				discoverError == nil,
+				streamCount,
+				connector.Type(),
+				discoverError,
+			)
+			telemetry.Flush()
+		}()
 		err := connector.Setup(cmd.Context())
 		if err != nil {
+			discoverError = err
 			return err
 		}
 		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
+			discoverError = err
 			return err
 		}
 
-		if len(streams) == 0 {
-			return errors.New("no streams found in connector")
+		streamCount = len(streams)
+		if streamCount == 0 {
+			discoverError = errors.New("no streams found in connector")
+			return discoverError
 		}
 
 		types.LogCatalog(streams)

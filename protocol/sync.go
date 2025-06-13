@@ -2,16 +2,24 @@ package protocol
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/datazip-inc/olake/destination"
-
+	"github.com/datazip-inc/olake/telemetry"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
+
+var syncMetrics struct {
+	success       bool
+	memoryUsageMB uint64
+	err           error
+}
 
 // syncCmd represents the read command
 var syncCmd = &cobra.Command{
@@ -60,16 +68,22 @@ var syncCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
 		if err != nil {
+			syncMetrics.err = err
+			syncMetrics.success = false
 			return err
 		}
 		// setup conector first
 		err = connector.Setup(cmd.Context())
 		if err != nil {
+			syncMetrics.err = err
+			syncMetrics.success = false
 			return err
 		}
 		// Get Source Streams
 		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
+			syncMetrics.err = err
+			syncMetrics.success = false
 			return err
 		}
 
@@ -130,6 +144,7 @@ var syncCmd = &cobra.Command{
 		})
 		state.Streams = cdcStreamsState
 		if len(selectedStreams) == 0 {
+			syncMetrics.err = err
 			return fmt.Errorf("no valid streams found in catalog")
 		}
 
@@ -142,13 +157,86 @@ var syncCmd = &cobra.Command{
 
 		// Setup State for Connector
 		connector.SetupState(state)
+
+		// Sync Telemetry tracking
+		startTime := time.Now()
+		configHash := telemetry.ComputeConfigHash(configPath, destinationConfigPath)
+
+		// catalog type if destination is Iceberg
+		configMp, exist := destinationConfig.WriterConfig.(map[string]interface{})
+		if !exist {
+			return fmt.Errorf("invalid WriterConfig format, expected map[string]interface{}")
+		}
+		catalogType := ""
+		if string(destinationConfig.Type) == "ICEBERG" {
+			catalogType = configMp["catalog_type"].(string)
+		}
+
+		telemetry.TrackSyncStarted(
+			len(streams),
+			len(selectedStreams),
+			len(cdcStreams),
+			statePath != "",
+			configHash,
+			connector.Type(),
+			string(destinationConfig.Type),
+			catalogType,
+			countNormalizedStreams(catalog),
+			countPartitionedStreams(catalog),
+		)
+		defer func() {
+			metrics := telemetry.SyncResult(configHash, syncMetrics.success)
+			telemetry.TrackSyncCompleted(
+				syncMetrics.success,
+				pool.SyncedRecords(),
+				pool.ThreadCounter.Load(),
+				time.Since(startTime).Seconds(),
+				syncMetrics.memoryUsageMB,
+				metrics,
+				syncMetrics.err,
+			)
+			telemetry.Flush()
+		}()
+
 		// init group
 		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
 		if err != nil {
+			syncMetrics.err = err
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
 		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogWithLock()
+		// Capture memory usage and duration
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		syncMetrics.memoryUsageMB = memStats.HeapInuse / (1024 * 1024)
+		if err != nil {
+			syncMetrics.err = err
+			return err
+		}
+
+		// On success
+		syncMetrics.success = true
 		return nil
 	},
+}
+
+func countNormalizedStreams(catalog *types.Catalog) int {
+	count := 0
+	for _, s := range catalog.Streams {
+		if s.StreamMetadata.Normalization {
+			count++
+		}
+	}
+	return count
+}
+
+func countPartitionedStreams(catalog *types.Catalog) int {
+	count := 0
+	for _, s := range catalog.Streams {
+		if s.StreamMetadata.PartitionRegex != "" {
+			count++
+		}
+	}
+	return count
 }
