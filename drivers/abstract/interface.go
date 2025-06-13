@@ -8,6 +8,7 @@ import (
 )
 
 type BackfillMsgFn func(message map[string]any) error
+type IncrementalMsgFn func(message map[string]any) error
 type CDCMsgFn func(message CDCChange) error
 
 type Config interface {
@@ -30,6 +31,8 @@ type DriverInterface interface {
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
+	// specific to incremental
+	StreamIncremental(ctx context.Context, stream types.StreamInterface, processFn IncrementalMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state

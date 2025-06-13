@@ -110,6 +110,16 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
+	// separate streams for incremental and full refresh
+	var incrementalStreams, fullRefreshStreams []types.StreamInterface
+	for _, stream := range standardStreams {
+		if stream.GetSyncMode() == types.INCREMENTAL {
+			incrementalStreams = append(incrementalStreams, stream)
+		} else {
+			fullRefreshStreams = append(fullRefreshStreams, stream)
+		}
+	}
+
 	// run cdc sync
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {
@@ -121,8 +131,15 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		}
 	}
 
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
+	// start incremental ffor incremental streams
+	if len(incrementalStreams) > 0 {
+		if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
+			return fmt.Errorf("failed to run incremental sync: %s", err)
+		}
+	}
+
+	// start backfill for full refresh streams
+	for _, stream := range fullRefreshStreams {
 		a.GlobalCtxGroup.Add(func(ctx context.Context) error {
 			return a.Backfill(ctx, nil, pool, stream)
 		})
