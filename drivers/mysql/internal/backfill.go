@@ -15,6 +15,10 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+const (
+	chunkSize = 500000
+) // Default chunk size for MySQL
+
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
@@ -52,7 +56,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
-	chunkSize := m.config.BatchSize
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			// Get primary key column using the provided function
@@ -82,14 +85,14 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			currentVal := minVal
 			for {
 				// Split the current value into parts
-				parts := strings.Split(utils.ConvertToString(currentVal), ",")
+				columns := strings.Split(utils.ConvertToString(currentVal), ",")
 
 				// Create args array with the correct number of arguments for the query
 				args := make([]interface{}, 0)
 				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
 					// For each column combination in the WHERE clause, we need to add the necessary parts
-					for partIndex := 0; partIndex <= columnIndex && partIndex < len(parts); partIndex++ {
-						args = append(args, parts[partIndex])
+					for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
+						args = append(args, columns[partIndex])
 					}
 				}
 				var nextValRaw interface{}

@@ -43,16 +43,16 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 		stream.Name(),
 	)
 	// WHERE clause for lexicographic "greater than"
-	fmt.Fprintf(&query, " WHERE ")
-	for i := 0; i < len(columns); i++ {
-		if i > 0 {
+	query.WriteString(" WHERE ")
+	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
+		if currentColIndex > 0 {
 			query.WriteString(" OR ")
 		}
 		query.WriteString("(")
-		for j := 0; j < i; j++ {
-			fmt.Fprintf(&query, "`%s` = ? AND ", columns[j])
+		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
+			fmt.Fprintf(&query, "`%s` = ? AND ", columns[equalityColIndex])
 		}
-		fmt.Fprintf(&query, "`%s` > ?", columns[i])
+		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
 		query.WriteString(")")
 	}
 	// ORDER + LIMIT
