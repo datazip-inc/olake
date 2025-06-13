@@ -161,7 +161,6 @@ Before running the Sync command, the generated `streams.json` file must be confi
          {
             "stream": {
                "name": "incr2",
-               "namespace": "incr",
                ...
                "sync_mode": "full_refresh"
             }
@@ -238,6 +237,15 @@ For Detailed overview check [here.](https://olake.io/docs/category/destinations-
 
 ### Sync Command
 The *Sync* command fetches data from Kafka and ingests it into the destination.
+Currently 2 modes are supported: Full_Refresh and Incremental. 
+- In case of Full_Refresh, all the messages from the selected topic will be synced from start offset till the latest offset. 
+- In case of Incremental :
+   - For this sync, cursor field from the available cursor field needs to be provided.
+   ```json
+   "cursor_field" = "offset"
+   ```
+   - if `auto_offset_reset = earliest` then all the unread messages by the consumer will be synced from the start offset, with any of new incoming messages.
+   - if `auto_offset_reset = latest` then all the new incoming messages will be synced.
 
 ```bash
 ./build.sh driver-kafka sync --config /Kafka/examples/source.json --catalog /Kafka/examples/streams.json --destination /Kafka/examples/destination.json
