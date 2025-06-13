@@ -102,6 +102,10 @@ func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
 }
 
+func (a *AbstractDriver) Type() string {
+	return a.driver.Type()
+}
+
 // Read handles different sync modes for data retrieval
 func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, standardStreams, cdcStreams []types.StreamInterface) error {
 	// set max read connections

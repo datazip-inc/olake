@@ -6,6 +6,7 @@ import (
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/jsonschema"
 	"github.com/datazip-inc/olake/utils/logger"
 
@@ -17,8 +18,12 @@ var specCmd = &cobra.Command{
 	Short: "spec command",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		var config any
+		var fileName string
+
 		if destinationConfigPath == "not-set" {
 			config = connector.Spec()
+			fileName = "spec"
+
 		} else {
 			writerConfig := types.WriterConfig{
 				Type: types.AdapterType(strings.ToUpper(destinationConfigPath)),
@@ -31,6 +36,15 @@ var specCmd = &cobra.Command{
 
 			writer := newFunc()
 			config = writer.Spec()
+			fileName = fmt.Sprintf("%s-spec", strings.ToLower(destinationConfigPath))
+		}
+
+		// Check if spec already exists
+		var specData map[string]interface{}
+		if err := utils.UnmarshalFile(fmt.Sprintf("%s.json", fileName), &specData); err == nil {
+			logger.Info(specData)
+			logger.FileLogger(specData, fileName, ".json")
+			return nil
 		}
 
 		schemaVal, err := jsonschema.Reflect(config)
@@ -42,7 +56,8 @@ var specCmd = &cobra.Command{
 			"spec": schemaVal,
 		}
 
-		logger.FileLogger(specSchema, "spec", ".json")
+		logger.Info(specSchema)
+		logger.FileLogger(specSchema, fileName, ".json")
 
 		return nil
 	},
