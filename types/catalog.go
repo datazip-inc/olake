@@ -1,6 +1,9 @@
 package types
 
-import "github.com/datazip-inc/olake/constants"
+import (
+	"github.com/datazip-inc/olake/constants"
+	"github.com/goccy/go-json"
+)
 
 // Message is a dto for olake output row representation
 type Message struct {
@@ -47,13 +50,16 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-func GetWrappedCatalog(streams []*Stream, driverType string) *Catalog {
+func GetWrappedCatalog(streams []*Stream) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
+		props := make(map[string]interface{})
+		_ = json.Unmarshal([]byte(stream.AdditionalProperties), &props)
+
 		// Create ConfiguredStream and append to Streams
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
@@ -62,7 +68,7 @@ func GetWrappedCatalog(streams []*Stream, driverType string) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			AppendMode:     false,
-			Normalization:  constants.IsRelationalDriver(driverType), // Set normalization based on driver type
+			Normalization:  props[constants.NormalizationProperty].(bool),
 		})
 	}
 
