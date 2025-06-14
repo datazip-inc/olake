@@ -1,5 +1,10 @@
 package types
 
+import (
+	"github.com/datazip-inc/olake/constants"
+	"github.com/goccy/go-json"
+)
+
 // Message is a dto for olake output row representation
 type Message struct {
 	Type             MessageType            `json:"type"`
@@ -52,6 +57,9 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 	}
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
+		props := make(map[string]interface{})
+		_ = json.Unmarshal([]byte(stream.AdditionalProperties), &props)
+
 		// Create ConfiguredStream and append to Streams
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
@@ -60,6 +68,7 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			AppendMode:     false,
+			Normalization:  props[constants.NormalizationProperty].(bool),
 		})
 	}
 
