@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +62,7 @@ func (a *AbstractDriver) TestDiscover(t *testing.T, conn interface{}, execQuery 
 }
 
 // TestRead tests full refresh and CDC read operations
-func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery ExecuteQuery) {
+func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery ExecuteQuery, schemaMap map[string]string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -111,7 +113,7 @@ func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery Exec
 			testStream := a.getTestStream(t, currentTestTable)
 			configuredStream := &types.ConfiguredStream{Stream: testStream}
 			configuredStream.Stream.SyncMode = tc.syncMode
-
+			configuredStream.StreamMetadata.Normalization = true
 			if tc.syncMode == types.CDC {
 				// Execute the operation for CDC tests
 				execQuery(ctx, t, conn, currentTestTable, tc.operation)
@@ -135,7 +137,7 @@ func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery Exec
 				time.Sleep(cdcProcessingWait)
 			}
 
-			verifyIcebergSync(t, currentTestTable, tc.expectedCount)
+			verifyIcebergSync(t, currentTestTable, tc.expectedCount, schemaMap)
 		})
 	}
 }
@@ -191,7 +193,7 @@ func (a *AbstractDriver) getTestStream(t *testing.T, tableName string) *types.St
 }
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func verifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
+func verifyIcebergSync(t *testing.T, tableName string, expectedCount string, schemaMap map[string]string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -225,4 +227,34 @@ func verifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 
 	t.Logf("Verified %s unique olake_id records in Iceberg table %s",
 		actualCount, tableName)
+
+	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergDatabase, icebergDatabase, tableName)
+	describeDf, err := spark.Sql(ctx, describeQuery)
+	require.NoError(t, err, "Failed to describe Iceberg table")
+
+	describeRows, err := describeDf.Collect(ctx)
+	require.NoError(t, err, "Failed to collect describe data from Iceberg")
+	icebergSchema := make(map[string]string)
+	for _, row := range describeRows {
+		colName := row.Value("col_name").(string)
+		dataType := row.Value("data_type").(string)
+		logger.Infof("Column: %s, Data Type: %s", colName, dataType)
+		if !strings.HasPrefix(colName, "#") {
+			icebergSchema[colName] = dataType
+		}
+	}
+
+	for col, dbType := range schemaMap {
+		iceType, found := icebergSchema[col]
+		require.True(t, found, "Column %s not found in Iceberg schema", col)
+
+		expectedIceType, mapped := GlobalTypeMapping[dbType]
+		if !mapped {
+			t.Logf("No mapping defined for PostgreSQL type %s (column %s), skipping check", dbType, col)
+			continue
+		}
+		require.Equal(t, expectedIceType, iceType,
+			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
+		t.Logf("Verified column %s: PostgreSQL type %s -> Iceberg type %s", col, dbType, iceType)
+	}
 }
