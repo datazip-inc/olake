@@ -143,13 +143,13 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
-			%.2f, %.3f,
-			%.3f, %.2f, %.2f, %.3f,
+			123.45, 123.456,
+			123.456,  123.45, 123.45, 123.456,
 			'char_val_1', 'varchar_val_2', 'text_val_1', 'tinytext_val_2',
 			'mediumtext_val_1', 'longtext_val_2', 'Medium', '2023-01-01 12:00:00',
 			'12:00:00', '2023-01-01 12:00:00', 1, '{"key": "value_1"}',
 			'long_varchar_val_2', 1
-		)`, tableName, i, 123.45, 123.456, 123.456, 123.45, 123.45, 123.456)
+		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
