@@ -85,6 +85,17 @@ func (w *NewIcebergGo) createIcebergSchema() ([]iceberg.NestedField, error) {
 			fieldType = &iceberg.StringType{}
 		}
 
+		switch name {
+		case "_olake_id":
+			fieldType = &iceberg.StringType{}
+		case "_olake_timestamp":
+			fieldType = &iceberg.TimestampType{}
+		case "_op_type":
+			fieldType = &iceberg.StringType{}
+		case "_cdc_timestamp":
+			fieldType = &iceberg.TimestampType{}
+		}
+
 		fields = append(fields, iceberg.NestedField{
 			Name:     name,
 			Type:     fieldType,
@@ -141,6 +152,37 @@ func (w *NewIcebergGo) Write(_ context.Context, record types.RawRecord) error {
 
 	for i := 0; i < numFields; i++ {
 		field := schema.Field(i)
+
+		switch field.Name {
+		case "_cdc_timestamp":
+			if !record.CdcTimestamp.IsZero() {
+				w.recordBuilder.Field(i).(*array.TimestampBuilder).Append(arrow.Timestamp(record.CdcTimestamp.UnixMicro()))
+			} else {
+				w.recordBuilder.Field(i).AppendNull()
+			}
+			continue
+		case "_olake_timestamp":
+			if !record.OlakeTimestamp.IsZero() {
+				w.recordBuilder.Field(i).(*array.TimestampBuilder).Append(arrow.Timestamp(record.OlakeTimestamp.UnixMicro()))
+			} else {
+				w.recordBuilder.Field(i).AppendNull()
+			}
+			continue
+		case "_op_type":
+			if record.OperationType != "" {
+				w.recordBuilder.Field(i).(*array.StringBuilder).Append(record.OperationType)
+			} else {
+				w.recordBuilder.Field(i).AppendNull()
+			}
+			continue
+		case "_olake_id":
+			if record.OlakeID != "" {
+				w.recordBuilder.Field(i).(*array.StringBuilder).Append(record.OlakeID)
+			} else {
+				w.recordBuilder.Field(i).AppendNull()
+			}
+			continue
+		}
 
 		val, ok := record.Data[field.Name]
 		if !ok || val == nil {
