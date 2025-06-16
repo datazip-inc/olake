@@ -21,7 +21,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	defer close(backfillWaitChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
 		if stream.GetStream().SyncMode == types.STRICTCDC {
-			logger.Infof("strict cdc mode, skipping backfill for stream[%s]", stream.ID())
+			logger.Infof("Strict CDC mode, skipping backfill for stream[%s]", stream.ID())
 			backfillWaitChannel <- stream.ID()
 			return nil
 		}

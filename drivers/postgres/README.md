@@ -8,6 +8,8 @@ The Postgres Driver enables data synchronization from Postgres to your desired d
    Fetches the complete dataset from Postgres.
 2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from Postgres in real time.
+3. **Strict CDC (Change Data Capture)**
+   Tracks only new changes from the current position in the PostgreSQL WAL, without performing an initial backfill.
 
 ---
 
