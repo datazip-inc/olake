@@ -12,7 +12,6 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -238,7 +237,6 @@ func verifyIcebergSync(t *testing.T, tableName string, expectedCount string, sch
 	for _, row := range describeRows {
 		colName := row.Value("col_name").(string)
 		dataType := row.Value("data_type").(string)
-		logger.Infof("Column: %s, Data Type: %s", colName, dataType)
 		if !strings.HasPrefix(colName, "#") {
 			icebergSchema[colName] = dataType
 		}
