@@ -20,6 +20,12 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
+		if stream.GetStream().SyncMode == types.STRICTCDC {
+			logger.Infof("strict cdc mode, skipping backfill for stream[%s]", stream.ID())
+			backfillWaitChannel <- stream.ID()
+			return nil
+		}
+
 		if !a.state.HasCompletedBackfill(stream.Self()) {
 			// remove chunks state
 			err := a.Backfill(ctx, backfillWaitChannel, pool, stream)
