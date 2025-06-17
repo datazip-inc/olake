@@ -8,6 +8,8 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
    Fetches the complete dataset from MongoDB.
 2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from MongoDB in real time.
+3. **Strict CDC (Change Data Capture)**
+   Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
 
 ---
 

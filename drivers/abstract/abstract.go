@@ -91,7 +91,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 				convStream.UpsertField(column, typ, true)
 			}
 			convStream.SyncMode = types.CDC
-			convStream.WithSyncMode(types.CDC)
+			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 		} else {
 			convStream.SyncMode = types.FULLREFRESH
 		}
