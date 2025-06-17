@@ -82,7 +82,6 @@ func createStreamMap(catalog *Catalog) map[string]*ConfiguredStream {
 // 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 3. Everything else: Keep as new catalog
 func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
-
 	oldStreamMap := createStreamMap(oldCatalog)
 	// Filter selected streams to only include those in new catalog
 	if oldCatalog.SelectedStreams != nil {
