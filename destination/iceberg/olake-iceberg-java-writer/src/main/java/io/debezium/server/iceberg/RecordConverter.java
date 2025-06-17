@@ -52,11 +52,19 @@ public class RecordConverter {
   protected final byte[] keyData;
   private JsonNode value;
   private JsonNode key;
+  private String threadId; // Cache the thread ID
 
   public RecordConverter(String destination, byte[] valueData, byte[] keyData) {
     this.destination = destination;
     this.valueData = valueData;
     this.keyData = keyData;
+  }
+
+  public RecordConverter(String destination, byte[] valueData, byte[] keyData, String threadId) {
+    this.destination = destination;
+    this.valueData = valueData;
+    this.keyData = keyData;
+    this.threadId = threadId;
   }
 
   public JsonNode key() {
@@ -152,6 +160,33 @@ public class RecordConverter {
 
   public String destination() {
     return destination;
+  }
+
+  /**
+   * Extracts the thread ID from the record if present.
+   * The thread ID is expected to be at the top level of the JSON message.
+   * 
+   * @return The thread ID or null if not present
+   */
+  public String getThreadId() {
+    // Return cached value if already set
+    if (threadId != null) {
+      return threadId;
+    }
+    
+    // If not set during construction, try to extract from value data
+    // This is a fallback and shouldn't normally be used since thread_id
+    // is passed at the message level, not in the value data
+    try {
+      JsonNode valueNode = value();
+      if (valueNode != null && valueNode.has("thread_id")) {
+        return valueNode.get("thread_id").asText();
+      }
+    } catch (Exception e) {
+      LOGGER.debug("Failed to extract thread ID from value data", e);
+    }
+    
+    return null;
   }
 
   public RecordWrapper convertAsAppend(Schema schema) {

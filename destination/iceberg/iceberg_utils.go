@@ -15,6 +15,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
@@ -30,13 +31,13 @@ func determineMaxBatchSize() int64 {
 
 	switch {
 	case ramGB <= 8:
-		batchSize = 200 * 1024 * 1024 // 200MB
+		batchSize = 100 * 1024 * 1024 // 100MB
 	case ramGB <= 16:
-		batchSize = 400 * 1024 * 1024 // 400MB
+		batchSize = 200 * 1024 * 1024 // 200MB
 	case ramGB <= 32:
-		batchSize = 800 * 1024 * 1024 // 800MB
+		batchSize = 400 * 1024 * 1024 // 400MB
 	default:
-		batchSize = 1600 * 1024 * 1024 // 1600MB
+		batchSize = 800 * 1024 * 1024 // 800MB
 	}
 
 	logger.Infof("System has %dGB RAM, setting iceberg writer batch size to %d bytes", ramGB, batchSize)
@@ -58,15 +59,8 @@ type serverInstance struct {
 	streamID   string // Store the stream ID
 }
 
-// recordBatch represents a collection of records for a specific server configuration
-type recordBatch struct {
-	records []string   // Collected Debezium records
-	size    int64      // Estimated size in bytes
-	mu      sync.Mutex // Mutex for thread-safe access
-}
-
 // LocalBuffer represents a thread-local buffer for collecting records
-// before adding them to the shared batch
+// before sending them directly to the server
 type LocalBuffer struct {
 	records []string
 	size    int64
@@ -82,19 +76,8 @@ func getGoroutineID() string {
 	return id
 }
 
-// batchRegistry tracks batches of records per server configuration
-var (
-	// Maximum batch size before flushing (dynamically set based on system memory)
-	maxBatchSize = determineMaxBatchSize()
-	// Local buffer threshold before pushing to shared batch (5MB)
-	localBufferThreshold int64 = 50 * 1024 * 1024
-	// Thread-local buffer cache using sync.Map to avoid locks
-	// Key is configHash + goroutine ID, value is *LocalBuffer
-	localBuffers sync.Map
-	// batchRegistry tracks batches of records per server configuration
-	// Key is configHash, value is *recordBatch
-	batchRegistry sync.Map
-)
+// Maximum batch size before flushing (dynamically set based on system memory)
+var maxBatchSize = determineMaxBatchSize()
 
 // serverRegistry manages active server instances with proper concurrency control
 var (
@@ -159,11 +142,11 @@ func findAvailablePort(serverHost string) (int, error) {
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
 }
 
-// parsePartitionRegex parses the partition regex and populates the partitionInfo map
+// parsePartitionRegex parses the partition regex and populates the partitionInfo slice
 func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
 	// This strictly identifies column name and partition transform entries
-	patternRegex := regexp.MustCompile(constants.PartitionRegex)
+	patternRegex := regexp.MustCompile(constants.PartitionRegexIceberg)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
 	for _, match := range matches {
 		if len(match) < 3 {
@@ -173,8 +156,11 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
-		// Store transform for this field
-		i.partitionInfo[colName] = transform
+		// Append to ordered slice to preserve partition order
+		i.partitionInfo = append(i.partitionInfo, types.PartitionInfo{
+			Field:     colName,
+			Transform: transform,
+		})
 	}
 
 	return nil
@@ -194,10 +180,16 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 		"write.format.default": "parquet",
 	}
 
-	// Add partition fields if defined
-	for field, transform := range i.partitionInfo {
-		partitionKey := fmt.Sprintf("partition.field.%s", field)
-		serverConfig[partitionKey] = transform
+	// Add partition fields as an array to preserve order
+	if len(i.partitionInfo) > 0 {
+		partitionFields := make([]map[string]string, 0, len(i.partitionInfo))
+		for _, info := range i.partitionInfo {
+			partitionFields = append(partitionFields, map[string]string{
+				"field":     info.Field,
+				"transform": info.Transform,
+			})
+		}
+		serverConfig["partition-fields"] = partitionFields
 	}
 
 	// Configure catalog implementation based on the selected type
@@ -282,6 +274,7 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	return json.Marshal(serverConfig)
 }
 
+// Initialize the local buffer in the Iceberg instance during setup
 func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	// Create JSON config for the Java server
 	err := i.config.Validate()
@@ -298,6 +291,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	}
 	configHash := getConfigHash(namespace, streamID, upsert)
 	i.configHash = configHash
+
 	// Check if a server with matching config already exists
 	if server, exists := serverRegistry[configHash]; exists {
 		// Reuse existing server
@@ -324,9 +318,9 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	// Start the Java server process
 	// If debug mode is enabled and stream is available (stream is nil for check operations), start the server with debug options
 	if i.config.DebugMode && i.stream != nil {
-		i.cmd = exec.Command("java", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", i.config.JarPath, string(configJSON))
+		i.cmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", i.config.JarPath, string(configJSON))
 	} else {
-		i.cmd = exec.Command("java", "-jar", i.config.JarPath, string(configJSON))
+		i.cmd = exec.Command("java", "-XX:+UseG1GC", "-jar", i.config.JarPath, string(configJSON))
 	}
 
 	// Set environment variables for AWS credentials and region when using Glue catalog
@@ -397,8 +391,10 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 
 func getTestDebeziumRecord() string {
 	randomID := utils.ULID()
+	threadID := getGoroutineID()
 	return `{
 			"destination_table": "olake_test_table",
+			"thread_id": "` + threadID + `",
 			"key": {
 				"schema" : {
 						"type" : "struct",
@@ -479,160 +475,20 @@ func (i *Iceberg) CloseIcebergClient() error {
 	return nil
 }
 
-// getOrCreateBatch gets or creates a batch for a specific configuration
-func getOrCreateBatch(configHash string) *recordBatch {
-	// LoadOrStore returns the existing value if present, or stores and returns the new value
-	batch, _ := batchRegistry.LoadOrStore(configHash, &recordBatch{
-		records: make([]string, 0, 1000),
-		size:    0,
-	})
-	return batch.(*recordBatch)
-}
-
-// getLocalBuffer gets or creates a local buffer for the current goroutine
-func getLocalBuffer(configHash string) *LocalBuffer {
-	// Create a unique key for this goroutine + config hash
-	bufferID := fmt.Sprintf("%s-%s", configHash, getGoroutineID())
-
-	// Try to get existing buffer
-	if val, ok := localBuffers.Load(bufferID); ok {
-		return val.(*LocalBuffer)
-	}
-
-	// Create new buffer
-	buffer := &LocalBuffer{
-		records: make([]string, 0, 100),
-		size:    0,
-	}
-	localBuffers.Store(bufferID, buffer)
-	return buffer
-}
-
-// flushLocalBuffer flushes a local buffer to the shared batch
-func flushLocalBuffer(buffer *LocalBuffer, configHash string, client proto.RecordIngestServiceClient) error {
-	if len(buffer.records) == 0 {
-		return nil
-	}
-
-	// TODO: Check if we can remove the below logic as we are locking in java code to iceberg commit already.
-	batch := getOrCreateBatch(configHash)
-
-	// Lock the batch only once when flushing the local buffer
-	batch.mu.Lock()
-
-	// Add all records from local buffer
-	batch.records = append(batch.records, buffer.records...)
-	batch.size += buffer.size
-
-	// Check if we need to flush the batch
-	needsFlush := batch.size >= maxBatchSize
-
-	var recordsToFlush []string
-	if needsFlush {
-		// Copy records to flush
-		recordsToFlush = batch.records
-		// Reset batch
-		batch.records = make([]string, 0, 1000)
-		batch.size = 0
-	}
-
-	// Unlock the batch
-	batch.mu.Unlock()
-
-	// Reset local buffer
-	buffer.records = make([]string, 0, 100)
-	buffer.size = 0
-
-	// Flush if needed
-	if needsFlush && len(recordsToFlush) > 0 {
-		return sendRecords(recordsToFlush, client)
-	}
-
-	return nil
-}
-
-// addToBatch adds a record to the batch for a specific server configuration
-// Returns true if the batch was flushed, false otherwise
-func addToBatch(configHash string, record string, client proto.RecordIngestServiceClient) (bool, error) {
-	// If record is empty, skip it
-	if record == "" {
-		return false, nil
-	}
-
-	recordSize := int64(len(record))
-
-	// Get the local buffer for this goroutine
-	buffer := getLocalBuffer(configHash)
-
-	// Add record to local buffer (no locking needed as it's per-goroutine)
-	buffer.records = append(buffer.records, record)
-	buffer.size += recordSize
-
-	// If local buffer is still small, just return
-	if buffer.size < localBufferThreshold {
-		return false, nil
-	}
-
-	// Local buffer reached threshold, flush it to shared batch
-	err := flushLocalBuffer(buffer, configHash, client)
-	if err != nil {
-		return true, err
-	}
-
-	return buffer.size >= maxBatchSize, nil
-}
-
-// flushBatch forces a flush of all local buffers and the shared batch for a config hash
-func flushBatch(configHash string, client proto.RecordIngestServiceClient) error {
-	// First, flush all local buffers that match this configHash
-	var localBuffersToFlush []*LocalBuffer
-
-	// Collect all local buffers for this config hash
-	localBuffers.Range(func(key, value interface{}) bool {
-		bufferID := key.(string)
-		if strings.HasPrefix(bufferID, configHash+"-") {
-			localBuffersToFlush = append(localBuffersToFlush, value.(*LocalBuffer))
-		}
-		return true
-	})
-
-	// Flush each local buffer
-	for _, buffer := range localBuffersToFlush {
-		err := flushLocalBuffer(buffer, configHash, client)
+// flushLocalBuffer flushes a local buffer directly to the server
+func flushLocalBuffer(buffer *LocalBuffer, client proto.RecordIngestServiceClient) error {
+	// Send records directly to server
+	if len(buffer.records) > 0 {
+		err := sendRecords(buffer.records, client)
 		if err != nil {
 			return err
 		}
 	}
 
-	// Now check if there's anything in the shared batch
-	batchVal, exists := batchRegistry.Load(configHash)
-	if !exists {
-		return nil // Nothing to flush
-	}
+	buffer.records = make([]string, 0, 100)
+	buffer.size = 0
 
-	batch := batchVal.(*recordBatch)
-
-	// Lock the batch
-	batch.mu.Lock()
-
-	// Skip if batch is empty
-	if len(batch.records) == 0 {
-		batch.mu.Unlock()
-		return nil
-	}
-
-	// Copy records to flush
-	recordsToFlush := batch.records
-
-	// Reset the batch
-	batch.records = make([]string, 0, 1000)
-	batch.size = 0
-
-	// Unlock the batch
-	batch.mu.Unlock()
-
-	// Send the records
-	return sendRecords(recordsToFlush, client)
+	return nil
 }
 
 // sendRecords sends a slice of records to the Iceberg RPC server
@@ -642,7 +498,7 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 		return nil
 	}
 
-	// Filter out any nil strings from records
+	// Filter out any empty strings from records
 	validRecords := make([]string, 0, len(records))
 	for _, record := range records {
 		if record != "" {
@@ -655,6 +511,7 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 		return nil
 	}
 
+	logger.Infof("Sending batch to Iceberg server: %d records", len(validRecords))
 	// Create request with all records
 	req := &proto.RecordIngestRequest{
 		Messages: validRecords,

@@ -65,6 +65,12 @@ type RawRecord struct {
 	CdcTimestamp   time.Time      `parquet:"_cdc_timestamp"`
 }
 
+// PartitionInfo represents a Iceberg partition column with its transform, preserving order
+type PartitionInfo struct {
+	Field     string
+	Transform string
+}
+
 func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
@@ -74,7 +80,7 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 	}
 }
 
-func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization bool) (string, error) {
+func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization bool, threadID string) (string, error) {
 	// First create the schema and track field types
 	schema := r.createDebeziumSchema(db, stream, normalization)
 
@@ -126,6 +132,11 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 			"schema":  schema,
 			"payload": payload,
 		},
+	}
+
+	// Add thread_id if not empty
+	if threadID != "" {
+		debeziumRecord["thread_id"] = threadID
 	}
 
 	jsonBytes, err := json.Marshal(debeziumRecord)

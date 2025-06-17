@@ -18,7 +18,10 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
 
 @Dependent
 public class OlakeRpcServer {
@@ -34,8 +37,8 @@ public class OlakeRpcServer {
     static Deserializer<JsonNode> keyDeserializer;
     static boolean upsert_records = true;
     static boolean createIdFields = true;
-    // Map to store partition fields and their transforms
-    static Map<String, String> partitionTransforms = new ConcurrentHashMap<>();
+    // List to store partition fields and their transforms - preserves order and allows duplicates
+    static List<Map<String, String>> partitionTransforms = new ArrayList<>();
 
 
     public static void main(String[] args) throws Exception {
@@ -48,36 +51,47 @@ public class OlakeRpcServer {
 
         String jsonConfig = args[0];
         ObjectMapper objectMapper = new ObjectMapper();
-        Map<String, String> configMap = objectMapper.readValue(jsonConfig, new TypeReference<Map<String, String>>() {
+        Map<String, Object> configMap = objectMapper.readValue(jsonConfig, new TypeReference<Map<String, Object>>() {
         });
         
         // Simplified logging setup - console only
         LOGGER.info("Logs will be output to console only");
 
-        configMap.forEach(hadoopConf::set);
-        icebergProperties.putAll(configMap);
+        // Convert all config values to strings for hadoopConf
+        Map<String, String> stringConfigMap = new ConcurrentHashMap<>();
+        configMap.forEach((key, value) -> {
+            if (value != null && !"partition-fields".equals(key)) {
+                stringConfigMap.put(key, value.toString());
+            }
+        });
+        
+        stringConfigMap.forEach(hadoopConf::set);
+        icebergProperties.putAll(stringConfigMap);
         String catalogName = "iceberg";
-        if (configMap.get("catalog-name") != null) {
-            catalogName = configMap.get("catalog-name");
+        if (stringConfigMap.get("catalog-name") != null) {
+            catalogName = stringConfigMap.get("catalog-name");
         }
 
-        if (configMap.get("table-namespace") == null) {
+        if (stringConfigMap.get("table-namespace") == null) {
             throw new Exception("Iceberg table namespace not found");
         }
 
-        if (configMap.get("upsert") != null) {
-            upsert_records = Boolean.parseBoolean(configMap.get("upsert"));
+        if (stringConfigMap.get("upsert") != null) {
+            upsert_records = Boolean.parseBoolean(stringConfigMap.get("upsert"));
         }       
 
-        // Parse partition fields and their transforms
-        // Format: "partition.field.<fieldName>=<transform>"
-        // Example: "partition.field.ts_ms=day" or "partition.field.id=identity"
-        for (Map.Entry<String, String> entry : configMap.entrySet()) {
-            if (entry.getKey().startsWith("partition.field.")) {
-                String fieldName = entry.getKey().substring("partition.field.".length());
-                String transform = entry.getValue();
-                partitionTransforms.put(fieldName, transform);
-                LOGGER.info("Adding partition field: {} with transform: {}", fieldName, transform);
+        // Parse partition fields from array to preserve order
+        if (configMap.containsKey("partition-fields")) {
+            List<Map<String, String>> partitionFieldsList = (List<Map<String, String>>) configMap.get("partition-fields");
+            if (partitionFieldsList != null) {
+                for (Map<String, String> partitionField : partitionFieldsList) {
+                    String field = partitionField.get("field");
+                    String transform = partitionField.get("transform");
+                    if (field != null && transform != null) {
+                        partitionTransforms.add(partitionField);
+                        LOGGER.info("Adding partition field: {} with transform: {}", field, transform);
+                    }
+                }
             }
         }
 
@@ -95,7 +109,7 @@ public class OlakeRpcServer {
 
         // Retrieve a CDI-managed bean from the container
         ori = new OlakeRowsIngester(upsert_records);
-        ori.setIcebergNamespace(configMap.get("table-namespace"));
+        ori.setIcebergNamespace(stringConfigMap.get("table-namespace"));
         ori.setIcebergCatalog(icebergCatalog);
         // Pass partition transforms to the ingester
         ori.setPartitionTransforms(partitionTransforms);
@@ -103,14 +117,14 @@ public class OlakeRpcServer {
 
         // Build the server to listen on port 50051
         int port = 50051; // Default port
-        if (configMap.get("port") != null) {
-            port = Integer.parseInt(configMap.get("port"));
+        if (stringConfigMap.get("port") != null) {
+            port = Integer.parseInt(stringConfigMap.get("port"));
         }
         
         // Get max message size from config or use a reasonable default (500MB)
         int maxMessageSize = 2000 * 1024 * 1024; // 2GB default
-        if (configMap.get("max-message-size") != null) {
-            maxMessageSize = Integer.parseInt(configMap.get("max-message-size"));
+        if (stringConfigMap.get("max-message-size") != null) {
+            maxMessageSize = Integer.parseInt(stringConfigMap.get("max-message-size"));
         }
         
         Server server = ServerBuilder.forPort(port)

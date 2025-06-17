@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.HashMap;
+import java.util.ArrayList;
 
 // This class is used to receive rows from the Olake Golang project and dump it into iceberg using prebuilt code here.
 @Dependent
@@ -29,8 +29,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private final IcebergTableOperator icebergTableOperator;
     // Create a single reusable ObjectMapper instance
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    // Map to store partition fields and their transforms
-    private Map<String, String> partitionTransforms = new HashMap<>();
+    // List to store partition fields and their transforms - preserves order and allows duplicates
+    private List<Map<String, String>> partitionTransforms = new ArrayList<>();
+    // Lock object for table creation synchronization
+    private final Object tableCreationLock = new Object();
 
     public OlakeRowsIngester() {
         icebergTableOperator = new IcebergTableOperator();
@@ -48,7 +50,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         this.icebergCatalog = icebergCatalog;
     }
 
-    public void setPartitionTransforms(Map<String, String> partitionTransforms) {
+    public void setPartitionTransforms(List<Map<String, String>> partitionTransforms) {
         this.partitionTransforms = partitionTransforms;
     }
 
@@ -60,6 +62,27 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         List<String> messages = request.getMessagesList();
 
         try {
+            // First, check if this is a commit request
+            if (messages.size() == 1) {
+                String message = messages.get(0);
+                Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
+                if (messageMap.containsKey("commit") && messageMap.get("commit").equals(true) && messageMap.containsKey("thread_id")) {
+                    // This is a commit request
+                    String threadId = (String) messageMap.get("thread_id");
+                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
+                    icebergTableOperator.commitThread(threadId);
+                    
+                    RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
+                            .setResult(requestId + " Successfully committed data for thread " + threadId)
+                            .build();
+                    responseObserver.onNext(response);
+                    responseObserver.onCompleted();
+                    LOGGER.info("{} Successfully committed data for thread: {}", requestId, threadId);
+                    return;
+                }
+            }
+            
+            // Normal record processing
             long parsingStartTime = System.currentTimeMillis();
             Map<String, List<RecordConverter>> result =
                     messages.parallelStream() // Use parallel stream for concurrent processing
@@ -70,6 +93,9 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
                                     // Get the destination table:
                                     String destinationTable = (String) messageMap.get("destination_table");
+                                    
+                                    // Extract thread_id if present
+                                    String threadId = (String) messageMap.get("thread_id");
 
                                     // Get key and value objects directly without re-serializing
                                     Object key = messageMap.get("key");
@@ -79,7 +105,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                                     byte[] keyBytes = key != null ? objectMapper.writeValueAsBytes(key) : null;
                                     byte[] valueBytes = objectMapper.writeValueAsBytes(value);
 
-                                    return new RecordConverter(destinationTable, valueBytes, keyBytes);
+                                    return new RecordConverter(destinationTable, valueBytes, keyBytes, threadId);
                                 } catch (Exception e) {
                                     String errorMessage = String.format("%s Failed to parse message: %s", requestId, message);
                                     LOGGER.error(errorMessage, e);
@@ -118,15 +144,17 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     }
 
     public Table loadIcebergTable(TableIdentifier tableId, RecordConverter sampleEvent) {
-        return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
-            try {
-                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(true), "parquet", partitionTransforms);
-            } catch (Exception e) {
-                String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", tableId, e.getMessage());
-                LOGGER.error(errorMessage, e);
-                throw new DebeziumException(errorMessage, e);
-            }
-        });
+        synchronized (tableCreationLock) {
+            return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
+                try {
+                    return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(true), "parquet", partitionTransforms);
+                } catch (Exception e) {
+                    String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", tableId, e.getMessage());
+                    LOGGER.error(errorMessage, e);
+                    throw new DebeziumException(errorMessage, e);
+                }
+            });
+        }
     }
 }
 
