@@ -86,12 +86,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
 
-			// Calculate optimal chunk size based on table statistics
-			chunkSize, err := m.calculateChunkSize(stream)
-			if err != nil {
-				return fmt.Errorf("failed to calculate chunk size: %s", err)
-			}
-
 			// Generate chunks based on range
 			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize, parsedFilter)
 
@@ -170,16 +164,6 @@ func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []strin
 	}
 	err = tx.QueryRow(query).Scan(&min, &max)
 	return min, max, err
-}
-func (m *MySQL) calculateChunkSize(stream types.StreamInterface) (int, error) {
-	var totalRecords int
-	query := jdbc.MySQLTableRowsQuery()
-	err := m.client.QueryRow(query, stream.Name()).Scan(&totalRecords)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get estimated records count: %s", err)
-	}
-	// number of chunks based on max threads
-	return totalRecords / (m.config.MaxThreads * 8), nil
 }
 
 func (m *MySQL) getParsedFilter(stream types.StreamInterface) (string, error) {
