@@ -15,7 +15,7 @@ import (
 func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	parsedFilter, err := p.getParsedFilter(stream)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
@@ -53,7 +53,7 @@ func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterP
 	pool.AddRecordsToSync(approxRowCount)
 	parsedFilter, err := p.getParsedFilter(stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse filter: %s", err)
+		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
 	return p.splitTableIntoChunks(stream, parsedFilter)
 }
@@ -168,7 +168,7 @@ func (p *Postgres) getParsedFilter(stream types.StreamInterface) (string, error)
 	if filter == "" {
 		return "", nil
 	}
-	parsedFilter, err := jdbc.ParseFilter(filter, "postgres")
+	parsedFilter, err := jdbc.ParseFilter(filter, p.Type())
 	if err != nil {
 		return "", fmt.Errorf("failed to parse filter: %s", err)
 	}

@@ -331,136 +331,183 @@ func ParseFilter(filter, driver string) (string, error) {
 	if strings.TrimSpace(filter) == "" {
 		return "", nil
 	}
-
+	// Split into individual conditions and logical operators (AND/OR)
 	conditions, operators, err := splitFilterConditions(filter)
 	if err != nil {
 		return "", err
 	}
 
 	var parsedConditions []string
+	// Parse each condition according to the SQL dialect
 	for _, cond := range conditions {
 		cond = strings.TrimSpace(cond)
-		var parsed string
+		var formatted string
 		switch driver {
 		case "postgres":
-			parsed, err = parsePostgresCondition(cond)
+			formatted, err = parsePostgresCondition(cond)
 		case "mysql":
-			parsed, err = parseMySQLCondition(cond)
+			formatted, err = parseMySQLCondition(cond)
 		default:
 			return "", fmt.Errorf("unsupported driver: %s", driver)
 		}
 		if err != nil {
 			return "", fmt.Errorf("invalid condition '%s': %w", cond, err)
 		}
-		parsedConditions = append(parsedConditions, parsed)
+		parsedConditions = append(parsedConditions, formatted)
 	}
 
-	result := parsedConditions[0]
-	for i, op := range operators {
-		result += " " + strings.ToUpper(op) + " " + parsedConditions[i+1]
+	// Build the final WHERE fragment by combining parsed conditions and operators
+	var sqlBuilder strings.Builder
+	sqlBuilder.WriteString(parsedConditions[0])
+	for i, operator := range operators {
+		sqlBuilder.WriteString(" ")
+		sqlBuilder.WriteString(strings.ToUpper(operator))
+		sqlBuilder.WriteString(" ")
+		sqlBuilder.WriteString(parsedConditions[i+1])
 	}
-	return result, nil
+	return sqlBuilder.String(), nil
 }
 
 // splitFilterConditions splits the filter by 'and'/'or' and returns conditions and operators
-func splitFilterConditions(filter string) ([]string, []string, error) {
+func splitFilterConditions(filterExpr string) ([]string, []string, error) {
 	var conditions []string
-	var operators []string
-	pattern := regexp.MustCompile(`\s+(and|or)\s+`)
-
+	var logicalOps []string
+	// Regex matches 'and' or 'or' with surrounding whitespace
+	delimiter := regexp.MustCompile(`\s+(and|or)\s+`)
+	depth := 0
 	inQuotes := false
 	var currentCondition strings.Builder
-	i := 0
 
-	for i < len(filter) {
-		char := filter[i]
-		if char == '"' {
+	// Iterate over characters manually
+	for index := 0; index < len(filterExpr); {
+		currChar := filterExpr[index]
+		if currChar == '"' {
+			// Toggle quote state
 			inQuotes = !inQuotes
-			currentCondition.WriteByte(char)
-			i++
+			currentCondition.WriteByte(currChar)
+			index++
 			continue
 		}
-
 		if !inQuotes {
-			remaining := filter[i:]
-			if match := pattern.FindStringIndex(remaining); match != nil && match[0] == 0 {
-				opMatch := pattern.FindStringSubmatch(remaining)
-				operator := opMatch[1]
-
-				conditions = append(conditions, strings.TrimSpace(currentCondition.String()))
-				operators = append(operators, operator)
-
-				currentCondition.Reset()
-				i += match[1]
+			if currChar == '(' {
+				depth++
+				currentCondition.WriteByte(currChar)
+				index++
 				continue
 			}
+			if currChar == ')' {
+				if depth > 0 {
+					depth--
+				}
+				currentCondition.WriteByte(currChar)
+				index++
+				continue
+			}
+			if depth == 0 {
+				remainingSubstr := filterExpr[index:]
+				// If a delimiter matches at this position, split here
+				if match := delimiter.FindStringIndex(remainingSubstr); match != nil && match[0] == 0 {
+					// Extract the logical operator (and/or)
+					operatorMatch := delimiter.FindStringSubmatch(remainingSubstr)
+					logicalOps = append(logicalOps, operatorMatch[1])
+					// Save the condition built so far
+					conditions = append(conditions, strings.TrimSpace(currentCondition.String()))
+					currentCondition.Reset()
+					// Advance index skip the matched operator
+					index += match[1]
+					continue
+				}
+			}
 		}
-		currentCondition.WriteByte(char)
-		i++
+		// Otherwise, accumulate character into current condition
+		currentCondition.WriteByte(currChar)
+		index++
 	}
 
+	// Append the final condition
 	conditions = append(conditions, strings.TrimSpace(currentCondition.String()))
 	if len(conditions) == 0 {
 		return nil, nil, fmt.Errorf("no valid conditions found")
 	}
-	return conditions, operators, nil
+	return conditions, logicalOps, nil
 }
 
-var pattern = regexp.MustCompile(`^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(=|!=|>|>=|<|<=)\s*("([^"]*)"|(\S+))\s*$`)
+var conditionPattern = regexp.MustCompile(`^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(=|!=|>|>=|<|<=)\s*("([^"]*)"|(\S+))\s*$`)
 
 // parsePostgresCondition parses a single condition for PostgreSQL
 func parsePostgresCondition(cond string) (string, error) {
-	matches := pattern.FindStringSubmatch(cond)
+	// Handle expressions wrapped in level 1 parentheses
+	if strings.HasPrefix(cond, "(") && strings.HasSuffix(cond, ")") {
+		inner := cond[1 : len(cond)-1]
+		parsedCondition, err := ParseFilter(inner, "postgres")
+		if err != nil {
+			return "", fmt.Errorf("invalid parenthesized condition '%s': %w", cond, err)
+		}
+		return fmt.Sprintf("(%s)", parsedCondition), nil
+	}
+
+	matches := conditionPattern.FindStringSubmatch(cond)
 	if matches == nil {
 		return "", fmt.Errorf("invalid filter format: %s", cond)
 	}
 
 	column := matches[1]
 	operator := matches[2]
-	value := matches[3]
+	rawValue := matches[3]
 
-	if strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
-		value = value[1 : len(value)-1]
-		value = "'" + escapeString(value) + "'"
+	// Handle quoted strings by escaping single quotes
+	if strings.HasPrefix(rawValue, `"`) && strings.HasSuffix(rawValue, `"`) {
+		rawValue = rawValue[1 : len(rawValue)-1]
+		rawValue = "'" + escapeString(rawValue) + "'"
 	} else {
-		if num, err := strconv.ParseFloat(value, 64); err == nil {
-			value = fmt.Sprintf("%v", num)
-		} else if value == "true" || value == "false" {
-			value = fmt.Sprintf("%s::boolean", value)
+		if num, err := strconv.ParseFloat(rawValue, 64); err == nil {
+			rawValue = fmt.Sprintf("%v", num)
+		} else if rawValue == "true" || rawValue == "false" {
+			rawValue = fmt.Sprintf("%s::boolean", rawValue)
 		} else {
-			return "", fmt.Errorf("unquoted string values are not allowed: %s", value)
+			// Reject unquoted strings to prevent SQL injection
+			return "", fmt.Errorf("unquoted string values are not allowed: %s", rawValue)
 		}
 	}
-
-	return fmt.Sprintf(`"%s" %s %s`, column, operator, value), nil
+	// Quote column names with double quotes per PG convention
+	return fmt.Sprintf(`"%s" %s %s`, column, operator, rawValue), nil
 }
 
 // parseMySQLCondition parses a single condition for MySQL
 func parseMySQLCondition(cond string) (string, error) {
-	match := pattern.FindStringSubmatch(cond)
+	// Handle expressions wrapped in level 1 parentheses
+	if strings.HasPrefix(cond, "(") && strings.HasSuffix(cond, ")") {
+		inner := cond[1 : len(cond)-1]
+		parsedCondition, err := ParseFilter(inner, "postgres")
+		if err != nil {
+			return "", fmt.Errorf("invalid parenthesized condition '%s': %w", cond, err)
+		}
+		return fmt.Sprintf("(%s)", parsedCondition), nil
+	}
+
+	match := conditionPattern.FindStringSubmatch(cond)
 	if match == nil {
 		return "", fmt.Errorf("could not parse condition")
 	}
 
-	col := match[1]
-	op := match[2]
-	val := match[3]
+	column := match[1]
+	operator := match[2]
+	rawValue := match[3]
 
-	if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-		unquoted := val[1 : len(val)-1]
-		escaped := escapeString(unquoted)
-		return fmt.Sprintf("`%s` %s '%s'", col, op, escaped), nil
+	// Handle quoted string for values
+	if strings.HasPrefix(rawValue, "\"") && strings.HasSuffix(rawValue, "\"") {
+		rawValue := rawValue[1 : len(rawValue)-1]
+		escaped := escapeString(rawValue)
+		return fmt.Sprintf("`%s` %s '%s'", column, operator, escaped), nil
 	}
-
-	if num, err := strconv.ParseFloat(val, 64); err == nil {
-		return fmt.Sprintf("`%s` %s %v", col, op, num), nil
+	if num, err := strconv.ParseFloat(rawValue, 64); err == nil {
+		return fmt.Sprintf("`%s` %s %v", column, operator, num), nil
 	}
-	lower := strings.ToLower(val)
+	lower := strings.ToLower(rawValue)
 	if lower == "true" || lower == "false" {
-		return fmt.Sprintf("`%s` %s %s", col, op, lower), nil
+		return fmt.Sprintf("`%s` %s %s", column, operator, lower), nil
 	}
-
-	return "", fmt.Errorf("unsupported literal: %s", val)
+	return "", fmt.Errorf("unsupported literal: %s", rawValue)
 }
 
 // escapeString escapes single quotes

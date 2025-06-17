@@ -20,7 +20,7 @@ const chunkSize int64 = 500000 // Default chunk size for MySQL
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
 	parsedFilter, err := m.getParsedFilter(stream)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
@@ -57,7 +57,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 	parsedFilter, err := m.getParsedFilter(stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse filter: %s", err)
+		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
 
 	chunks := types.NewSet[types.Chunk]()
@@ -171,7 +171,7 @@ func (m *MySQL) getParsedFilter(stream types.StreamInterface) (string, error) {
 	if filter == "" {
 		return "", nil // Return an empty string if no filter
 	}
-	parsedFilter, err := jdbc.ParseFilter(filter, "mysql") // Use jdbc package for SQL parsing
+	parsedFilter, err := jdbc.ParseFilter(filter, m.Type()) // Use jdbc package for SQL parsing
 	if err != nil {
 		return "", fmt.Errorf("failed to parse filter: %s", err)
 	}

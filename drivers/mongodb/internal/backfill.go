@@ -26,7 +26,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 	parsedFilter, err := m.getParsedFilter(stream)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
 	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, parsedFilter), opts)
@@ -67,7 +67,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// Parse the filter
 	parsedFilter, err := m.getParsedFilter(stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse filter: %s", err)
+		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
 
 	// Generate and update chunks
@@ -355,25 +355,14 @@ func generateMinObjectID(t time.Time) string {
 	return objectID.Hex()
 }
 
+// getParsedFilter converts the stream's filter metadata into a BSON document
 func (m *Mongo) getParsedFilter(stream types.StreamInterface) (bson.D, error) {
-	// Parse the filter
-	filter := stream.Self().StreamMetadata.Filter
-	if filter == "" {
-		return bson.D{}, nil
-	}
-	parsedFilter, err := parseFilter(filter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse filter: %s", err)
-	}
-	return parsedFilter, nil
-}
-
-func parseFilter(filter string) (bson.D, error) {
-	filter = strings.TrimSpace(filter)
+	filter := strings.TrimSpace(stream.Self().StreamMetadata.Filter)
 	if filter == "" {
 		return bson.D{}, nil
 	}
 
+	// If the filter is raw BSON
 	if strings.HasPrefix(filter, "{") {
 		var parsedFilter bson.D
 		err := bson.UnmarshalExtJSON([]byte(filter), false, &parsedFilter)
@@ -382,15 +371,23 @@ func parseFilter(filter string) (bson.D, error) {
 		}
 		return parsedFilter, nil
 	}
-	return parseDSLFilter(filter)
+	// Otherwise, parse domain-specific filter DSL
+	parsedFilter, err := parseDSLFilter(filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse domain-specific filter: %s", err)
+	}
+	return parsedFilter, nil
 }
 
+// parseDSLFilter converts a simple DSL expression (e.g., "age>=30 and name=\"John\"") into BSON
 func parseDSLFilter(input string) (bson.D, error) {
-	opKey, parts := splitTopLevel(input)
-	var clauses []interface{}
-	pattern := regexp.MustCompile(`^\s*([a-zA-Z0-9_]+)\s*(>=|<=|!=|=|>|<)\s*(?:"([^"]*)"|(\S+))\s*$`)
+	// Determine top-level operator ($and or $or) and split clauses
+	mongoOperator, parts := splitTopLevel(input)
+	var bsonClauses []interface{}
+	clausePattern := regexp.MustCompile(`^\s*([a-zA-Z0-9_]+)\s*(>=|<=|!=|=|>|<)\s*(?:"([^"]*)"|(\S+))\s*$`)
 
-	opMap := map[string]string{
+	// Map comparison operators to Mongo symbols
+	opMapping := map[string]string{
 		">":  "$gt",
 		">=": "$gte",
 		"<":  "$lt",
@@ -399,81 +396,117 @@ func parseDSLFilter(input string) (bson.D, error) {
 		"!=": "$ne",
 	}
 
-	for _, part := range parts {
-		matches := pattern.FindStringSubmatch(part)
-		if matches == nil {
-			return nil, fmt.Errorf("invalid filter clause %q", part)
-		}
-		field, op := matches[1], matches[2]
-		raw := matches[3]
-		if raw == "" {
-			raw = matches[4]
-		}
-
-		var val interface{} = raw
-		if field == "_id" && len(raw) == 24 {
-			if oid, err := primitive.ObjectIDFromHex(raw); err == nil {
-				val = oid
+	for _, partExpr := range parts {
+		partExpr = strings.TrimSpace(partExpr)
+		// Handle nested expressions wrapped in parentheses
+		if strings.HasPrefix(partExpr, "(") && strings.HasSuffix(partExpr, ")") {
+			inner := strings.TrimSpace(partExpr[1 : len(partExpr)-1])
+			subFilter, err := parseDSLFilter(inner)
+			if err != nil {
+				return nil, err
 			}
-		} else if strings.ToLower(raw) == "true" {
-			val = true
-		} else if strings.ToLower(raw) == "false" {
-			val = false
-		} else if t, err := time.Parse(time.RFC3339, raw); err == nil {
-			val = t
-		} else if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
-			val = i
+			bsonClauses = append(bsonClauses, subFilter)
+			continue
 		}
 
-		clauses = append(clauses, bson.D{{Key: field, Value: bson.D{{Key: opMap[op], Value: val}}}})
+		matches := clausePattern.FindStringSubmatch(partExpr)
+		if matches == nil {
+			return nil, fmt.Errorf("invalid filter clause %q", partExpr)
+		}
+		field, opSymbol, stringValue, unquotedValue := matches[1], matches[2], matches[3], matches[4]
+		rawValue := unquotedValue
+		if stringValue != "" {
+			rawValue = stringValue
+		}
+
+		// Attempt type conversions: ObjectID, boolean, time, int
+		var parsedValue interface{} = rawValue
+		if field == "_id" && len(rawValue) == 24 {
+			if objectID, err := primitive.ObjectIDFromHex(rawValue); err == nil {
+				parsedValue = objectID
+			}
+		} else if strings.ToLower(rawValue) == "true" {
+			parsedValue = true
+		} else if strings.ToLower(rawValue) == "false" {
+			parsedValue = false
+		} else if parsedTimeVal, err := time.Parse(time.RFC3339, rawValue); err == nil {
+			parsedValue = parsedTimeVal
+		} else if parsedIntVal, err := strconv.ParseInt(rawValue, 10, 64); err == nil {
+			parsedValue = parsedIntVal
+		}
+
+		bsonClauses = append(bsonClauses, bson.D{{Key: field, Value: bson.D{{Key: opMapping[opSymbol], Value: parsedValue}}}})
 	}
 
-	if len(clauses) == 1 {
-		return clauses[0].(bson.D), nil
+	if len(bsonClauses) == 1 {
+		return bsonClauses[0].(bson.D), nil
 	}
-	return bson.D{{Key: opKey, Value: clauses}}, nil
+	return bson.D{{Key: mongoOperator, Value: bsonClauses}}, nil
 }
 
-func splitTopLevel(input string) (string, []string) {
+// splitTopLevelClauses separates the DSL filter into top-level clauses and returns the Mongo logical operator
+func splitTopLevel(filterExp string) (string, []string) {
 	inQuotes := false
-	var buf strings.Builder
+	// Track parentheses depth to handle nested expressions
+	depth := 0
+	var buffer strings.Builder
 	var parts []string
-	opKey := ""
+	mongoOperator := ""
 
-	for i := 0; i < len(input); {
-		ch := input[i]
-		if ch == '"' {
+	for index := 0; index < len(filterExp); {
+		currChar := filterExp[index]
+		if currChar == '"' {
+			// Toggle inside-quote state
 			inQuotes = !inQuotes
-			buf.WriteByte(ch)
-			i++
+			buffer.WriteByte(currChar)
+			index++
 			continue
 		}
 		if !inQuotes {
-			if strings.HasPrefix(input[i:], " or ") {
-				if opKey == "" || opKey == "$or" {
-					opKey = "$or"
-					parts = append(parts, strings.TrimSpace(buf.String()))
-					buf.Reset()
-					i += len(" or ")
-					continue
-				}
+			if currChar == '(' {
+				depth++
+				buffer.WriteByte(currChar)
+				index++
+				continue
 			}
-			if strings.HasPrefix(input[i:], " and ") {
-				if opKey == "" || opKey == "$and" {
-					opKey = "$and"
-					parts = append(parts, strings.TrimSpace(buf.String()))
-					buf.Reset()
-					i += len(" and ")
-					continue
+			if currChar == ')' {
+				if depth > 0 {
+					depth--
+				}
+				buffer.WriteByte(currChar)
+				index++
+				continue
+			}
+			// Split at top-level (depth = 0)
+			if depth == 0 {
+				// Detect " or " operators at top level
+				if strings.HasPrefix(filterExp[index:], " or ") {
+					if mongoOperator == "" || mongoOperator == "$or" {
+						mongoOperator = "$or"
+						parts = append(parts, strings.TrimSpace(buffer.String()))
+						buffer.Reset()
+						index += len(" or ")
+						continue
+					}
+				}
+				if strings.HasPrefix(filterExp[index:], " and ") {
+					if mongoOperator == "" || mongoOperator == "$and" {
+						mongoOperator = "$and"
+						parts = append(parts, strings.TrimSpace(buffer.String()))
+						buffer.Reset()
+						index += len(" and ")
+						continue
+					}
 				}
 			}
 		}
-		buf.WriteByte(ch)
-		i++
+		buffer.WriteByte(currChar)
+		index++
 	}
-	parts = append(parts, strings.TrimSpace(buf.String()))
-	if opKey == "" {
-		opKey = "$and"
+	parts = append(parts, strings.TrimSpace(buffer.String()))
+	// Default to $and if no operator found
+	if mongoOperator == "" {
+		mongoOperator = "$and"
 	}
-	return opKey, parts
+	return mongoOperator, parts
 }
