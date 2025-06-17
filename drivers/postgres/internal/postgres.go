@@ -151,7 +151,6 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		streamParts := strings.Split(streamName, ".")
 		schemaName, streamName := streamParts[0], streamParts[1]
 		stream := types.NewStream(streamName, schemaName)
-		stream.SyncMode = p.config.DefaultSyncMode
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {

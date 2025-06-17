@@ -1,5 +1,7 @@
 package types
 
+import "fmt"
+
 // Message is a dto for olake output row representation
 type Message struct {
 	Type             MessageType            `json:"type"`
@@ -64,4 +66,42 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 	}
 
 	return catalog
+}
+
+// createStreamMap creates a map of streams for quick lookup by stream ID
+func createStreamMap(catalog *Catalog) map[string]*ConfiguredStream {
+	streamMap := make(map[string]*ConfiguredStream)
+	for _, stream := range catalog.Streams {
+		streamMap[stream.Stream.ID()] = stream
+	}
+	return streamMap
+}
+
+// MergeCatalogs merges old catalog with new catalog based on the following rules:
+// 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
+// 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
+// 3. Everything else: Keep as new catalog
+func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
+
+	oldStreamMap := createStreamMap(oldCatalog)
+	// Filter selected streams to only include those in new catalog
+	if oldCatalog.SelectedStreams != nil {
+		newStreamMap := createStreamMap(newCatalog)
+		filtered := make(map[string][]StreamMetadata)
+		for namespace, stream := range oldCatalog.SelectedStreams {
+			for _, metadata := range stream {
+				if _, exists := newStreamMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]; exists {
+					filtered[namespace] = append(filtered[namespace], metadata)
+				}
+			}
+		}
+		newCatalog.SelectedStreams = filtered
+	}
+	// Preserve sync modes from old catalog
+	for _, newStream := range newCatalog.Streams {
+		if oldStream, exists := oldStreamMap[newStream.Stream.ID()]; exists {
+			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
+		}
+	}
+	return newCatalog
 }

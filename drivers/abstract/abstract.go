@@ -90,7 +90,10 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			for column, typ := range DefaultColumns {
 				convStream.UpsertField(column, typ, true)
 			}
+			convStream.SyncMode = types.CDC
 			convStream.WithSyncMode(types.CDC)
+		} else {
+			convStream.SyncMode = types.FULLREFRESH
 		}
 		finalStreams = append(finalStreams, convStream)
 		return true

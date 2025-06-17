@@ -10,6 +10,9 @@ import (
 )
 
 // discoverCmd represents the read command
+var (
+	oldCatalog *types.Catalog
+)
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
@@ -17,7 +20,11 @@ var discoverCmd = &cobra.Command{
 		if configPath == "" {
 			return fmt.Errorf("--config not passed")
 		}
-
+		if catalogPath != "" {
+			if err := utils.UnmarshalFile(catalogPath, &oldCatalog); err != nil {
+				return fmt.Errorf("failed to read catalog from %s: %w", catalogPath, err)
+			}
+		}
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
 			return err
 		}
@@ -38,7 +45,7 @@ var discoverCmd = &cobra.Command{
 			return errors.New("no streams found in connector")
 		}
 
-		types.LogCatalog(streams)
+		types.LogCatalog(streams, oldCatalog)
 		return nil
 	},
 }
