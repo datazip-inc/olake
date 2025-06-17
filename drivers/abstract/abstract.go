@@ -85,6 +85,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
+		convStream.SyncMode = types.FULLREFRESH
 		// Add CDC columns if supported
 		if a.driver.CDCSupported() {
 			for column, typ := range DefaultColumns {
@@ -92,8 +93,6 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			}
 			convStream.SyncMode = types.CDC
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
-		} else {
-			convStream.SyncMode = types.FULLREFRESH
 		}
 		finalStreams = append(finalStreams, convStream)
 		return true

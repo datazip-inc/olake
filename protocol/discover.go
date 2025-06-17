@@ -20,9 +20,9 @@ var discoverCmd = &cobra.Command{
 		if configPath == "" {
 			return fmt.Errorf("--config not passed")
 		}
-		if catalogPath != "" {
-			if err := utils.UnmarshalFile(catalogPath, &oldCatalog); err != nil {
-				return fmt.Errorf("failed to read catalog from %s: %w", catalogPath, err)
+		if streamsPath != "" {
+			if err := utils.UnmarshalFile(streamsPath, &oldCatalog); err != nil {
+				return fmt.Errorf("failed to read catalog from %s: %w", streamsPath, err)
 			}
 		}
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {

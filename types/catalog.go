@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/datazip-inc/olake/utils"
+)
 
 // Message is a dto for olake output row representation
 type Message struct {
@@ -87,20 +90,22 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog.SelectedStreams != nil {
 		newStreamMap := createStreamMap(newCatalog)
 		filtered := make(map[string][]StreamMetadata)
-		for namespace, stream := range oldCatalog.SelectedStreams {
-			for _, metadata := range stream {
+		for namespace, metadataList := range oldCatalog.SelectedStreams {
+			_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
 				if _, exists := newStreamMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]; exists {
 					filtered[namespace] = append(filtered[namespace], metadata)
 				}
-			}
+				return nil
+			})
 		}
 		newCatalog.SelectedStreams = filtered
 	}
 	// Preserve sync modes from old catalog
-	for _, newStream := range newCatalog.Streams {
+	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		if oldStream, exists := oldStreamMap[newStream.Stream.ID()]; exists {
 			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
 		}
-	}
+		return nil
+	})
 	return newCatalog
 }
