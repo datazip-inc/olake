@@ -216,11 +216,15 @@ public class IcebergTableOperator {
    * @throws IOException if writer operations fail
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId) throws IOException {
-    LOGGER.info("Committing data for thread: {}", threadId);
-    
+  public void commitThread(String threadId) throws IOException {    
     // Get the writer and table for this thread
     BaseTaskWriter<Record> writer = threadWriters.remove(threadId);
+    // if writer is null, it means the thread has not written any records
+    if (writer == null) {
+      LOGGER.warn("No writer found for thread: {}", threadId);
+      return;
+    }
+
     Table table = threadTables.remove(threadId);
     
     try {
@@ -286,7 +290,7 @@ public class IcebergTableOperator {
    */
   private void addToTablePerSchema(Table icebergTable, List<RecordConverter> events) {
     // Group events by thread ID to ensure proper file separation
-    Map<String, List<RecordConverter>> eventsByThread = events.stream()
+    Map<String, List<RecordConverter>> eventsByThread = events.parallelStream()
         .collect(Collectors.groupingBy(e -> {
           String threadId = e.getThreadId();
           if (threadId == null || threadId.isEmpty()) {
@@ -302,13 +306,11 @@ public class IcebergTableOperator {
       // Get or create a writer for this thread
       BaseTaskWriter<Record> writer = threadWriters.computeIfAbsent(threadId, k -> {
         LOGGER.info("Creating new writer for thread: {}", k);
+        threadTables.put(threadId, icebergTable);
         return writerFactory2.create(icebergTable);
       });
       
       try {
-        // Store table reference for this thread
-        threadTables.put(threadId, icebergTable);
-        
         // Write all events for this thread
         List<RecordWrapper> convertedRecords = threadSpecificEvents.parallelStream()
             .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())

@@ -159,7 +159,7 @@ func findAvailablePort(serverHost string) (int, error) {
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
 }
 
-// parsePartitionRegex parses the partition regex and populates the partitionInfo map
+// parsePartitionRegex parses the partition regex and populates the partitionInfo slice
 func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
 	// This strictly identifies column name and partition transform entries
@@ -173,8 +173,11 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
-		// Store transform for this field
-		i.partitionInfo[colName] = transform
+		// Append to ordered slice to preserve partition order
+		i.partitionInfo = append(i.partitionInfo, PartitionInfo{
+			Field:     colName,
+			Transform: transform,
+		})
 	}
 
 	return nil
@@ -195,9 +198,9 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 	}
 
 	// Add partition fields if defined
-	for field, transform := range i.partitionInfo {
-		partitionKey := fmt.Sprintf("partition.field.%s", field)
-		serverConfig[partitionKey] = transform
+	for _, info := range i.partitionInfo {
+		partitionKey := fmt.Sprintf("partition.field.%s", info.Field)
+		serverConfig[partitionKey] = info.Transform
 	}
 
 	// Configure catalog implementation based on the selected type
@@ -475,27 +478,6 @@ func (i *Iceberg) CloseIcebergClient() error {
 	logger.Infof("Decreased reference count for Iceberg server on port %d, refCount %d", i.port, server.refCount)
 
 	return nil
-}
-
-// addThreadIDToRecord adds thread ID to the debezium record JSON
-func addThreadIDToRecord(debeziumRecord string, threadID string) (string, error) {
-	// Parse the JSON record
-	var recordMap map[string]interface{}
-	err := json.Unmarshal([]byte(debeziumRecord), &recordMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse debezium record: %v", err)
-	}
-
-	// Add thread_id at the top level of the record (same level as destination_table, key, value)
-	recordMap["thread_id"] = threadID
-
-	// Marshal back to JSON
-	modifiedRecord, err := json.Marshal(recordMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal modified record: %v", err)
-	}
-
-	return string(modifiedRecord), nil
 }
 
 // getOrCreateBatch gets or creates a batch for a specific configuration

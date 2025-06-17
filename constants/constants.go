@@ -8,7 +8,7 @@ const (
 	DefaultDiscoverTimeout = 5 * time.Minute
 	DefaultRetryTimeout    = 60 * time.Second
 	ParquetFileExt         = "parquet"
-	PartitionRegex         = `\{([^}]+)\}`
+	PartitionRegex         = `\{([^,]+),\s*([^}]+)\}`
 	MongoPrimaryID         = "_id"
 	OlakeID                = "_olake_id"
 	OlakeTimestamp         = "_olake_timestamp"
