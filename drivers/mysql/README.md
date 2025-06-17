@@ -130,6 +130,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
 <br> The `append_only` flag determines whether records can be written to th iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow)<br>
+<br>The `chunk_column` used to divide data into chunks for efficient parallel querying and extraction from the database.<br>
    ```json
    {
       "selected_streams": {
@@ -138,7 +139,8 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "partition_regex": "",
                   "stream_name": "table_1",
                   "normalization": false,
-                  "append_only": false
+                  "append_only": false,
+                  "chunk_column":""
                }
          ]
       },
