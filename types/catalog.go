@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+
 	"github.com/datazip-inc/olake/utils"
 )
 
