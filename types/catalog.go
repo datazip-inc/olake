@@ -72,41 +72,48 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 	return catalog
 }
 
-// createStreamMap creates a map of streams for quick lookup by stream ID
-func createStreamMap(catalog *Catalog) map[string]*ConfiguredStream {
-	streamMap := make(map[string]*ConfiguredStream)
-	for _, stream := range catalog.Streams {
-		streamMap[stream.Stream.ID()] = stream
-	}
-	return streamMap
-}
-
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
 // 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 3. Everything else: Keep as new catalog
 func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
-	oldStreamMap := createStreamMap(oldCatalog)
-	// Filter selected streams to only include those in new catalog
+	if oldCatalog == nil {
+		return newCatalog
+	}
+
+	createStreamMap := func(catalog *Catalog) map[string]*ConfiguredStream {
+		sm := make(map[string]*ConfiguredStream)
+		for _, st := range catalog.Streams {
+			sm[st.Stream.ID()] = st
+		}
+		return sm
+	}
+
+	// filter selected streams
 	if oldCatalog.SelectedStreams != nil {
-		newStreamMap := createStreamMap(newCatalog)
-		filtered := make(map[string][]StreamMetadata)
+		newStreams := createStreamMap(newCatalog)
+		selectedStreams := make(map[string][]StreamMetadata)
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
 			_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
-				if _, exists := newStreamMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]; exists {
-					filtered[namespace] = append(filtered[namespace], metadata)
+				_, exists := newStreams[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]
+				if exists {
+					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
 				return nil
 			})
 		}
-		newCatalog.SelectedStreams = filtered
+		newCatalog.SelectedStreams = selectedStreams
 	}
+
 	// Preserve sync modes from old catalog
+	oldStreams := createStreamMap(oldCatalog)
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
-		if oldStream, exists := oldStreamMap[newStream.Stream.ID()]; exists {
+		oldStream, exists := oldStreams[newStream.Stream.ID()]
+		if exists && newStream.SupportedSyncModes().Exists(oldStream.Stream.SyncMode) {
 			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
 		}
 		return nil
 	})
+
 	return newCatalog
 }

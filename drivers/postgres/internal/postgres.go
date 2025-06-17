@@ -180,7 +180,6 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 			stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
 		}
 
-		stream.WithSyncMode(types.FULLREFRESH)
 		// add primary keys for stream
 		for _, column := range primaryKeyOutput {
 			stream.WithPrimaryKey(column.Name)

@@ -61,6 +61,7 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 }
 
 func init() {
+	// TODO: replace --catalog flag with --streams
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")

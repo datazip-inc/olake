@@ -166,7 +166,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				stream.WithPrimaryKey(columnName)
 			}
 		}
-		stream.WithSyncMode(types.FULLREFRESH)
 		return stream, rows.Err()
 	}
 	stream, err := produceTableSchema(ctx, streamName)

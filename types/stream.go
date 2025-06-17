@@ -126,9 +126,8 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog) {
 	}
 	logger.Info(message)
 	// write catalog to the specified file
-	if oldCatalog != nil {
-		message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
-	}
+	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
+
 	err := logger.FileLogger(message.Catalog, "streams", ".json")
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
