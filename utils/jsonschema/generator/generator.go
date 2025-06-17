@@ -172,7 +172,6 @@ func (g *JSONSchemaGenerator) SubGenerate(basePackage, rootType string) (schema.
 	rootSchema, err = g.doGenerate()
 
 	g.LogInfoF("generation completed in %s for %s\n", time.Since(start), g.basePackage+"/"+g.rootType)
-
 	return rootSchema, err
 }
 
@@ -312,23 +311,33 @@ func (g *JSONSchemaGenerator) generateObjectSchema(declInfo *declInfo, field *as
 		} else if propField.Names[0] != nil && propField.Names[0].IsExported() {
 			g.LogVerboseF("processing field '%s' on struct %s\n", propField.Names[0].Name, declInfo.typeSpec.Name.Name)
 
-			propName, propIgnore := jsonTagInfo(propField)
-
-			if propIgnore {
-				continue
+			// Check if the field has @jsonSchema annotation
+			// We will be using only the fields with @jsonSchema annotation specified explicitly
+			schemaAnno, err := g.findJSONSchemaAnnotationForField(propField)
+			if err != nil {
+				return nil, err
 			}
 
-			fschema, e := g.generateSchemaForExpr(declInfo, propField.Type, propField, declInfo.defKey)
+			if schemaAnno != nil {
 
-			if e != nil {
-				err = e
-				break
-			}
+				propName, propIgnore := jsonTagInfo(propField)
 
-			props[propName] = fschema
+				if propIgnore {
+					continue
+				}
 
-			if g.fieldIsRequired(propField) {
-				objectSchema.AddRequiredField(propName)
+				fschema, e := g.generateSchemaForExpr(declInfo, propField.Type, propField, declInfo.defKey)
+
+				if e != nil {
+					err = e
+					break
+				}
+
+				props[propName] = fschema
+
+				if g.fieldIsRequired(propField) {
+					objectSchema.AddRequiredField(propName)
+				}
 			}
 		}
 	}
@@ -621,9 +630,55 @@ func (g *JSONSchemaGenerator) generateArraySchema(ownerDecl *declInfo, elemExpr 
 
 func (g *JSONSchemaGenerator) generateInterfaceSchemaForField(decl *declInfo, field *ast.Field, parentKey string) (schema.JSONSchema, error) {
 	var err error
-	var hasAnno, fhasXof, dhasAnno bool
 	var iSchema schema.JSONSchema
 
+	// First check for schema annotations with type
+	schemaAnno, err := g.findJSONSchemaAnnotationForField(field)
+	if err != nil {
+		return nil, err
+	}
+
+	if schemaAnno != nil {
+		if len(schemaAnno.oneOf) > 0 || len(schemaAnno.allOf) > 0 || len(schemaAnno.anyOf) > 0 {
+			iSchema = schema.NewBasicSchema("")
+
+			err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
+			if err != nil {
+				return nil, err
+			}
+
+			return iSchema, nil
+		}
+
+		if len(schemaAnno.schemaType) > 0 {
+			// Create schema based on the type specified in the annotation
+			switch schemaAnno.schemaType[0] {
+			case "string":
+				iSchema = schema.NewStringSchema()
+			case "integer":
+				iSchema = schema.NewNumericSchema("integer")
+			case "number":
+				iSchema = schema.NewNumericSchema("number")
+			case "boolean":
+				iSchema = schema.NewBasicSchema("boolean")
+			case "object":
+				iSchema = schema.NewObjectSchema(g.options.SupressXAttrs)
+			case "array":
+				iSchema = schema.NewArraySchema()
+			default:
+				iSchema = schema.NewBasicSchema(schemaAnno.schemaType[0])
+			}
+
+			err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
+			if err != nil {
+				return nil, err
+			}
+			return iSchema, nil
+		}
+
+	}
+
+	var hasAnno, fhasXof, dhasAnno bool
 	fhasXof, err = g.fieldHasXofAnnotation(field)
 
 	if err == nil {

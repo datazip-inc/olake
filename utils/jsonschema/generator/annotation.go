@@ -49,6 +49,7 @@ type schemaAnno struct {
 	not                  string
 	additionalProperties *boolOrPath
 	additionalItems      bool
+	order                int
 
 	// TODO implement these somehow, maybe??
 	//PatternProperties    ???
@@ -102,6 +103,13 @@ func (f *schemaAnnoFactory) ValidateAndCreate(name string, attrs map[string][]st
 			if v[0] != "" {
 				anno.title = v[0]
 			}
+
+		case "order":
+			i, err := strconv.ParseInt(v[0], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("error setting @jsonSchema 'order': %s", err)
+			}
+			anno.order = int(i)
 
 		case "format":
 			if v[0] != "" {
