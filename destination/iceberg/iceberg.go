@@ -67,8 +67,16 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
+
+	// Add thread ID to the record
+	threadID := getGoroutineID()
+	debeziumRecordWithThreadID, err := addThreadIDToRecord(debeziumRecord, threadID)
+	if err != nil {
+		return fmt.Errorf("failed to add thread ID to record: %v", err)
+	}
+
 	// Add the record to the batch
-	flushed, err := addToBatch(i.configHash, debeziumRecord, i.client)
+	flushed, err := addToBatch(i.configHash, debeziumRecordWithThreadID, i.client)
 	if err != nil {
 		return fmt.Errorf("failed to add record to batch: %s", err)
 	}
@@ -83,11 +91,34 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 }
 
 func (i *Iceberg) Close(_ context.Context) error {
+	// First flush any remaining data in the batch
 	err := flushBatch(i.configHash, i.client)
 	if err != nil {
 		logger.Errorf("Error flushing batch on close: %s", err)
 		return err
 	}
+
+	// Get the current thread ID
+	threadID := getGoroutineID()
+
+	// Send commit request for this thread using a special message format
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create a special commit message
+	commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, threadID)
+
+	req := &proto.RecordIngestRequest{
+		Messages: []string{commitMessage},
+	}
+
+	res, err := i.client.SendRecords(ctx, req)
+	if err != nil {
+		logger.Errorf("Error sending commit message for thread %s: %s", threadID, err)
+		return fmt.Errorf("failed to send commit message for thread %s: %s", threadID, err)
+	}
+
+	logger.Infof("Sent commit message for thread %s: %s", threadID, res.GetResult())
 
 	err = i.CloseIcebergClient()
 	if err != nil {

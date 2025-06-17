@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.HashMap;
+import java.io.IOException;
 
 // This class is used to receive rows from the Olake Golang project and dump it into iceberg using prebuilt code here.
 @Dependent
@@ -60,6 +61,42 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         List<String> messages = request.getMessagesList();
 
         try {
+            // First, check if this is a commit request
+            if (messages.size() == 1) {
+                String message = messages.get(0);
+                try {
+                    Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
+                    if (Boolean.TRUE.equals(messageMap.get("commit")) && messageMap.containsKey("thread_id")) {
+                        // This is a commit request
+                        String threadId = (String) messageMap.get("thread_id");
+                        LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
+                        
+                        try {
+                            icebergTableOperator.commitThread(threadId);
+                            
+                            RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
+                                    .setResult(requestId + " Successfully committed data for thread " + threadId)
+                                    .build();
+                            responseObserver.onNext(response);
+                            responseObserver.onCompleted();
+                            LOGGER.info("{} Successfully committed data for thread: {}", requestId, threadId);
+                        } catch (Exception e) {
+                            String errorMessage = String.format("%s Failed to commit thread %s: %s", requestId, threadId, e.getMessage());
+                            LOGGER.error(errorMessage, e);
+                            responseObserver.onError(io.grpc.Status.INTERNAL
+                                    .withDescription(errorMessage)
+                                    .withCause(e)
+                                    .asRuntimeException());
+                        }
+                        return;
+                    }
+                } catch (Exception e) {
+                    // Not a commit message, continue with normal processing
+                    LOGGER.debug("Message is not a commit request, processing normally");
+                }
+            }
+            
+            // Normal record processing
             long parsingStartTime = System.currentTimeMillis();
             Map<String, List<RecordConverter>> result =
                     messages.parallelStream() // Use parallel stream for concurrent processing
@@ -70,6 +107,9 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
                                     // Get the destination table:
                                     String destinationTable = (String) messageMap.get("destination_table");
+                                    
+                                    // Extract thread_id if present
+                                    String threadId = (String) messageMap.get("thread_id");
 
                                     // Get key and value objects directly without re-serializing
                                     Object key = messageMap.get("key");
@@ -79,7 +119,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                                     byte[] keyBytes = key != null ? objectMapper.writeValueAsBytes(key) : null;
                                     byte[] valueBytes = objectMapper.writeValueAsBytes(value);
 
-                                    return new RecordConverter(destinationTable, valueBytes, keyBytes);
+                                    return new RecordConverter(destinationTable, valueBytes, keyBytes, threadId);
                                 } catch (Exception e) {
                                     String errorMessage = String.format("%s Failed to parse message: %s", requestId, message);
                                     LOGGER.error(errorMessage, e);
@@ -127,6 +167,20 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 throw new DebeziumException(errorMessage, e);
             }
         });
+    }
+    
+    /**
+     * Handles commit requests for specific threads.
+     * This method will be called by the gRPC service once proto files are regenerated.
+     * 
+     * @param threadId The thread ID to commit
+     * @throws IOException if writer operations fail
+     * @throws RuntimeException if commit fails
+     */
+    public void commitThread(String threadId) throws IOException {
+        LOGGER.info("Received commit request for thread: {}", threadId);
+        icebergTableOperator.commitThread(threadId);
+        LOGGER.info("Successfully committed data for thread: {}", threadId);
     }
 }
 

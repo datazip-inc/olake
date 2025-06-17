@@ -393,8 +393,10 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 
 func getTestDebeziumRecord() string {
 	randomID := utils.ULID()
+	threadID := getGoroutineID()
 	return `{
 			"destination_table": "olake_test_table",
+			"thread_id": "` + threadID + `",
 			"key": {
 				"schema" : {
 						"type" : "struct",
@@ -475,6 +477,27 @@ func (i *Iceberg) CloseIcebergClient() error {
 	return nil
 }
 
+// addThreadIDToRecord adds thread ID to the debezium record JSON
+func addThreadIDToRecord(debeziumRecord string, threadID string) (string, error) {
+	// Parse the JSON record
+	var recordMap map[string]interface{}
+	err := json.Unmarshal([]byte(debeziumRecord), &recordMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse debezium record: %v", err)
+	}
+
+	// Add thread_id at the top level of the record (same level as destination_table, key, value)
+	recordMap["thread_id"] = threadID
+
+	// Marshal back to JSON
+	modifiedRecord, err := json.Marshal(recordMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal modified record: %v", err)
+	}
+
+	return string(modifiedRecord), nil
+}
+
 // getOrCreateBatch gets or creates a batch for a specific configuration
 func getOrCreateBatch(configHash string) *recordBatch {
 	// LoadOrStore returns the existing value if present, or stores and returns the new value
@@ -488,7 +511,8 @@ func getOrCreateBatch(configHash string) *recordBatch {
 // getLocalBuffer gets or creates a local buffer for the current goroutine
 func getLocalBuffer(configHash string) *LocalBuffer {
 	// Create a unique key for this goroutine + config hash
-	bufferID := fmt.Sprintf("%s-%s", configHash, getGoroutineID())
+	goroutineID := getGoroutineID()
+	bufferID := fmt.Sprintf("%s-%s", configHash, goroutineID)
 
 	// Try to get existing buffer
 	if val, ok := localBuffers.Load(bufferID); ok {
