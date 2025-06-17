@@ -35,7 +35,7 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //	  ORDER BY id, created_at
 //	  LIMIT 1000
 //	) AS subquery
-func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
+func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int, parsedFilter string) string {
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
 	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
@@ -57,6 +57,9 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
 		query.WriteString(")")
 	}
+	if parsedFilter != "" {
+		query.WriteString(" AND (" + parsedFilter + ")")
+	}
 	// ORDER + LIMIT
 	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(columns, ", "))
 	fmt.Fprintf(&query, " LIMIT %d) AS subquery", chunkSize)
@@ -74,11 +77,8 @@ func buildChunkCondition(filterColumn string, chunk types.Chunk, parsedFilter st
 		chunkCond = fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
 	}
 
-	if parsedFilter != "" {
-		if chunkCond != "" {
-			return fmt.Sprintf("(%s) AND (%s)", chunkCond, parsedFilter)
-		}
-		return parsedFilter
+	if parsedFilter != "" && chunkCond != "" {
+		return fmt.Sprintf("(%s) AND (%s)", chunkCond, parsedFilter)
 	}
 	return chunkCond
 }
@@ -134,7 +134,7 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 // MySQL-Specific Queries
 
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
-func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk) string {
+func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, parsedFilter string) string {
 	colTuple := "(" + strings.Join(filterColumns, ", ") + ")"
 
 	buildSQLTuple := func(val any) string {
@@ -144,39 +144,47 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk) string 
 		}
 		return strings.Join(parts, ", ")
 	}
+	chunkCond := ""
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		return fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, buildSQLTuple(chunk.Min), colTuple, buildSQLTuple(chunk.Max))
+		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, buildSQLTuple(chunk.Min), colTuple, buildSQLTuple(chunk.Max))
 	case chunk.Min != nil:
-		return fmt.Sprintf("%s >= (%s)", colTuple, buildSQLTuple(chunk.Min))
+		chunkCond = fmt.Sprintf("%s >= (%s)", colTuple, buildSQLTuple(chunk.Min))
 	case chunk.Max != nil:
-		return fmt.Sprintf("%s < (%s)", colTuple, buildSQLTuple(chunk.Max))
-	default:
-		return ""
+		chunkCond = fmt.Sprintf("%s < (%s)", colTuple, buildSQLTuple(chunk.Max))
 	}
+	// Both filter and chunk cond both should exist
+	if parsedFilter != "" && chunkCond != "" {
+		return fmt.Sprintf("(%s) AND (%s)", chunkCond, parsedFilter)
+	}
+	return chunkCond
 }
 
 // MysqlLimitOffsetScanQuery is used to get the rows
-func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk) string {
-	query := ""
+func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, parsedFilter string) string {
+	baseQuery := fmt.Sprintf("SELECT * FROM `%s`.`%s`", stream.Namespace(), stream.Name())
+	if parsedFilter != "" {
+		baseQuery += " WHERE " + parsedFilter
+	}
+	query := baseQuery
 	if chunk.Min == nil {
 		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
-		query = fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d", stream.Namespace(), stream.Name(), maxVal)
+		query += fmt.Sprintf(" LIMIT %d", maxVal)
 	} else if chunk.Min != nil && chunk.Max != nil {
 		minVal, _ := strconv.ParseUint(chunk.Min.(string), 10, 64)
 		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
-		query = fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d OFFSET %d", stream.Namespace(), stream.Name(), maxVal-minVal, minVal)
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", maxVal-minVal, minVal)
 	} else {
 		minVal, _ := strconv.ParseUint(chunk.Min.(string), 10, 64)
 		maxNum := ^uint64(0)
-		query = fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d OFFSET %d", stream.Namespace(), stream.Name(), maxNum, minVal)
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", maxNum, minVal)
 	}
 	return query
 }
 
 // MySQLWithoutState builds a chunk scan query for MySql
-func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk) string {
-	condition := buildChunkConditionMySQL(filterColumns, chunk)
+func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, parsedFilter string) string {
+	condition := buildChunkConditionMySQL(filterColumns, chunk, parsedFilter)
 	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
 }
 
