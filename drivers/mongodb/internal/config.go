@@ -4,25 +4,23 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/datazip-inc/olake/logger"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type Config struct {
-	Hosts             []string       `json:"hosts"`
-	Username          string         `json:"username"`
-	Password          string         `json:"password"`
-	AuthDB            string         `json:"authdb"`
-	ReplicaSet        string         `json:"replica_set"`
-	ReadPreference    string         `json:"read_preference"`
-	Srv               bool           `json:"srv"`
-	ServerRAM         uint           `json:"server_ram"`
-	MaxThreads        int            `json:"max_threads"`
-	Database          string         `json:"database"`
-	DefaultMode       types.SyncMode `json:"default_mode"`
-	RetryCount        int            `json:"backoff_retry_count"`
-	PartitionStrategy string         `json:"partition_strategy"`
+	Hosts            []string `json:"hosts"`
+	Username         string   `json:"username"`
+	Password         string   `json:"password"`
+	AuthDB           string   `json:"authdb"`
+	ReplicaSet       string   `json:"replica_set"`
+	ReadPreference   string   `json:"read_preference"`
+	Srv              bool     `json:"srv"`
+	ServerRAM        uint     `json:"server_ram"`
+	MaxThreads       int      `json:"max_threads"`
+	Database         string   `json:"database"`
+	RetryCount       int      `json:"backoff_retry_count"`
+	ChunkingStrategy string   `json:"chunking_strategy"`
 }
 
 func (c *Config) URI() string {

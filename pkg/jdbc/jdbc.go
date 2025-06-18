@@ -7,19 +7,59 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
 	"github.com/jmoiron/sqlx"
 )
 
-// MinMaxQuery returns the query to fetch MIN and MAX values of a column in a table
-func MinMaxQuery(stream protocol.Stream, column string) string {
+// MinMaxQuery returns the query to fetch MIN and MAX values of a column in a Postgres table
+func MinMaxQuery(stream types.StreamInterface, column string) string {
 	return fmt.Sprintf(`SELECT MIN(%[1]s) AS min_value, MAX(%[1]s) AS max_value FROM %[2]s.%[3]s`, column, stream.Namespace(), stream.Name())
 }
 
 // NextChunkEndQuery returns the query to calculate the next chunk boundary
-func NextChunkEndQuery(stream protocol.Stream, column string, chunkSize int) string {
-	return fmt.Sprintf(`SELECT MAX(%[1]s) FROM (SELECT %[1]s FROM %[2]s.%[3]s WHERE %[1]s > ? ORDER BY %[1]s LIMIT %[4]d) AS subquery`, column, stream.Namespace(), stream.Name(), chunkSize)
+// Example:
+// Input:
+//
+//	stream.Namespace() = "mydb"
+//	stream.Name() = "users"
+//	columns = []string{"id", "created_at"}
+//	chunkSize = 1000
+//
+// Output:
+//
+//	SELECT MAX(key_str) FROM (
+//	  SELECT CONCAT_WS(',', id, created_at) AS key_str
+//	  FROM `mydb`.`users`
+//	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
+//	  ORDER BY id, created_at
+//	  LIMIT 1000
+//	) AS subquery
+func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
+	var query strings.Builder
+	// SELECT with quoted and concatenated values
+	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
+		strings.Join(columns, ", "),
+		stream.Namespace(),
+		stream.Name(),
+	)
+	// WHERE clause for lexicographic "greater than"
+	query.WriteString(" WHERE ")
+	// TODO: Embed primary key columns here directly
+	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
+		if currentColIndex > 0 {
+			query.WriteString(" OR ")
+		}
+		query.WriteString("(")
+		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
+			fmt.Fprintf(&query, "`%s` = ? AND ", columns[equalityColIndex])
+		}
+		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
+		query.WriteString(")")
+	}
+	// ORDER + LIMIT
+	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(columns, ", "))
+	fmt.Fprintf(&query, " LIMIT %d) AS subquery", chunkSize)
+	return query.String()
 }
 
 // buildChunkCondition builds the condition for a chunk
@@ -36,22 +76,22 @@ func buildChunkCondition(filterColumn string, chunk types.Chunk) string {
 // TODO: Rewrite queries for taking vars as arguments while execution.
 
 // PostgresWithoutState returns the query for a simple SELECT without state
-func PostgresWithoutState(stream protocol.Stream) string {
+func PostgresWithoutState(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor())
 }
 
 // PostgresWithState returns the query for a SELECT with state
-func PostgresWithState(stream protocol.Stream) string {
+func PostgresWithState(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" where "%s">$1 ORDER BY "%s" ASC NULLS FIRST`, stream.Namespace(), stream.Name(), stream.Cursor(), stream.Cursor())
 }
 
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
-func PostgresRowCountQuery(stream protocol.Stream) string {
+func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
-func PostgresRelPageCount(stream protocol.Stream) string {
+func PostgresRelPageCount(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
@@ -61,27 +101,87 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream protocol.Stream, filterColumn string, filterValue interface{}, batchSize int) string {
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int) string {
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s > %v ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue, filterColumn, batchSize)
 }
 
 // PostgresMinQuery returns the query to fetch the minimum value of a column in PostgreSQL
-func PostgresMinQuery(stream protocol.Stream, filterColumn string, filterValue interface{}) string {
+func PostgresMinQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
 	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue)
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
-func PostgresChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
+func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk) string {
 	condition := buildChunkCondition(filterColumn, chunk)
 	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
 }
 
 // MySQL-Specific Queries
 
+// buildChunkConditionMySQL builds the condition for a chunk in MySQL
+func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk) string {
+	colTuple := "(" + strings.Join(filterColumns, ", ") + ")"
+
+	buildSQLTuple := func(val any) string {
+		parts := strings.Split(val.(string), ",")
+		for i, part := range parts {
+			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
+		}
+		return strings.Join(parts, ", ")
+	}
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		return fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, buildSQLTuple(chunk.Min), colTuple, buildSQLTuple(chunk.Max))
+	case chunk.Min != nil:
+		return fmt.Sprintf("%s >= (%s)", colTuple, buildSQLTuple(chunk.Min))
+	case chunk.Max != nil:
+		return fmt.Sprintf("%s < (%s)", colTuple, buildSQLTuple(chunk.Max))
+	default:
+		return ""
+	}
+}
+
+// MysqlLimitOffsetScanQuery is used to get the rows
+func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk) string {
+	query := ""
+	if chunk.Min == nil {
+		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
+		query = fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d", stream.Namespace(), stream.Name(), maxVal)
+	} else if chunk.Min != nil && chunk.Max != nil {
+		minVal, _ := strconv.ParseUint(chunk.Min.(string), 10, 64)
+		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
+		query = fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d OFFSET %d", stream.Namespace(), stream.Name(), maxVal-minVal, minVal)
+	} else {
+		minVal, _ := strconv.ParseUint(chunk.Min.(string), 10, 64)
+		maxNum := ^uint64(0)
+		query = fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d OFFSET %d", stream.Namespace(), stream.Name(), maxNum, minVal)
+	}
+	return query
+}
+
 // MySQLWithoutState builds a chunk scan query for MySql
-func MysqlChunkScanQuery(stream protocol.Stream, filterColumn string, chunk types.Chunk) string {
-	condition := buildChunkCondition(filterColumn, chunk)
+func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk) string {
+	condition := buildChunkConditionMySQL(filterColumns, chunk)
 	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
+}
+
+// MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
+func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
+	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(columns, ", "))
+	orderAsc := strings.Join(columns, ", ")
+	descCols := make([]string, len(columns))
+	for i, col := range columns {
+		descCols[i] = col + " DESC"
+	}
+	orderDesc := strings.Join(descCols, ", ")
+	return fmt.Sprintf(`
+		SELECT
+			(SELECT %s FROM %s.%s ORDER BY %s LIMIT 1) AS min_value,
+			(SELECT %s FROM %s.%s ORDER BY %s LIMIT 1) AS max_value
+	`,
+		concatCols, stream.Namespace(), stream.Name(), orderAsc,
+		concatCols, stream.Namespace(), stream.Name(), orderDesc,
+	)
 }
 
 // MySQLDiscoverTablesQuery returns the query to discover tables in a MySQL database
@@ -190,11 +290,11 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) err
 		ReadOnly:  true,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer func() {
 		if rerr := tx.Rollback(); rerr != nil && rerr != sql.ErrTxDone {
-			fmt.Printf("transaction rollback failed: %v\n", rerr)
+			fmt.Printf("transaction rollback failed: %s", rerr)
 		}
 	}()
 	if err := fn(tx); err != nil {

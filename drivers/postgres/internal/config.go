@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/lib/pq"
 )
@@ -20,15 +19,16 @@ type Config struct {
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	UpdateMethod     interface{}       `json:"update_method"`
-	DefaultSyncMode  types.SyncMode    `json:"default_mode"`
 	BatchSize        int               `json:"reader_batch_size"`
 	MaxThreads       int               `json:"max_threads"`
+	RetryCount       int               `json:"retry_count"`
 }
 
 // Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
-	InitialWaitTime int    `json:"intial_wait_time"`
+	// initial wait time must be in range [120,2400), default value 1200
+	InitialWaitTime int `json:"intial_wait_time"`
 }
 
 func (c *Config) Validate() error {
