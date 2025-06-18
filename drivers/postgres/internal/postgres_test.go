@@ -2,6 +2,8 @@ package driver
 
 import (
 	"testing"
+
+	"github.com/datazip-inc/olake/drivers/abstract"
 )
 
 // Test functions using base utilities
@@ -17,5 +19,5 @@ func TestPostgresDiscover(t *testing.T) {
 
 func TestPostgresRead(t *testing.T) {
 	client, absDriver := testPostgresClient(t)
-	absDriver.TestRead(t, client, ExecuteQuery)
+	absDriver.TestRead(t, client, ExecuteQuery, abstract.PostgresSchema)
 }
