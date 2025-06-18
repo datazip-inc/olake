@@ -27,39 +27,30 @@ var discoverCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		// Discover Telemetry Tracking
 		startTime := time.Now()
-		var discoverError error
-		var streamCount int
-
-		defer func() {
-			telemetry.TrackDiscoverCompleted(
-				time.Since(startTime).Seconds(),
-				discoverError == nil,
-				streamCount,
-				connector.Type(),
-				discoverError,
-			)
-			telemetry.Flush()
-		}()
 		err := connector.Setup(cmd.Context())
 		if err != nil {
-			discoverError = err
 			return err
 		}
 		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
-			discoverError = err
 			return err
 		}
 
-		streamCount = len(streams)
-		if streamCount == 0 {
-			discoverError = errors.New("no streams found in connector")
-			return discoverError
+		if len(streams) == 0 {
+			return errors.New("no streams found in connector")
 		}
-
 		types.LogCatalog(streams)
+
+		// Discover Telemetry Tracking
+		defer func() {
+			telemetry.TrackDiscover(
+				time.Since(startTime).Seconds(),
+				len(streams),
+				connector.Type(),
+			)
+			telemetry.Flush()
+		}()
 		return nil
 	},
 }

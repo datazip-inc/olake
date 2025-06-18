@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	analytics "github.com/segmentio/analytics-go/v3"
 	"github.com/spf13/viper"
@@ -46,6 +47,7 @@ type Telemetry struct {
 	locationInfo  *LocationInfo
 	locationMutex sync.Mutex
 	locationChan  chan struct{}
+	wg            sync.WaitGroup
 }
 
 type platformInfo struct {
@@ -59,13 +61,6 @@ type LocationInfo struct {
 	Country string `json:"country"`
 	Region  string `json:"region"`
 	City    string `json:"city"`
-}
-
-type SyncMetrics struct {
-	Total   int            `json:"total"`
-	Success int            `json:"success"`
-	Failed  int            `json:"failed"`
-	Weeks   map[string]int `json:"weeks"`
 }
 
 func loadConfig() {
@@ -118,103 +113,88 @@ func init() {
 	}
 }
 
-func TrackDiscoverCompleted(duration float64, success bool, streamCount int, sourceType string, err error) {
+func TrackDiscover(duration float64, streamCount int, sourceType string) {
 	if instance == nil || !instance.enabled {
 		return
 	}
+	instance.wg.Add(1)
+	go func() {
+		defer instance.wg.Done()
+		props := map[string]interface{}{
+			"duration_sec": duration,
+			"stream_count": streamCount,
+			"source_type":  sourceType,
+		}
 
-	props := map[string]interface{}{
-		"duration_sec": duration,
-		"success":      success,
-		"stream_count": streamCount,
-		"source_type":  sourceType,
-	}
-	if err != nil {
-		props["error"] = err.Error()
-	}
-
-	if err := instance.sendEvent("DiscoverCompleted", props); err != nil {
-		logger.Errorf("Failed to send DiscoverCompleted event: %v", err)
-	}
+		if err := instance.sendEvent("Discover-Event", props); err != nil {
+			logger.Errorf("Failed to send Discover event: %v", err)
+		}
+	}()
 }
 
-func TrackSyncStarted(streamCount, selectedCount, cdcStreams int, stateFileProvided bool, configHash, sourceType, destType, catalogType string, normalized, partitioned int) {
+func TrackSyncStarted(streams []*types.Stream, selectedStreams []string, cdcStreams []types.StreamInterface, configHash, sourceType, destinationType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
 	if instance == nil || !instance.enabled {
 		return
 	}
+	instance.wg.Add(1)
+	go func() {
+		defer instance.wg.Done()
+		catalogType := ""
+		if string(destinationConfig.Type) == "ICEBERG" {
+			catalogType = destinationConfig.WriterConfig.(map[string]interface{})["catalog_type"].(string)
+		}
+		props := map[string]interface{}{
+			"unique_config_dstination": configHash,
+			"stream_count":             len(streams),
+			"selected_count":           len(selectedStreams),
+			"cdc_streams":              len(cdcStreams),
+			"source_type":              sourceType,
+			"destination_type":         destinationType,
+			"catalog_type":             catalogType,
+			"normalized_streams":       countNormalizedStreams(catalog),
+			"partitioned_streams":      countPartitionedStreams(catalog),
+		}
 
-	props := map[string]interface{}{
-		"stream_count":             streamCount,
-		"selected_count":           selectedCount,
-		"cdc_streams":              cdcStreams,
-		"state_file_provided":      stateFileProvided,
-		"unique_config_dstination": configHash,
-		"sync_type":                getSyncType(stateFileProvided),
-		"source_type":              sourceType,
-		"destination_type":         destType,
-		"catalog_type":             catalogType,
-		"normalized_streams":       normalized,
-		"partitioned_streams":      partitioned,
-	}
-
-	if err := instance.sendEvent("SyncStarted", props); err != nil {
-		logger.Errorf("Failed to send SyncStarted event: %v", err)
-	}
+		if err := instance.sendEvent("SyncStart-Event", props); err != nil {
+			logger.Errorf("Failed to send SyncStarted event: %v", err)
+		}
+	}()
 }
 
-func TrackSyncCompleted(success bool, records, threads int64, durationSec float64, memoryMB uint64, metrics *SyncMetrics, syncError error) {
+func TrackSyncCompleted(status bool, records int64, durationSec float64) {
 	if instance == nil || !instance.enabled {
 		return
 	}
+	instance.wg.Add(1)
+	go func() {
+		defer instance.wg.Done()
+		props := map[string]interface{}{
+			"sync_status":    map[bool]string{true: "sync success", false: "sync failure"}[status],
+			"records_synced": records,
+			"duration_sec":   durationSec,
+		}
 
-	props := map[string]interface{}{
-		"success":         success,
-		"records_synced":  records,
-		"duration_sec":    durationSec,
-		"memory_usage_mb": memoryMB,
-		"threads_used":    threads,
-	}
-
-	if metrics != nil {
-		year, week := time.Now().ISOWeek()
-		currentWeek := fmt.Sprintf("%d-W%02d", year, week)
-		props["total_syncs"] = metrics.Total
-		props["successful_syncs"] = metrics.Success
-		props["failed_syncs"] = metrics.Failed
-		props["current_week_syncs"] = metrics.Weeks[currentWeek]
-		props["current_week"] = currentWeek
-	}
-
-	if syncError != nil {
-		props["error"] = syncError.Error()
-	}
-
-	if err := instance.sendEvent("SyncCompleted", props); err != nil {
-		logger.Errorf("Failed to send SyncCompleted event: %v", err)
-	}
-}
-
-func getSyncType(stateFileProvided bool) string {
-	if stateFileProvided {
-		return "CDC"
-	}
-	return "FullRefresh"
+		if err := instance.sendEvent("SyncCompleted", props); err != nil {
+			logger.Errorf("Failed to send SyncCompleted event: %v", err)
+		}
+	}()
 }
 
 func Flush() {
 	if instance != nil && instance.client != nil {
+		instance.wg.Wait()
 		instance.client.Close()
 	}
 }
 
 func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{}) error {
 	if !t.enabled {
-		fmt.Println("Telemetry disabled, not sending event:", eventName)
+		logger.Warn("Telemetry disabled, not sending event:", eventName)
 		return nil
 	}
 
 	if t.client == nil {
-		fmt.Println("Telemetry client is nil, not sending event:", eventName)
+		logger.Warn("Telemetry client is nil, not sending event:", eventName)
 		return fmt.Errorf("telemetry client is nil")
 	}
 
@@ -241,7 +221,7 @@ func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{
 	}
 
 	anonymousID := GetAnonymousID()
-	fmt.Printf("Sending event: %s for user: %s\n", eventName, anonymousID)
+	logger.Infof("Sending event: %s for user: %s\n", eventName, anonymousID)
 
 	return t.client.Enqueue(analytics.Track{
 		UserId:     GetAnonymousID(),
@@ -376,52 +356,22 @@ func (t *Telemetry) getLocationWithTimeout() interface{} {
 	return "NA"
 }
 
-func (t *Telemetry) TrackSyncResult(configHash string, success bool) *SyncMetrics {
-	if configHash == "" {
-		return nil
-	}
-	anonymousID := GetAnonymousID()
-	metricsPath := filepath.Join(getConfigDir(), syncMetricsFilePrefix+anonymousID)
-
-	// Read existing metrics
-	metrics := make(map[string]SyncMetrics)
-	if data, err := os.ReadFile(metricsPath); err == nil {
-		_ = json.Unmarshal(data, &metrics) // Best-effort read
-	}
-	year, week := time.Now().ISOWeek()
-	weekKey := fmt.Sprintf("%d-W%02d", year, week)
-
-	// Initialize metrics for this config hash if missing
-	if _, exists := metrics[configHash]; !exists {
-		metrics[configHash] = SyncMetrics{
-			Weeks: make(map[string]int),
+func countNormalizedStreams(catalog *types.Catalog) int {
+	count := 0
+	for _, s := range catalog.Streams {
+		if s.StreamMetadata.Normalization {
+			count++
 		}
 	}
-
-	// Update metrics
-	configMetrics := metrics[configHash]
-	configMetrics.Total++
-	if success {
-		configMetrics.Success++
-	} else {
-		configMetrics.Failed++
-	}
-	configMetrics.Weeks[weekKey]++ // Increment weekly count
-	metrics[configHash] = configMetrics
-
-	// Persist updated metrics
-	if data, err := json.Marshal(metrics); err == nil {
-		_ = os.WriteFile(metricsPath, data, 0600)
-	} else {
-		fmt.Printf("Failed to save sync metrics: %v\n", err)
-	}
-
-	return &configMetrics
+	return count
 }
 
-func SyncResult(configHash string, success bool) *SyncMetrics {
-	if instance == nil {
-		return nil
+func countPartitionedStreams(catalog *types.Catalog) int {
+	count := 0
+	for _, s := range catalog.Streams {
+		if s.StreamMetadata.PartitionRegex != "" {
+			count++
+		}
 	}
-	return instance.TrackSyncResult(configHash, success)
+	return count
 }
