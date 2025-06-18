@@ -7,14 +7,6 @@ on:
   pull_request:
     branches:
       - "*"
-    paths:
-      - '**/*.go'
-      - '**/*.java'
-      - 'go.mod'
-      - 'go.sum'
-      - 'pom.xml'
-      - 'build.gradle'
-      - 'gradle.properties'
   workflow_dispatch:
     inputs:
       logLevel:
@@ -54,15 +46,34 @@ jobs:
   trivy:
     name: trivy
     runs-on: ubuntu-24.04
-    if: ${{ github.event_name != 'pull_request' || contains(join(github.event.pull_request.changed_files.*.filename, ','), '.go') || contains(join(github.event.pull_request.changed_files.*.filename, ','), '.java') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+
+      - name: Check for .go or .java file changes
+        id: check-extensions
+        run: |
+          echo "GO_CHANGED=false" >> $GITHUB_ENV
+          echo "JAVA_CHANGED=false" >> $GITHUB_ENV
+
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            if [[ "$file" == *.go ]]; then
+              echo "GO_CHANGED=true" >> $GITHUB_ENV
+            fi
+            if [[ "$file" == *.java ]]; then
+              echo "JAVA_CHANGED=true" >> $GITHUB_ENV
+            fi
+          done
+
       - name: Run Trivy vulnerability scanner in repo mode
+        if: env.GO_CHANGED == 'true' || env.JAVA_CHANGED == 'true'
         uses: aquasecurity/trivy-action@master
         with:
           exit-code: '1'
           scan-type: 'fs'
           scan-ref: './'
           severity: 'HIGH,CRITICAL'
-          timeout: '10m'
