@@ -8,6 +8,8 @@ The MySql Driver enables data synchronization from MySql to your desired destina
    Fetches the complete dataset from MySql.
 2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from MySql in real time.
+3. **Strict CDC (Change Data Capture)**
+   Tracks only new changes from the current position in the MySQL binlog, without performing an initial backfill.
 
 ---
 
@@ -33,7 +35,6 @@ Add MySql credentials in following format in `config.json` file. [More details.]
       "intial_wait_time": 10
      },
     "tls_skip_verify": true,
-    "default_mode":"cdc",
     "max_threads":10,
     "backoff_retry_count": 2
   }
