@@ -4,14 +4,21 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/datazip-inc/olake/destination"
-
+	"github.com/datazip-inc/olake/telemetry"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
+
+var syncTelemetryDetails struct {
+	start      time.Time
+	configHash string
+	status     bool
+}
 
 // syncCmd represents the read command
 var syncCmd = &cobra.Command{
@@ -42,6 +49,8 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
+		syncTelemetryDetails.configHash = telemetry.ComputeConfigHash(configPath, destinationConfigPath)
+
 		// default state
 		state = &types.State{
 			Type: types.StreamType,
@@ -60,16 +69,19 @@ var syncCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
 		if err != nil {
+			syncTelemetryDetails.status = false
 			return err
 		}
 		// setup conector first
 		err = connector.Setup(cmd.Context())
 		if err != nil {
+			syncTelemetryDetails.status = false
 			return err
 		}
 		// Get Source Streams
 		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
+			syncTelemetryDetails.status = false
 			return err
 		}
 
@@ -142,6 +154,27 @@ var syncCmd = &cobra.Command{
 
 		// Setup State for Connector
 		connector.SetupState(state)
+		syncTelemetryDetails.start = time.Now()
+		// Sync Telemetry tracking
+		telemetry.TrackSyncStarted(
+			streams,
+			selectedStreams,
+			cdcStreams,
+			syncTelemetryDetails.configHash,
+			connector.Type(),
+			string(destinationConfig.Type),
+			destinationConfig,
+			catalog,
+		)
+		defer func() {
+			telemetry.TrackSyncCompleted(
+				syncTelemetryDetails.status,
+				pool.SyncedRecords(),
+				time.Since(syncTelemetryDetails.start).Seconds(),
+			)
+			telemetry.Flush()
+		}()
+
 		// init group
 		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
 		if err != nil {
@@ -149,6 +182,9 @@ var syncCmd = &cobra.Command{
 		}
 		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogWithLock()
+
+		// On success
+		syncTelemetryDetails.status = true
 		return nil
 	},
 }
