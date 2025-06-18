@@ -38,7 +38,6 @@ Add MongoDB credentials in the following format (see the [docs](https://olake.io
   "srv": false,
   "database": "database",
   "max_threads": 50,
-  "default_mode": "cdc",
   "backoff_retry_count": 2,
   "partition_strategy": ""
 }
