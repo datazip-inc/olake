@@ -35,7 +35,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 	// Use UseNumber() to convert numbers into json.Number and not float64.
 	decoder.UseNumber()
 	if err := decoder.Decode(&changes); err != nil {
-		return fmt.Errorf("failed to parse change received from wal logs: %s", err)
+		return nil, 0, fmt.Errorf("failed to parse change received from wal logs: %s", err)
 	}
 	nextLSN, err := pglogrepl.ParseLSN(changes.NextLSN)
 	if err != nil {
