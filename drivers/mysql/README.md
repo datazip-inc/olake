@@ -36,7 +36,6 @@ Add MySQL credentials in the following format (see the [docs](https://olake.io/d
     "intial_wait_time": 10
   },
   "tls_skip_verify": true,
-  "default_mode": "cdc",
   "max_threads": 10,
   "backoff_retry_count": 2
 }
