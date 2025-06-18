@@ -54,7 +54,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
     @Override
     public void sendRecords(RecordIngest.RecordIngestRequest request, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
-        System.out.println("java update check");
+        System.out.println("java update check test");
         String requestId = String.format("[Thread-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
         long startTime = System.currentTimeMillis();
         // Retrieve the array of strings from the request
