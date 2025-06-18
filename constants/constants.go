@@ -23,4 +23,5 @@ const (
 	MongoDB  DriverType = "mongodb"
 	Postgres DriverType = "postgres"
 	MySQL    DriverType = "mysql"
+	Kafka    DriverType = "kafka"
 )
