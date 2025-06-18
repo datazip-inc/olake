@@ -83,6 +83,7 @@ jobs:
           scan-ref: './'
           severity: 'HIGH,CRITICAL'
           scanners: 'vuln'
+          timeout: 10m
           exit-code: '1'
 
   trivy-java:
@@ -112,4 +113,5 @@ jobs:
           scan-ref: './'
           severity: 'HIGH,CRITICAL'
           scanners: 'vuln'
+          timeout: 10m
           exit-code: '1'
