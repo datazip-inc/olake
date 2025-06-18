@@ -44,6 +44,7 @@ func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDri
 
 func (a *AbstractDriver) SetupState(state *types.State) {
 	a.state = state
+	a.driver.SetupState(state)
 }
 
 func (a *AbstractDriver) GetConfigRef() Config {
@@ -94,7 +95,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			for column, typ := range DefaultColumns {
 				convStream.UpsertField(column, typ, true)
 			}
-			convStream.WithSyncMode(types.CDC)
+			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 		}
 
 		if constants.IsRelationalDriver(a.driver.Type()) {

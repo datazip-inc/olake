@@ -13,22 +13,22 @@ import (
 
 func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	// run pre cdc of drivers
-	if err := a.driver.PreCDC(ctx, a.state, streams); err != nil {
+	if err := a.driver.PreCDC(ctx, streams); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
 	}
 
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		if !a.state.HasCompletedBackfill(stream.Self()) {
-			// remove chunks state
+		isStrictCDC := stream.GetStream().SyncMode == types.STRICTCDC
+		if a.state.HasCompletedBackfill(stream.Self()) || isStrictCDC {
+			logger.Infof("backfill %s for stream[%s], skipping", utils.Ternary(isStrictCDC, "not enabled", "completed").(string), stream.ID())
+			backfillWaitChannel <- stream.ID()
+		} else {
 			err := a.Backfill(ctx, backfillWaitChannel, pool, stream)
 			if err != nil {
 				return err
 			}
-		} else {
-			logger.Infof("backfill already completed for stream[%s], skipping", stream.ID())
-			backfillWaitChannel <- stream.ID()
 		}
 		return nil
 	})
@@ -64,7 +64,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						if threadErr := <-errChan; threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
-						postCDCErr := a.driver.PostCDC(ctx, a.state, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -111,7 +111,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
-			postCDCErr := a.driver.PostCDC(ctx, a.state, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}

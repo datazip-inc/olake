@@ -97,7 +97,7 @@ var syncCmd = &cobra.Command{
 			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 			// Check if the stream is in the selectedStreamMap
 			if !(catalog.SelectedStreams == nil || selected) {
-				logger.Warnf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
+				logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
 				return false
 			}
 
@@ -116,7 +116,7 @@ var syncCmd = &cobra.Command{
 			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
 
-			if elem.Stream.SyncMode == types.CDC {
+			if elem.Stream.SyncMode == types.CDC || elem.Stream.SyncMode == types.STRICTCDC {
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {
