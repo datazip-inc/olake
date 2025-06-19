@@ -18,6 +18,10 @@ import (
 const chunkSize int64 = 500000 // Default chunk size for MySQL
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+	parsedFilter, err := m.getParsedFilter(stream)
+	if err != nil {
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+	}
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 		// Build query for the chunk
@@ -25,7 +29,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 		sort.Strings(pkColumns)
 		// Get chunks from state or calculate new ones
-		stmt := utils.Ternary(chunkColumn != "", jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk), utils.Ternary(len(pkColumns) > 0, jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk), jdbc.MysqlLimitOffsetScanQuery(stream, chunk))).(string)
+		stmt := utils.Ternary(chunkColumn != "", jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, parsedFilter), utils.Ternary(len(pkColumns) > 0, jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, parsedFilter), jdbc.MysqlLimitOffsetScanQuery(stream, chunk, parsedFilter))).(string)
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
@@ -51,6 +55,11 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 	pool.AddRecordsToSync(approxRowCount)
 
+	parsedFilter, err := m.getParsedFilter(stream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
+	}
+
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
@@ -63,7 +72,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			}
 			sort.Strings(pkColumns)
 			// Get table extremes
-			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx)
+			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx, parsedFilter)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
 			}
@@ -78,7 +87,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
 
 			// Generate chunks based on range
-			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
+			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize, parsedFilter)
 
 			currentVal := minVal
 			for {
@@ -148,8 +157,23 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, err
 }
 
-func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx, parsedFilter string) (min, max any, err error) {
 	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
+	if parsedFilter != "" {
+		query = fmt.Sprintf("%s WHERE %s", query, parsedFilter)
+	}
 	err = tx.QueryRow(query).Scan(&min, &max)
 	return min, max, err
+}
+
+func (m *MySQL) getParsedFilter(stream types.StreamInterface) (string, error) {
+	filter := stream.Self().StreamMetadata.Filter
+	if filter == "" {
+		return "", nil // Return an empty string if no filter
+	}
+	parsedFilter, err := jdbc.ParseFilter(filter, m.Type()) // Use jdbc package for SQL parsing
+	if err != nil {
+		return "", fmt.Errorf("failed to parse filter: %s", err)
+	}
+	return parsedFilter, nil
 }

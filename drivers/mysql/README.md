@@ -65,6 +65,8 @@ After executing the Discover command, a formatted response will look like this:
                   "partition_regex": "",
                   "stream_name": "table_1",
                   "normalization": false,
+                  "append_only": false,
+                  "filter": "id > 1"
                }
          ]
       },
@@ -107,8 +109,20 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "table_1",
                      "normalization": false,
-                     "append_only": false,
-                     "chunk_column":""
+                     "append_only": false
+                  }
+            ]
+         },
+      ```
+   - The `filter` mode under selected_streams allows you to define precise criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "table_1",
+                     "normalization": false,
+                     "filter": "id > 1 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
                   }
             ]
          },
