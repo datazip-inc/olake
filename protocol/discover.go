@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// discoverCmd represents the read command
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
@@ -22,14 +21,19 @@ var discoverCmd = &cobra.Command{
 			return err
 		}
 
+		if streamsPath != "" {
+			if err := utils.UnmarshalFile(streamsPath, &catalog); err != nil {
+				return fmt.Errorf("failed to read streams from %s: %w", streamsPath, err)
+			}
+		}
 		return nil
 	},
-	RunE: func(_ *cobra.Command, _ []string) error {
-		err := connector.Setup()
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		err := connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
-		streams, err := connector.Discover(true)
+		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -38,7 +42,7 @@ var discoverCmd = &cobra.Command{
 			return errors.New("no streams found in connector")
 		}
 
-		types.LogCatalog(streams)
+		types.LogCatalog(streams, catalog)
 		return nil
 	},
 }

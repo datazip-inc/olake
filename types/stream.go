@@ -3,9 +3,9 @@ package types
 import (
 	"github.com/goccy/go-json"
 
-	"github.com/datazip-inc/olake/jsonschema/schema"
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/jsonschema/schema"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // Output Stream Object for dsynk
@@ -119,13 +119,15 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
-func LogCatalog(streams []*Stream) {
+func LogCatalog(streams []*Stream, oldCatalog *Catalog) {
 	message := Message{
 		Type:    CatalogMessage,
 		Catalog: GetWrappedCatalog(streams),
 	}
 	logger.Info(message)
 	// write catalog to the specified file
+	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
+
 	err := logger.FileLogger(message.Catalog, "streams", ".json")
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
