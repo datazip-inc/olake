@@ -302,3 +302,43 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) err
 	}
 	return tx.Commit()
 }
+
+// Oracle DB Specific Queries
+
+// NextRowIDQuery returns the query to fetch the next max row id
+func NextRowIDQuery(stream types.StreamInterface, currentSCN string, ROWID string, chunkSize int64) string {
+	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %s.%s AS OF SCN %s WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), currentSCN, ROWID, chunkSize)
+}
+
+func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk) string {
+	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
+
+	condition := buildChunkConditionOracle(chunk)
+	return fmt.Sprintf(
+		"SELECT * FROM %s.%s AS OF SCN %s WHERE %s",
+		stream.Namespace(),
+		stream.Name(),
+		currentSCN,
+		condition,
+	)
+}
+
+// build chunkCondtition for Oracle
+func buildChunkConditionOracle(chunk types.Chunk) string {
+	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
+	if chunk.Min != nil && chunk.Max != nil {
+		chunkMax := strings.Split(chunk.Max.(string), ",")[1]
+		return fmt.Sprintf("ROWID >= '%v' AND ROWID < '%v'", chunkMin, chunkMax)
+	} else if chunk.Min != nil {
+		return fmt.Sprintf("ROWID >= '%v'", chunkMin)
+	}
+	return ""
+}
+
+func OracleMinMaxCountQuery(stream types.StreamInterface, currentSCN string) string {
+	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId, COUNT(*) AS totalRows FROM %s.%s AS OF SCN %s`, stream.Namespace(), stream.Name(), currentSCN)
+}
+
+func OracleTableSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT SUM(bytes) AS size_kb FROM user_segments WHERE segment_name = '%s' AND segment_type = 'TABLE'`, stream.Name())
+}
