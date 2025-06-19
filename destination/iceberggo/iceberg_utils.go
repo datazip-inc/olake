@@ -15,6 +15,8 @@ import (
 
 	// Required to register the glue catalog
 	_ "github.com/apache/iceberg-go/catalog/glue"
+	_ "github.com/apache/iceberg-go/catalog/sql"
+	_ "github.com/lib/pq"
 
 	"github.com/apache/iceberg-go/catalog/rest"
 	"github.com/apache/iceberg-go/io"
@@ -48,6 +50,8 @@ type NewIcebergGo struct {
 type Config struct {
 	CatalogType    string `json:"catalog_type"`
 	RestCatalogURL string `json:"rest_catalog_url"`
+	JDBCDialect    string `json:"jdbc_dialect"`
+	JDBCURI        string `json:"jdbc_uri"`
 	S3Bucket       string `json:"s3_bucket"`
 	S3Endpoint     string `json:"s3_endpoint"`
 	AwsRegion      string `json:"aws_region"`
@@ -105,6 +109,24 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 		logger.Infof("Table location: %s", tbl.Location())
 
 		w.iceTable = tbl
+	} else if w.config.CatalogType == "sql" || w.config.CatalogType == "jdbc" {
+		w.TableLocation = fmt.Sprintf("s3://%s/%s", w.config.IcebergDB, w.stream.Name())
+
+		ctx := context.Background()
+
+		jdbcCatalog, err := w.initializeJdbcCatalog(ctx)
+		if err != nil {
+			logger.Errorf("Failed to initialize JDBC catalog: %v", err)
+		}
+
+		w.catalog = jdbcCatalog
+		tbl, err := w.createOrLoadTable(ctx, jdbcCatalog)
+		if err != nil {
+			logger.Errorf("Failed to create or load table: %v", err)
+		}
+		logger.Infof("Table location: %s", tbl.Location())
+
+		w.iceTable = tbl
 	}
 
 	w.createRecordBuilder()
@@ -142,6 +164,40 @@ func (w *NewIcebergGo) initializeGlueCatalog(ctx context.Context) (catalog.Catal
 	cat, err := catalog.Load(ctx, "glue", props)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Glue catalog: %w", err)
+	}
+
+	return cat, nil
+}
+
+func (w *NewIcebergGo) initializeJdbcCatalog(ctx context.Context) (catalog.Catalog, error) {
+	var driver string
+	switch w.config.JDBCDialect {
+	case "postgres":
+		driver = "postgres"
+	case "mysql":
+		driver = "mysql"
+	case "sqlite":
+		driver = "sqlite3"
+	case "mssql":
+		driver = "mssql"
+	case "oracle":
+		driver = "godror"
+	default:
+		return nil, fmt.Errorf("unsupported dialect: %s", w.config.JDBCDialect)
+	}
+
+	props := iceberg.Properties{
+		"type":                "sql",
+		"uri":                 w.config.JDBCURI,
+		"sql.driver":          driver,
+		"sql.dialect":         w.config.JDBCDialect,
+		"init_catalog_tables": "true",
+		"warehouse":           "file:///" + w.config.IcebergDB,
+	}
+
+	cat, err := catalog.Load(ctx, "sql", props)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load JDBC catalog: %w", err)
 	}
 
 	return cat, nil
@@ -291,6 +347,16 @@ func (c *Config) Validate() error {
 		}
 		if c.Warehouse == "" {
 			c.Warehouse = "warehouse"
+		}
+		if c.IcebergDB == "" {
+			c.IcebergDB = "olake_iceberg"
+		}
+	} else if c.CatalogType == "jdbc" {
+		if c.JDBCURI == "" {
+			return fmt.Errorf("jdbc_uri is required when catalog_type is 'jdbc'")
+		}
+		if c.JDBCDialect == "" {
+			return fmt.Errorf("jdbc_dialect is required when catalog_type is 'jdbc'")
 		}
 		if c.IcebergDB == "" {
 			c.IcebergDB = "olake_iceberg"
