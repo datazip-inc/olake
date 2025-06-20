@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -54,6 +55,10 @@ func (a *AbstractDriver) Spec() any {
 	return a.driver.Spec()
 }
 
+func (a *AbstractDriver) Type() string {
+	return a.driver.Type()
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	discoverCtx, cancel := context.WithTimeout(ctx, constants.DefaultDiscoverTimeout)
 	defer cancel()
@@ -96,6 +101,16 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
 		}
+
+		if constants.IsRelationalDriver(a.driver.Type()) {
+			props := map[string]interface{}{constants.NormalizationProperty: true}
+			val, err := json.Marshal(props)
+			if err != nil {
+				return false
+			}
+			convStream.AdditionalProperties = string(val)
+		}
+
 		finalStreams = append(finalStreams, convStream)
 		return true
 	})

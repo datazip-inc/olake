@@ -15,6 +15,7 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	DBName                 = "_db"
+	NormalizationProperty  = "normalization"
 )
 
 type DriverType string
@@ -24,3 +25,16 @@ const (
 	Postgres DriverType = "postgres"
 	MySQL    DriverType = "mysql"
 )
+
+var (
+	// RelationalDrivers maps driver types to their relational status
+	RelationalDrivers = map[DriverType]bool{
+		Postgres: true,
+		MySQL:    true,
+		MongoDB:  false,
+	}
+)
+
+func IsRelationalDriver(driver string) bool {
+	return RelationalDrivers[DriverType(driver)]
+}
