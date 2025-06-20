@@ -310,6 +310,7 @@ func NextRowIDQuery(stream types.StreamInterface, currentSCN string, ROWID strin
 	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %s.%s AS OF SCN %s WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), currentSCN, ROWID, chunkSize)
 }
 
+// OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
 func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk) string {
 	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
 
@@ -335,10 +336,12 @@ func buildChunkConditionOracle(chunk types.Chunk) string {
 	return ""
 }
 
+// OracleMinMaxCountQuery returns the query to fetch the min ROWID, max ROWID and number of rows of a table in OracleDB
 func OracleMinMaxCountQuery(stream types.StreamInterface, currentSCN string) string {
 	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId, COUNT(*) AS totalRows FROM %s.%s AS OF SCN %s`, stream.Namespace(), stream.Name(), currentSCN)
 }
 
+// OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
 func OracleTableSizeQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT SUM(bytes) AS size_kb FROM user_segments WHERE segment_name = '%s' AND segment_type = 'TABLE'`, stream.Name())
 }

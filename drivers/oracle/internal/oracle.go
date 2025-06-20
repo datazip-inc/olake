@@ -120,7 +120,6 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	}
 	schemaName, tableName := parts[0], parts[1]
 
-	// TODO: Research and dicussion needed for the implementation of the row share lock
 	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH)
 	stream.SyncMode = o.config.DefaultMode
 

@@ -115,12 +115,10 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 }
 
 func (o *Oracle) getChunkSize(stream types.StreamInterface, totalRows int64) (int64, error) {
-	// considering 64MB parquet file size and 8x compression ratio
-	parquetSize := 64
+	// considering 512MB parquet file size and 8x compression ratio
+	parquetSize := 512
 	compressionRatio := 8
-	var effectiveSize = int64(parquetSize) * 1024 * 1024 * int64(compressionRatio)
-
-	numberOfThreads := o.config.MaxThreads
+	var effectiveParquetSize = int64(parquetSize) * 1024 * 1024 * int64(compressionRatio)
 
 	query := jdbc.OracleTableSizeQuery(stream)
 	var totalTableSize int64
@@ -129,20 +127,9 @@ func (o *Oracle) getChunkSize(stream types.StreamInterface, totalRows int64) (in
 		return 0, fmt.Errorf("failed to get total size of table: %w", err)
 	}
 
-	baseChunkCount := int64(math.Ceil(float64(totalTableSize)/float64(effectiveSize*int64(numberOfThreads)))) * int64(numberOfThreads)
+	avgRowSize := math.Ceil(float64(totalTableSize) / float64(totalRows))
 
-	if baseChunkCount == int64(numberOfThreads) {
-		return 500_000, nil
-	}
+	rowsPerParquet := int64(math.Ceil(float64(effectiveParquetSize) / float64(avgRowSize)))
 
-	rowsPerChunk := int64(math.Ceil(float64(totalRows) / float64(baseChunkCount)))
-
-	numberOfChunks := int(totalRows / rowsPerChunk)
-
-	// handling for effective processing of smaller tables
-	if totalRows >= 10_000_000 && numberOfChunks < numberOfThreads {
-		rowsPerChunk = totalRows / int64(numberOfThreads)
-	}
-
-	return rowsPerChunk, nil
+	return rowsPerParquet, nil
 }
