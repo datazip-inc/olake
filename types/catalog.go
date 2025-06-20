@@ -3,9 +3,9 @@ package types
 import (
 	"fmt"
 
-  "github.com/datazip-inc/olake/constants"
-	"github.com/goccy/go-json"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/goccy/go-json"
 )
 
 // Message is a dto for olake output row representation
