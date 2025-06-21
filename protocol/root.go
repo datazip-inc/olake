@@ -16,7 +16,7 @@ var (
 	configPath            string
 	destinationConfigPath string
 	statePath             string
-	catalogPath           string
+	streamsPath           string
 	batchSize             int64
 	noSave                bool
 
@@ -61,10 +61,12 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 }
 
 func init() {
+	// TODO: replace --catalog flag with --streams
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
-	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")
+	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector")
+	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")

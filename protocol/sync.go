@@ -22,7 +22,7 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("--config not passed")
 		} else if destinationConfigPath == "" {
 			return fmt.Errorf("--destination not passed")
-		} else if catalogPath == "" {
+		} else if streamsPath == "" {
 			return fmt.Errorf("--catalog not passed")
 		}
 
@@ -38,7 +38,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(catalogPath, catalog); err != nil {
+		if err := utils.UnmarshalFile(streamsPath, catalog); err != nil {
 			return err
 		}
 

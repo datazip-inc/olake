@@ -138,7 +138,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		schemaName, tableName := parts[0], parts[1]
 		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC)
-		stream.SyncMode = m.config.DefaultMode
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -167,7 +166,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				stream.WithPrimaryKey(columnName)
 			}
 		}
-		stream.WithSyncMode(types.FULLREFRESH)
 		return stream, rows.Err()
 	}
 	stream, err := produceTableSchema(ctx, streamName)
