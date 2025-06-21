@@ -302,3 +302,116 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) err
 	}
 	return tx.Commit()
 }
+
+// Oracle-Specific Queries
+
+// OracleDiscoverTablesQuery returns the query to discover tables in an Oracle database
+func OracleDiscoverTablesQuery() string {
+	return `
+		SELECT 
+			TABLE_NAME, 
+			OWNER 
+		FROM 
+			ALL_TABLES 
+		WHERE 
+			OWNER = ? 
+			AND TABLE_TYPE = 'TABLE'
+	`
+}
+
+// OracleTableSchemaQuery returns the query to fetch schema information for a table in Oracle
+func OracleTableSchemaQuery() string {
+	return `
+		SELECT 
+			COLUMN_NAME, 
+			DATA_TYPE,
+			DATA_TYPE, 
+			NULLABLE,
+			CONSTRAINT_TYPE
+		FROM 
+			ALL_TAB_COLUMNS atc
+		LEFT JOIN (
+			SELECT 
+				acc.COLUMN_NAME,
+				acc.TABLE_NAME,
+				acc.OWNER,
+				ac.CONSTRAINT_TYPE
+			FROM 
+				ALL_CONS_COLUMNS acc
+			JOIN 
+				ALL_CONSTRAINTS ac ON acc.CONSTRAINT_NAME = ac.CONSTRAINT_NAME 
+				AND acc.OWNER = ac.OWNER
+			WHERE 
+				ac.CONSTRAINT_TYPE = 'P'
+		) pk ON atc.COLUMN_NAME = pk.COLUMN_NAME 
+			AND atc.TABLE_NAME = pk.TABLE_NAME 
+			AND atc.OWNER = pk.OWNER
+		WHERE 
+			atc.OWNER = ? AND atc.TABLE_NAME = ?
+		ORDER BY 
+			atc.COLUMN_ID
+	`
+}
+
+// OraclePrimaryKeyQuery returns the query to fetch the primary key column of a table in Oracle
+func OraclePrimaryKeyQuery() string {
+	return `
+		SELECT 
+			COLUMN_NAME 
+		FROM 
+			ALL_CONS_COLUMNS acc
+		JOIN 
+			ALL_CONSTRAINTS ac ON acc.CONSTRAINT_NAME = ac.CONSTRAINT_NAME 
+			AND acc.OWNER = ac.OWNER
+		WHERE 
+			ac.CONSTRAINT_TYPE = 'P' 
+			AND ac.TABLE_NAME = ? 
+			AND ac.OWNER = ?
+		ORDER BY 
+			acc.POSITION
+	`
+}
+
+// OracleTableRowsQuery returns the query to fetch the estimated row count of a table in Oracle
+func OracleTableRowsQuery() string {
+	return `
+		SELECT 
+			NUM_ROWS
+		FROM 
+			ALL_TABLES
+		WHERE 
+			TABLE_NAME = ? 
+			AND OWNER = ?
+	`
+}
+
+// OracleChunkScanQuery builds a chunk scan query for Oracle
+func OracleChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk) string {
+	condition := buildChunkCondition(filterColumn, chunk)
+	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), condition)
+}
+
+// OracleWithoutState returns the query for a simple SELECT without state
+func OracleWithoutState(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT * FROM "%s"."%s" ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor())
+}
+
+// OracleWithState returns the query for a SELECT with state
+func OracleWithState(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE "%s" > :1 ORDER BY "%s"`, stream.Namespace(), stream.Name(), stream.Cursor(), stream.Cursor())
+}
+
+// OracleRowCountQuery returns the query to fetch the estimated row count in Oracle
+func OracleRowCountQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT NUM_ROWS FROM ALL_TABLES WHERE TABLE_NAME = '%s' AND OWNER = '%s'`, stream.Name(), stream.Namespace())
+}
+
+// OracleTableColumnsQuery returns the query to fetch column names of a table in Oracle
+func OracleTableColumnsQuery() string {
+	return `
+		SELECT COLUMN_NAME 
+		FROM ALL_TAB_COLUMNS 
+		WHERE OWNER = ? AND TABLE_NAME = ? 
+		ORDER BY COLUMN_ID
+	`
+}
