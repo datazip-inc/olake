@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
@@ -60,15 +62,15 @@ type serverInstance struct {
 
 // recordBatch represents a collection of records for a specific server configuration
 type recordBatch struct {
-	records []string   // Collected Debezium records
-	size    int64      // Estimated size in bytes
-	mu      sync.Mutex // Mutex for thread-safe access
+	records []types.DebeziumRecordWithPartition // Collected Debezium records
+	size    int64                               // Estimated size in bytes
+	mu      sync.Mutex                          // Mutex for thread-safe access
 }
 
 // LocalBuffer represents a thread-local buffer for collecting records
 // before adding them to the shared batch
 type LocalBuffer struct {
-	records []string
+	records []types.DebeziumRecordWithPartition
 	size    int64
 }
 
@@ -159,11 +161,11 @@ func findAvailablePort(serverHost string) (int, error) {
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
 }
 
-// parsePartitionRegex parses the partition regex and populates the partitionInfo map
+// parsePartitionRegex parses the partition regex and populates the partitionInfo slice
 func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
 	// This strictly identifies column name and partition transform entries
-	patternRegex := regexp.MustCompile(constants.PartitionRegex)
+	patternRegex := regexp.MustCompile(constants.PartitionRegexIceberg)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
 	for _, match := range matches {
 		if len(match) < 3 {
@@ -173,8 +175,11 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
-		// Store transform for this field
-		i.partitionInfo[colName] = transform
+		// Append to ordered slice to preserve partition order
+		i.partitionInfo = append(i.partitionInfo, types.PartitionInfo{
+			Field:     colName,
+			Transform: transform,
+		})
 	}
 
 	return nil
@@ -194,10 +199,16 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 		"write.format.default": "parquet",
 	}
 
-	// Add partition fields if defined
-	for field, transform := range i.partitionInfo {
-		partitionKey := fmt.Sprintf("partition.field.%s", field)
-		serverConfig[partitionKey] = transform
+	// Add partition fields as an array to preserve order
+	if len(i.partitionInfo) > 0 {
+		partitionFields := make([]map[string]string, 0, len(i.partitionInfo))
+		for _, info := range i.partitionInfo {
+			partitionFields = append(partitionFields, map[string]string{
+				"field":     info.Field,
+				"transform": info.Transform,
+			})
+		}
+		serverConfig["partition-fields"] = partitionFields
 	}
 
 	// Configure catalog implementation based on the selected type
@@ -393,8 +404,10 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 
 func getTestDebeziumRecord() string {
 	randomID := utils.ULID()
+	threadID := getGoroutineID()
 	return `{
 			"destination_table": "olake_test_table",
+			"thread_id": "` + threadID + `",
 			"key": {
 				"schema" : {
 						"type" : "struct",
@@ -479,16 +492,94 @@ func (i *Iceberg) CloseIcebergClient() error {
 func getOrCreateBatch(configHash string) *recordBatch {
 	// LoadOrStore returns the existing value if present, or stores and returns the new value
 	batch, _ := batchRegistry.LoadOrStore(configHash, &recordBatch{
-		records: make([]string, 0, 1000),
+		records: make([]types.DebeziumRecordWithPartition, 0, 1000),
 		size:    0,
 	})
 	return batch.(*recordBatch)
 }
 
+// sortRecordsByPartitionValues sorts records based on their partition values
+// This assumes all partition values have the same length and types at each index
+func sortRecordsByPartitionValues(records []types.DebeziumRecordWithPartition) {
+	sort.Slice(records, func(i, j int) bool {
+		// Compare partition values element by element
+		for idx := 0; idx < len(records[i].PartitionValues); idx++ {
+			valI := records[i].PartitionValues[idx]
+			valJ := records[j].PartitionValues[idx]
+
+			// Handle nil values - nil is considered less than any non-nil value
+			if valI == nil && valJ == nil {
+				continue
+			}
+			if valI == nil {
+				return true
+			}
+			if valJ == nil {
+				return false
+			}
+
+			// Compare based on type
+			switch vI := valI.(type) {
+			case string:
+				vJ := valJ.(string)
+				if vI != vJ {
+					return vI < vJ
+				}
+			case int:
+				vJ := valJ.(int)
+				if vI != vJ {
+					return vI < vJ
+				}
+			case int32:
+				vJ := valJ.(int32)
+				if vI != vJ {
+					return vI < vJ
+				}
+			case int64:
+				vJ := valJ.(int64)
+				if vI != vJ {
+					return vI < vJ
+				}
+			case float32:
+				vJ := valJ.(float32)
+				if vI != vJ {
+					return vI < vJ
+				}
+			case float64:
+				vJ := valJ.(float64)
+				if vI != vJ {
+					return vI < vJ
+				}
+			case bool:
+				vJ := valJ.(bool)
+				// false < true
+				if vI != vJ {
+					return !vI && vJ
+				}
+			case time.Time:
+				vJ := valJ.(time.Time)
+				if !vI.Equal(vJ) {
+					return vI.Before(vJ)
+				}
+			default:
+				// For any other types, convert to string for comparison
+				strI := fmt.Sprintf("%v", valI)
+				strJ := fmt.Sprintf("%v", valJ)
+				if strI != strJ {
+					return strI < strJ
+				}
+			}
+		}
+		// All partition values are equal
+		return false
+	})
+}
+
 // getLocalBuffer gets or creates a local buffer for the current goroutine
 func getLocalBuffer(configHash string) *LocalBuffer {
 	// Create a unique key for this goroutine + config hash
-	bufferID := fmt.Sprintf("%s-%s", configHash, getGoroutineID())
+	goroutineID := getGoroutineID()
+	bufferID := fmt.Sprintf("%s-%s", configHash, goroutineID)
 
 	// Try to get existing buffer
 	if val, ok := localBuffers.Load(bufferID); ok {
@@ -497,7 +588,7 @@ func getLocalBuffer(configHash string) *LocalBuffer {
 
 	// Create new buffer
 	buffer := &LocalBuffer{
-		records: make([]string, 0, 100),
+		records: make([]types.DebeziumRecordWithPartition, 0, 100),
 		size:    0,
 	}
 	localBuffers.Store(bufferID, buffer)
@@ -523,12 +614,12 @@ func flushLocalBuffer(buffer *LocalBuffer, configHash string, client proto.Recor
 	// Check if we need to flush the batch
 	needsFlush := batch.size >= maxBatchSize
 
-	var recordsToFlush []string
+	var recordsToFlush []types.DebeziumRecordWithPartition
 	if needsFlush {
 		// Copy records to flush
 		recordsToFlush = batch.records
 		// Reset batch
-		batch.records = make([]string, 0, 1000)
+		batch.records = make([]types.DebeziumRecordWithPartition, 0, 1000)
 		batch.size = 0
 	}
 
@@ -536,7 +627,7 @@ func flushLocalBuffer(buffer *LocalBuffer, configHash string, client proto.Recor
 	batch.mu.Unlock()
 
 	// Reset local buffer
-	buffer.records = make([]string, 0, 100)
+	buffer.records = make([]types.DebeziumRecordWithPartition, 0, 100)
 	buffer.size = 0
 
 	// Flush if needed
@@ -549,19 +640,19 @@ func flushLocalBuffer(buffer *LocalBuffer, configHash string, client proto.Recor
 
 // addToBatch adds a record to the batch for a specific server configuration
 // Returns true if the batch was flushed, false otherwise
-func addToBatch(configHash string, record string, client proto.RecordIngestServiceClient) (bool, error) {
+func addToBatch(configHash string, recordWithPartition types.DebeziumRecordWithPartition, client proto.RecordIngestServiceClient) (bool, error) {
 	// If record is empty, skip it
-	if record == "" {
+	if recordWithPartition.Record == "" {
 		return false, nil
 	}
 
-	recordSize := int64(len(record))
+	recordSize := int64(len(recordWithPartition.Record))
 
 	// Get the local buffer for this goroutine
 	buffer := getLocalBuffer(configHash)
 
 	// Add record to local buffer (no locking needed as it's per-goroutine)
-	buffer.records = append(buffer.records, record)
+	buffer.records = append(buffer.records, recordWithPartition)
 	buffer.size += recordSize
 
 	// If local buffer is still small, just return
@@ -621,7 +712,7 @@ func flushBatch(configHash string, client proto.RecordIngestServiceClient) error
 	recordsToFlush := batch.records
 
 	// Reset the batch
-	batch.records = make([]string, 0, 1000)
+	batch.records = make([]types.DebeziumRecordWithPartition, 0, 1000)
 	batch.size = 0
 
 	// Unlock the batch
@@ -632,17 +723,17 @@ func flushBatch(configHash string, client proto.RecordIngestServiceClient) error
 }
 
 // sendRecords sends a slice of records to the Iceberg RPC server
-func sendRecords(records []string, client proto.RecordIngestServiceClient) error {
+func sendRecords(recordsWithPartitionValues []types.DebeziumRecordWithPartition, client proto.RecordIngestServiceClient) error {
 	// Skip if empty
-	if len(records) == 0 {
+	if len(recordsWithPartitionValues) == 0 {
 		return nil
 	}
 
 	// Filter out any nil strings from records
-	validRecords := make([]string, 0, len(records))
-	for _, record := range records {
-		if record != "" {
-			validRecords = append(validRecords, record)
+	validRecords := make([]types.DebeziumRecordWithPartition, 0, len(recordsWithPartitionValues))
+	for _, recordWithPartitionValue := range recordsWithPartitionValues {
+		if recordWithPartitionValue.Record != "" {
+			validRecords = append(validRecords, recordWithPartitionValue)
 		}
 	}
 
@@ -651,9 +742,18 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 		return nil
 	}
 
+	// Sort records based on partition values
+	sortRecordsByPartitionValues(validRecords)
+
+	records := make([]string, 0, len(validRecords))
+	for _, recordWithPartitionValue := range validRecords {
+		records = append(records, recordWithPartitionValue.Record)
+	}
+
+	logger.Infof("Sending batch to Iceberg server: %d records", len(validRecords))
 	// Create request with all records
 	req := &proto.RecordIngestRequest{
-		Messages: validRecords,
+		Messages: records,
 	}
 
 	// Send to gRPC server with timeout

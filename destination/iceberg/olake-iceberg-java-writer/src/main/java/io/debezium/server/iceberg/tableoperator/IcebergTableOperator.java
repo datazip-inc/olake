@@ -43,8 +43,14 @@ public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
   
-  // Static lock object for synchronizing commits across threads
-  private static final Object COMMIT_LOCK = new Object();
+  // Lock object for synchronizing commits
+  private final Object commitLock = new Object();
+  
+  // Map to track table references per thread
+  private final Map<String, Table> threadTables = new ConcurrentHashMap<>();
+  
+  // Map to track open writers per thread
+  private final Map<String, BaseTaskWriter<Record>> threadWriters = new ConcurrentHashMap<>();
 
   public IcebergTableOperator() {
     createIdentifierFields = true;
@@ -203,78 +209,140 @@ public class IcebergTableOperator {
   }
 
   /**
+   * Commits data files for a specific thread
+   * 
+   * @param threadId The thread ID to commit
+   * @throws IOException if writer operations fail
+   * @throws RuntimeException if commit fails
+   */
+  public void commitThread(String threadId) throws IOException {    
+    // Get the writer and table for this thread
+    BaseTaskWriter<Record> writer = threadWriters.remove(threadId);
+    // if writer is null, it means the thread has not written any records
+    if (writer == null) {
+      LOGGER.warn("No writer found for thread: {}", threadId);
+      return;
+    }
+
+    Table table = threadTables.remove(threadId);
+    
+    try {
+      // Complete the writer to get the files
+      WriteResult files = writer.complete();
+      
+      LOGGER.info("Writer for thread {} generated {} data files and {} delete files", 
+                 threadId, files.dataFiles().length, files.deleteFiles().length);
+      
+      // If no files were generated, nothing to commit
+      if (files.dataFiles().length == 0 && files.deleteFiles().length == 0) {
+        LOGGER.info("No files to commit for thread: {}", threadId);
+        return;
+      }
+      
+      // Commit the files
+      synchronized(commitLock) {
+        try {
+          // Refresh table before committing
+          table.refresh();
+          
+          if (files.deleteFiles().length > 0) {
+            RowDelta rowDelta = table.newRowDelta();
+            Arrays.stream(files.dataFiles()).forEach(rowDelta::addRows);
+            Arrays.stream(files.deleteFiles()).forEach(rowDelta::addDeletes);
+            rowDelta.commit();
+          } else {
+            AppendFiles appendFiles = table.newAppend();
+            Arrays.stream(files.dataFiles()).forEach(appendFiles::appendFile);
+            appendFiles.commit();
+          }
+          
+          LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}", 
+                     files.dataFiles().length, files.deleteFiles().length, threadId);
+        } catch (Exception e) {
+          String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
+          LOGGER.error(errorMsg, e);
+          throw new RuntimeException(errorMsg, e);
+        }
+      }
+    } catch (IOException e) {
+      LOGGER.error("Failed to complete writer for thread: {}", threadId, e);
+      try {
+        writer.abort();
+      } catch (IOException abortEx) {
+        LOGGER.warn("Failed to abort writer", abortEx);
+      }
+      throw e;
+    } finally {
+      try {
+        writer.close();
+      } catch (IOException e) {
+        LOGGER.warn("Failed to close writer", e);
+      }
+    }
+  }
+
+  /**
    * Adds list of change events to iceberg table. All the events are having same schema.
    *
    * @param icebergTable
    * @param events
    */
   private void addToTablePerSchema(Table icebergTable, List<RecordConverter> events) {
-    // Remove retry logic and add synchronization
+    // Group events by thread ID to ensure proper file separation
+    Map<String, List<RecordConverter>> eventsByThread = events.parallelStream()
+        .collect(Collectors.groupingBy(e -> {
+          String threadId = e.getThreadId();
+          if (threadId == null || threadId.isEmpty()) {
+            throw new RuntimeException("Thread ID is required for all records");
+          }
+          return threadId;
+        }));
     
-    // Initialize the task writer
-    BaseTaskWriter<Record> writer = writerFactory2.create(icebergTable);
-    try {
+    for (Map.Entry<String, List<RecordConverter>> threadEvents : eventsByThread.entrySet()) {
+      String threadId = threadEvents.getKey();
+      List<RecordConverter> threadSpecificEvents = threadEvents.getValue();
       
-      // Write all events
-      // Parallelize the conversion step, then collect and write sequentially for thread safety
-      List<RecordWrapper> convertedRecords = events.parallelStream()
-          .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
-              ? e.convert(icebergTable.schema(), cdcOpField)
-              : e.convertAsAppend(icebergTable.schema()))
-          .collect(Collectors.toList());
-          
-      // Write converted records sequentially to maintain thread safety with the writer
-      for (RecordWrapper record : convertedRecords) {
-          writer.write(record);
-      }
-
-      WriteResult files = writer.complete();
+      // Get or create a writer for this thread
+      BaseTaskWriter<Record> writer = threadWriters.computeIfAbsent(threadId, k -> {
+        LOGGER.info("Creating new writer for thread: {}", k);
+        threadTables.put(threadId, icebergTable);
+        return writerFactory2.create(icebergTable);
+      });
       
-      // Synchronize the commit operation to prevent concurrent commits
-      synchronized(COMMIT_LOCK) {
-        // Refresh table again before committing to get the latest state
-        icebergTable.refresh();
-        
-        if (files.deleteFiles().length > 0) {
-          RowDelta newRowDelta = icebergTable.newRowDelta();
-          Arrays.stream(files.dataFiles()).forEach(newRowDelta::addRows);
-          Arrays.stream(files.deleteFiles()).forEach(newRowDelta::addDeletes);
-          newRowDelta.commit();
-        } else {
-          AppendFiles appendFiles = icebergTable.newAppend();
-          Arrays.stream(files.dataFiles()).forEach(appendFiles::appendFile);
-          appendFiles.commit();
+      try {
+        // Write all events for this thread
+        List<RecordWrapper> convertedRecords = threadSpecificEvents.parallelStream()
+            .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
+                ? e.convert(icebergTable.schema(), cdcOpField)
+                : e.convertAsAppend(icebergTable.schema()))
+            .collect(Collectors.toList());
+            
+        // Write converted records sequentially to maintain thread safety with the writer
+        for (RecordWrapper record : convertedRecords) {
+            writer.write(record);
         }
-      }
-      
-      LOGGER.info("Successfully committed {} events", events.size());
-      
-    } catch (org.apache.iceberg.exceptions.CommitFailedException e) {
-      String errorMessage = e.getMessage();
-      LOGGER.error("Commit failed: {}", errorMessage, e);
-      
-      try {
-        writer.abort();
-      } catch (IOException abortEx) {
-        LOGGER.warn("Failed to abort writer", abortEx);
-      }
-      
-      throw new RuntimeException("Failed to commit", e);
-    } catch (Exception ex) {
-      LOGGER.error("Failed to write data to table: {}", icebergTable.name(), ex);
-      
-      try {
-        writer.abort();
-      } catch (IOException abortEx) {
-        LOGGER.warn("Failed to abort writer", abortEx);
-      }
-      
-      throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
-    } finally {
-      try {
-        writer.close();
-      } catch (IOException e) {
-        LOGGER.warn("Failed to close writer", e);
+        
+        LOGGER.info("Successfully wrote {} events for thread: {}", threadSpecificEvents.size(), threadId);
+        
+      } catch (Exception ex) {
+        LOGGER.error("Failed to write data to table: {} for thread: {}", icebergTable.name(), threadId, ex);
+        
+        // Remove the failed writer
+        BaseTaskWriter<Record> failedWriter = threadWriters.remove(threadId);
+        if (failedWriter != null) {
+          try {
+            failedWriter.abort();
+          } catch (IOException abortEx) {
+            LOGGER.warn("Failed to abort writer", abortEx);
+          }
+          try {
+            failedWriter.close();
+          } catch (IOException e) {
+            LOGGER.warn("Failed to close writer", e);
+          }
+        }
+        
+        throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
       }
     }
   }

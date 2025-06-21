@@ -50,13 +50,11 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
   public void write(Record row) throws IOException {
     RowDataDeltaWriter writer = route(row);
     Operation rowOperation = ((RecordWrapper) row).op();
-    if (rowOperation == Operation.INSERT) {
-      // new row
-      writer.write(row);
-    } else if (rowOperation == Operation.DELETE && !keepDeletes) {
+    if (rowOperation == Operation.DELETE && !keepDeletes) {
       // deletes. doing hard delete. when keepDeletes = FALSE we dont keep deleted record
       writer.deleteKey(keyProjection.wrap(row));
     } else {
+      // We are deleting key even for insert operations to avoid duplicate records for handling inserts happening while full-load
       writer.deleteKey(keyProjection.wrap(row));
       writer.write(row);
     }
