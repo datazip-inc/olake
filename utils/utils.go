@@ -60,7 +60,7 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 	return -1, false
 }
 
-// returns cond ? a ; b
+// returns cond ? a ; b (note: it is not function ternary)
 func Ternary(cond bool, a, b any) any {
 	if cond {
 		return a

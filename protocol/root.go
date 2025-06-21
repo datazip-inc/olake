@@ -34,7 +34,6 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// set global variables
-
 		if !noSave {
 			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
 		}
