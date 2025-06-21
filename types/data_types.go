@@ -65,6 +65,18 @@ type RawRecord struct {
 	CdcTimestamp   time.Time      `parquet:"_cdc_timestamp"`
 }
 
+// PartitionInfo represents a Iceberg partition column with its transform, preserving order
+type PartitionInfo struct {
+	Field     string
+	Transform string
+}
+
+// DebeziumRecordWithPartition represents a Debezium record with its partition values
+type DebeziumRecordWithPartition struct {
+	Record          string
+	PartitionValues []any // ordered list of partition values
+}
+
 func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
@@ -74,9 +86,10 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 	}
 }
 
-func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization bool, threadID string) (string, error) {
+func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization bool, threadID string, partitionInfo []PartitionInfo) (DebeziumRecordWithPartition, error) {
 	// First create the schema and track field types
 	schema := r.createDebeziumSchema(db, stream, normalization)
+	partitionValues := make([]any, len(partitionInfo))
 
 	// Create the payload with the actual data
 	payload := make(map[string]interface{})
@@ -92,7 +105,7 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	} else {
 		dataBytes, err := json.Marshal(r.Data)
 		if err != nil {
-			return "", err
+			return DebeziumRecordWithPartition{}, err
 		}
 		payload["data"] = string(dataBytes)
 	}
@@ -135,10 +148,18 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 
 	jsonBytes, err := json.Marshal(debeziumRecord)
 	if err != nil {
-		return "", err
+		return DebeziumRecordWithPartition{}, err
 	}
 
-	return string(jsonBytes), nil
+	for _, partitionInfo := range partitionInfo {
+		value := payload[partitionInfo.Field]
+		partitionValues = append(partitionValues, value)
+	}
+
+	return DebeziumRecordWithPartition{
+		Record:          string(jsonBytes),
+		PartitionValues: partitionValues,
+	}, nil
 }
 
 func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization bool) map[string]interface{} {

@@ -54,6 +54,7 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
       // deletes. doing hard delete. when keepDeletes = FALSE we dont keep deleted record
       writer.deleteKey(keyProjection.wrap(row));
     } else {
+      // We are deleting key even for insert operations to avoid duplicate records for handling inserts happening while full-load
       writer.deleteKey(keyProjection.wrap(row));
       writer.write(row);
     }

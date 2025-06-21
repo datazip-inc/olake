@@ -17,8 +17,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.HashMap;
-import java.io.IOException;
+import java.util.ArrayList;
 
 // This class is used to receive rows from the Olake Golang project and dump it into iceberg using prebuilt code here.
 @Dependent
@@ -30,8 +29,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private final IcebergTableOperator icebergTableOperator;
     // Create a single reusable ObjectMapper instance
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    // Map to store partition fields and their transforms
-    private Map<String, String> partitionTransforms = new HashMap<>();
+    // List to store partition fields and their transforms - preserves order and allows duplicates
+    private List<Map<String, String>> partitionTransforms = new ArrayList<>();
 
     public OlakeRowsIngester() {
         icebergTableOperator = new IcebergTableOperator();
@@ -49,7 +48,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         this.icebergCatalog = icebergCatalog;
     }
 
-    public void setPartitionTransforms(Map<String, String> partitionTransforms) {
+    public void setPartitionTransforms(List<Map<String, String>> partitionTransforms) {
         this.partitionTransforms = partitionTransforms;
     }
 
