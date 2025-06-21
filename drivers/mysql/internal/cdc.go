@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -10,22 +11,68 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
+
+// detectMySQLFlavor detects the MySQL flavor based on version information
+// Supported flavors: mysql, mariadb, percona, tidb
+func (m *MySQL) detectMySQLFlavor() (string, error) {
+	var version string
+	err := m.client.QueryRow("SELECT @@version").Scan(&version)
+	if err != nil {
+		return "mysql", fmt.Errorf("failed to get MySQL version: %w", err)
+	}
+
+	version = strings.ToLower(version)
+
+	var flavor string
+	if strings.Contains(version, "mariadb") {
+		flavor = "mariadb"
+	} else if strings.Contains(version, "percona") {
+		flavor = "percona"
+	} else if strings.Contains(version, "tidb") {
+		flavor = "tidb"
+	} else if strings.Contains(version, "mysql") {
+		flavor = "mysql"
+	} else {
+		flavor = "mysql"
+		logger.Warnf("Could not determine MySQL flavor from version string '%s', defaulting to 'mysql'", version)
+	}
+
+	logger.Infof("Detected MySQL flavor: %s (version: %s)", flavor, version)
+	return flavor, nil
+}
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalState, streams []types.StreamInterface) (*binlog.Connection, error) {
 	if !m.CDCSupport {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	// validate global state
 	if globalState.ServerID == 0 {
 		return nil, fmt.Errorf("invalid global state; server_id is missing")
 	}
-	// TODO: Support all flavour of mysql
+
+	flavor, err := m.detectMySQLFlavor()
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect MySQL flavor: %s", err)
+	}
+
+	supportedFlavors := map[string]bool{
+		"mysql":   true,
+		"mariadb": true,
+		"percona": true,
+		"tidb":    true,
+	}
+
+	if !supportedFlavors[flavor] {
+		logger.Warnf("Unsupported MySQL flavor detected: %s, falling back to 'mysql'", flavor)
+		flavor = "mysql"
+	}
+
 	config := &binlog.Config{
 		ServerID:        globalState.ServerID,
-		Flavor:          "mysql",
+		Flavor:          flavor,
 		Host:            m.config.Host,
 		Port:            uint16(m.config.Port),
 		User:            m.config.Username,
@@ -35,11 +82,12 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 		HeartbeatPeriod: 30 * time.Second,
 		InitialWaitTime: time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
 	}
+
+	logger.Infof("Configuring binlog connection with flavor: %s", flavor)
 	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
 }
 
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
-	// Load or initialize global state
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
 		binlogPos, err := m.getCurrentBinlogPosition()
@@ -48,7 +96,6 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		}
 		m.state.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%9000), State: binlog.Binlog{Position: binlogPos}})
 		m.state.ResetStreams()
-		// reinit state
 		globalState = m.state.GetGlobal()
 	}
 
@@ -73,7 +120,6 @@ func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 				Position: m.BinlogConn.CurrentPos,
 			},
 		})
-		// TODO: Research about acknowledgment of binlogs in mysql
 	}
 	m.BinlogConn.Cleanup()
 	return nil
@@ -83,17 +129,12 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMe
 	return m.BinlogConn.StreamMessages(ctx, OnMessage)
 }
 
-// getCurrentBinlogPosition retrieves the current binlog position from MySQL.
 func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
-	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
-
-	// Get MySQL version
 	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
 
-	// Use the appropriate query based on the MySQL version
 	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
 	rows, err := m.client.Query(query)
