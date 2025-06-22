@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +68,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
+	logger.Debugf("Filter passed: %s", parsedFilter)
 
 	// Generate and update chunks
 	var retryErr error
@@ -361,33 +361,26 @@ func (m *Mongo) getParsedFilter(stream types.StreamInterface) (bson.D, error) {
 	if filter == "" {
 		return bson.D{}, nil
 	}
-
-	// If the filter is raw BSON
-	if strings.HasPrefix(filter, "{") {
-		var parsedFilter bson.D
-		err := bson.UnmarshalExtJSON([]byte(filter), false, &parsedFilter)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse filter: %v", err)
-		}
-		return parsedFilter, nil
-	}
-	// Otherwise, parse domain-specific filter DSL
-	parsedFilter, err := parseDSLFilter(filter)
+	parsedFilter, err := abstract.ParseFilter(filter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse domain-specific filter: %s", err)
+		return nil, fmt.Errorf("failed to parse filter: %s", err)
 	}
-	return parsedFilter, nil
+	mongoFilter, _ := BuildMongoFilter(parsedFilter)
+	return mongoFilter, nil
 }
 
-// parseDSLFilter converts a simple DSL expression (e.g., "age>=30 and name=\"John\"") into BSON
-func parseDSLFilter(input string) (bson.D, error) {
-	// Determine top-level operator ($and or $or) and split clauses
-	mongoOperator, parts := splitTopLevel(input)
-	var bsonClauses []interface{}
-	clausePattern := regexp.MustCompile(`^\s*([a-zA-Z0-9_]+)\s*(>=|<=|!=|=|>|<)\s*(?:"([^"]*)"|(\S+))\s*$`)
+// BuildMongoFilter generates a BSON document for MongoDB
+func BuildMongoFilter(filter abstract.Filter) (bson.D, error) {
+	if filter.LogicalOperator == "" {
+		return buildMongoCondition(filter.Condition1), nil
+	}
+	cond1 := buildMongoCondition(filter.Condition1)
+	cond2 := buildMongoCondition(*filter.Condition2)
+	return bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{cond1, cond2}}}, nil
+}
 
-	// Map comparison operators to Mongo symbols
-	opMapping := map[string]string{
+func buildMongoCondition(cond abstract.Condition) bson.D {
+	opMap := map[string]string{
 		">":  "$gt",
 		">=": "$gte",
 		"<":  "$lt",
@@ -395,118 +388,31 @@ func parseDSLFilter(input string) (bson.D, error) {
 		"=":  "$eq",
 		"!=": "$ne",
 	}
-
-	for _, partExpr := range parts {
-		partExpr = strings.TrimSpace(partExpr)
-		// Handle nested expressions wrapped in parentheses
-		if strings.HasPrefix(partExpr, "(") && strings.HasSuffix(partExpr, ")") {
-			inner := strings.TrimSpace(partExpr[1 : len(partExpr)-1])
-			subFilter, err := parseDSLFilter(inner)
-			if err != nil {
-				return nil, err
-			}
-			bsonClauses = append(bsonClauses, subFilter)
-			continue
-		}
-
-		matches := clausePattern.FindStringSubmatch(partExpr)
-		if matches == nil {
-			return nil, fmt.Errorf("invalid filter clause %q", partExpr)
-		}
-		field, opSymbol, stringValue, unquotedValue := matches[1], matches[2], matches[3], matches[4]
-		rawValue := unquotedValue
-		if stringValue != "" {
-			rawValue = stringValue
-		}
-
-		// Attempt type conversions: ObjectID, boolean, time, int
-		var parsedValue interface{} = rawValue
-		if field == "_id" && len(rawValue) == 24 {
-			if objectID, err := primitive.ObjectIDFromHex(rawValue); err == nil {
-				parsedValue = objectID
-			}
-		} else if strings.ToLower(rawValue) == "true" {
-			parsedValue = true
-		} else if strings.ToLower(rawValue) == "false" {
-			parsedValue = false
-		} else if parsedTimeVal, err := time.Parse(time.RFC3339, rawValue); err == nil {
-			parsedValue = parsedTimeVal
-		} else if parsedIntVal, err := strconv.ParseInt(rawValue, 10, 64); err == nil {
-			parsedValue = parsedIntVal
-		}
-
-		bsonClauses = append(bsonClauses, bson.D{{Key: field, Value: bson.D{{Key: opMapping[opSymbol], Value: parsedValue}}}})
-	}
-
-	if len(bsonClauses) == 1 {
-		return bsonClauses[0].(bson.D), nil
-	}
-	return bson.D{{Key: mongoOperator, Value: bsonClauses}}, nil
-}
-
-// splitTopLevelClauses separates the DSL filter into top-level clauses and returns the Mongo logical operator
-func splitTopLevel(filterExp string) (string, []string) {
-	inQuotes := false
-	// Track parentheses depth to handle nested expressions
-	depth := 0
-	var buffer strings.Builder
-	var parts []string
-	mongoOperator := ""
-
-	for index := 0; index < len(filterExp); {
-		currChar := filterExp[index]
-		if currChar == '"' {
-			// Toggle inside-quote state
-			inQuotes = !inQuotes
-			buffer.WriteByte(currChar)
-			index++
-			continue
-		}
-		if !inQuotes {
-			if currChar == '(' {
-				depth++
-				buffer.WriteByte(currChar)
-				index++
-				continue
-			}
-			if currChar == ')' {
-				if depth > 0 {
-					depth--
-				}
-				buffer.WriteByte(currChar)
-				index++
-				continue
-			}
-			// Split at top-level (depth = 0)
-			if depth == 0 {
-				// Detect " or " operators at top level
-				if strings.HasPrefix(filterExp[index:], " or ") {
-					if mongoOperator == "" || mongoOperator == "$or" {
-						mongoOperator = "$or"
-						parts = append(parts, strings.TrimSpace(buffer.String()))
-						buffer.Reset()
-						index += len(" or ")
-						continue
-					}
-				}
-				if strings.HasPrefix(filterExp[index:], " and ") {
-					if mongoOperator == "" || mongoOperator == "$and" {
-						mongoOperator = "$and"
-						parts = append(parts, strings.TrimSpace(buffer.String()))
-						buffer.Reset()
-						index += len(" and ")
-						continue
-					}
-				}
+	value := func(field, val string) interface{} {
+		if field == "_id" && len(val) == 24 {
+			if oid, err := primitive.ObjectIDFromHex(val); err == nil {
+				return oid
 			}
 		}
-		buffer.WriteByte(currChar)
-		index++
-	}
-	parts = append(parts, strings.TrimSpace(buffer.String()))
-	// Default to $and if no operator found
-	if mongoOperator == "" {
-		mongoOperator = "$and"
-	}
-	return mongoOperator, parts
+		if strings.ToLower(val) == "true" {
+			return true
+		}
+		if strings.ToLower(val) == "false" {
+			return false
+		}
+		if timeVal, err := time.Parse(time.RFC3339, val); err == nil {
+			return timeVal
+		}
+		if intVal, err := strconv.ParseInt(val, 10, 64); err == nil {
+			return intVal
+		}
+		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+			return floatVal
+		}
+		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
+			return val[1 : len(val)-1]
+		}
+		return val
+	}(cond.Column, cond.Value)
+	return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
 }

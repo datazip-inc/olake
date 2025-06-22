@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/jmoiron/sqlx"
 )
@@ -327,190 +327,36 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) err
 }
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition
-func ParseFilter(filter, driver string) (string, error) {
-	if strings.TrimSpace(filter) == "" {
-		return "", nil
+func SQLFilter(filter abstract.Filter, driver string) (string, error) {
+	if filter.LogicalOperator == "" {
+		return formatSQLCondition(filter.Condition1, driver)
 	}
-	// Split into individual conditions and logical operators (AND/OR)
-	conditions, operators, err := splitFilterConditions(filter)
+	cond1, err := formatSQLCondition(filter.Condition1, driver)
 	if err != nil {
 		return "", err
 	}
-
-	var parsedConditions []string
-	// Parse each condition according to the SQL dialect
-	for _, cond := range conditions {
-		cond = strings.TrimSpace(cond)
-		var formatted string
-		switch driver {
-		case "postgres":
-			formatted, err = parsePostgresCondition(cond)
-		case "mysql":
-			formatted, err = parseMySQLCondition(cond)
-		default:
-			return "", fmt.Errorf("unsupported driver: %s", driver)
-		}
-		if err != nil {
-			return "", fmt.Errorf("invalid condition '%s': %w", cond, err)
-		}
-		parsedConditions = append(parsedConditions, formatted)
+	cond2, err := formatSQLCondition(*filter.Condition2, driver)
+	if err != nil {
+		return "", err
 	}
-
-	// Build the final WHERE fragment by combining parsed conditions and operators
-	var sqlBuilder strings.Builder
-	sqlBuilder.WriteString(parsedConditions[0])
-	for i, operator := range operators {
-		sqlBuilder.WriteString(" ")
-		sqlBuilder.WriteString(strings.ToUpper(operator))
-		sqlBuilder.WriteString(" ")
-		sqlBuilder.WriteString(parsedConditions[i+1])
-	}
-	return sqlBuilder.String(), nil
+	return fmt.Sprintf("%s %s %s", cond1, strings.ToUpper(filter.LogicalOperator), cond2), nil
 }
 
-// splitFilterConditions splits the filter by 'and'/'or' and returns conditions and operators
-func splitFilterConditions(filterExpr string) ([]string, []string, error) {
-	var conditions []string
-	var logicalOps []string
-	// Regex matches 'and' or 'or' with surrounding whitespace
-	delimiter := regexp.MustCompile(`\s+(and|or)\s+`)
-	depth := 0
-	inQuotes := false
-	var currentCondition strings.Builder
-
-	// Iterate over characters manually
-	for index := 0; index < len(filterExpr); {
-		currChar := filterExpr[index]
-		if currChar == '"' {
-			// Toggle quote state
-			inQuotes = !inQuotes
-			currentCondition.WriteByte(currChar)
-			index++
-			continue
-		}
-		if !inQuotes {
-			if currChar == '(' {
-				depth++
-				currentCondition.WriteByte(currChar)
-				index++
-				continue
-			}
-			if currChar == ')' {
-				if depth > 0 {
-					depth--
-				}
-				currentCondition.WriteByte(currChar)
-				index++
-				continue
-			}
-			if depth == 0 {
-				remainingSubstr := filterExpr[index:]
-				// If a delimiter matches at this position, split here
-				if match := delimiter.FindStringIndex(remainingSubstr); match != nil && match[0] == 0 {
-					// Extract the logical operator (and/or)
-					operatorMatch := delimiter.FindStringSubmatch(remainingSubstr)
-					logicalOps = append(logicalOps, operatorMatch[1])
-					// Save the condition built so far
-					conditions = append(conditions, strings.TrimSpace(currentCondition.String()))
-					currentCondition.Reset()
-					// Advance index skip the matched operator
-					index += match[1]
-					continue
-				}
-			}
-		}
-		// Otherwise, accumulate character into current condition
-		currentCondition.WriteByte(currChar)
-		index++
+func formatSQLCondition(cond abstract.Condition, driver string) (string, error) {
+	columnQuote := "\"" + cond.Column + "\"" // PostgreSQL
+	if driver == "mysql" {
+		columnQuote = "`" + cond.Column + "`" // MySQL
 	}
-
-	// Append the final condition
-	conditions = append(conditions, strings.TrimSpace(currentCondition.String()))
-	if len(conditions) == 0 {
-		return nil, nil, fmt.Errorf("no valid conditions found")
-	}
-	return conditions, logicalOps, nil
-}
-
-var conditionPattern = regexp.MustCompile(`^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(=|!=|>|>=|<|<=)\s*("([^"]*)"|(\S+))\s*$`)
-
-// parsePostgresCondition parses a single condition for PostgreSQL
-func parsePostgresCondition(cond string) (string, error) {
-	// Handle expressions wrapped in level 1 parentheses
-	if strings.HasPrefix(cond, "(") && strings.HasSuffix(cond, ")") {
-		inner := cond[1 : len(cond)-1]
-		parsedCondition, err := ParseFilter(inner, "postgres")
-		if err != nil {
-			return "", fmt.Errorf("invalid parenthesized condition '%s': %w", cond, err)
-		}
-		return fmt.Sprintf("(%s)", parsedCondition), nil
-	}
-
-	matches := conditionPattern.FindStringSubmatch(cond)
-	if matches == nil {
-		return "", fmt.Errorf("invalid filter format: %s", cond)
-	}
-
-	column := matches[1]
-	operator := matches[2]
-	rawValue := matches[3]
-
-	// Handle quoted strings by escaping single quotes
-	if strings.HasPrefix(rawValue, `"`) && strings.HasSuffix(rawValue, `"`) {
-		rawValue = rawValue[1 : len(rawValue)-1]
-		rawValue = "'" + escapeString(rawValue) + "'"
+	var value string
+	if strings.HasPrefix(cond.Value, "\"") && strings.HasSuffix(cond.Value, "\"") {
+		strVal := cond.Value[1 : len(cond.Value)-1]
+		value = "'" + strings.Replace(strVal, "'", "''", -1) + "'"
+	} else if _, err := strconv.ParseFloat(cond.Value, 64); err == nil {
+		value = cond.Value
+	} else if strings.ToLower(cond.Value) == "true" || strings.ToLower(cond.Value) == "false" {
+		value = cond.Value
 	} else {
-		if num, err := strconv.ParseFloat(rawValue, 64); err == nil {
-			rawValue = fmt.Sprintf("%v", num)
-		} else if rawValue == "true" || rawValue == "false" {
-			rawValue = fmt.Sprintf("%s::boolean", rawValue)
-		} else {
-			// Reject unquoted strings to prevent SQL injection
-			return "", fmt.Errorf("unquoted string values are not allowed: %s", rawValue)
-		}
+		return "", fmt.Errorf("invalid value: %s", cond.Value)
 	}
-	// Quote column names with double quotes per PG convention
-	return fmt.Sprintf(`"%s" %s %s`, column, operator, rawValue), nil
-}
-
-// parseMySQLCondition parses a single condition for MySQL
-func parseMySQLCondition(cond string) (string, error) {
-	// Handle expressions wrapped in level 1 parentheses
-	if strings.HasPrefix(cond, "(") && strings.HasSuffix(cond, ")") {
-		inner := cond[1 : len(cond)-1]
-		parsedCondition, err := ParseFilter(inner, "postgres")
-		if err != nil {
-			return "", fmt.Errorf("invalid parenthesized condition '%s': %w", cond, err)
-		}
-		return fmt.Sprintf("(%s)", parsedCondition), nil
-	}
-
-	match := conditionPattern.FindStringSubmatch(cond)
-	if match == nil {
-		return "", fmt.Errorf("could not parse condition")
-	}
-
-	column := match[1]
-	operator := match[2]
-	rawValue := match[3]
-
-	// Handle quoted string for values
-	if strings.HasPrefix(rawValue, "\"") && strings.HasSuffix(rawValue, "\"") {
-		rawValue := rawValue[1 : len(rawValue)-1]
-		escaped := escapeString(rawValue)
-		return fmt.Sprintf("`%s` %s '%s'", column, operator, escaped), nil
-	}
-	if num, err := strconv.ParseFloat(rawValue, 64); err == nil {
-		return fmt.Sprintf("`%s` %s %v", column, operator, num), nil
-	}
-	lower := strings.ToLower(rawValue)
-	if lower == "true" || lower == "false" {
-		return fmt.Sprintf("`%s` %s %s", column, operator, lower), nil
-	}
-	return "", fmt.Errorf("unsupported literal: %s", rawValue)
-}
-
-// escapeString escapes single quotes
-func escapeString(s string) string {
-	return strings.Replace(s, "'", "''", -1)
+	return fmt.Sprintf("%s %s %s", columnQuote, cond.Operator, value), nil
 }

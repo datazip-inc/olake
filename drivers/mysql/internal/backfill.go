@@ -171,9 +171,10 @@ func (m *MySQL) getParsedFilter(stream types.StreamInterface) (string, error) {
 	if filter == "" {
 		return "", nil // Return an empty string if no filter
 	}
-	parsedFilter, err := jdbc.ParseFilter(filter, m.Type()) // Use jdbc package for SQL parsing
+	parsedFilter, err := abstract.ParseFilter(filter)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse filter: %s", err)
 	}
-	return parsedFilter, nil
+	mysqlFilter, _ := jdbc.SQLFilter(parsedFilter, m.Type())
+	return mysqlFilter, nil
 }

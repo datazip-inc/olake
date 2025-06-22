@@ -168,9 +168,10 @@ func (p *Postgres) getParsedFilter(stream types.StreamInterface) (string, error)
 	if filter == "" {
 		return "", nil
 	}
-	parsedFilter, err := jdbc.ParseFilter(filter, p.Type())
+	parsedFilter, err := abstract.ParseFilter(filter)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse filter: %s", err)
 	}
-	return parsedFilter, nil
+	postgresFilter, _ := jdbc.SQLFilter(parsedFilter, p.Type())
+	return postgresFilter, nil
 }
