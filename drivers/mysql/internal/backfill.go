@@ -25,7 +25,14 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 		sort.Strings(pkColumns)
 		// Get chunks from state or calculate new ones
-		stmt := utils.Ternary(chunkColumn != "", jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk), utils.Ternary(len(pkColumns) > 0, jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk), jdbc.MysqlLimitOffsetScanQuery(stream, chunk))).(string)
+		stmt := ""
+		if chunkColumn != "" {
+			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk)
+		} else if len(pkColumns) > 0 {
+			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk)
+		} else {
+			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk)
+		}
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
