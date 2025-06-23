@@ -42,7 +42,7 @@ func RetryOnBackoff(attempts int, sleep time.Duration, f func() error) (err erro
 	return err
 }
 
-var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>|<|>=|<=|=|!=)\s*(\"[^\"]*\"|\S+)\s*(?:(and|or)\s*(\w+)\s*(>|<|>=|<=|=|!=)\s*(\"[^\"]*\"|\S+))?\s*$`)
+var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|=|>|<)\s*(\"[^\"]*\"|[\w.-]+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|=|>|<)\s*(\"[^\"]*\"|[\w.-]+))?\s*$`)
 
 // ParseFilter parses the filter string into a Filter struct
 func ParseFilter(filter string) (Filter, error) {
