@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -23,6 +24,10 @@ type Config struct {
 	ChunkingStrategy string   `json:"chunking_strategy"`
 }
 
+const (
+	defaultReadPreference = "secondaryPreferred"
+)
+
 func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	if c.Srv {
@@ -31,8 +36,8 @@ func (c *Config) URI() string {
 
 	if c.MaxThreads == 0 {
 		// set default threads
-		logger.Info("setting max threads to default[10]")
-		c.MaxThreads = 10
+		logger.Info("setting max threads to default[%d]", constants.DefaultThreadCount)
+		c.MaxThreads = constants.DefaultThreadCount
 	}
 
 	// Build query parameters
@@ -41,7 +46,7 @@ func (c *Config) URI() string {
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
 		if c.ReadPreference == "" {
-			c.ReadPreference = "secondaryPreferred"
+			c.ReadPreference = defaultReadPreference
 		}
 		query.Set("readPreference", c.ReadPreference)
 	}

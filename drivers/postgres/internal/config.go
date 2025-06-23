@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
 
@@ -49,7 +50,7 @@ func (c *Config) Validate() error {
 
 	// default number of threads
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = 2
+		c.MaxThreads = constants.DefaultThreadCount
 	}
 
 	// Add the connection parameters to the url
