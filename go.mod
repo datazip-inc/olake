@@ -42,7 +42,6 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
-	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
@@ -89,8 +88,6 @@ require (
 require (
 	github.com/aws/aws-sdk-go v1.55.6
 	github.com/brainicorn/ganno v0.0.0-20220304182003-e638228cd865
-	github.com/felixge/fgprof v0.9.5
-	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0
@@ -100,6 +97,8 @@ require (
 )
 
 replace (
+	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
+	cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.6.0
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 	google.golang.org/genproto/googleapis/rpc => google.golang.org/genproto/googleapis/rpc v0.0.0-20240123012728-ef4313101c80
 )

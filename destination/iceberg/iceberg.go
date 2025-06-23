@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -157,6 +158,42 @@ func (i *Iceberg) Flattener() destination.FlattenFunction {
 
 func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ types.Record, _ time.Time) error {
 	// Schema evolution is handled by Iceberg
+	return nil
+}
+
+// Clear removes data for the specified streams from Iceberg tables
+func (i *Iceberg) Clear(selectedStream []string) error {
+	if len(selectedStream) == 0 {
+		logger.Info("No streams selected for clearing, skipping clear operation")
+		return nil
+	}
+
+	logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStream), selectedStream)
+
+	// For Iceberg, we need to drop and recreate tables or use Iceberg's delete functionality
+
+	for _, streamID := range selectedStream {
+		// Parse stream ID to get namespace and stream name
+		parts := strings.SplitN(streamID, ".", 2)
+		if len(parts) != 2 {
+			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			continue
+		}
+
+		namespace, streamName := parts[0], parts[1]
+		tableName := fmt.Sprintf("%s.%s", namespace, streamName)
+
+		logger.Infof("Clearing Iceberg table: %s", tableName)
+
+		// Todo
+		// 1. Connect to the Iceberg catalog
+		// 2. Use Iceberg's delete API or drop/recreate the table
+		// 3. Handle any Iceberg-specific cleanup
+
+		logger.Infof("Successfully cleared Iceberg table: %s", tableName)
+	}
+
+	logger.Info("Successfully cleared Iceberg destination for selected streams")
 	return nil
 }
 

@@ -367,6 +367,135 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 	return filepath.Join(p.basePath, strings.TrimSuffix(result, "/"))
 }
 
+func (p *Parquet) Clear(selectedStream []string) error {
+	if len(selectedStream) == 0 {
+		logger.Info("No streams selected for clearing, skipping clear operation")
+		return nil
+	}
+
+	logger.Infof("Clearing destination for %d selected streams: %v", len(selectedStream), selectedStream)
+
+	// Clear local files
+	if err := p.clearLocalFiles(selectedStream); err != nil {
+		return fmt.Errorf("failed to clear local files: %s", err)
+	}
+
+	// Clear S3 files if configured
+	if p.s3Client != nil {
+		if err := p.clearS3Files(selectedStream); err != nil {
+			return fmt.Errorf("failed to clear S3 files: %s", err)
+		}
+	}
+
+	logger.Info("Successfully cleared destination for selected streams")
+	return nil
+}
+
+// clearLocalFiles removes local files for the specified streams
+func (p *Parquet) clearLocalFiles(selectedStream []string) error {
+	for _, streamID := range selectedStream {
+		// Parse stream ID to get namespace and stream name
+		// streamID format: "namespace.stream_name"
+		parts := strings.SplitN(streamID, ".", 2)
+		if len(parts) != 2 {
+			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			continue
+		}
+
+		namespace, streamName := parts[0], parts[1]
+		streamPath := filepath.Join(p.config.Path, namespace, streamName)
+
+		logger.Infof("Clearing local path: %s", streamPath)
+
+		// Check if the path exists before attempting to delete
+		if _, err := os.Stat(streamPath); os.IsNotExist(err) {
+			logger.Debugf("Local path does not exist, skipping: %s", streamPath)
+			continue
+		}
+
+		// Remove the entire stream directory and all its contents
+		if err := os.RemoveAll(streamPath); err != nil {
+			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
+		}
+
+		logger.Infof("Successfully cleared local path: %s", streamPath)
+	}
+
+	return nil
+}
+
+// clearS3Files removes S3 files for the specified streams
+func (p *Parquet) clearS3Files(selectedStream []string) error {
+	if p.s3Client == nil {
+		return nil
+	}
+
+	for _, streamID := range selectedStream {
+		// Parse stream ID to get namespace and stream name
+		parts := strings.SplitN(streamID, ".", 2)
+		if len(parts) != 2 {
+			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			continue
+		}
+
+		namespace, streamName := parts[0], parts[1]
+
+		// Construct S3 prefix path
+		s3Prefix := filepath.Join(namespace, streamName)
+		if p.config.Prefix != "" {
+			s3Prefix = filepath.Join(p.config.Prefix, s3Prefix)
+		}
+
+		logger.Infof("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3Prefix)
+
+		// List objects with the prefix
+		listInput := &s3.ListObjectsV2Input{
+			Bucket: aws.String(p.config.Bucket),
+			Prefix: aws.String(s3Prefix + "/"), // Add trailing slash to ensure we get the directory
+		}
+
+		// Delete objects in batches
+		err := p.s3Client.ListObjectsV2Pages(listInput, func(page *s3.ListObjectsV2Output, lastPage bool) bool {
+			if len(page.Contents) == 0 {
+				return true
+			}
+
+			// Prepare delete objects input
+			var objectsToDelete []*s3.ObjectIdentifier
+			for _, obj := range page.Contents {
+				objectsToDelete = append(objectsToDelete, &s3.ObjectIdentifier{
+					Key: obj.Key,
+				})
+			}
+
+			// Delete objects
+			deleteInput := &s3.DeleteObjectsInput{
+				Bucket: aws.String(p.config.Bucket),
+				Delete: &s3.Delete{
+					Objects: objectsToDelete,
+				},
+			}
+
+			_, err := p.s3Client.DeleteObjects(deleteInput)
+			if err != nil {
+				logger.Errorf("Failed to delete S3 objects for prefix %s: %s", s3Prefix, err)
+				return false
+			}
+
+			logger.Infof("Deleted %d objects from S3 prefix: s3://%s/%s", len(objectsToDelete), p.config.Bucket, s3Prefix)
+			return true
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to list/delete S3 objects for prefix %s: %s", s3Prefix, err)
+		}
+
+		logger.Infof("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3Prefix)
+	}
+
+	return nil
+}
+
 func init() {
 	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
 		return new(Parquet)

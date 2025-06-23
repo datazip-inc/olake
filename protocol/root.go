@@ -19,6 +19,7 @@ var (
 	catalogPath           string
 	batchSize             int64
 	noSave                bool
+	clearDestinationFlag  bool
 
 	catalog           *types.Catalog
 	state             *types.State
@@ -68,6 +69,9 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
+	RootCmd.PersistentFlags().BoolVarP(&clearDestinationFlag, "clear-destination", "", false, "Clears the destination and resets the sync state for selected streams to force a full refresh.")
+	// syncCmd.Flags().Bool("clear-destination", false, "Clears the destination and resets the sync state for selected streams to force a full refresh.")
+
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

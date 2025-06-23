@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -140,6 +141,28 @@ var syncCmd = &cobra.Command{
 			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync()
 		})
 
+		clearDestinationFlag, _ := cmd.Flags().GetBool("clear-destination")
+		// If the clear-destination flag is passed, perform a full reset.
+		if clearDestinationFlag {
+			logger.Info("--clear-destination flag detected. Preparing for a full reset.")
+
+			// Step 1: Clear the destination for the selected streams.
+			logger.Info("Clearing destination for selected streams...")
+			if err := clearDestination(cmd.Context(), destinationConfig, selectedStreams); err != nil {
+				// This is a critical failure. Stop the sync.
+				return fmt.Errorf("failed to clear destination during reset: %w", err)
+			}
+			logger.Info("Destination cleared successfully.")
+
+			// Step 2: Reset the state to ensure a fresh sync from the beginning.
+			logger.Info("Resetting sync state for a fresh start.")
+			state = &types.State{
+				Type:    types.StreamType,
+				RWMutex: &sync.RWMutex{},
+			}
+			logger.Info("Sync state has been reset.")
+		}
+
 		// Setup State for Connector
 		connector.SetupState(state)
 		// init group
@@ -151,4 +174,36 @@ var syncCmd = &cobra.Command{
 		state.LogWithLock()
 		return nil
 	},
+}
+
+// clearDestination clears the destination for the specified streams
+func clearDestination(ctx context.Context, config *types.WriterConfig, selectedStreams []string) error {
+	if len(selectedStreams) == 0 {
+		return nil
+	}
+
+	// Create a temporary writer to call the Clear method
+	writerFunc, found := destination.RegisteredWriters[config.Type]
+	if !found {
+		return fmt.Errorf("unsupported destination type: %s", config.Type)
+	}
+
+	writer := writerFunc()
+
+	// Configure the writer
+	if err := utils.Unmarshal(config.WriterConfig, writer.GetConfigRef()); err != nil {
+		return fmt.Errorf("failed to configure writer for clear operation: %s", err)
+	}
+
+	// Check the destination
+	if err := writer.Check(ctx); err != nil {
+		return fmt.Errorf("failed to check destination for clear operation: %s", err)
+	}
+
+	// Call the Clear method
+	if err := writer.Clear(selectedStreams); err != nil {
+		return fmt.Errorf("failed to clear destination: %s", err)
+	}
+
+	return nil
 }
