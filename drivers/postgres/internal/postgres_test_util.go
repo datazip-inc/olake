@@ -70,7 +70,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName
 				col_uuid UUID,
 				col_varbit VARBIT(20),
 				col_xml XML,
-				CONSTRAINT unique_custom_key_5 UNIQUE (col_bigserial)
+				CONSTRAINT unique_custom_key_6 UNIQUE (col_bigserial)
 			)`, tableName)
 
 	case "drop":
