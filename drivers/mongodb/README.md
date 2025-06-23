@@ -122,11 +122,12 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "incr",
                      "normalization": false,
-                     "filter": "id > 1 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
+                     "filter": "_id > 6835a56c558d36492e3c39e2 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
                   }
             ]
          },
       ```
+      For primitive types like _id, directly provide the value without using any quotes.
 
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
