@@ -52,11 +52,12 @@ func (c *Config) Validate() error {
 		c.MaxThreads = 2
 	}
 
-	// construct the connection string
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", url.QueryEscape(c.Username), url.QueryEscape(c.Password), c.Host, c.Port, url.QueryEscape(c.Database))
-	parsed, err := url.Parse(connStr)
-	if err != nil {
-		return fmt.Errorf("failed to parse connection string: %s", err)
+	// Add the connection parameters to the url
+	parsed := &url.URL{
+		Scheme: "postgres",
+		User:   utils.Ternary(c.Password != "", url.UserPassword(c.Username, c.Password), url.User(c.Username)).(*url.Userinfo),
+		Host:   fmt.Sprintf("%s:%d", c.Host, c.Port),
+		Path:   "/" + c.Database,
 	}
 
 	query := parsed.Query()
@@ -79,7 +80,7 @@ func (c *Config) Validate() error {
 		query.Add("sslmode", sslmode)
 	}
 
-	err = c.SSLConfiguration.Validate()
+	err := c.SSLConfiguration.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
