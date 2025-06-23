@@ -2,6 +2,8 @@ package driver
 
 import (
 	"testing"
+
+	"github.com/datazip-inc/olake/drivers/abstract"
 )
 
 // Test functions using base utilities
@@ -18,5 +20,5 @@ func TestMySQLDiscover(t *testing.T) {
 
 func TestMySQLRead(t *testing.T) {
 	conn, abstractDriver := testAndBuildAbstractDriver(t)
-	abstractDriver.TestRead(t, conn, ExecuteQuery)
+	abstractDriver.TestRead(t, conn, ExecuteQuery, abstract.MySQLSchema)
 }
