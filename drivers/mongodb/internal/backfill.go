@@ -410,7 +410,11 @@ func buildMongoCondition(cond abstract.Condition) bson.D {
 			return floatVal
 		}
 		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-			return val[1 : len(val)-1]
+			unquoted := val[1 : len(val)-1]
+			if timeVal, err := time.Parse(time.RFC3339, unquoted); err == nil {
+				return timeVal
+			}
+			return unquoted
 		}
 		return val
 	}(cond.Column, cond.Value)

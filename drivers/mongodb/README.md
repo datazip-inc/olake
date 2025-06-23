@@ -8,8 +8,6 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
    Fetches the complete dataset from MongoDB.
 2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from MongoDB in real time.
-3. **Strict CDC (Change Data Capture)**
-   Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
 
 ---
 
@@ -40,6 +38,7 @@ Add MongoDB credentials in following format in `config.json` file. To check more
       "server-ram": 16,
       "database": "database",
       "max_threads": 50,
+      "default_mode" : "cdc",
       "backoff_retry_count": 2,
       "chunking_strategy":""
    }
@@ -123,12 +122,11 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "incr",
                      "normalization": false,
-                     "filter": "id > 1 and created_at <= 2025-05-27T11:43:40.497+00:00"
+                     "filter": "id > 1 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
                   }
             ]
          },
       ```
-      In this for primitive types like _id and timestamp-based attributes, no need to add quotes. Quotes to be added only in case of string based attributes.
 
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
