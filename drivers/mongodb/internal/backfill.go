@@ -357,7 +357,11 @@ func generateMinObjectID(t time.Time) string {
 
 // BuildMongoFilter generates a BSON document for MongoDB
 func buildMongoFilter(stream types.StreamInterface) (bson.D, error) {
-	filter, _ := stream.GetFilter()
+	filter, err := stream.GetFilter()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mongo filter: %s", err)
+	}
+
 	if filter.LogicalOperator == "" {
 		return buildMongoCondition(filter.Conditions[0]), nil
 	}

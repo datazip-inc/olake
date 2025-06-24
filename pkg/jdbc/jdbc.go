@@ -340,9 +340,8 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 
 	filter, err := stream.GetFilter()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get sql filter: %s", err)
 	}
-
 	// Handle single condition
 	if filter.LogicalOperator == "" || len(filter.Conditions) == 1 {
 		return buildCondition(filter.Conditions[0], driver)

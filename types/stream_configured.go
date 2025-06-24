@@ -77,7 +77,7 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
 	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\w+))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
-	if matches == nil {
+	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
 	}
 	var conditions []Condition
