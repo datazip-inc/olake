@@ -68,7 +68,6 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
-	logger.Debugf("Filter passed: %s", parsedFilter)
 
 	// Generate and update chunks
 	var retryErr error
@@ -362,47 +361,50 @@ func buildMongoFilter(stream types.StreamInterface) (bson.D, error) {
 		return nil, fmt.Errorf("failed to get mongo filter: %s", err)
 	}
 
+	buildMongoCondition := func(cond types.Condition) bson.D {
+		opMap := map[string]string{
+			">":  "$gt",
+			">=": "$gte",
+			"<":  "$lt",
+			"<=": "$lte",
+			"=":  "$eq",
+			"!=": "$ne",
+		}
+		value := func(field, val string) interface{} {
+			if field == "_id" && len(val) == 24 {
+				if oid, err := primitive.ObjectIDFromHex(val); err == nil {
+					return oid
+				}
+			}
+			if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
+				return strings.ToLower(val) == "true"
+			}
+
+			if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
+				val = val[1 : len(val)-1]
+			}
+
+			if timeVal, err := time.Parse(time.RFC3339, val); err == nil {
+				return timeVal
+			}
+			if intVal, err := strconv.ParseInt(val, 10, 64); err == nil {
+				return intVal
+			}
+			if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+				return floatVal
+			}
+			return val
+		}(cond.Column, cond.Value)
+		return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
+	}
+
 	if filter.LogicalOperator == "" {
 		return buildMongoCondition(filter.Conditions[0]), nil
 	}
 	cond1 := buildMongoCondition(filter.Conditions[0])
 	cond2 := buildMongoCondition(filter.Conditions[1])
-	return bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{cond1, cond2}}}, nil
-}
 
-func buildMongoCondition(cond types.Condition) bson.D {
-	opMap := map[string]string{
-		">":  "$gt",
-		">=": "$gte",
-		"<":  "$lt",
-		"<=": "$lte",
-		"=":  "$eq",
-		"!=": "$ne",
-	}
-	value := func(field, val string) interface{} {
-		if field == "_id" && len(val) == 24 {
-			if oid, err := primitive.ObjectIDFromHex(val); err == nil {
-				return oid
-			}
-		}
-		if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
-			return strings.ToLower(val) == "true"
-		}
-
-		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-			val = val[1 : len(val)-1]
-		}
-
-		if timeVal, err := time.Parse(time.RFC3339, val); err == nil {
-			return timeVal
-		}
-		if intVal, err := strconv.ParseInt(val, 10, 64); err == nil {
-			return intVal
-		}
-		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
-			return floatVal
-		}
-		return val
-	}(cond.Column, cond.Value)
-	return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
+	result := bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{cond1, cond2}}}
+	logger.Debugf("Parsed Filter: %s", result)
+	return result, nil
 }

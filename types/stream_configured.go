@@ -116,9 +116,9 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
 	}
 
-	_, err := s.GetFilter()
+	parsedFilter, err := s.GetFilter()
 	if err != nil {
-		return fmt.Errorf("failed to parse filter: %s", err)
+		return fmt.Errorf("failed to parse filter %s: %s", parsedFilter, err)
 	}
 
 	return nil
