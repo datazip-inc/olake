@@ -164,8 +164,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 }
 
 func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx, filter string) (min, max any, err error) {
-	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
-	query = utils.Ternary(filter != "", fmt.Sprintf("%s WHERE %s", query, filter), query).(string)
+	query := jdbc.MinMaxQueryMySQL(stream, pkColumns, filter)
 	err = tx.QueryRow(query).Scan(&min, &max)
 	return min, max, err
 }

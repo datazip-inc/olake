@@ -175,7 +175,7 @@ func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
-func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
+func MinMaxQueryMySQL(stream types.StreamInterface, columns []string, filter string) string {
 	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(columns, ", "))
 	orderAsc := strings.Join(columns, ", ")
 	descCols := make([]string, len(columns))
@@ -183,13 +183,17 @@ func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
 		descCols[i] = col + " DESC"
 	}
 	orderDesc := strings.Join(descCols, ", ")
+	filterClause := ""
+	if filter != "" {
+		filterClause = fmt.Sprintf("WHERE %s", filter)
+	}
 	return fmt.Sprintf(`
-		SELECT
-			(SELECT %s FROM %s.%s ORDER BY %s LIMIT 1) AS min_value,
-			(SELECT %s FROM %s.%s ORDER BY %s LIMIT 1) AS max_value
+	SELECT
+		(SELECT %s FROM %s.%s %s ORDER BY %s LIMIT 1) AS min_value,
+		(SELECT %s FROM %s.%s %s ORDER BY %s LIMIT 1) AS max_value
 	`,
-		concatCols, stream.Namespace(), stream.Name(), orderAsc,
-		concatCols, stream.Namespace(), stream.Name(), orderDesc,
+		concatCols, stream.Namespace(), stream.Name(), filterClause, orderAsc,
+		concatCols, stream.Namespace(), stream.Name(), filterClause, orderDesc,
 	)
 }
 
@@ -343,6 +347,9 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 		return "", fmt.Errorf("failed to get sql filter: %s", err)
 	}
 	// Handle single condition
+	if len(filter.Conditions) == 0 {
+		return "", nil
+	}
 	if filter.LogicalOperator == "" || len(filter.Conditions) == 1 {
 		return buildCondition(filter.Conditions[0], driver)
 	}
