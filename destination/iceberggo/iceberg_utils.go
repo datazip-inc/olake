@@ -16,7 +16,10 @@ import (
 	// Required to register the glue catalog
 	_ "github.com/apache/iceberg-go/catalog/glue"
 	_ "github.com/apache/iceberg-go/catalog/sql"
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/godror/godror"
 	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/apache/iceberg-go/catalog/rest"
 	"github.com/apache/iceberg-go/io"
@@ -83,12 +86,13 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 	if w.config.CatalogType == "glue" {
 		w.TableLocation = fmt.Sprintf("s3://%s/%s/%s", w.config.S3Bucket, w.config.IcebergDB, w.stream.Name())
 		logger.Infof("Glue: Table Location: %s", w.TableLocation)
+
 		glueCatalog, err := w.initializeGlueCatalog(ctx)
 		if err != nil {
 			logger.Errorf("Failed to initialize Glue catalog: %v", err)
 		}
-		w.catalog = glueCatalog
 
+		w.catalog = glueCatalog
 		tbl, err := w.createOrLoadTable(ctx, glueCatalog)
 		if err != nil {
 			logger.Errorf("Failed to create or load table: %v", err)
@@ -96,11 +100,13 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 		w.iceTable = tbl
 	} else if w.config.CatalogType == "rest" {
 		w.TableLocation = fmt.Sprintf("s3://%s/%s", w.config.IcebergDB, w.stream.Name())
+		logger.Infof("Rest: Table Location: %s", w.TableLocation)
 
 		restCatalog, err := w.initializeRestCatalog(ctx)
 		if err != nil {
 			logger.Errorf("Failed to initialize Rest catalog: %v", err)
 		}
+
 		w.catalog = restCatalog
 		tbl, err := w.createOrLoadTable(ctx, restCatalog)
 		if err != nil {
@@ -110,9 +116,8 @@ func (w *NewIcebergGo) SetupIcebergClient() error {
 
 		w.iceTable = tbl
 	} else if w.config.CatalogType == "sql" || w.config.CatalogType == "jdbc" {
-		w.TableLocation = fmt.Sprintf("s3://%s/%s", w.config.IcebergDB, w.stream.Name())
-
-		ctx := context.Background()
+		w.TableLocation = fmt.Sprintf("s3://%s/%s/%s", w.config.S3Bucket, w.config.IcebergDB, w.stream.Name())
+		logger.Infof("JDBC: Table Location: %s", w.TableLocation)
 
 		jdbcCatalog, err := w.initializeJdbcCatalog(ctx)
 		if err != nil {
@@ -178,8 +183,6 @@ func (w *NewIcebergGo) initializeJdbcCatalog(ctx context.Context) (catalog.Catal
 		driver = "mysql"
 	case "sqlite":
 		driver = "sqlite3"
-	case "mssql":
-		driver = "mssql"
 	case "oracle":
 		driver = "godror"
 	default:
@@ -192,7 +195,7 @@ func (w *NewIcebergGo) initializeJdbcCatalog(ctx context.Context) (catalog.Catal
 		"sql.driver":          driver,
 		"sql.dialect":         w.config.JDBCDialect,
 		"init_catalog_tables": "true",
-		"warehouse":           "file:///" + w.config.IcebergDB,
+		"warehouse":           w.config.IcebergDB,
 	}
 
 	cat, err := catalog.Load(ctx, "sql", props)
