@@ -357,6 +357,5 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 		conditions = append(conditions, formatted)
 	}
 
-	result := strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator))
-	return result, nil
+	return strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), nil
 }
