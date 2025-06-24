@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/crypto"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
@@ -157,8 +158,16 @@ func UnmarshalFile(file string, dest any) error {
 	if err != nil {
 		return fmt.Errorf("file not found : %s", err)
 	}
+	decryptedJSON := data
+	// Use the encryption package to decrypt JSON
+	if !strings.Contains(file, "streams") || !strings.Contains(file, "state") {
+		decryptedJSON, err = crypto.DecryptJSON(data)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt source config: %w", err)
+		}
+	}
 
-	err = json.Unmarshal(data, dest)
+	err = json.Unmarshal(decryptedJSON, dest)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
 	}

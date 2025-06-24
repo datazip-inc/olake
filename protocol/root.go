@@ -19,6 +19,7 @@ var (
 	streamsPath           string
 	batchSize             int64
 	noSave                bool
+	kmsKey                string
 
 	catalog           *types.Catalog
 	state             *types.State
@@ -69,6 +70,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
+	RootCmd.PersistentFlags().StringVarP(&kmsKey, "kms-key", "", "", "(Optional) KMS key for decryption")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
