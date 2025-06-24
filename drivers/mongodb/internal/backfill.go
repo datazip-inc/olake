@@ -251,6 +251,7 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 		Key:   "collStats",
 		Value: collection.Name(),
 	}}
+	// Select the database
 	err := collection.Database().RunCommand(ctx, command).Decode(&countResult)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get total count: %s", err)
@@ -260,11 +261,15 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 
 func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection, parsedFilter bson.D) (time.Time, time.Time, error) {
 	extreme := func(sortby int) (time.Time, error) {
+		// Find the first document
 		var result bson.M
+		// Sort by _id ascending to get the first document
 		err := collection.FindOne(ctx, parsedFilter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: sortby}})).Decode(&result)
 		if err != nil {
 			return time.Time{}, err
 		}
+
+		// Extract the _id from the result
 		objectID, ok := result["_id"].(primitive.ObjectID)
 		if !ok {
 			return time.Time{}, fmt.Errorf("failed to cast _id[%v] to ObjectID", objectID)
@@ -282,12 +287,14 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection,
 		return time.Time{}, time.Time{}, fmt.Errorf("failed to find end: %s", err)
 	}
 
+	// provide gap of 10 minutes
 	start = start.Add(-time.Minute * 10)
 	end = end.Add(time.Minute * 10)
 	return start, end, nil
 }
 
 func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
+	// convert to primitive.ObjectID
 	start, _ = primitive.ObjectIDFromHex(start.(string))
 	if end != nil {
 		end, _ = primitive.ObjectIDFromHex(end.(string))
@@ -315,6 +322,7 @@ func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
 	}
 
 	if end != nil {
+		// Changed from $lt to $lte to include boundary documents
 		andOperation = append(andOperation, bson.D{{
 			Key: "_id",
 			Value: bson.D{{
@@ -328,6 +336,7 @@ func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
 		andOperation = append(andOperation, parsedFilter)
 	}
 
+	// Define the aggregation pipeline
 	return mongo.Pipeline{
 		{
 			{
@@ -346,7 +355,9 @@ func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
 	}
 }
 
+// function to generate ObjectID with the minimum value for a given time
 func generateMinObjectID(t time.Time) string {
+	// Create the ObjectID with the first 4 bytes as the timestamp and the rest 8 bytes as 0x00
 	objectID := primitive.NewObjectIDFromTimestamp(t)
 	for i := 4; i < 12; i++ {
 		objectID[i] = 0x00
