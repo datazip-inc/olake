@@ -23,7 +23,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	parsedFilter, err := m.getParsedFilter(stream)
+	parsedFilter, err := buildMongoFilter(stream)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -64,7 +64,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	pool.AddRecordsToSync(recordCount)
 
 	// Parse the filter
-	parsedFilter, err := m.getParsedFilter(stream)
+	parsedFilter, err := buildMongoFilter(stream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
@@ -355,31 +355,18 @@ func generateMinObjectID(t time.Time) string {
 	return objectID.Hex()
 }
 
-// getParsedFilter converts the stream's filter metadata into a BSON document
-func (m *Mongo) getParsedFilter(stream types.StreamInterface) (bson.D, error) {
-	filter := strings.TrimSpace(stream.Self().StreamMetadata.Filter)
-	if filter == "" {
-		return bson.D{}, nil
-	}
-	parsedFilter, err := abstract.ParseFilter(filter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse filter: %s", err)
-	}
-	mongoFilter, _ := BuildMongoFilter(parsedFilter)
-	return mongoFilter, nil
-}
-
 // BuildMongoFilter generates a BSON document for MongoDB
-func BuildMongoFilter(filter abstract.Filter) (bson.D, error) {
+func buildMongoFilter(stream types.StreamInterface) (bson.D, error) {
+	filter, _ := stream.GetFilter()
 	if filter.LogicalOperator == "" {
-		return buildMongoCondition(filter.Condition1), nil
+		return buildMongoCondition(filter.Conditions[0]), nil
 	}
-	cond1 := buildMongoCondition(filter.Condition1)
-	cond2 := buildMongoCondition(*filter.Condition2)
+	cond1 := buildMongoCondition(filter.Conditions[0])
+	cond2 := buildMongoCondition(filter.Conditions[1])
 	return bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{cond1, cond2}}}, nil
 }
 
-func buildMongoCondition(cond abstract.Condition) bson.D {
+func buildMongoCondition(cond types.Condition) bson.D {
 	opMap := map[string]string{
 		">":  "$gt",
 		">=": "$gte",
@@ -394,12 +381,14 @@ func buildMongoCondition(cond abstract.Condition) bson.D {
 				return oid
 			}
 		}
-		if strings.ToLower(val) == "true" {
-			return true
+		if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
+			return strings.ToLower(val) == "true"
 		}
-		if strings.ToLower(val) == "false" {
-			return false
+
+		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
+			val = val[1 : len(val)-1]
 		}
+
 		if timeVal, err := time.Parse(time.RFC3339, val); err == nil {
 			return timeVal
 		}
@@ -408,13 +397,6 @@ func buildMongoCondition(cond abstract.Condition) bson.D {
 		}
 		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
 			return floatVal
-		}
-		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-			unquoted := val[1 : len(val)-1]
-			if timeVal, err := time.Parse(time.RFC3339, unquoted); err == nil {
-				return timeVal
-			}
-			return unquoted
 		}
 		return val
 	}(cond.Column, cond.Value)

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"regexp"
 )
 
 // Input/Processed object for Stream
@@ -17,6 +18,19 @@ type ConfiguredStream struct {
 	// this field as recovery column incase of some inconsistencies
 	CursorField    string   `json:"cursor_field,omitempty"`
 	ExcludeColumns []string `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
+}
+
+// Condition represents a single condition in a filter
+type Condition struct {
+	Column   string
+	Operator string
+	Value    string
+}
+
+// Filter represents the parsed filter
+type Filter struct {
+	Conditions      []Condition // a > b, a < b
+	LogicalOperator string      // condition[0] and/or condition[1], single and/or supported
 }
 
 func (s *ConfiguredStream) ID() string {
@@ -55,18 +69,37 @@ func (s *ConfiguredStream) Cursor() string {
 	return s.CursorField
 }
 
-// Delete keys from Stream State
-// func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
-// 	values := []any{}
-// 	for _, key := range keys {
-// 		val, _ := s.streamState.State.Load(key)
-// 		values = append(values, val) // cache
+func (s *ConfiguredStream) GetFilter() (Filter, error) {
+	filter := s.StreamMetadata.Filter
+	if filter == "" {
+		return Filter{}, nil
+	}
+	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
+	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\w+))?\s*$`)
+	matches := FilterRegex.FindStringSubmatch(filter)
+	if matches == nil {
+		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
+	}
+	var conditions []Condition
+	conditions = append(conditions, Condition{
+		Column:   matches[1],
+		Operator: matches[2],
+		Value:    matches[3],
+	})
 
-// 		s.streamState.State.Delete(key) // delete
-// 	}
+	if matches[4] != "" {
+		conditions = append(conditions, Condition{
+			Column:   matches[5],
+			Operator: matches[6],
+			Value:    matches[7],
+		})
+	}
 
-// 	return values
-// }
+	return Filter{
+		Conditions:      conditions,
+		LogicalOperator: matches[4],
+	}, nil
+}
 
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {
@@ -81,6 +114,11 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
+	}
+
+	_, err := s.GetFilter()
+	if err != nil {
+		return fmt.Errorf("failed to parse filter: %s", err)
 	}
 
 	return nil
