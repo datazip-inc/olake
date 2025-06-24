@@ -405,6 +405,6 @@ func buildMongoFilter(stream types.StreamInterface) (bson.D, error) {
 	cond2 := buildMongoCondition(filter.Conditions[1])
 
 	result := bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{cond1, cond2}}}
-	logger.Debugf("Parsed Filter: %s", result)
+	logger.Debugf("Parsed Filter in MongoDB: %s", result)
 	return result, nil
 }
