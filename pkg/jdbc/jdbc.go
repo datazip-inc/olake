@@ -9,7 +9,6 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -359,6 +358,5 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 	}
 
 	result := strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator))
-	logger.Debugf("Parsed Filter in %s: %s", driver, result)
 	return result, nil
 }
