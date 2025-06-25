@@ -14,7 +14,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/viper"
 )
 
