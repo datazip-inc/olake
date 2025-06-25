@@ -14,11 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var syncTelemetryDetails struct {
-	start      time.Time
-	configHash string
-	status     bool
-}
+var syncID string
 
 // syncCmd represents the read command
 var syncCmd = &cobra.Command{
@@ -49,7 +45,7 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
-		syncTelemetryDetails.configHash = telemetry.ComputeConfigHash(configPath, destinationConfigPath)
+		syncID = telemetry.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// default state
 		state = &types.State{
@@ -69,19 +65,16 @@ var syncCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
 		if err != nil {
-			syncTelemetryDetails.status = false
 			return err
 		}
 		// setup conector first
 		err = connector.Setup(cmd.Context())
 		if err != nil {
-			syncTelemetryDetails.status = false
 			return err
 		}
 		// Get Source Streams
 		streams, err := connector.Discover(cmd.Context())
 		if err != nil {
-			syncTelemetryDetails.status = false
 			return err
 		}
 
@@ -154,25 +147,22 @@ var syncCmd = &cobra.Command{
 
 		// Setup State for Connector
 		connector.SetupState(state)
-		syncTelemetryDetails.start = time.Now()
 		// Sync Telemetry tracking
 		telemetry.TrackSyncStarted(
 			streams,
 			selectedStreams,
 			cdcStreams,
-			syncTelemetryDetails.configHash,
+			syncID,
 			connector.Type(),
-			string(destinationConfig.Type),
 			destinationConfig,
 			catalog,
 		)
 		defer func() {
 			telemetry.TrackSyncCompleted(
-				syncTelemetryDetails.status,
+				err,
 				pool.SyncedRecords(),
-				time.Since(syncTelemetryDetails.start).Seconds(),
 			)
-			telemetry.Flush()
+			time.Sleep(5 * time.Second)
 		}()
 
 		// init group
@@ -182,9 +172,6 @@ var syncCmd = &cobra.Command{
 		}
 		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogWithLock()
-
-		// On success
-		syncTelemetryDetails.status = true
 		return nil
 	},
 }

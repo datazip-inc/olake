@@ -27,7 +27,6 @@ var discoverCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		startTime := time.Now()
 		err := connector.Setup(cmd.Context())
 		if err != nil {
 			return err
@@ -45,11 +44,10 @@ var discoverCmd = &cobra.Command{
 		// Discover Telemetry Tracking
 		defer func() {
 			telemetry.TrackDiscover(
-				time.Since(startTime).Seconds(),
 				len(streams),
 				connector.Type(),
 			)
-			telemetry.Flush()
+			time.Sleep(5 * time.Second)
 		}()
 		return nil
 	},
