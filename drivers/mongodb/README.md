@@ -9,7 +9,7 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
 2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from MongoDB in real time.
 3. **Strict CDC (Change Data Capture)**
-Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
+   Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
 
 ---
 
@@ -116,7 +116,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
             ]
          },
       ```
-   - The `filter` mode under selected_streams allows you to define precise criteria for selectively syncing data from your source.
+   - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
       ```json
          "selected_streams": {
             "namespace": [

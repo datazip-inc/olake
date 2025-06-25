@@ -18,7 +18,7 @@ import (
 const chunkSize int64 = 500000 // Default chunk size for MySQL
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
-	parsedFilter, err := jdbc.SQLFilter(stream, m.Type())
+	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -31,11 +31,11 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		// Get chunks from state or calculate new ones
 		stmt := ""
 		if chunkColumn != "" {
-			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, parsedFilter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
 		} else if len(pkColumns) > 0 {
-			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, parsedFilter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
 		} else {
-			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, parsedFilter)
+			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {

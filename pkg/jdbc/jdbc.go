@@ -95,9 +95,9 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int, streamFilter string) string {
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int, extraFilter string) string {
 	baseCond := fmt.Sprintf(`%s > %v`, filterColumn, filterValue)
-	baseCond = utils.Ternary(streamFilter == "", baseCond, fmt.Sprintf(`(%s) AND (%s)`, baseCond, streamFilter)).(string)
+	baseCond = utils.Ternary(extraFilter == "", baseCond, fmt.Sprintf(`(%s) AND (%s)`, baseCond, extraFilter)).(string)
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), baseCond, filterColumn, batchSize)
 }
 
@@ -123,7 +123,7 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 
 // MySQL-Specific Queries
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
-func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, parsedFilter string) string {
+func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	colTuple := "(" + strings.Join(filterColumns, ", ") + ")"
 
 	buildSQLTuple := func(val any) string {
@@ -143,8 +143,8 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, parsedF
 		chunkCond = fmt.Sprintf("%s < (%s)", colTuple, buildSQLTuple(chunk.Max))
 	}
 	// Both filter and chunk cond both should exist
-	if parsedFilter != "" && chunkCond != "" {
-		return fmt.Sprintf("(%s) AND (%s)", chunkCond, parsedFilter)
+	if extraFilter != "" && chunkCond != "" {
+		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
 	}
 	return chunkCond
 }
@@ -169,8 +169,8 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 }
 
 // MySQLWithoutState builds a chunk scan query for MySql
-func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, parsedFilter string) string {
-	condition := buildChunkConditionMySQL(filterColumns, chunk, parsedFilter)
+func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
+	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
 }
 
@@ -344,25 +344,25 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 
 	filter, err := stream.GetFilter()
 	if err != nil {
-		return "", fmt.Errorf("failed to get sql filter: %s", err)
+		return "", fmt.Errorf("failed to parse stream filter: %s", err)
 	}
-	// Handle single condition
-	if len(filter.Conditions) == 0 {
-		return "", nil
-	}
-	if filter.LogicalOperator == "" || len(filter.Conditions) == 1 {
+
+	switch {
+	case len(filter.Conditions) == 0:
+		return "", nil // No conditions, return empty string
+	case len(filter.Conditions) == 1:
 		return buildCondition(filter.Conditions[0], driver)
+	default:
+		// for size 2
+		conditions := make([]string, 0, len(filter.Conditions))
+		err := utils.ForEach(filter.Conditions, func(cond types.Condition) error {
+			formatted, err := buildCondition(cond, driver)
+			if err != nil {
+				return err
+			}
+			conditions = append(conditions, formatted)
+			return nil
+		})
+		return strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
 	}
-
-	// Handle multiple conditions
-	var conditions []string
-	for _, cond := range filter.Conditions {
-		formatted, err := buildCondition(cond, driver)
-		if err != nil {
-			return "", err
-		}
-		conditions = append(conditions, formatted)
-	}
-
-	return strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), nil
 }

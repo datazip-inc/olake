@@ -23,12 +23,12 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	parsedFilter, err := buildMongoFilter(stream)
+	filter, err := buildFilter(stream)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, parsedFilter), opts)
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -40,7 +40,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		} else if err = cursor.Decode(&doc); err != nil {
 			return fmt.Errorf("backfill decoding document: %s", err)
 		}
-		// Filter mongo object
+		// filter mongo object
 		filterMongoObject(doc)
 		if err := OnMessage(doc); err != nil {
 			return fmt.Errorf("failed to send message to writer: %s", err)
@@ -63,8 +63,8 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
 	pool.AddRecordsToSync(recordCount)
 
-	// Parse the filter
-	parsedFilter, err := buildMongoFilter(stream)
+	// build filter
+	filter, err := buildFilter(stream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
@@ -73,7 +73,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var retryErr error
 	var chunksArray []types.Chunk
 	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, parsedFilter)
+		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, filter)
 		return retryErr
 	})
 	if err != nil {
@@ -82,11 +82,11 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return types.NewSet(chunksArray...), nil
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, parsedFilter bson.D) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, filter bson.D) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
-			err := collection.FindOne(ctx, parsedFilter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+			err := collection.FindOne(ctx, filter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
 			if err == mongo.ErrNoDocuments {
 				return primitive.NilObjectID, nil
 			}
@@ -108,8 +108,9 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				{Key: "keyPattern", Value: bson.D{{Key: "_id", Value: 1}}},
 				{Key: "maxChunkSize", Value: 1024},
 			}
-			if len(parsedFilter) > 0 {
-				cmd = append(cmd, bson.E{Key: "filter", Value: parsedFilter})
+
+			if len(filter) > 0 {
+				cmd = append(cmd, bson.E{Key: "filter", Value: filter})
 			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
 				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
@@ -147,8 +148,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		logger.Info("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		pipeline := mongo.Pipeline{}
-		if len(parsedFilter) > 0 {
-			pipeline = append(pipeline, bson.D{{Key: "$match", Value: parsedFilter}})
+		if len(filter) > 0 {
+			pipeline = append(pipeline, bson.D{{Key: "$match", Value: filter}})
 		}
 		pipeline = append(pipeline,
 			bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
@@ -195,7 +196,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
-		first, last, err := m.fetchExtremes(ctx, collection, parsedFilter)
+		first, last, err := m.fetchExtremes(ctx, collection, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -259,12 +260,12 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 	return int64(countResult["count"].(int32)), nil
 }
 
-func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection, parsedFilter bson.D) (time.Time, time.Time, error) {
+func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection, filter bson.D) (time.Time, time.Time, error) {
 	extreme := func(sortby int) (time.Time, error) {
 		// Find the first document
 		var result bson.M
 		// Sort by _id ascending to get the first document
-		err := collection.FindOne(ctx, parsedFilter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: sortby}})).Decode(&result)
+		err := collection.FindOne(ctx, filter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: sortby}})).Decode(&result)
 		if err != nil {
 			return time.Time{}, err
 		}
@@ -293,7 +294,7 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection,
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
+func generatePipeline(start, end any, filter bson.D) mongo.Pipeline {
 	// convert to primitive.ObjectID
 	start, _ = primitive.ObjectIDFromHex(start.(string))
 	if end != nil {
@@ -332,8 +333,8 @@ func generatePipeline(start, end any, parsedFilter bson.D) mongo.Pipeline {
 		}})
 	}
 
-	if len(parsedFilter) > 0 {
-		andOperation = append(andOperation, parsedFilter)
+	if len(filter) > 0 {
+		andOperation = append(andOperation, filter)
 	}
 
 	// Define the aggregation pipeline
@@ -365,11 +366,15 @@ func generateMinObjectID(t time.Time) string {
 	return objectID.Hex()
 }
 
-// BuildMongoFilter generates a BSON document for MongoDB
-func buildMongoFilter(stream types.StreamInterface) (bson.D, error) {
+// buildFilter generates a BSON document for MongoDB
+func buildFilter(stream types.StreamInterface) (bson.D, error) {
 	filter, err := stream.GetFilter()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get mongo filter: %s", err)
+		return nil, fmt.Errorf("failed to parse stream filter: %s", err)
+	}
+
+	if len(filter.Conditions) == 0 {
+		return bson.D{}, nil
 	}
 
 	buildMongoCondition := func(cond types.Condition) bson.D {
@@ -387,6 +392,7 @@ func buildMongoFilter(stream types.StreamInterface) (bson.D, error) {
 					return oid
 				}
 			}
+
 			if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
 				return strings.ToLower(val) == "true"
 			}
@@ -409,12 +415,12 @@ func buildMongoFilter(stream types.StreamInterface) (bson.D, error) {
 		return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
 	}
 
-	if filter.LogicalOperator == "" {
+	switch {
+	case len(filter.Conditions) == 0:
+		return bson.D{}, nil
+	case len(filter.Conditions) == 1:
 		return buildMongoCondition(filter.Conditions[0]), nil
+	default:
+		return bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}}, nil
 	}
-	cond1 := buildMongoCondition(filter.Conditions[0])
-	cond2 := buildMongoCondition(filter.Conditions[1])
-
-	result := bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{cond1, cond2}}}
-	return result, nil
 }

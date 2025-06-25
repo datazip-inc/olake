@@ -108,6 +108,7 @@ var syncCmd = &cobra.Command{
 			}
 
 			elem.StreamMetadata = sMetadata
+
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
