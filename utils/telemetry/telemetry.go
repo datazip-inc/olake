@@ -34,7 +34,7 @@ type Telemetry struct {
 	platform     platformInfo
 	ipAddress    string
 	locationInfo *LocationInfo
-	cachedUID    *string
+	userID       string
 }
 
 var telemetry *Telemetry
@@ -56,9 +56,9 @@ func init() {
 	go func() {
 		ip := getOutboundIP()
 		client := analytics.New(segmentAPIKey)
-
 		telemetry = &Telemetry{
 			client: client,
+			userID: getUserID(),
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
@@ -160,7 +160,6 @@ func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{
 	}
 
 	props := map[string]interface{}{
-		"user_id":       getUserID(),
 		"os":            t.platform.OS,
 		"arch":          t.platform.Arch,
 		"olake_version": t.platform.OlakeVersion,
@@ -175,7 +174,7 @@ func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{
 	}
 
 	return t.client.Enqueue(analytics.Track{
-		UserId:     getUserID(),
+		UserId:     t.userID,
 		Event:      eventName,
 		Properties: props,
 	})
@@ -199,16 +198,11 @@ func getOutboundIP() string {
 }
 
 func getUserID() string {
-	if telemetry.cachedUID != nil {
-		return *telemetry.cachedUID
-	}
-
 	// check if id file exists
 	configFolder := viper.GetString("CONFIG_FOLDER")
 	if configFolder != "" {
 		if idBytes, err := os.ReadFile(filepath.Join(configFolder, fmt.Sprintf("%s.txt", userIDFile))); err == nil {
 			uID := strings.Trim(string(idBytes), `"`)
-			telemetry.cachedUID = &uID
 			return uID
 		}
 	}
@@ -218,7 +212,6 @@ func getUserID() string {
 	hash.Write([]byte(time.Now().String()))
 	generatedID := hex.EncodeToString(hash.Sum(nil))[:32]
 	_ = logger.FileLogger(generatedID, userIDFile, ".txt")
-	telemetry.cachedUID = &generatedID
 	return generatedID
 }
 
