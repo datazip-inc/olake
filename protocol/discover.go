@@ -8,6 +8,7 @@ import (
 	"github.com/datazip-inc/olake/telemetry"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -51,6 +52,7 @@ var discoverCmd = &cobra.Command{
 				len(streams),
 				connector.Type(),
 			)
+			logger.Infof("Discover completed, clean up going on!")
 			time.Sleep(5 * time.Second)
 		}()
 		return nil

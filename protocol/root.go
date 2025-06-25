@@ -17,6 +17,7 @@ var (
 	destinationConfigPath string
 	statePath             string
 	streamsPath           string
+	syncID                string
 	batchSize             int64
 	noSave                bool
 

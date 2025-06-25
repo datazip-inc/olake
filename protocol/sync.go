@@ -14,8 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var syncID string
-
 // syncCmd represents the read command
 var syncCmd = &cobra.Command{
 	Use:   "sync",
@@ -45,7 +43,7 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
-		syncID = telemetry.ComputeConfigHash(configPath, destinationConfigPath)
+		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// default state
 		state = &types.State{
@@ -162,6 +160,7 @@ var syncCmd = &cobra.Command{
 				err,
 				pool.SyncedRecords(),
 			)
+			logger.Infof("Sync completed, clean up going on!")
 			time.Sleep(5 * time.Second)
 		}()
 
