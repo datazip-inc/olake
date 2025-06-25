@@ -18,6 +18,7 @@ import (
 	"github.com/oklog/ulid"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -160,11 +161,13 @@ func UnmarshalFile(file string, dest any) error {
 	}
 	decryptedJSON := data
 	// Use the encryption package to decrypt JSON
-	if !strings.Contains(file, "streams") || !strings.Contains(file, "state") {
-		decryptedJSON, err = crypto.DecryptJSON(data)
+	if viper.GetString("ENCRYPTION_KEY") != "" && (!strings.Contains(file, "streams") && !strings.Contains(file, "state")) {
+
+		decryptedStr, err := crypto.DecryptJSONString(string(data))
 		if err != nil {
 			return fmt.Errorf("failed to decrypt source config: %w", err)
 		}
+		decryptedJSON = []byte(decryptedStr)
 	}
 
 	err = json.Unmarshal(decryptedJSON, dest)

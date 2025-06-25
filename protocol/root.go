@@ -19,7 +19,7 @@ var (
 	streamsPath           string
 	batchSize             int64
 	noSave                bool
-	kmsKey                string
+	encryptionKey         string
 
 	catalog           *types.Catalog
 	state             *types.State
@@ -37,6 +37,9 @@ var RootCmd = &cobra.Command{
 		// set global variables
 		if !noSave {
 			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
+		}
+		if encryptionKey != "" {
+			viper.Set("ENCRYPTION_KEY", encryptionKey)
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
@@ -70,7 +73,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
-	RootCmd.PersistentFlags().StringVarP(&kmsKey, "kms-key", "", "", "(Optional) KMS key for decryption")
+	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) KMS key for decryption")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
