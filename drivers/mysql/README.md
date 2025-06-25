@@ -109,7 +109,8 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "table_1",
                      "normalization": false,
-                     "append_only": false
+                     "append_only": false,
+                     "chunk_column":""
                   }
             ]
          },

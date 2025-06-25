@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -401,13 +401,13 @@ func buildFilter(stream types.StreamInterface) (bson.D, error) {
 				val = val[1 : len(val)-1]
 			}
 
-			if timeVal, err := time.Parse(time.RFC3339, val); err == nil {
+			if timeVal, err := typeutils.ReformatDate(val); err == nil {
 				return timeVal
 			}
-			if intVal, err := strconv.ParseInt(val, 10, 64); err == nil {
+			if intVal, err := typeutils.ReformatInt64(val); err == nil {
 				return intVal
 			}
-			if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+			if floatVal, err := typeutils.ReformatFloat64(val); err == nil {
 				return floatVal
 			}
 			return val
