@@ -52,7 +52,7 @@ type LocationInfo struct {
 	City    string `json:"city"`
 }
 
-func init() {
+func Init() {
 	go func() {
 		ip := getOutboundIP()
 		client := analytics.New(segmentAPIKey)

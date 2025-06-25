@@ -8,6 +8,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -38,8 +39,10 @@ var RootCmd = &cobra.Command{
 		if !noSave {
 			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
 		}
+		// init logger and telemetry
 		// logger uses CONFIG_FOLDER
 		logger.Init()
+		telemetry.Init()
 
 		if len(args) == 0 {
 			return cmd.Help()
