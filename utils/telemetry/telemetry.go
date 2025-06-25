@@ -2,21 +2,27 @@ package telemetry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	analytics "github.com/segmentio/analytics-go/v3"
+	"github.com/spf13/viper"
 )
 
 const (
-	anonymousIDFile       = "telemetry_id"
+	userIDFile            = "user_id"
 	version               = "0.0.0"
 	ipNotFoundPlaceholder = "NA"
 	segmentAPIKey         = "AiWKKeaOKQvsOotHj5iGANpNhYG6OaM3" //nolint:gosec
@@ -28,6 +34,7 @@ type Telemetry struct {
 	platform     platformInfo
 	ipAddress    string
 	locationInfo *LocationInfo
+	cachedUID    *string
 }
 
 var telemetry *Telemetry
@@ -153,6 +160,7 @@ func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{
 	}
 
 	props := map[string]interface{}{
+		"user_id":       getUserID(),
 		"os":            t.platform.OS,
 		"arch":          t.platform.Arch,
 		"olake_version": t.platform.OlakeVersion,
@@ -167,7 +175,7 @@ func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{
 	}
 
 	return t.client.Enqueue(analytics.Track{
-		UserId:     fmt.Sprintf("olake-cli-%s", time.Now()),
+		UserId:     getUserID(),
 		Event:      eventName,
 		Properties: props,
 	})
@@ -188,6 +196,30 @@ func getOutboundIP() string {
 	}
 
 	return string(ip)
+}
+
+func getUserID() string {
+	if telemetry.cachedUID != nil {
+		return *telemetry.cachedUID
+	}
+
+	// check if id file exists
+	configFolder := viper.GetString("CONFIG_FOLDER")
+	if configFolder != "" {
+		if idBytes, err := os.ReadFile(filepath.Join(configFolder, fmt.Sprintf("%s.txt", userIDFile))); err == nil {
+			uID := strings.Trim(string(idBytes), `"`)
+			telemetry.cachedUID = &uID
+			return uID
+		}
+	}
+
+	// Generate new ID
+	hash := sha256.New()
+	hash.Write([]byte(time.Now().String()))
+	generatedID := hex.EncodeToString(hash.Sum(nil))[:32]
+	_ = logger.FileLogger(generatedID, userIDFile, ".txt")
+	telemetry.cachedUID = &generatedID
+	return generatedID
 }
 
 func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
