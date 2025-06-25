@@ -35,7 +35,7 @@ const (
 	anonymousIDFile       = "telemetry_id"
 	version               = "0.0.0"
 	ipNotFoundPlaceholder = "NA"
-	segmentAPIKey         = "RFynIrEFUsaTRgKumlSqfme6DRPymYfN"
+	segmentAPIKey         = "RFynIrEFUsaTRgKumlSqfme6DRPymYfN" //nolint:gosec
 )
 
 type platformInfo struct {

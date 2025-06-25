@@ -3,9 +3,15 @@ on:
   push:
     branches:
       - "master"
+    paths:
+      - '**/*.go'
+      - '**/*.java'
   pull_request:
     branches:
       - "*"
+    paths:
+      - '**/*.go'
+      - '**/*.java'
 
 env:
   MYSQL_ROOT_PASSWORD: root1234

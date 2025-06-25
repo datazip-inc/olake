@@ -25,7 +25,7 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("--config not passed")
 		} else if destinationConfigPath == "" {
 			return fmt.Errorf("--destination not passed")
-		} else if catalogPath == "" {
+		} else if streamsPath == "" {
 			return fmt.Errorf("--catalog not passed")
 		}
 
@@ -41,7 +41,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(catalogPath, catalog); err != nil {
+		if err := utils.UnmarshalFile(streamsPath, catalog); err != nil {
 			return err
 		}
 
@@ -121,7 +121,7 @@ var syncCmd = &cobra.Command{
 			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
 
-			if elem.Stream.SyncMode == types.CDC {
+			if elem.Stream.SyncMode == types.CDC || elem.Stream.SyncMode == types.STRICTCDC {
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {

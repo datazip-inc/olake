@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/lib/pq"
 )
@@ -20,7 +19,6 @@ type Config struct {
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	UpdateMethod     interface{}       `json:"update_method"`
-	DefaultSyncMode  types.SyncMode    `json:"default_mode"`
 	BatchSize        int               `json:"reader_batch_size"`
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
