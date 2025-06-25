@@ -51,8 +51,13 @@ func init() {
 		client := analytics.New(segmentAPIKey)
 
 		telemetry = &Telemetry{
-			client:    client,
-			platform:  getPlatformInfo(),
+			client: client,
+			platform: platformInfo{
+				OS:           runtime.GOOS,
+				Arch:         runtime.GOARCH,
+				OlakeVersion: version,
+				DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
+			},
 			ipAddress: ip,
 		}
 
@@ -90,7 +95,7 @@ func TrackDiscover(streamCount int, sourceType string) {
 	}()
 }
 
-func TrackSyncStarted(streams []*types.Stream, selectedStreams []string, cdcStreams []types.StreamInterface, syncID, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
+func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []string, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -118,7 +123,7 @@ func TrackSyncStarted(streams []*types.Stream, selectedStreams []string, cdcStre
 	}()
 }
 
-func TrackSyncCompleted(err error, records int64) {
+func TrackSyncCompleted(status bool, records int64) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -126,7 +131,7 @@ func TrackSyncCompleted(err error, records int64) {
 		defer telemetry.client.Close()
 		props := map[string]interface{}{
 			"sync_end":       time.Now(),
-			"sync_status":    utils.Ternary(err == nil, "SUCCESS", "FAILED").(string),
+			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
 			"records_synced": records,
 		}
 
@@ -166,15 +171,6 @@ func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{
 		Event:      eventName,
 		Properties: props,
 	})
-}
-
-func getPlatformInfo() platformInfo {
-	return platformInfo{
-		OS:           runtime.GOOS,
-		Arch:         runtime.GOARCH,
-		OlakeVersion: version,
-		DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
-	}
 }
 
 func getOutboundIP() string {

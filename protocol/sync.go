@@ -146,21 +146,10 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 		// Sync Telemetry tracking
-		telemetry.TrackSyncStarted(
-			streams,
-			selectedStreams,
-			cdcStreams,
-			syncID,
-			connector.Type(),
-			destinationConfig,
-			catalog,
-		)
+		telemetry.TrackSyncStarted(syncID, streams, selectedStreams, cdcStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
-			telemetry.TrackSyncCompleted(
-				err,
-				pool.SyncedRecords(),
-			)
-			logger.Infof("Sync completed, clean up going on!")
+			telemetry.TrackSyncCompleted(err == nil, pool.SyncedRecords())
+			logger.Infof("Sync completed, clean up the process")
 			time.Sleep(5 * time.Second)
 		}()
 

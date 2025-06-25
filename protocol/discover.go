@@ -48,11 +48,8 @@ var discoverCmd = &cobra.Command{
 
 		// Discover Telemetry Tracking
 		defer func() {
-			telemetry.TrackDiscover(
-				len(streams),
-				connector.Type(),
-			)
-			logger.Infof("Discover completed, clean up going on!")
+			telemetry.TrackDiscover(len(streams), connector.Type())
+			logger.Infof("Discover completed, cleaning up the process")
 			time.Sleep(5 * time.Second)
 		}()
 		return nil

@@ -15,4 +15,3 @@ olake-iceberg-java-writer.jar
 local-releaser.sh
 destination/iceberg/olake-iceberg-java-writer/.idea/
 destination/iceberg/olake-iceberg-java-writer/dependency-reduced-pom.xml
-config-telemetry.yaml
