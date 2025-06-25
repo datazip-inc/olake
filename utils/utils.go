@@ -154,7 +154,6 @@ func UnmarshalFile(file string, dest any) error {
 	if err := CheckIfFilesExists(file); err != nil {
 		return err
 	}
-
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("file not found : %s", err)
@@ -162,19 +161,16 @@ func UnmarshalFile(file string, dest any) error {
 	decryptedJSON := data
 	// Use the encryption package to decrypt JSON
 	if viper.GetString("ENCRYPTION_KEY") != "" && (!strings.Contains(file, "streams") && !strings.Contains(file, "state")) {
-
 		decryptedStr, err := crypto.DecryptJSONString(string(data))
 		if err != nil {
 			return fmt.Errorf("failed to decrypt source config: %w", err)
 		}
 		decryptedJSON = []byte(decryptedStr)
 	}
-
 	err = json.Unmarshal(decryptedJSON, dest)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
 	}
-
 	return nil
 }
 
