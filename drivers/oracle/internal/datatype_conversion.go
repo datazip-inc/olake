@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"database/sql"
 	"strings"
 
 	"github.com/datazip-inc/olake/types"
@@ -9,64 +10,70 @@ import (
 // Oracle type mapping to our internal types
 var oracleTypeToDataTypes = map[string]types.DataType{
 	// Numeric types
-	"NUMBER":        types.Float64,
-	"FLOAT":         types.Float64,
-	"BINARY_FLOAT":  types.Float32,
-	"BINARY_DOUBLE": types.Float64,
-	"DECIMAL":       types.Float64,
+	"number":        types.Float64,
+	"float":         types.Float64,
+	"ibfloat":       types.Float32,
+	"ibdouble":      types.Float64,
+	"binary_float":  types.Float32,
+	"binary_double": types.Float64,
+	"int32":         types.Int32,
+	"int64":         types.Int64,
 
 	// String types
-	"VARCHAR2":  types.String,
-	"NVARCHAR2": types.String,
-	"CHAR":      types.String,
-	"NCHAR":     types.String,
-	"CLOB":      types.String,
-	"NCLOB":     types.String,
-	"LONG":      types.String,
-	"RAW":       types.String,
-	"LONG RAW":  types.String,
-	"BLOB":      types.String,
-	"BFILE":     types.String,
+	"varchar2":    types.String,
+	"nvarchar2":   types.String,
+	"char":        types.String,
+	"nchar":       types.String,
+	"longvarchar": types.String,
+	"clob":        types.String,
+	"nclob":       types.String,
+	"long":        types.String, //LONG
+	"raw":         types.String, //RAW
+	"longraw":     types.String, //LONG RAW
 
 	// Date/Time types
-	"DATE":                           types.Timestamp,
-	"TIMESTAMP":                      types.Timestamp,
-	"TIMESTAMP WITH TIME ZONE":       types.Timestamp,
-	"TIMESTAMP WITH LOCAL TIME ZONE": types.Timestamp,
+	"date":             types.Timestamp,
+	"timestamp":        types.Timestamp,
+	"timestamptz_dty":  types.Timestamp,
+	"timestampltz_dty": types.Timestamp,
 
 	// Interval types
-	"INTERVAL YEAR TO MONTH": types.String,
-	"INTERVAL DAY TO SECOND": types.String,
+	"intervalym_dty": types.String,
+	"intervalds_dty": types.String,
+
+	"xmltype": types.String,
+	"blob":    types.String,
+	"bfile":   types.String,
 }
 
-// OracleDatatype removes precision and scale information from type names for matching and returns in go lang type
-func OracleDatatype(dataType string) (types.DataType, bool) {
-
+// ConvertOracleDatatype removes extra information from type names for matching and returns in go lang type
+func ConvertOracleType(dataType string, precision, scale sql.NullInt64) (types.DataType, bool) {
 	// Handle timestamp variations
 	if strings.HasPrefix(dataType, "TIMESTAMP") {
-		if strings.Contains(dataType, "WITH TIME ZONE") {
-			return oracleTypeToDataTypes["TIMESTAMP WITH TIME ZONE"], true
-		}
-		if strings.Contains(dataType, "WITH LOCAL TIME ZONE") {
-			return oracleTypeToDataTypes["TIMESTAMP WITH LOCAL TIME ZONE"], true
-		}
-		return oracleTypeToDataTypes["TIMESTAMP"], true
+		return types.Timestamp, true
 	}
 
 	// Handle interval variations
 	if strings.HasPrefix(dataType, "INTERVAL") {
-		if strings.Contains(dataType, "TO MONTH") {
-			return oracleTypeToDataTypes["INTERVAL YEAR TO MONTH"], true
-		}
-		if strings.Contains(dataType, "TO SECOND") {
-			return oracleTypeToDataTypes["INTERVAL DAY TO SECOND"], true
+		return types.String, true
+	}
+
+	if strings.HasPrefix(dataType, "NUMBER") {
+		if scale.Valid && scale.Int64 == 0  {
+			if precision.Valid && precision.Int64 <= 9 {
+				return types.Int32, true
+			} else {
+				return types.Int64, true
+			}
+		} else {
+			return types.Float64, true
 		}
 	}
 
-	if val, found := oracleTypeToDataTypes[dataType]; found {
+	if val, found := oracleTypeToDataTypes[strings.ToLower(dataType)]; found {
 		return val, true
 	}
 
 	// Treat unknown data types as strings
-	return types.String, true
+	return types.Unknown, false
 }

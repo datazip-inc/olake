@@ -13,6 +13,13 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+const (
+	// considering 512MB parquet file size and 8x compression ratio
+	parquetSize          = 512                                                        // Target parquet file size in MB
+	compressionRatio     = 8                                                          // Expected compression ratio
+	effectiveParquetSize = int64(parquetSize) * 1024 * 1024 * int64(compressionRatio) // Effective size in bytes
+)
+
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 
@@ -56,8 +63,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			return nil, fmt.Errorf("failed to get current SCN: %w", err)
 		}
 
-		var hasRows bool
-		err = o.client.QueryRow(fmt.Sprintf("SELECT 1 FROM %s.%s WHERE ROWNUM = 1", stream.Namespace(), stream.Name())).Scan(&hasRows)
+		err = o.client.QueryRow(fmt.Sprintf("SELECT 1 FROM %s.%s WHERE ROWNUM = 1", stream.Namespace(), stream.Name())).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
@@ -115,11 +121,6 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 }
 
 func (o *Oracle) getChunkSize(stream types.StreamInterface, totalRows int64) (int64, error) {
-	// considering 512MB parquet file size and 8x compression ratio
-	parquetSize := 512
-	compressionRatio := 8
-	var effectiveParquetSize = int64(parquetSize) * 1024 * 1024 * int64(compressionRatio)
-
 	query := jdbc.OracleTableSizeQuery(stream)
 	var totalTableSize int64
 	err := o.client.QueryRow(query).Scan(&totalTableSize)

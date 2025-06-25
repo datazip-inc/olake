@@ -81,11 +81,29 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	for i, col := range columns {
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
-			conv, err := converter(rawData, types[i].DatabaseTypeName())
-			if err != nil && err != typeutils.ErrNullValue {
-				return err
+			precision, scale, hasPrecisionScale := types[i].DecimalSize()
+
+			if types[i].DatabaseTypeName() == "NUMBER" && hasPrecisionScale && scale == 0 {
+				if precision <= 9 {
+					conv, err := converter(rawData, "int32")
+					if err != nil && err != typeutils.ErrNullValue {
+						return err
+					}
+					dest[col] = conv
+				} else {
+					conv, err := converter(rawData, "int64")
+					if err != nil && err != typeutils.ErrNullValue {
+						return err
+					}
+					dest[col] = conv
+				}
+			} else {
+				conv, err := converter(rawData, types[i].DatabaseTypeName())
+				if err != nil && err != typeutils.ErrNullValue {
+					return err
+				}
+				dest[col] = conv
 			}
-			dest[col] = conv
 		} else {
 			dest[col] = rawData
 		}

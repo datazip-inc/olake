@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -98,16 +99,13 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 		if err := rows.Scan(&owner, &table_name); err != nil {
 			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
-		streamId := fmt.Sprintf("%s.%s", owner, table_name)
-		streamNames = append(streamNames, streamId)
-		logger.Infof("Discovered table: %s", streamId)
+		streamNames = append(streamNames, fmt.Sprintf("%s.%s", owner, table_name))
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating tables: %w", err)
 	}
 
-	logger.Infof("Discovery complete. Found %d tables", len(streamNames))
 	return streamNames, nil
 }
 
@@ -125,7 +123,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 
 	// Get column information
 	query := `
-		SELECT column_name, data_type, nullable
+		SELECT column_name, data_type, nullable, data_precision, data_scale
 		FROM all_tab_columns
 		WHERE owner = :1 AND table_name = :2`
 
@@ -137,12 +135,13 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 
 	for rows.Next() {
 		var columnName, dataType, isNullable string
-		if err := rows.Scan(&columnName, &dataType, &isNullable); err != nil {
+		var dataPrecision, dataScale sql.NullInt64
+		if err := rows.Scan(&columnName, &dataType, &isNullable, &dataPrecision, &dataScale); err != nil {
 			return nil, fmt.Errorf("failed to scan column: %s", err)
 		}
 
 		datatype := types.Unknown
-		if val, found := OracleDatatype(dataType); found {
+		if val, found := ConvertOracleType(dataType, dataPrecision, dataScale); found {
 			datatype = val
 		} else {
 			logger.Warnf("Unsupported Oracle type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
