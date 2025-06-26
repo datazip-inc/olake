@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
-
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -43,8 +43,10 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
+		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
+
 		// Set default normalization for relational drivers if not configured
-		setDefaultNormalization(catalog, connector.Type())
+		utils.SetDefaultNormalization(catalog, connector.Type())
 
 		// default state
 		state = &types.State{
@@ -146,6 +148,14 @@ var syncCmd = &cobra.Command{
 
 		// Setup State for Connector
 		connector.SetupState(state)
+		// Sync Telemetry tracking
+		telemetry.TrackSyncStarted(syncID, streams, selectedStreams, cdcStreams, connector.Type(), destinationConfig, catalog)
+		defer func() {
+			telemetry.TrackSyncCompleted(err == nil, pool.SyncedRecords())
+			logger.Infof("Sync completed, clean up the process")
+			time.Sleep(5 * time.Second)
+		}()
+
 		// init group
 		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
 		if err != nil {
@@ -155,24 +165,4 @@ var syncCmd = &cobra.Command{
 		state.LogWithLock()
 		return nil
 	},
-}
-
-// setDefaultNormalization sets default normalization values for relational drivers
-// when normalization is not explicitly configured
-func setDefaultNormalization(catalog *types.Catalog, driverType string) {
-	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(elem constants.DriverType) bool {
-		return elem == constants.DriverType(driverType)
-	})
-	if !isRelational {
-		return
-	}
-	defaultNormalization := true
-	for _, streamsMetadata := range catalog.SelectedStreams {
-		for i := range streamsMetadata {
-			// If normalization is not set (nil), set it to true for relational drivers
-			if streamsMetadata[i].Normalization == nil {
-				streamsMetadata[i].Normalization = &defaultNormalization
-			}
-		}
-	}
 }

@@ -4,6 +4,8 @@ import (
 	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"reflect"
@@ -12,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
@@ -317,5 +321,42 @@ func ConvertToString(value interface{}) string {
 		return v // Already a string
 	default:
 		return fmt.Sprintf("%v", v) // Fallback
+	}
+}
+
+func ComputeConfigHash(srcPath, destPath string) string {
+	if srcPath == "" || destPath == "" {
+		// no config or no destination → no meaningful hash
+		return ""
+	}
+	a, err := os.ReadFile(srcPath)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(destPath)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(append(a, b...))
+	return hex.EncodeToString(sum[:])
+}
+
+// setDefaultNormalization sets default normalization values for relational drivers
+// when normalization is not explicitly configured
+func SetDefaultNormalization(catalog *types.Catalog, driverType string) {
+	_, isRelational := ArrayContains(constants.RelationalDrivers, func(elem constants.DriverType) bool {
+		return elem == constants.DriverType(driverType)
+	})
+	if !isRelational {
+		return
+	}
+	defaultNormalization := true
+	for _, streamsMetadata := range catalog.SelectedStreams {
+		for i := range streamsMetadata {
+			// If normalization is not set (nil), set it to true for relational drivers
+			if streamsMetadata[i].Normalization == nil {
+				streamsMetadata[i].Normalization = &defaultNormalization
+			}
+		}
 	}
 }
