@@ -3,7 +3,7 @@ name: Go Security CI
 on:
   push:
     branches:
-      - "master"
+      - "test/trivy"
     paths:
       - '**/*.go'
       - '**/*.java'
