@@ -29,8 +29,6 @@ func (o *Oracle) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	// Open database connection using go-ora
-	logger.Infof("Connecting to Oracle database: %s", o.config.connectionString())
 	client, err := sqlx.Open("oracle", o.config.connectionString())
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %s", err)
@@ -160,7 +158,6 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		AND cons.owner = cols.owner
 		AND cons.owner = :1
 		AND cols.table_name = :2`
-
 	pkRows, err := o.client.QueryContext(ctx, pkQuery, schemaName, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query primary key information: %s", err)
@@ -177,7 +174,6 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 
 	return stream, nil
 }
-
 
 func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
