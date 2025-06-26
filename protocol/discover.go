@@ -3,13 +3,15 @@ package protocol
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 )
 
-// discoverCmd represents the read command
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
@@ -22,6 +24,11 @@ var discoverCmd = &cobra.Command{
 			return err
 		}
 
+		if streamsPath != "" {
+			if err := utils.UnmarshalFile(streamsPath, &catalog); err != nil {
+				return fmt.Errorf("failed to read streams from %s: %w", streamsPath, err)
+			}
+		}
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
@@ -37,8 +44,14 @@ var discoverCmd = &cobra.Command{
 		if len(streams) == 0 {
 			return errors.New("no streams found in connector")
 		}
+		types.LogCatalog(streams, catalog)
 
-		types.LogCatalog(streams)
+		// Discover Telemetry Tracking
+		defer func() {
+			telemetry.TrackDiscover(len(streams), connector.Type())
+			logger.Infof("Discover completed, cleaning up the process")
+			time.Sleep(5 * time.Second)
+		}()
 		return nil
 	},
 }

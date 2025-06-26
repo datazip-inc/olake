@@ -1,5 +1,5 @@
 x-app-defaults:
-  host_persistence_path: &hostPersistencePath   /your/chosen/host/path/olake-data
+  host_persistence_path: &hostPersistencePath   ${PWD}/olake-data
   worker_config_volume_details: &workerConfigVolumeDetails
     type: bind
     source: *hostPersistencePath
@@ -193,7 +193,7 @@ services:
       - app-network
 
   olake-app:
-    image: olakego/ui:dev-latest
+    image: olakego/ui:latest
     pull_policy: always
     container_name: olake-app
     environment:
@@ -264,7 +264,7 @@ services:
     restart: "no"
 
   temporal-worker:
-    image: olakego/ui-worker:dev-latest
+    image: olakego/ui-worker:latest
     pull_policy: always
     container_name: olake-temporal-worker
     networks:

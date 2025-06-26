@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/datazip-inc/olake/destination"
-
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,7 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("--config not passed")
 		} else if destinationConfigPath == "" {
 			return fmt.Errorf("--destination not passed")
-		} else if catalogPath == "" {
+		} else if streamsPath == "" {
 			return fmt.Errorf("--catalog not passed")
 		}
 
@@ -38,9 +39,11 @@ var syncCmd = &cobra.Command{
 		}
 
 		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(catalogPath, catalog); err != nil {
+		if err := utils.UnmarshalFile(streamsPath, catalog); err != nil {
 			return err
 		}
+
+		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// default state
 		state = &types.State{
@@ -116,7 +119,7 @@ var syncCmd = &cobra.Command{
 			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
 
-			if elem.Stream.SyncMode == types.CDC {
+			if elem.Stream.SyncMode == types.CDC || elem.Stream.SyncMode == types.STRICTCDC {
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {
@@ -142,6 +145,14 @@ var syncCmd = &cobra.Command{
 
 		// Setup State for Connector
 		connector.SetupState(state)
+		// Sync Telemetry tracking
+		telemetry.TrackSyncStarted(syncID, streams, selectedStreams, cdcStreams, connector.Type(), destinationConfig, catalog)
+		defer func() {
+			telemetry.TrackSyncCompleted(err == nil, pool.SyncedRecords())
+			logger.Infof("Sync completed, clean up the process")
+			time.Sleep(5 * time.Second)
+		}()
+
 		// init group
 		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
 		if err != nil {
