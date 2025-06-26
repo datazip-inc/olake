@@ -11,7 +11,6 @@ type Time struct {
 
 // UnmarshalJSON overrides the default unmarshalling for CustomTime
 func (ct *Time) UnmarshalJSON(b []byte) error {
-	// Remove the quotes around the date string
 	str := strings.Trim(string(b), "\"")
 	time, err := parseStringTimestamp(str)
 	if err != nil {
