@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 
 	"github.com/datazip-inc/olake/types"
@@ -41,6 +42,9 @@ var syncCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(streamsPath, catalog); err != nil {
 			return err
 		}
+
+		// Set default normalization for relational drivers if not configured
+		setDefaultNormalization(catalog, connector.Type())
 
 		// default state
 		state = &types.State{
@@ -151,4 +155,24 @@ var syncCmd = &cobra.Command{
 		state.LogWithLock()
 		return nil
 	},
+}
+
+// setDefaultNormalization sets default normalization values for relational drivers
+// when normalization is not explicitly configured
+func setDefaultNormalization(catalog *types.Catalog, driverType string) {
+	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(elem constants.DriverType) bool {
+		return elem == constants.DriverType(driverType)
+	})
+	if !isRelational {
+		return
+	}
+	defaultNormalization := true
+	for _, streamsMetadata := range catalog.SelectedStreams {
+		for i := range streamsMetadata {
+			// If normalization is not set (nil), set it to true for relational drivers
+			if streamsMetadata[i].Normalization == nil {
+				streamsMetadata[i].Normalization = &defaultNormalization
+			}
+		}
+	}
 }

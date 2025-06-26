@@ -1,6 +1,8 @@
 package constants
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	DefaultRetryCount      = 3
@@ -27,14 +29,9 @@ const (
 )
 
 var (
-	// RelationalDrivers maps driver types to their relational status
-	RelationalDrivers = map[DriverType]bool{
-		Postgres: true,
-		MySQL:    true,
-		MongoDB:  false,
+	// RelationalDrivers contains driver types that are relational databases
+	RelationalDrivers = []DriverType{
+		Postgres,
+		MySQL,
 	}
 )
-
-func IsRelationalDriver(driver string) bool {
-	return RelationalDrivers[DriverType(driver)]
-}
