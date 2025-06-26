@@ -13,6 +13,15 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+const (
+	// ParquetSize is the target parquet file size in MB
+	ParquetSize = 512
+	// CompressionRatio is the expected compression ratio for parquet files
+	CompressionRatio = 8
+	// EffectiveParquetSize is the effective size in bytes considering compression
+	EffectiveParquetSize = int64(ParquetSize) * 1024 * 1024 * int64(CompressionRatio)
+)
+
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error

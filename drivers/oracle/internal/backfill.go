@@ -13,16 +13,8 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-const (
-	// considering 512MB parquet file size and 8x compression ratio
-	parquetSize          = 512                                                        // Target parquet file size in MB
-	compressionRatio     = 8                                                          // Expected compression ratio
-	effectiveParquetSize = int64(parquetSize) * 1024 * 1024 * int64(compressionRatio) // Effective size in bytes
-)
-
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-
 	// Begin transaction with default isolation
 	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -34,13 +26,8 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 	// Use transaction for queries
 	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-
 		// TODO: Add support for user defined datatypes in Oracle DB
-		rows, err := tx.QueryContext(ctx, query)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch rows: %w", err)
-		}
-		return rows, nil
+		return tx.QueryContext(ctx, query)
 	})
 
 	return setter.Capture(func(rows *sql.Rows) error {
@@ -54,16 +41,17 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-
 	splitViaRowId := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 
 		var currentSCN string
-		err := o.client.QueryRow("SELECT CURRENT_SCN FROM V$DATABASE").Scan(&currentSCN)
+		query := jdbc.OracleCurrentSCNQuery()
+		err := o.client.QueryRow(query).Scan(&currentSCN)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get current SCN: %w", err)
 		}
 
-		err = o.client.QueryRow(fmt.Sprintf("SELECT 1 FROM %s.%s WHERE ROWNUM = 1", stream.Namespace(), stream.Name())).Scan(new(interface{}))
+		query = jdbc.OracleEmptyCheckQuery(stream)
+		err = o.client.QueryRow(query).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
@@ -75,7 +63,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		var minRowId, maxRowId string
 		var totalRows int64
 
-		query := jdbc.OracleMinMaxCountQuery(stream, currentSCN)
+		query = jdbc.OracleMinMaxCountQuery(stream, currentSCN)
 		err = o.client.QueryRow(query).Scan(&minRowId, &maxRowId, &totalRows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get min-max row id and total rows: %s", err)
@@ -130,7 +118,7 @@ func (o *Oracle) getChunkSize(stream types.StreamInterface, totalRows int64) (in
 
 	avgRowSize := math.Ceil(float64(totalTableSize) / float64(totalRows))
 
-	rowsPerParquet := int64(math.Ceil(float64(effectiveParquetSize) / float64(avgRowSize)))
+	rowsPerParquet := int64(math.Ceil(float64(abstract.EffectiveParquetSize) / float64(avgRowSize)))
 
 	return rowsPerParquet, nil
 }

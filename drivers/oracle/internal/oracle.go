@@ -14,7 +14,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/sijms/go-ora/v2" // Pure Go Oracle driver
+	_ "github.com/sijms/go-ora/v2"
 )
 
 type Oracle struct {
@@ -30,17 +30,18 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	}
 
 	// Open database connection using go-ora
+	logger.Infof("Connecting to Oracle database: %s", o.config.connectionString())
 	client, err := sqlx.Open("oracle", o.config.connectionString())
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %s", err)
 	}
 
+	// Set connection pool size
+	client.SetMaxOpenConns(o.config.MaxThreads)
+
 	// Test connection
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-
-	// Set connection pool size
-	client.SetMaxOpenConns(o.config.MaxThreads)
 	if err := client.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
@@ -119,7 +120,6 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	schemaName, tableName := parts[0], parts[1]
 
 	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH)
-	stream.SyncMode = o.config.DefaultMode
 
 	// Get column information
 	query := `
@@ -141,7 +141,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		}
 
 		datatype := types.Unknown
-		if val, found := ConvertOracleType(dataType, dataPrecision, dataScale); found {
+		if val, found := reformatOracleDatatype(dataType, dataPrecision, dataScale); found {
 			datatype = val
 		} else {
 			logger.Warnf("Unsupported Oracle type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
@@ -178,33 +178,6 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	return stream, nil
 }
 
-// PostCDC is called after CDC operation completes
-func (o *Oracle) PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error {
-	// Since CDC is not supported yet, this is a no-op
-	return nil
-}
-
-// PreCDC is called before CDC operation starts
-func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
-	// Since CDC is not supported yet, this is a no-op
-	return nil
-}
-
-// StreamChanges streams CDC changes for a given stream
-func (o *Oracle) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.CDCMsgFn) error {
-	// Since CDC is not supported yet, this is a no-op
-	return nil
-}
-
-// CDCSupported returns whether CDC is supported
-func (o *Oracle) CDCSupported() bool {
-	return false // CDC is not supported yet
-}
-
-// SetupState sets the state for the driver
-func (o *Oracle) SetupState(state *types.State) {
-	o.state = state
-}
 
 func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {

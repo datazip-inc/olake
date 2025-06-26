@@ -22,14 +22,17 @@ Place these files in your project directory before running the commands.
 Add Oracle credentials in following format in `config.json` file. [More details.](https://olake.io/docs/connectors/oracle/config)
    ```json
    {
-    "hosts": "oracle-host",
+    "host": "oracle-host",
     "username": "oracle-user",
     "password": "oracle-password",
     "service_name": "oracle-service-name",
     "port": 1521,
     "max_threads": 10,
     "retry_count": 0,
-    "default_mode": "full_refresh"
+    "jdbc_url_params": {},
+    "ssl": {
+        "mode": "disable"
+    }
   }
 ```
 
@@ -86,10 +89,6 @@ Before running the Sync command, the generated `streams.json` file must be confi
    - Add the following properties:
       ```json
       "sync_mode": "full_refresh",
-      ```
-   - Specify the cursor field (only for incremental syncs):
-      ```json
-      "cursor_field": "<cursor field from available_cursor_fields>"
       ```
 
 - Final Streams Example

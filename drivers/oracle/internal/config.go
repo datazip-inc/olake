@@ -5,24 +5,40 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/sijms/go-ora/v2"
+	go_ora "github.com/sijms/go-ora/v2"
 )
 
 type Config struct {
-	Host        string         `json:"hosts"`
-	Username    string         `json:"username"`
-	Password    string         `json:"password"`
-	ServiceName string         `json:"service_name"`
-	Port        int            `json:"port"`
-	MaxThreads  int            `json:"max_threads"`
-	RetryCount  int            `json:"retry_count"`
-	DefaultMode types.SyncMode `json:"default_mode"`
+	Host             string            `json:"host"`
+	Username         string            `json:"username"`
+	Password         string            `json:"password"`
+	ServiceName      string            `json:"service_name"`
+	Port             int               `json:"port"`
+	MaxThreads       int               `json:"max_threads"`
+	RetryCount       int               `json:"retry_count"`
+	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
+	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 }
 
 func (c *Config) connectionString() string {
-	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, c.Username, c.Password, nil)
+	urlOptions := map[string]string{}
+	// Add JDBC-style URL params
+	for k, v := range c.JDBCURLParams {
+		urlOptions[k] = v
+	}
+
+	// Add SSL params if provided
+	if c.SSLConfiguration != nil {
+		sslmode := string(c.SSLConfiguration.Mode)
+		if sslmode != "disable" {
+			urlOptions["ssl"] = "true"
+			urlOptions["ssl verify"] = "false"
+		}
+		// TODO: Add support for more SSL params
+	}
+
+	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, c.Username, c.Password, urlOptions)
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -54,9 +70,14 @@ func (c *Config) Validate() error {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
 
-	// Set default sync mode if not provided
-	if c.DefaultMode == "" {
-		c.DefaultMode = types.FULLREFRESH
+	if c.SSLConfiguration == nil {
+		c.SSLConfiguration = &utils.SSLConfig{
+			Mode: "disable",
+		}
+	}
+	err := c.SSLConfiguration.Validate()
+	if err != nil {
+		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
 	return utils.Validate(c)

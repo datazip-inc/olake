@@ -345,3 +345,13 @@ func OracleMinMaxCountQuery(stream types.StreamInterface, currentSCN string) str
 func OracleTableSizeQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT SUM(bytes) AS size_kb FROM user_segments WHERE segment_name = '%s' AND segment_type = 'TABLE'`, stream.Name())
 }
+
+// OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
+func OracleCurrentSCNQuery() string {
+	return `SELECT CURRENT_SCN FROM V$DATABASE`
+}
+
+// OracleEmptyCheckQuery returns the query to check if a table is empty in OracleDB
+func OracleEmptyCheckQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf("SELECT 1 FROM %s.%s WHERE ROWNUM = 1", stream.Namespace(), stream.Name())
+}

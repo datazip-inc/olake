@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -81,29 +82,16 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	for i, col := range columns {
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
+			datatype := types[i].DatabaseTypeName()
 			precision, scale, hasPrecisionScale := types[i].DecimalSize()
-
 			if types[i].DatabaseTypeName() == "NUMBER" && hasPrecisionScale && scale == 0 {
-				if precision <= 9 {
-					conv, err := converter(rawData, "int32")
-					if err != nil && err != typeutils.ErrNullValue {
-						return err
-					}
-					dest[col] = conv
-				} else {
-					conv, err := converter(rawData, "int64")
-					if err != nil && err != typeutils.ErrNullValue {
-						return err
-					}
-					dest[col] = conv
-				}
-			} else {
-				conv, err := converter(rawData, types[i].DatabaseTypeName())
-				if err != nil && err != typeutils.ErrNullValue {
-					return err
-				}
-				dest[col] = conv
+				datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
 			}
+			conv, err := converter(rawData, datatype)
+			if err != nil && err != typeutils.ErrNullValue {
+				return err
+			}
+			dest[col] = conv
 		} else {
 			dest[col] = rawData
 		}
