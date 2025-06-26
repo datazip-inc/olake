@@ -9,7 +9,6 @@ import (
 )
 
 func main() {
-	fmt.Print("test")
 	driver := &driver.Postgres{
 		CDCSupport: false,
 	}
