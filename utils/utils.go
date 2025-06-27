@@ -14,8 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
@@ -339,24 +337,4 @@ func ComputeConfigHash(srcPath, destPath string) string {
 	}
 	sum := sha256.Sum256(append(a, b...))
 	return hex.EncodeToString(sum[:])
-}
-
-// setDefaultNormalization sets default normalization values for relational drivers
-// when normalization is not explicitly configured
-func SetDefaultNormalization(catalog *types.Catalog, driverType string) {
-	_, isRelational := ArrayContains(constants.RelationalDrivers, func(elem constants.DriverType) bool {
-		return elem == constants.DriverType(driverType)
-	})
-	if !isRelational {
-		return
-	}
-	defaultNormalization := true
-	for _, streamsMetadata := range catalog.SelectedStreams {
-		for i := range streamsMetadata {
-			// If normalization is not set (nil), set it to true for relational drivers
-			if streamsMetadata[i].Normalization == nil {
-				streamsMetadata[i].Normalization = &defaultNormalization
-			}
-		}
-	}
 }

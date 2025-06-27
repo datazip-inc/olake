@@ -46,7 +46,7 @@ var syncCmd = &cobra.Command{
 		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// Set default normalization for relational drivers if not configured
-		utils.SetDefaultNormalization(catalog, connector.Type())
+		types.SetDefaultNormalization(catalog, connector.Type())
 
 		// default state
 		state = &types.State{

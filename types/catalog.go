@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
 
@@ -116,4 +117,24 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	})
 
 	return newCatalog
+}
+
+// SetDefaultNormalization sets default normalization values for relational drivers
+// when normalization is not explicitly configured
+func SetDefaultNormalization(catalog *Catalog, driverType string) {
+	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(elem constants.DriverType) bool {
+		return elem == constants.DriverType(driverType)
+	})
+	if !isRelational {
+		return
+	}
+	defaultNormalization := true
+	for _, streamsMetadata := range catalog.SelectedStreams {
+		for i := range streamsMetadata {
+			// If normalization is not set (nil), set it to true for relational drivers
+			if streamsMetadata[i].Normalization == nil {
+				streamsMetadata[i].Normalization = &defaultNormalization
+			}
+		}
+	}
 }
