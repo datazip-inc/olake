@@ -16,10 +16,11 @@ import (
 
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+	//TODO: Verify the reqirement of Transaction in Oracle Sync and remove if not required
 	// Begin transaction with default isolation
 	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer tx.Rollback()
 
@@ -33,11 +34,10 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	return setter.Capture(func(rows *sql.Rows) error {
 		record := make(types.Record)
 		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record: %w", err)
+			return fmt.Errorf("failed to scan record: %s", err)
 		}
 		return OnMessage(record)
 	})
-
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
@@ -46,7 +46,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		query := jdbc.OracleCurrentSCNQuery()
 		err := o.client.QueryRow(query).Scan(&currentSCN)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get current SCN: %w", err)
+			return nil, fmt.Errorf("failed to get current SCN: %s", err)
 		}
 
 		query = jdbc.OracleEmptyCheckQuery(stream)
@@ -56,7 +56,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
 				return types.NewSet[types.Chunk](), nil
 			}
-			return nil, fmt.Errorf("failed to check for rows: %w", err)
+			return nil, fmt.Errorf("failed to check for rows: %s", err)
 		}
 
 		var minRowId, maxRowId string
@@ -71,10 +71,11 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		currRowId := minRowId
 		rowsPerChunk, err := o.getChunkSize(stream, totalRows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get chunk size: %w", err)
+			return nil, fmt.Errorf("failed to get chunk size: %s", err)
 		}
 
 		for {
+			// TODO: Remove use of count of all rows in chunk
 			nextRowIdQuery := jdbc.NextRowIDQuery(stream, currentSCN, currRowId, rowsPerChunk)
 			var nextRowId string
 			var rowCount int64
@@ -106,7 +107,7 @@ func (o *Oracle) getChunkSize(stream types.StreamInterface, totalRows int64) (in
 	var totalTableSize int64
 	err := o.client.QueryRow(query).Scan(&totalTableSize)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get total size of table: %w", err)
+		return 0, fmt.Errorf("failed to get total size of table: %s", err)
 	}
 
 	avgRowSize := math.Ceil(float64(totalTableSize) / float64(totalRows))

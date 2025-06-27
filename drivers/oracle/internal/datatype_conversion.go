@@ -10,14 +10,14 @@ import (
 // Oracle type mapping to our internal types
 var oracleTypeToDataTypes = map[string]types.DataType{
 	// Numeric types
-	"number":        types.Float64,
-	"float":         types.Float64,
-	"ibfloat":       types.Float32,
-	"ibdouble":      types.Float64,
-	"binary_float":  types.Float32,
-	"binary_double": types.Float64,
 	"int32":         types.Int32,
 	"int64":         types.Int64,
+	"ibfloat":       types.Float32,
+	"binary_float":  types.Float32,
+	"ibdouble":      types.Float64,
+	"number":        types.Float64,
+	"float":         types.Float64,
+	"binary_double": types.Float64,
 
 	// String types
 	"varchar2":    types.String,
@@ -32,10 +32,10 @@ var oracleTypeToDataTypes = map[string]types.DataType{
 	"longraw":     types.String, //LONG RAW
 
 	// Date/Time types
-	"date":             types.Timestamp,
-	"timestamp":        types.Timestamp,
-	"timestamptz_dty":  types.Timestamp,
-	"timestampltz_dty": types.Timestamp,
+	"date":             types.TimestampMicro,
+	"timestampdty":     types.TimestampMicro,
+	"timestamptz_dty":  types.TimestampMicro,
+	"timestampltz_dty": types.TimestampMicro,
 
 	// Interval types
 	"intervalym_dty": types.String,
@@ -50,7 +50,7 @@ var oracleTypeToDataTypes = map[string]types.DataType{
 func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (types.DataType, bool) {
 	switch {
 	case strings.HasPrefix(dataType, "TIMESTAMP"):
-		return types.Timestamp, true
+		return types.TimestampMicro, true
 
 	case strings.HasPrefix(dataType, "INTERVAL"):
 		return types.String, true
@@ -68,8 +68,7 @@ func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (ty
 		if val, found := oracleTypeToDataTypes[strings.ToLower(dataType)]; found {
 			return val, true
 		}
+		// Treat unknown data types as strings
+		return types.Unknown, false
 	}
-
-	// Treat unknown data types as strings
-	return types.Unknown, false
 }

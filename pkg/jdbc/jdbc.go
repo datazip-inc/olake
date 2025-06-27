@@ -264,7 +264,7 @@ func MySQLVersion(client *sqlx.DB) (int, int, error) {
 	var version string
 	err := client.QueryRow("SELECT @@version").Scan(&version)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get MySQL version: %w", err)
+		return 0, 0, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
 
 	parts := strings.Split(version, ".")

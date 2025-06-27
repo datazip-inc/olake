@@ -24,13 +24,16 @@ type Oracle struct {
 	state  *types.State
 	CDCSupport bool
 }
+const(
+	userTablesQuery = `SELECT USER AS owner, table_name FROM user_tables`
+)
 
 func (o *Oracle) Setup(ctx context.Context) error {
 	err := o.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
-
+	// TODO: Add support for more encryption options provided in oracle
 	client, err := sqlx.Open("oracle", o.config.connectionString())
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %s", err)
@@ -86,10 +89,10 @@ func (o *Oracle) MaxRetries() int {
 // GetStreamNames returns a list of available tables/streams
 func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Oracle database")
-	query := `SELECT USER AS owner, table_name FROM user_tables`
-	rows, err := o.client.QueryContext(ctx, query)
+	// TODO: Add support for custom schema names
+	rows, err := o.client.QueryContext(ctx, userTablesQuery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %w", err)
+		return nil, fmt.Errorf("failed to query tables: %s", err)
 	}
 	defer rows.Close()
 
@@ -102,7 +105,7 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 		streamNames = append(streamNames, fmt.Sprintf("%s.%s", owner, table_name))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating tables: %w", err)
+		return nil, fmt.Errorf("error iterating tables: %s", err)
 	}
 
 	return streamNames, nil
@@ -159,7 +162,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		stream.WithPrimaryKey(columnName)
 	}
 
-	return stream, nil
+	return stream, pkRows.Err()
 }
 
 func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {

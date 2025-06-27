@@ -14,11 +14,12 @@ type Config struct {
 	Username         string            `json:"username"`
 	Password         string            `json:"password"`
 	ServiceName      string            `json:"service_name"`
+	SID              string            `json:"sid"`
 	Port             int               `json:"port"`
 	MaxThreads       int               `json:"max_threads"`
-	RetryCount       int               `json:"retry_count"`
+	RetryCount       int               `json:"backoff_retry_count"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
-	JDBCURLParams    map[string]string `json:"backoff_retry_count"`
+	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 }
 
 func (c *Config) connectionString() string {
@@ -26,6 +27,11 @@ func (c *Config) connectionString() string {
 	// Add JDBC-style URL params
 	for k, v := range c.JDBCURLParams {
 		urlOptions[k] = v
+	}
+
+	// Add sid if provided
+	if c.SID != "" {
+		urlOptions["sid"] = c.SID
 	}
 
 	// Add SSL params if provided
@@ -57,11 +63,8 @@ func (c *Config) Validate() error {
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
 	}
-	if c.Password == "" {
-		return fmt.Errorf("password is required")
-	}
-	if c.ServiceName == "" {
-		return fmt.Errorf("service_name is required")
+	if c.ServiceName == "" && c.SID == "" {
+		return fmt.Errorf("service_name or sid is required")
 	}
 
 	// Set default number of threads if not provided
