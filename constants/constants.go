@@ -1,6 +1,8 @@
 package constants
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	DefaultRetryCount      = 3
@@ -15,6 +17,7 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	DBName                 = "_db"
+	NormalizationProperty  = "normalization"
 )
 
 type DriverType string
@@ -23,4 +26,12 @@ const (
 	MongoDB  DriverType = "mongodb"
 	Postgres DriverType = "postgres"
 	MySQL    DriverType = "mysql"
+)
+
+var (
+	// RelationalDrivers contains driver types that are relational databases
+	RelationalDrivers = []DriverType{
+		Postgres,
+		MySQL,
+	}
 )
