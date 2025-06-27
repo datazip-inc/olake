@@ -26,6 +26,7 @@ Add Oracle credentials in following format in `config.json` file. [More details.
     "username": "oracle-user",
     "password": "oracle-password",
     "service_name": "oracle-service-name",
+    "sid": "ez",
     "port": 1521,
     "max_threads": 10,
     "retry_count": 0,
