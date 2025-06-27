@@ -33,7 +33,7 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
-	// TODO: Add support for more encryption options provided in oracle
+	// TODO: Add support for more encryption options provided in OracleDB
 	client, err := sqlx.Open("oracle", o.config.connectionString())
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %s", err)

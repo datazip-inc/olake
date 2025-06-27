@@ -16,7 +16,7 @@ import (
 
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-	//TODO: Verify the reqirement of Transaction in Oracle Sync and remove if not required
+	//TODO: Verify the requirement of Transaction in Oracle Sync and remove if not required
 	// Begin transaction with default isolation
 	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -27,7 +27,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	stmt := jdbc.OracleChunkScanQuery(stream, chunk)
 	// Use transaction for queries
 	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-		// TODO: Add support for user defined datatypes in Oracle DB
+		// TODO: Add support for user defined datatypes in OracleDB
 		return tx.QueryContext(ctx, query)
 	})
 

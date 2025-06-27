@@ -303,7 +303,7 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) err
 	return tx.Commit()
 }
 
-// Oracle DB Specific Queries
+// OracleDB Specific Queries
 
 // OracleTableDetailsQuery returns the query to fetch the details of a table in OracleDB
 func OracleTableDetailsQuery(schemaName, tableName string) string {
