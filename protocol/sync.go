@@ -149,7 +149,7 @@ var syncCmd = &cobra.Command{
 		telemetry.TrackSyncStarted(syncID, streams, selectedStreams, cdcStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
 			telemetry.TrackSyncCompleted(err == nil, pool.SyncedRecords())
-			logger.Infof("Sync completed, clean up the process")
+			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 			time.Sleep(5 * time.Second)
 		}()
 
