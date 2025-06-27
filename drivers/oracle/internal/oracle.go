@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -21,6 +22,7 @@ type Oracle struct {
 	config *Config
 	client *sqlx.DB
 	state  *types.State
+	CDCSupport bool
 }
 
 func (o *Oracle) Setup(ctx context.Context) error {
@@ -85,7 +87,6 @@ func (o *Oracle) MaxRetries() int {
 func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Oracle database")
 	query := `SELECT USER AS owner, table_name FROM user_tables`
-
 	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
@@ -100,7 +101,6 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 		}
 		streamNames = append(streamNames, fmt.Sprintf("%s.%s", owner, table_name))
 	}
-
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating tables: %w", err)
 	}
@@ -116,16 +116,11 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 	}
 	schemaName, tableName := parts[0], parts[1]
-
 	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH)
 
 	// Get column information
-	query := `
-		SELECT column_name, data_type, nullable, data_precision, data_scale
-		FROM all_tab_columns
-		WHERE owner = :1 AND table_name = :2`
-
-	rows, err := o.client.QueryContext(ctx, query, schemaName, tableName)
+	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)
+	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query column information: %s", err)
 	}
@@ -149,16 +144,8 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("Y", isNullable))
 	}
 
-	// Get primary key information
-	pkQuery := `
-		SELECT cols.column_name
-		FROM all_constraints cons, all_cons_columns cols
-		WHERE cons.constraint_type = 'P'
-		AND cons.constraint_name = cols.constraint_name
-		AND cons.owner = cols.owner
-		AND cons.owner = :1
-		AND cols.table_name = :2`
-	pkRows, err := o.client.QueryContext(ctx, pkQuery, schemaName, tableName)
+	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
+	pkRows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query primary key information: %s", err)
 	}

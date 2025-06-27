@@ -7,7 +7,9 @@ import (
 )
 
 func main() {
-	driver := &driver.Oracle{}
+	driver := &driver.Oracle{
+		CDCSupport: false,
+	}
 	defer driver.Close()
 	olake.RegisterDriver(driver)
 }

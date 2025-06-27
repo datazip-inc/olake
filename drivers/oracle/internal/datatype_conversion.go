@@ -46,32 +46,28 @@ var oracleTypeToDataTypes = map[string]types.DataType{
 	"bfile":   types.String,
 }
 
-// ConvertOracleDatatype removes extra information from type names for matching and returns in golang type
+// reformatOracleDatatype removes extra information from type names for matching and returns in golang type
 func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (types.DataType, bool) {
-	// Handle timestamp variations
-	if strings.HasPrefix(dataType, "TIMESTAMP") {
+	switch {
+	case strings.HasPrefix(dataType, "TIMESTAMP"):
 		return types.Timestamp, true
-	}
 
-	// Handle interval variations
-	if strings.HasPrefix(dataType, "INTERVAL") {
+	case strings.HasPrefix(dataType, "INTERVAL"):
 		return types.String, true
-	}
 
-	if strings.HasPrefix(dataType, "NUMBER") {
-		if scale.Valid && scale.Int64 == 0  {
+	case strings.HasPrefix(dataType, "NUMBER"):
+		if scale.Valid && scale.Int64 == 0 {
 			if precision.Valid && precision.Int64 <= 9 {
 				return types.Int32, true
-			} else {
-				return types.Int64, true
 			}
-		} else {
-			return types.Float64, true
+			return types.Int64, true
 		}
-	}
+		return types.Float64, true
 
-	if val, found := oracleTypeToDataTypes[strings.ToLower(dataType)]; found {
-		return val, true
+	default:
+		if val, found := oracleTypeToDataTypes[strings.ToLower(dataType)]; found {
+			return val, true
+		}
 	}
 
 	// Treat unknown data types as strings

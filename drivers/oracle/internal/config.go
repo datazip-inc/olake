@@ -18,11 +18,11 @@ type Config struct {
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
-	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
+	JDBCURLParams    map[string]string `json:"backoff_retry_count"`
 }
 
 func (c *Config) connectionString() string {
-	urlOptions := map[string]string{}
+	urlOptions := make(map[string]string)
 	// Add JDBC-style URL params
 	for k, v := range c.JDBCURLParams {
 		urlOptions[k] = v
@@ -53,7 +53,6 @@ func (c *Config) Validate() error {
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port number: must be between 1 and 65535")
 	}
-
 	// Validate required fields
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
@@ -79,6 +78,5 @@ func (c *Config) Validate() error {
 	if err != nil {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
-
 	return utils.Validate(c)
 }

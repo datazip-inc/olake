@@ -26,7 +26,7 @@ func (o *Oracle) StreamChanges(ctx context.Context, stream types.StreamInterface
 
 // CDCSupported returns whether CDC is supported
 func (o *Oracle) CDCSupported() bool {
-	return false // CDC is not supported yet
+	return o.CDCSupport // CDC is not supported yet
 }
 
 // SetupState sets the state for the driver

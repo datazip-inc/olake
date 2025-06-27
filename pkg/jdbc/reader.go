@@ -84,7 +84,7 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 		if converter != nil {
 			datatype := types[i].DatabaseTypeName()
 			precision, scale, hasPrecisionScale := types[i].DecimalSize()
-			if types[i].DatabaseTypeName() == "NUMBER" && hasPrecisionScale && scale == 0 {
+			if datatype == "NUMBER" && hasPrecisionScale && scale == 0 {
 				datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
 			}
 			conv, err := converter(rawData, datatype)
