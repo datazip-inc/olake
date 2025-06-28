@@ -3,16 +3,16 @@ package driver
 import (
 	"fmt"
 
-	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
 
 type Config struct {
 	BootstrapServers string         `json:"bootstrap_servers"`
 	Protocol         ProtocolConfig `json:"protocol"`
-	DefaultMode      types.SyncMode `json:"default_mode"`
-	ConsumerGroup    string         `json:"consumer_group"`
+	ConsumerGroup    string         `json:"consumer_group,omitempty"`
 	AutoOffsetReset  string         `json:"auto_offset_reset,omitempty"`
+	MaxThreads       int            `json:"max_threads"`
 }
 
 type ProtocolConfig struct {
@@ -25,15 +25,23 @@ func (c *Config) Validate() error {
 	if c.BootstrapServers == "" {
 		return fmt.Errorf("bootstrap_servers is required")
 	}
-	if c.DefaultMode != types.FULLREFRESH && c.DefaultMode != types.INCREMENTAL {
-		return fmt.Errorf("default_mode must be 'full_refresh' or 'incremental'")
+
+	if c.Protocol.SecurityProtocol == "" {
+		return fmt.Errorf("security_protocol must be either PLAINTEXT or SASL_PLAINTEXT or SASL_SSL")
 	}
-	if c.DefaultMode == types.INCREMENTAL {
-		if c.AutoOffsetReset == "" {
-			c.AutoOffsetReset = "latest" // Default to latest
-		} else if c.AutoOffsetReset != "earliest" && c.AutoOffsetReset != "latest" && c.AutoOffsetReset != "none" {
-			return fmt.Errorf("auto_offset_reset must be 'earliest', 'latest', or 'none'")
+
+	if c.Protocol.SecurityProtocol == "SASL_PLAINTEXT" || c.Protocol.SecurityProtocol == "SASL_SSL" {
+		if c.Protocol.SASLMechanism == "" {
+			return fmt.Errorf("sasl_mechanism must be either PLAIN or SCRAM-SHA-512")
+		}
+		if c.Protocol.SASLJAASConfig == "" {
+			return fmt.Errorf("sasl_jaas_config must be provided")
 		}
 	}
+
+	if c.MaxThreads <= 0 {
+		c.MaxThreads = constants.DefaultThreadCount
+	}
+
 	return utils.Validate(c)
 }

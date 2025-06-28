@@ -40,7 +40,7 @@ func (k *Kafka) Type() string {
 }
 
 func (k *Kafka) MaxConnections() int {
-	return 1
+	return k.config.MaxThreads
 }
 
 func (k *Kafka) MaxRetries() int {
@@ -111,7 +111,6 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("Producing schema for topic [%s]", streamName)
 	stream := types.NewStream(streamName, "").WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-	stream.SyncMode = k.config.DefaultMode
 
 	schema := types.NewTypeSchema()
 	schema.AddTypes("message", types.String)  // Basic field for message payload

@@ -205,6 +205,8 @@ func (k *Kafka) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 				logger.Errorf("Failed to unmarshal message value: %v", err)
 				return nil
 			}
+			result["partition"] = msg.Partition
+			result["offset"] = msg.Offset
 			return result
 		}()
 

@@ -99,6 +99,8 @@ func (k *Kafka) StreamIncremental(ctx context.Context, stream types.StreamInterf
 					logger.Errorf("Failed to unmarshal message value: %v", err)
 					return nil
 				}
+				result["partition"] = msg.Partition
+				result["offset"] = msg.Offset
 				return result
 			}()
 
