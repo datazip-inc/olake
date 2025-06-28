@@ -1,4 +1,4 @@
-package crypto
+package utils
 
 import (
 	"context"
@@ -10,53 +10,43 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/spf13/viper"
 )
 
-var (
-	kmsClient *kms.Client
-	localKey  []byte
-	useKMS    bool
-	once      sync.Once
-)
-
-type cryptoObj struct {
-	EncryptedData string `json:"encrypted_data"`
-}
-
-// InitEncryption initializes encryption based on KMS key or passphrase
-func InitEncryption() error {
+func getDecryptionConfig() (kmsClient *kms.Client, keyID string, localKey []byte, useKMS bool, disabled bool, err error) {
 	key := viper.GetString("ENCRYPTION_KEY")
-	var initErr error
 
-	once.Do(func() {
-		if strings.HasPrefix(key, "arn:aws:kms:") {
-			cfg, err := config.LoadDefaultConfig(context.Background())
-			if err != nil {
-				initErr = fmt.Errorf("failed to load AWS config: %w", err)
-				return
-			}
-			kmsClient = kms.NewFromConfig(cfg)
-			useKMS = true
-		} else {
-			// Local AES-GCM Mode with SHA-256 derived key
-			hash := sha256.Sum256([]byte(key))
-			localKey = hash[:]
-			useKMS = false
+	if strings.TrimSpace(key) == "" {
+		return nil, "", nil, false, true, nil
+	}
+
+	if strings.HasPrefix(key, "arn:aws:kms:") {
+		cfg, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			return nil, "", nil, false, false, fmt.Errorf("failed to load AWS config: %w", err)
 		}
-	})
+		client := kms.NewFromConfig(cfg)
+		return client, key, nil, true, false, nil
+	}
 
-	return initErr
+	// Local AES-GCM Mode with SHA-256 derived key
+	hash := sha256.Sum256([]byte(key))
+	return nil, "", hash[:], false, false, nil
 }
 
 func Decrypt(cipherData []byte) (string, error) {
-	if err := InitEncryption(); err != nil {
+	kmsClient, _, localKey, useKMS, disabled, err := getDecryptionConfig()
+	if err != nil {
 		return "", fmt.Errorf("decryption failed: %w", err)
 	}
+
+	if disabled {
+		return string(cipherData), nil
+	}
+
 	if useKMS {
 		out, err := kmsClient.Decrypt(context.Background(), &kms.DecryptInput{
 			CiphertextBlob: cipherData,
@@ -91,25 +81,25 @@ func Decrypt(cipherData []byte) (string, error) {
 
 	return string(plaintext), nil
 }
-func DecryptJSONString(encryptedObjStr string) (string, error) {
-	// Unmarshal the encrypted object
-	cryptoObj := cryptoObj{}
 
-	if err := json.Unmarshal([]byte(encryptedObjStr), &cryptoObj); err != nil {
-		return "", fmt.Errorf("failed to unmarshal encrypted data: %v", err)
+// DecryptConfig decrypts base64 encoded encrypted data
+func DecryptConfig(encryptedConfig string) (string, error) {
+	// Use json.Unmarshal to properly handle JSON string unquoting
+	var unquotedString string
+	if err := json.Unmarshal([]byte(encryptedConfig), &unquotedString); err != nil {
+		// If unmarshal fails, assume it's already unquoted
+		unquotedString = encryptedConfig
 	}
 
-	// Decode the base64-encoded encrypted data
-	encryptedData, err := base64.StdEncoding.DecodeString(cryptoObj.EncryptedData)
+	encryptedData, err := base64.URLEncoding.DecodeString(unquotedString)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode base64 data: %v", err)
 	}
 
-	// Decrypt the data
 	decrypted, err := Decrypt(encryptedData)
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt data: %v", err)
 	}
 
-	return string(decrypted), nil
+	return decrypted, nil
 }

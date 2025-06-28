@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/crypto"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
@@ -163,7 +162,7 @@ func UnmarshalFile(file string, dest any, decrypt bool) error {
 	decryptedJSON := data
 	// Use the encryption package to decrypt JSON
 	if viper.GetString("ENCRYPTION_KEY") != "" && decrypt {
-		decryptedStr, err := crypto.DecryptJSONString(string(data))
+		decryptedStr, err := DecryptConfig(string(data))
 		if err != nil {
 			return fmt.Errorf("failed to decrypt source config: %w", err)
 		}
