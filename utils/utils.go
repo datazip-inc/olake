@@ -150,7 +150,7 @@ func CheckIfFilesExists(files ...string) error {
 // 	return content
 // }
 
-func UnmarshalFile(file string, dest any) error {
+func UnmarshalFile(file string, dest any, decrypt bool) error {
 	if err := CheckIfFilesExists(file); err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func UnmarshalFile(file string, dest any) error {
 	}
 	decryptedJSON := data
 	// Use the encryption package to decrypt JSON
-	if viper.GetString("ENCRYPTION_KEY") != "" && (!strings.Contains(file, "streams") && !strings.Contains(file, "state")) {
+	if viper.GetString("ENCRYPTION_KEY") != "" && decrypt {
 		decryptedStr, err := crypto.DecryptJSONString(string(data))
 		if err != nil {
 			return fmt.Errorf("failed to decrypt source config: %w", err)
