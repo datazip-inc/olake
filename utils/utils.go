@@ -165,7 +165,7 @@ func UnmarshalFile(file string, dest any, credsFile bool) error {
 	if credsFile && viper.GetString(constants.EncryptionKey) != "" {
 		dConfig, err := Decrypt(string(data))
 		if err != nil {
-			return fmt.Errorf("failed to decrypt config: %s", err)
+			return fmt.Errorf("failed to decrypt config file[%s]: %s", file, err)
 		}
 		decryptedJSON = []byte(dConfig)
 	}
