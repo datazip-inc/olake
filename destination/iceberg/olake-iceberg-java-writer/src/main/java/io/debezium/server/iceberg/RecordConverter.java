@@ -177,16 +177,12 @@ public class RecordConverter {
     // If not set during construction, try to extract from value data
     // This is a fallback and shouldn't normally be used since thread_id
     // is passed at the message level, not in the value data
-    try {
-      JsonNode valueNode = value();
-      if (valueNode != null && valueNode.has("thread_id")) {
-        return valueNode.get("thread_id").asText();
-      }
-    } catch (Exception e) {
-      LOGGER.debug("Failed to extract thread ID from value data", e);
+    JsonNode valueNode = value();
+    if (valueNode != null && valueNode.has("thread_id")) {
+      return valueNode.get("thread_id").asText();
+    } else {
+      throw new RuntimeException("Thread ID is required for all records");
     }
-    
-    return null;
   }
 
   public RecordWrapper convertAsAppend(Schema schema) {

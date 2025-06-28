@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
@@ -157,7 +157,7 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
 		// Append to ordered slice to preserve partition order
-		i.partitionInfo = append(i.partitionInfo, types.PartitionInfo{
+		i.partitionInfo = append(i.partitionInfo, PartitionInfo{
 			Field:     colName,
 			Transform: transform,
 		})
@@ -317,7 +317,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 
 	// Start the Java server process
 	// If debug mode is enabled and stream is available (stream is nil for check operations), start the server with debug options
-	if i.config.DebugMode && i.stream != nil {
+	if os.Getenv("OLAKE_DEBUG_MODE") != "" && i.stream != nil {
 		i.cmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", i.config.JarPath, string(configJSON))
 	} else {
 		i.cmd = exec.Command("java", "-XX:+UseG1GC", "-jar", i.config.JarPath, string(configJSON))
@@ -389,9 +389,9 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	return nil
 }
 
-func getTestDebeziumRecord() string {
+func getTestDebeziumRecord(threadID string) string {
 	randomID := utils.ULID()
-	threadID := getGoroutineID()
+
 	return `{
 			"destination_table": "olake_test_table",
 			"thread_id": "` + threadID + `",

@@ -144,6 +144,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     }
 
     public Table loadIcebergTable(TableIdentifier tableId, RecordConverter sampleEvent) {
+        // This is to prevent multiple writer threads from creating the same table at the same time.
         synchronized (tableCreationLock) {
             return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
                 try {

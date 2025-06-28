@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 import java.util.Collections;
 import java.util.Map;
 import java.util.List;
-import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.ArrayList;
 
@@ -121,8 +120,8 @@ public class OlakeRpcServer {
             port = Integer.parseInt(stringConfigMap.get("port"));
         }
         
-        // Get max message size from config or use a reasonable default (500MB)
-        int maxMessageSize = 2000 * 1024 * 1024; // 2GB default
+        // Get max message size from config or use a reasonable default (1024MB)
+        int maxMessageSize = 1024 * 1024 * 1024; // 1GB default
         if (stringConfigMap.get("max-message-size") != null) {
             maxMessageSize = Integer.parseInt(stringConfigMap.get("max-message-size"));
         }

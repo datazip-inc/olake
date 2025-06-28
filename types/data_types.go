@@ -65,12 +65,6 @@ type RawRecord struct {
 	CdcTimestamp   time.Time      `parquet:"_cdc_timestamp"`
 }
 
-// PartitionInfo represents a Iceberg partition column with its transform, preserving order
-type PartitionInfo struct {
-	Field     string
-	Transform string
-}
-
 func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,

@@ -46,13 +46,13 @@ import java.util.HashMap;
 public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
-  
+
   // Lock object for synchronizing commits
   private final Object commitLock = new Object();
-  
+
   // Map to track table references per thread
   private final Map<String, Table> threadTables = new ConcurrentHashMap<>();
-  
+
   // Map to store completed WriteResult per thread for later commit
   private final Map<String, List<WriteResult>> threadWriteResults = new ConcurrentHashMap<>();
 
@@ -78,7 +78,8 @@ public class IcebergTableOperator {
     cdcSourceTsMsField = "_cdc_timestamp";
   }
 
-  static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1, Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
+  static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
+      Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
   String cdcSourceTsMsField;
@@ -99,9 +100,10 @@ public class IcebergTableOperator {
     ConcurrentHashMap<JsonNode, RecordConverter> deduplicatedEvents = new ConcurrentHashMap<>();
 
     events.forEach(e -> {
-          if (e.key() == null || e.key().isNull()) {
-            throw new RuntimeException("Cannot deduplicate data with null key! destination:'" + e.destination() + "' event: '" + e.value().toString() + "'");
-          }
+      if (e.key() == null || e.key().isNull()) {
+        throw new RuntimeException("Cannot deduplicate data with null key! destination:'" + e.destination()
+            + "' event: '" + e.value().toString() + "'");
+      }
 
       try {
         // deduplicate using key(PK)
@@ -115,8 +117,7 @@ public class IcebergTableOperator {
       } catch (Exception ex) {
         throw new RuntimeException("Failed to deduplicate events", ex);
       }
-        }
-    );
+    });
 
     return new ArrayList<>(deduplicatedEvents.values());
   }
@@ -124,10 +125,12 @@ public class IcebergTableOperator {
   /**
    * This is used to deduplicate events within given batch.
    * <p>
-   * Forex ample a record can be updated multiple times in the source. for example insert followed by update and
+   * Forex ample a record can be updated multiple times in the source. for example
+   * insert followed by update and
    * delete. for this case we need to only pick last change event for the row.
    * <p>
-   * Its used when `upsert` feature enabled (when the consumer operating non append mode) which means it should not add
+   * Its used when `upsert` feature enabled (when the consumer operating non
+   * append mode) which means it should not add
    * duplicate records to target table.
    *
    * @param lhs
@@ -142,15 +145,15 @@ public class IcebergTableOperator {
       // return (x < y) ? -1 : ((x == y) ? 0 : 1);
       result = CDC_OPERATION_PRIORITY.getOrDefault(lhs.cdcOpValue(cdcOpField), -1)
           .compareTo(
-              CDC_OPERATION_PRIORITY.getOrDefault(rhs.cdcOpValue(cdcOpField), -1)
-          );
+              CDC_OPERATION_PRIORITY.getOrDefault(rhs.cdcOpValue(cdcOpField), -1));
     }
 
     return result;
   }
 
   /**
-   * If given schema contains new fields compared to target table schema then it adds new fields to target iceberg
+   * If given schema contains new fields compared to target table schema then it
+   * adds new fields to target iceberg
    * table.
    * <p>
    * Its used when allow field addition feature is enabled.
@@ -160,12 +163,12 @@ public class IcebergTableOperator {
    */
   private void applyFieldAddition(Table icebergTable, Schema newSchema) {
 
-    UpdateSchema us = icebergTable.updateSchema().
-        unionByNameWith(newSchema).
-        setIdentifierFields(newSchema.identifierFieldNames());
+    UpdateSchema us = icebergTable.updateSchema().unionByNameWith(newSchema)
+        .setIdentifierFields(newSchema.identifierFieldNames());
     Schema newSchemaCombined = us.apply();
 
-    // @NOTE avoid committing when there is no schema change. commit creates new commit even when there is no change!
+    // @NOTE avoid committing when there is no schema change. commit creates new
+    // commit even when there is no change!
     if (!icebergTable.schema().sameSchema(newSchemaCombined)) {
       LOGGER.warn("Extending schema of {}", icebergTable.name());
       us.commit();
@@ -175,10 +178,13 @@ public class IcebergTableOperator {
   /**
    * Adds list of events to iceberg table.
    * <p>
-   * If field addition enabled then it groups list of change events by their schema first. Then adds new fields to
-   * iceberg table if there is any. And then follows with adding data to the table.
+   * If field addition enabled then it groups list of change events by their
+   * schema first. Then adds new fields to
+   * iceberg table if there is any. And then follows with adding data to the
+   * table.
    * <p>
-   * New fields are detected using CDC event schema, since events are grouped by their schemas it uses single
+   * New fields are detected using CDC event schema, since events are grouped by
+   * their schemas it uses single
    * event to find-out schema for the whole list of events.
    *
    * @param icebergTable
@@ -186,7 +192,8 @@ public class IcebergTableOperator {
    */
   public void addToTable(Table icebergTable, List<RecordConverter> events) {
 
-    // when operation mode is not upsert deduplicate the events to avoid inserting duplicate row
+    // when operation mode is not upsert deduplicate the events to avoid inserting
+    // duplicate row
     if (upsert && !icebergTable.schema().identifierFieldIds().isEmpty()) {
       events = deduplicateBatch(events);
     }
@@ -195,14 +202,15 @@ public class IcebergTableOperator {
       // if field additions not enabled add set of events to table
       addToTablePerSchema(icebergTable, events);
     } else {
-      
-      Map<RecordConverter.SchemaConverter, List<RecordConverter>> eventsGroupedBySchema =
-          events.parallelStream()
-              .collect(Collectors.groupingBy(RecordConverter::schemaConverter));
-      
-      LOGGER.info("Batch got {} records with {} different schema!!", events.size(), eventsGroupedBySchema.keySet().size());
 
-      for (Map.Entry<RecordConverter.SchemaConverter, List<RecordConverter>> schemaEvents : eventsGroupedBySchema.entrySet()) {
+      Map<RecordConverter.SchemaConverter, List<RecordConverter>> eventsGroupedBySchema = events.parallelStream()
+          .collect(Collectors.groupingBy(RecordConverter::schemaConverter));
+
+      LOGGER.info("Batch got {} records with {} different schema!!", events.size(),
+          eventsGroupedBySchema.keySet().size());
+
+      for (Map.Entry<RecordConverter.SchemaConverter, List<RecordConverter>> schemaEvents : eventsGroupedBySchema
+          .entrySet()) {
         // extend table schema if new fields found
         applyFieldAddition(icebergTable, schemaEvents.getValue().get(0).icebergSchema(createIdentifierFields));
         // add set of events to table
@@ -218,43 +226,43 @@ public class IcebergTableOperator {
    * @param threadId The thread ID to commit
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId) {    
+  public void commitThread(String threadId) {
     // Get the WriteResults for this thread
     List<WriteResult> writeResults = threadWriteResults.remove(threadId);
     Table table = threadTables.remove(threadId);
-    
+
     if (writeResults == null || writeResults.isEmpty()) {
       LOGGER.warn("No WriteResults found for thread: {}", threadId);
       return;
     }
-    
+
     if (table == null) {
       LOGGER.warn("No table found for thread: {}", threadId);
       return;
     }
-    
+
     // Calculate total files across all WriteResults
     int totalDataFiles = writeResults.stream().mapToInt(wr -> wr.dataFiles().length).sum();
     int totalDeleteFiles = writeResults.stream().mapToInt(wr -> wr.deleteFiles().length).sum();
-    
-    LOGGER.info("Committing {} data files and {} delete files across {} WriteResults for thread: {}", 
-               totalDataFiles, totalDeleteFiles, writeResults.size(), threadId);
-    
+
+    LOGGER.info("Committing {} data files and {} delete files across {} WriteResults for thread: {}",
+        totalDataFiles, totalDeleteFiles, writeResults.size(), threadId);
+
     // If no files were generated, nothing to commit
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
       LOGGER.info("No files to commit for thread: {}", threadId);
       return;
     }
-    
+
     // Commit the files
-    synchronized(commitLock) {
+    synchronized (commitLock) {
       try {
         // Refresh table before committing
         table.refresh();
-        
+
         // Check if any WriteResult has delete files
         boolean hasDeleteFiles = writeResults.stream().anyMatch(wr -> wr.deleteFiles().length > 0);
-        
+
         if (hasDeleteFiles) {
           RowDelta rowDelta = table.newRowDelta();
           // Add all data and delete files from all WriteResults
@@ -271,9 +279,9 @@ public class IcebergTableOperator {
           }
           appendFiles.commit();
         }
-        
-        LOGGER.info("Successfully committed {} data files and {} delete files across {} WriteResults for thread: {}", 
-                   totalDataFiles, totalDeleteFiles, writeResults.size(), threadId);
+
+        LOGGER.info("Successfully committed {} data files and {} delete files across {} WriteResults for thread: {}",
+            totalDataFiles, totalDeleteFiles, writeResults.size(), threadId);
       } catch (Exception e) {
         String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
         LOGGER.error(errorMsg, e);
@@ -283,124 +291,124 @@ public class IcebergTableOperator {
   }
 
   /**
-   * Adds list of change events to iceberg table. All the events are having same schema.
+   * Adds list of change events to iceberg table. All the events are having same
+   * schema.
    *
    * @param icebergTable
    * @param events
    */
   private void addToTablePerSchema(Table icebergTable, List<RecordConverter> events) {
 
-      String threadId = events.get(0).getThreadId();
-      if (threadId == null || threadId.isEmpty()) {
-        throw new RuntimeException("Thread ID is required for all records");
-      }
-      
-      // Create a new writer for this batch
-      LOGGER.info("Creating new writer for thread: {}", threadId);
-      threadTables.put(threadId, icebergTable);
-      BaseTaskWriter<Record> writer = writerFactory2.create(icebergTable);
-      
-      try {
-        // Convert and optionally sort records in a single stream operation
-        List<RecordWrapper> convertedRecords;
-        
-        if (!icebergTable.spec().isUnpartitioned() && events.size() > 1) {
-          // Create partition comparator for sorting
-          PartitionKey pk1 = new PartitionKey(icebergTable.spec(), icebergTable.schema());
-          PartitionKey pk2 = new PartitionKey(icebergTable.spec(), icebergTable.schema());
-          InternalRecordWrapper wrapper = new InternalRecordWrapper(icebergTable.schema().asStruct());
+    String threadId = events.get(0).getThreadId();
 
-          Comparator<RecordWrapper> partitionComparator = (r1, r2) -> {
-            pk1.partition(wrapper.wrap(r1));
-            pk2.partition(wrapper.wrap(r2));
+    // Create a new writer for this batch
+    LOGGER.info("Creating new writer for thread: {}", threadId);
+    threadTables.put(threadId, icebergTable);
+    BaseTaskWriter<Record> writer = writerFactory2.create(icebergTable);
 
-            int numFields = icebergTable.spec().fields().size();
-            for (int i = 0; i < numFields; i++) {
-              Object v1 = pk1.get(i, Object.class);
-              Object v2 = pk2.get(i, Object.class);
+    try {
+      // Convert and optionally sort records in a single stream operation
+      List<RecordWrapper> convertedRecords;
 
-              // Handle nulls explicitly
-              if (v1 == null && v2 == null) {
-                continue;
-              } else if (v1 == null) {
-                return -1;
-              } else if (v2 == null) {
-                return 1;
-              }
+      if (!icebergTable.spec().isUnpartitioned() && events.size() > 1) {
+        // Create partition comparator for sorting
+        PartitionKey pk1 = new PartitionKey(icebergTable.spec(), icebergTable.schema());
+        PartitionKey pk2 = new PartitionKey(icebergTable.spec(), icebergTable.schema());
+        InternalRecordWrapper wrapper = new InternalRecordWrapper(icebergTable.schema().asStruct());
 
-              @SuppressWarnings("unchecked")
-              int cmp = ((Comparable<Object>) v1).compareTo(v2);
-              if (cmp != 0) {
-                return cmp;
-              }
+        Comparator<RecordWrapper> partitionComparator = (r1, r2) -> {
+          pk1.partition(wrapper.wrap(r1));
+          pk2.partition(wrapper.wrap(r2));
+
+          int numFields = icebergTable.spec().fields().size();
+          for (int i = 0; i < numFields; i++) {
+            Object v1 = pk1.get(i, Object.class);
+            Object v2 = pk2.get(i, Object.class);
+
+            // Handle nulls explicitly
+            if (v1 == null && v2 == null) {
+              continue;
+            } else if (v1 == null) {
+              return -1;
+            } else if (v2 == null) {
+              return 1;
             }
-            return 0;
-          };
-          
-          // Convert and sort in single stream operation
-          convertedRecords = events.stream()
-              .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
-                  ? e.convert(icebergTable.schema(), cdcOpField)
-                  : e.convertAsAppend(icebergTable.schema()))
-              .sorted(partitionComparator)
-              .collect(Collectors.toList());
-        } else {
-          // Just convert without sorting for unpartitioned tables or single record
-          convertedRecords = events.stream()
-              .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
-                  ? e.convert(icebergTable.schema(), cdcOpField)
-                  : e.convertAsAppend(icebergTable.schema()))
-              .collect(Collectors.toList());
-        }
-        
-        // Write converted records sequentially to maintain thread safety with the writer
-        for (RecordWrapper record : convertedRecords) {
-            writer.write(record);
-        }
-        
-        LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadId);
-        
-        // Complete the writer and store the WriteResult for later commit
-        try {
-          WriteResult writeResult = writer.complete();
-          threadWriteResults.computeIfAbsent(threadId, k -> new ArrayList<>()).add(writeResult);
-          
-          LOGGER.info("Writer for thread {} completed with {} data files and {} delete files", 
-                     threadId, writeResult.dataFiles().length, writeResult.deleteFiles().length);
-          
-        } catch (IOException e) {
-          LOGGER.error("Failed to complete writer for thread: {}", threadId, e);
-          throw new RuntimeException("Failed to complete writer for thread: " + threadId, e);
-        } finally {
-          // Close the writer
-          try {
-            writer.close();
-          } catch (IOException e) {
-            LOGGER.warn("Failed to close writer for thread: {}", threadId, e);
+
+            @SuppressWarnings("unchecked")
+            int cmp = ((Comparable<Object>) v1).compareTo(v2);
+            if (cmp != 0) {
+              return cmp;
+            }
           }
-        }
-        
-      } catch (Exception ex) {
-        LOGGER.error("Failed to write data to table: {} for thread: {}", icebergTable.name(), threadId, ex);
-        
-        // Clean up the writer
-        try {
-          writer.abort();
-        } catch (IOException abortEx) {
-          LOGGER.warn("Failed to abort writer", abortEx);
-        }
+          return 0;
+        };
+
+        // Convert and sort in single stream operation
+        // Sorting with partitions values to make sure Iceberg-java writes it without
+        // having too many files open. In a Clustered Writer way.
+        convertedRecords = events.stream()
+            .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
+                ? e.convert(icebergTable.schema(), cdcOpField)
+                : e.convertAsAppend(icebergTable.schema()))
+            .sorted(partitionComparator)
+            .collect(Collectors.toList());
+      } else {
+        // Just convert without sorting for unpartitioned tables or single record
+        convertedRecords = events.stream()
+            .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
+                ? e.convert(icebergTable.schema(), cdcOpField)
+                : e.convertAsAppend(icebergTable.schema()))
+            .collect(Collectors.toList());
+      }
+
+      // Write converted records sequentially to maintain thread safety with the
+      // writer
+      for (RecordWrapper record : convertedRecords) {
+        writer.write(record);
+      }
+
+      LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadId);
+
+      // Complete the writer and store the WriteResult for later commit
+      try {
+        WriteResult writeResult = writer.complete();
+        threadWriteResults.computeIfAbsent(threadId, k -> new ArrayList<>()).add(writeResult);
+
+        LOGGER.info("Writer for thread {} completed with {} data files and {} delete files",
+            threadId, writeResult.dataFiles().length, writeResult.deleteFiles().length);
+
+      } catch (IOException e) {
+        LOGGER.error("Failed to complete writer for thread: {}", threadId, e);
+        throw new RuntimeException("Failed to complete writer for thread: " + threadId, e);
+      } finally {
+        // Close the writer
         try {
           writer.close();
         } catch (IOException e) {
-          LOGGER.warn("Failed to close writer", e);
+          LOGGER.warn("Failed to close writer for thread: {}", threadId, e);
         }
-        
-        // Also clean up any stored write results for this thread
-        threadWriteResults.remove(threadId);
-        threadTables.remove(threadId);
-        
-        throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
       }
-    
+
+    } catch (Exception ex) {
+      LOGGER.error("Failed to write data to table: {} for thread: {}", icebergTable.name(), threadId, ex);
+
+      // Clean up the writer
+      try {
+        writer.abort();
+      } catch (IOException abortEx) {
+        LOGGER.warn("Failed to abort writer", abortEx);
+      }
+      try {
+        writer.close();
+      } catch (IOException e) {
+        LOGGER.warn("Failed to close writer", e);
+      }
+
+      // Also clean up any stored write results for this thread
+      threadWriteResults.remove(threadId);
+      threadTables.remove(threadId);
+
+      throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
+    }
   }
 }

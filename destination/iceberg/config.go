@@ -57,8 +57,6 @@ type Config struct {
 	JarPath         string `json:"sink_jar_path,omitempty"`        // Path to the Iceberg sink JAR
 	ServerHost      string `json:"sink_rpc_server_host,omitempty"` // gRPC server host
 
-	DebugMode bool `json:"debug_mode,omitempty"`
-
 	RestSigningName   string `json:"rest_signing_name,omitempty"`
 	RestSigningRegion string `json:"rest_signing_region,omitempty"`
 	RestSigningV4     bool   `json:"rest_signing_v_4,omitempty"`
