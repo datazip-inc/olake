@@ -3,9 +3,12 @@ package protocol
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -41,8 +44,14 @@ var discoverCmd = &cobra.Command{
 		if len(streams) == 0 {
 			return errors.New("no streams found in connector")
 		}
-
 		types.LogCatalog(streams, catalog)
+
+		// Discover Telemetry Tracking
+		defer func() {
+			telemetry.TrackDiscover(len(streams), connector.Type())
+			logger.Infof("Discover completed, cleaning up the process")
+			time.Sleep(5 * time.Second)
+		}()
 		return nil
 	},
 }
