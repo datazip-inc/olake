@@ -13,10 +13,6 @@ import (
 )
 
 func (a *AbstractDriver) Incremental(_ context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
-	//Kafka Specific
-	var lastOffset int64
-	var lastPartition int
-
 	if len(streams) == 0 {
 		logger.Infof("No streams provided for incremental sync")
 		return nil
@@ -26,6 +22,10 @@ func (a *AbstractDriver) Incremental(_ context.Context, pool *destination.Writer
 
 	// Process each stream concurrently
 	streamProcessor := func(ctx context.Context, stream types.StreamInterface) (err error) {
+		//Kafka Specific
+		var lastPartition int
+		var lastOffset int64
+
 		if stream.GetSyncMode() != types.INCREMENTAL && stream.GetSyncMode() != types.CDC {
 			return fmt.Errorf("stream %s is not configured for incremental or CDC sync mode", stream.ID())
 		}
@@ -57,11 +57,11 @@ func (a *AbstractDriver) Incremental(_ context.Context, pool *destination.Writer
 				timestamp = time.Now().UnixMilli()
 			}
 			// Kafka Specific
-			if off, ok := data["offset"].(int64); ok {
-				lastOffset = off
+			if partition, ok := data["partition"].(int); ok {
+				lastPartition = partition
 			}
-			if part, ok := data["partition"].(int); ok {
-				lastPartition = part
+			if offset, ok := data["offset"].(int64); ok {
+				lastOffset = offset
 			}
 			return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.UnixMilli(timestamp)))
 		})

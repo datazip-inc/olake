@@ -13,6 +13,7 @@ type Config struct {
 	ConsumerGroup    string         `json:"consumer_group,omitempty"`
 	AutoOffsetReset  string         `json:"auto_offset_reset,omitempty"`
 	MaxThreads       int            `json:"max_threads"`
+	WaitTime         int            `json:"wait_time,omitempty"`
 }
 
 type ProtocolConfig struct {
@@ -37,6 +38,10 @@ func (c *Config) Validate() error {
 		if c.Protocol.SASLJAASConfig == "" {
 			return fmt.Errorf("sasl_jaas_config must be provided")
 		}
+	}
+
+	if c.WaitTime <= 0 {
+		c.WaitTime = int(constants.DefaultWaitTime)
 	}
 
 	if c.MaxThreads <= 0 {

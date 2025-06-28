@@ -81,7 +81,7 @@ func (k *Kafka) StreamIncremental(ctx context.Context, stream types.StreamInterf
 			logger.Infof("Streaming stopped for topic %s due to context cancellation", topic)
 			return nil
 		default:
-			fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			fetchCtx, cancel := context.WithTimeout(ctx, time.Duration(k.config.WaitTime))
 			msg, err := reader.ReadMessage(fetchCtx)
 			cancel()
 
