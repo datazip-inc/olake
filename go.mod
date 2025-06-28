@@ -99,7 +99,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sagikazarmark/locafero v0.8.0 // indirect
-	github.com/segmentio/backo-go v1.0.0 // indirect
+	github.com/segmentio/backo-go v1.1.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/siddontang/go-log v0.0.0-20190221022429-1e957dd83bed // indirect
@@ -129,9 +129,9 @@ require (
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
+	google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )
 
 require (
@@ -150,6 +150,7 @@ replace (
 	cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.6.0
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )
+
 // replace (
 // 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 // 	google.golang.org/genproto/googleapis/rpc => google.golang.org/genproto/googleapis/rpc v0.0.0-20240123012728-ef4313101c80
