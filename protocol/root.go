@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -38,10 +39,11 @@ var RootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// set global variables
 		if !noSave {
-			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
+			viper.Set(constants.ConfigFolder, utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
 		}
+
 		if encryptionKey != "" {
-			viper.Set("ENCRYPTION_KEY", encryptionKey)
+			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()

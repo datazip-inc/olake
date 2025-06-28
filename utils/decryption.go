@@ -13,93 +13,79 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/spf13/viper"
 )
 
-func getDecryptionConfig() (kmsClient *kms.Client, keyID string, localKey []byte, useKMS bool, disabled bool, err error) {
-	key := viper.GetString("ENCRYPTION_KEY")
-
-	if strings.TrimSpace(key) == "" {
-		return nil, "", nil, false, true, nil
+func getSecretKey() ([]byte, *kms.Client, error) {
+	secretKey := viper.GetString(constants.EncryptionKey)
+	if strings.TrimSpace(secretKey) == "" {
+		return []byte{}, nil, nil // Encryption is disabled
 	}
 
-	if strings.HasPrefix(key, "arn:aws:kms:") {
+	if strings.HasPrefix(secretKey, "arn:aws:kms:") {
 		cfg, err := config.LoadDefaultConfig(context.Background())
 		if err != nil {
-			return nil, "", nil, false, false, fmt.Errorf("failed to load AWS config: %w", err)
+			return nil, nil, fmt.Errorf("failed to load AWS config: %s", err)
 		}
-		client := kms.NewFromConfig(cfg)
-		return client, key, nil, true, false, nil
+		return []byte(secretKey), kms.NewFromConfig(cfg), nil
 	}
 
 	// Local AES-GCM Mode with SHA-256 derived key
-	hash := sha256.Sum256([]byte(key))
-	return nil, "", hash[:], false, false, nil
+	hash := sha256.Sum256([]byte(secretKey))
+	return hash[:], nil, nil
 }
 
-func Decrypt(cipherData []byte) (string, error) {
-	kmsClient, _, localKey, useKMS, disabled, err := getDecryptionConfig()
+func Decrypt(encryptedText string) (string, error) {
+	if strings.TrimSpace(encryptedText) == "" {
+		return "", fmt.Errorf("cannot decrypt empty or whitespace-only input")
+	}
+
+	key, kmsClient, err := getSecretKey()
+	if err != nil || key == nil || len(key) == 0 {
+		return encryptedText, err
+	}
+
+	var config string
+	err = json.Unmarshal([]byte(encryptedText), &config)
 	if err != nil {
-		return "", fmt.Errorf("decryption failed: %w", err)
+		return "", fmt.Errorf("failed to unmarshal JSON string: %v", err)
 	}
 
-	if disabled {
-		return string(cipherData), nil
-	}
-
-	if useKMS {
-		out, err := kmsClient.Decrypt(context.Background(), &kms.DecryptInput{
-			CiphertextBlob: cipherData,
-		})
-		if err != nil {
-			return "", fmt.Errorf("decryption failed: %w", err)
-		}
-		return string(out.Plaintext), nil
-	}
-
-	block, err := aes.NewCipher(localKey)
-	if err != nil {
-		return "", err
-	}
-
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-
-	nonceSize := aead.NonceSize()
-	if len(cipherData) < nonceSize {
-		return "", errors.New("ciphertext too short")
-	}
-
-	nonce, ciphertext := cipherData[:nonceSize], cipherData[nonceSize:]
-
-	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return "", fmt.Errorf("decryption failed: %w", err)
-	}
-
-	return string(plaintext), nil
-}
-
-// DecryptConfig decrypts base64 encoded encrypted data
-func DecryptConfig(encryptedConfig string) (string, error) {
-	// Use json.Unmarshal to properly handle JSON string unquoting
-	var unquotedString string
-	if err := json.Unmarshal([]byte(encryptedConfig), &unquotedString); err != nil {
-		// If unmarshal fails, assume it's already unquoted
-		unquotedString = encryptedConfig
-	}
-
-	encryptedData, err := base64.URLEncoding.DecodeString(unquotedString)
+	encryptedData, err := base64.StdEncoding.DecodeString(config)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode base64 data: %v", err)
 	}
 
-	decrypted, err := Decrypt(encryptedData)
-	if err != nil {
-		return "", fmt.Errorf("failed to decrypt data: %v", err)
+	// Use KMS if client is provided
+	if kmsClient != nil {
+		result, err := kmsClient.Decrypt(context.Background(), &kms.DecryptInput{
+			CiphertextBlob: encryptedData,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to decrypt with KMS: %s", err)
+		}
+		return string(result.Plaintext), nil
 	}
 
-	return decrypted, nil
+	// Local AES-GCM decryption
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %s", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %s", err)
+	}
+
+	if len(encryptedData) < gcm.NonceSize() {
+		return "", errors.New("ciphertext too short")
+	}
+
+	plaintext, err := gcm.Open(nil, encryptedData[:gcm.NonceSize()], encryptedData[gcm.NonceSize():], nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt: %s", err)
+	}
+	return string(plaintext), nil
 }

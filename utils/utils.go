@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
@@ -151,7 +152,7 @@ func CheckIfFilesExists(files ...string) error {
 // 	return content
 // }
 
-func UnmarshalFile(file string, dest any, decrypt bool) error {
+func UnmarshalFile(file string, dest any, credsFile bool) error {
 	if err := CheckIfFilesExists(file); err != nil {
 		return err
 	}
@@ -161,12 +162,12 @@ func UnmarshalFile(file string, dest any, decrypt bool) error {
 	}
 	decryptedJSON := data
 	// Use the encryption package to decrypt JSON
-	if viper.GetString("ENCRYPTION_KEY") != "" && decrypt {
-		decryptedStr, err := DecryptConfig(string(data))
+	if credsFile && viper.GetString(constants.EncryptionKey) != "" {
+		dConfig, err := Decrypt(string(data))
 		if err != nil {
-			return fmt.Errorf("failed to decrypt source config: %w", err)
+			return fmt.Errorf("failed to decrypt config: %s", err)
 		}
-		decryptedJSON = []byte(decryptedStr)
+		decryptedJSON = []byte(dConfig)
 	}
 	err = json.Unmarshal(decryptedJSON, dest)
 	if err != nil {
