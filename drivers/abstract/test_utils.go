@@ -61,7 +61,7 @@ func (a *AbstractDriver) TestDiscover(t *testing.T, conn interface{}, execQuery 
 }
 
 // TestRead tests full refresh and CDC read operations
-func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery ExecuteQuery, schemaMap map[string]string) {
+func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery ExecuteQuery, _ map[string]string) {
 	t.Helper()
 	ctx := context.Background()
 
