@@ -4,6 +4,8 @@ import (
 	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"reflect"
@@ -60,7 +62,7 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 	return -1, false
 }
 
-// returns cond ? a ; b
+// returns cond ? a ; b (note: it is not function ternary)
 func Ternary(cond bool, a, b any) any {
 	if cond {
 		return a
@@ -318,4 +320,21 @@ func ConvertToString(value interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v) // Fallback
 	}
+}
+
+func ComputeConfigHash(srcPath, destPath string) string {
+	if srcPath == "" || destPath == "" {
+		// no config or no destination → no meaningful hash
+		return ""
+	}
+	a, err := os.ReadFile(srcPath)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(destPath)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(append(a, b...))
+	return hex.EncodeToString(sum[:])
 }

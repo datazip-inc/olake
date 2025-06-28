@@ -15,7 +15,7 @@ This Docker Compose setup provides a comprehensive environment for demonstrating
 * **Docker Compose:** Latest version installed (usually included with Docker Desktop).
 * **Resources:** This stack runs multiple services and loads a large dataset. Allocate sufficient memory and CPU resources to Docker (e.g., 8GB+ RAM recommended).
 
-## Setup
+## Running the Stack
 1. **Clone the repository:**
 
    ```bash
@@ -23,60 +23,21 @@ This Docker Compose setup provides a comprehensive environment for demonstrating
    cd olake/examples
    ```
 
-2. **Edit persistence/config paths (required):**
-
-   - The docker-compose.yml uses `/your/chosen/host/path/olake-data` as a placeholder for the host directory where Olake's persistent configuration, states and metadata will be stored. You **must** replace this with an actual path on your system before starting the services. You can change this by editing the `x-app-defaults` section at the top of `docker-compose.yml`:
-     ```yaml
-     x-app-defaults:
-       host_persistence_path: &hostPersistencePath /your/host/path
-     ```
-   - Make sure the directory exists and is writable by the user running Docker (see how to change [file permissions for Linux/macOS](https://wiki.archlinux.org/title/File_permissions_and_attributes#Changing_permissions)).
-
-3. **Customizing Admin User (optional):**
-
-   The stack automatically creates an initial admin user on first startup. The default credentials are:
-
-   - Username: "admin"
-   - Password: "password"
-   - Email: "test@example.com"
-
-   To change these defaults, edit the `x-signup-defaults` section in your `docker-compose.yml`:
-
-   ```yaml
-   x-signup-defaults:
-   username: &defaultUsername "your-custom-username"
-   password: &defaultPassword "your-secure-password"
-   email: &defaultEmail "your-email@example.com"
-   ```
-
-
-## Running the Stack
-
-1.  **Start the Services:**
+2.  **Start the Services:**
     ```bash
     docker compose up -d
     ```
-    * The first time you run this, Docker will download all the necessary images, and the `init-mysql-tasks` service will clone the "weather" CSV and load it into MySQL. **This initial setup, especially the docker image download part, can take some amount of time (potentially 5-10 minutes or more depending on your internet speed and machine performance).** Please be patient.
-    * You can monitor the progress of the services:
-        ```bash
-        docker compose logs -f
-        ```
+    On the first run, Docker will download all the necessary images, and the `init-mysql-tasks` service will clone the "weather" CSV and load it into MySQL. **This initial setup, especially the docker image download part, can take some amount of time (potentially 5-10 minutes or more depending on internet speed and machine performance).**
 
 ## Accessing Services
 
 Once the stack is up and running (especially after `init-mysql-tasks` and `olake-app` are healthy/started):
 
 * **Olake Application UI:** `http://localhost:8000`
-    * A default user is created by `signup-init`:
+    * Default credentials:
         * Username: `admin`
         * Password: `password`
-        * Email: `admin@example.com`
 * **MySQL (`primary_mysql`):**
-    * Host: `localhost`
-    * Port: `3306`
-    * Root Password: `password`
-    * Databases: `weather` (loaded by `init-mysql-tasks`).
-
     * Verify Source Data:
       - Access the MySQL CLI:
         ```bash
@@ -87,8 +48,7 @@ Once the stack is up and running (especially after `init-mysql-tasks` and `olake
         USE weather;
         SELECT * FROM weather LIMIT 10;
         ```
-      This will display the first 10 rows of the `weather` table, allowing you to verify that the data has been loaded correctly.
-* **Iceberg REST Catalog API:** `http://localhost:8181` (Primarily for programmatic access or use by query engines).
+        This will display the first 10 rows of the `weather` table.
 
 ## Interacting with Olake
 
@@ -112,14 +72,14 @@ Once the stack is up and running (especially after `init-mysql-tasks` and `olake
         * **S3 Secret Key:** `minio123`
 
 3.  **Create and Configure a Job:**
-    Once your Source (MySQL) and Destination (Iceberg) are successfully configured and tested in Olake, you can create a Job to define and run your data pipeline:
+    Once the Source (MySQL) and Destination (Iceberg) are successfully configured and tested in Olake, create a Job to define and run the data pipeline:
     * Navigate to the **"Jobs"** tab in the Olake UI.
     * Click on the **"Create Job"** button.
 
-    * **Set up your Source:**
+    * **Set up the Source:**
         * Use and existing source -> Connector: MySQL -> Select the source from the dropdown list -> Next.
 
-    * **Set up your Destination:**
+    * **Set up the Destination:**
         * Use and existing destination -> Conector: Apache Iceberg -> Catalog: REST Catalog -> Select the destination from the dropdown list -> Next.
     
     * **Select Streams to sync:**
@@ -131,11 +91,11 @@ Once the stack is up and running (especially after `init-mysql-tasks` and `olake
 
     * **Save and Run the Job:**
         * Save the job configuration.
-        * You can then typically run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by selecting **Sync now**.
+        * Run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by selecting **Sync now**.
 
 ## Querying Iceberg Tables with External Engines
 
-Once Olake has processed data and created Iceberg tables, you can query these tables using various external SQL query engines. This allows you to leverage the power of engines like Presto, Trino, DuckDB, DorisDB, and others to analyze your data.
+Once Olake has processed data and created Iceberg tables, the tables can be queried using various external SQL query engines leveraging the power of engines like Presto, Trino, DuckDB, DorisDB, and others to analyze the data.
 
 Example configurations and detailed setup instructions for specific query engines are provided in their respective subdirectories within this example:
 
@@ -151,6 +111,28 @@ Example configurations and detailed setup instructions for specific query engine
 
 * **(Future) DorisDB:**
     * Coming soon...
+
+### Optional Configuration
+
+**Custom Admin User:**
+
+The stack automatically creates an initial admin user on first startup. To change the default credentials, edit the `x-signup-defaults` section in `docker-compose.yml`:
+
+```yaml
+x-signup-defaults:
+username: &defaultUsername "custom-username"
+password: &defaultPassword "secure-password"
+email: &defaultEmail "email@example.com"
+```
+
+**Custom Data Directory:**
+
+The docker-compose.yml uses `${PWD}/olake-data` for the host directory where Olake's persistent configuration, states and metadata will be stored. This could be replaced with any other path on host system before starting the services. Change this by editing the `x-app-defaults` section at the top of `docker-compose.yml`:
+```yaml
+x-app-defaults:
+  host_persistence_path: &hostPersistencePath /alternate/host/path
+```
+Make sure the directory exists and is writable by the user running Docker (see how to change [file permissions for Linux/macOS](https://wiki.archlinux.org/title/File_permissions_and_attributes#Changing_permissions)).
 
 ## Troubleshooting
 

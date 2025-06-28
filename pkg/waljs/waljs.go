@@ -180,6 +180,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %s", err)
 				}
+				s.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
 					logger.Debugf("keep alive message received: %v", pkm)
 					// send fake acknowledgement
@@ -187,7 +188,6 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 					if err != nil {
 						return fmt.Errorf("failed to ack lsn: %s", err)
 					}
-					s.ClientXLogPos = pkm.ServerWALEnd
 				}
 			case pglogrepl.XLogDataByteID:
 				// Reset the idle timer on receiving WAL data.

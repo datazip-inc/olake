@@ -18,7 +18,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/segmentio/kafka-go v0.4.48
 	github.com/spf13/cobra v1.9.1
-	github.com/spf13/viper v1.20.0
+	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	github.com/xitongsys/parquet-go v1.6.2
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
@@ -36,6 +36,7 @@ require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/apache/arrow-go/v18 v18.2.0 // indirect
 	github.com/apache/thrift v0.21.0 // indirect
+	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
 	github.com/brainicorn/goblex v0.0.0-20220304181919-81f017b0ee95 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
@@ -64,6 +65,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.8.0 // indirect
+	github.com/segmentio/backo-go v1.0.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/siddontang/go-log v0.0.0-20190221022429-1e957dd83bed // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
@@ -96,6 +98,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0
 	github.com/oklog/ulid v1.3.1
+	github.com/segmentio/analytics-go/v3 v3.3.0
 	github.com/spf13/pflag v1.0.6 // indirect
 	golang.org/x/sync v0.12.0
 )

@@ -114,7 +114,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %w", err)
+		return nil, fmt.Errorf("failed to query tables: %s", err)
 	}
 	defer rows.Close()
 
@@ -138,7 +138,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		schemaName, tableName := parts[0], parts[1]
 		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC)
-		stream.SyncMode = m.config.DefaultMode
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -167,7 +166,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				stream.WithPrimaryKey(columnName)
 			}
 		}
-		stream.WithSyncMode(types.FULLREFRESH)
 		return stream, rows.Err()
 	}
 	stream, err := produceTableSchema(ctx, streamName)
