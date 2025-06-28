@@ -3,27 +3,22 @@ package driver
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 
-	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	defaultPostgresHost     = "localhost"
-	defaultPostgresPort     = 5433
-	defaultPostgresUser     = "postgres"
-	defaultPostgresPassword = "secret1234"
-	defaultPostgresDB       = "postgres"
-	defaultBatchSize        = 10000
-	defaultCDCWaitTime      = 5
-	defaultReplicationSlot  = "olake_slot"
-)
+// const (
+// 	defaultPostgresHost     = "localhost"
+// 	defaultPostgresPort     = 5433
+// 	defaultPostgresUser     = "postgres"
+// 	defaultPostgresPassword = "secret1234"
+// 	defaultPostgresDB       = "postgres"
+// 	defaultBatchSize        = 10000
+// 	defaultCDCWaitTime      = 5
+// 	defaultReplicationSlot  = "olake_slot"
+// )
 
 // ExecuteQuery executes PostgreSQL queries for testing based on the operation type
 func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string) {
@@ -70,7 +65,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName
 				col_uuid UUID,
 				col_varbit VARBIT(20),
 				col_xml XML,
-				CONSTRAINT unique_custom_key_6 UNIQUE (col_bigserial)
+				CONSTRAINT unique_custom_key UNIQUE (col_bigserial)
 			)`, tableName)
 
 	case "drop":
@@ -145,41 +140,41 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 }
 
 // testPostgresClient initializes and returns a PostgreSQL test client with default configuration
-func testPostgresClient(t *testing.T) (*sqlx.DB, *abstract.AbstractDriver) {
-	t.Helper()
-	logger.Init()
+// func testPostgresClient(t *testing.T) (*sqlx.DB, *abstract.AbstractDriver) {
+// 	t.Helper()
+// 	logger.Init()
 
-	config := Config{
-		Host:     defaultPostgresHost,
-		Port:     defaultPostgresPort,
-		Username: defaultPostgresUser,
-		Password: defaultPostgresPassword,
-		Database: defaultPostgresDB,
-		SSLConfiguration: &utils.SSLConfig{
-			Mode: "disable",
-		},
-		BatchSize: defaultBatchSize,
-	}
+// 	config := Config{
+// 		Host:     defaultPostgresHost,
+// 		Port:     defaultPostgresPort,
+// 		Username: defaultPostgresUser,
+// 		Password: defaultPostgresPassword,
+// 		Database: defaultPostgresDB,
+// 		SSLConfiguration: &utils.SSLConfig{
+// 			Mode: "disable",
+// 		},
+// 		BatchSize: defaultBatchSize,
+// 	}
 
-	pgDriver := &Postgres{
-		config: &config,
-	}
+// 	pgDriver := &Postgres{
+// 		config: &config,
+// 	}
 
-	// Configure CDC settings
-	pgDriver.CDCSupport = true
-	pgDriver.cdcConfig = CDC{
-		InitialWaitTime: defaultCDCWaitTime,
-		ReplicationSlot: defaultReplicationSlot,
-	}
+// 	// Configure CDC settings
+// 	pgDriver.CDCSupport = true
+// 	pgDriver.cdcConfig = CDC{
+// 		InitialWaitTime: defaultCDCWaitTime,
+// 		ReplicationSlot: defaultReplicationSlot,
+// 	}
 
-	absDriver := abstract.NewAbstractDriver(context.Background(), pgDriver)
+// 	absDriver := abstract.NewAbstractDriver(context.Background(), pgDriver)
 
-	state := &types.State{
-		Type:    types.StreamType,
-		RWMutex: &sync.RWMutex{},
-	}
-	absDriver.SetupState(state)
-	require.NoError(t, absDriver.Setup(context.Background()), "Failed to setup PostgreSQL driver")
+// 	state := &types.State{
+// 		Type:    types.StreamType,
+// 		RWMutex: &sync.RWMutex{},
+// 	}
+// 	absDriver.SetupState(state)
+// 	require.NoError(t, absDriver.Setup(context.Background()), "Failed to setup PostgreSQL driver")
 
-	return pgDriver.client, absDriver
-}
+// 	return pgDriver.client, absDriver
+// }

@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	testTablePrefix       = "test_table_olake"
-	sparkConnectAddress   = "sc://localhost:15002"
+	testTablePrefix = "test_table_olake"
+	// sparkConnectAddress   = "sc://host.docker.internal:15002"
 	icebergDatabase       = "olake_iceberg"
 	cdcInitializationWait = 2 * time.Second
 	cdcProcessingWait     = 60 * time.Second
@@ -136,7 +136,7 @@ func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery Exec
 				time.Sleep(cdcProcessingWait)
 			}
 
-			verifyIcebergSync(t, currentTestTable, tc.expectedCount, schemaMap)
+			// VerifyIcebergSync(t, currentTestTable, tc.expectedCount, schemaMap)
 		})
 	}
 }
@@ -192,9 +192,10 @@ func (a *AbstractDriver) getTestStream(t *testing.T, tableName string) *types.St
 }
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func verifyIcebergSync(t *testing.T, tableName string, expectedCount string, schemaMap map[string]string) {
+func VerifyIcebergSync(t *testing.T, tableName string, expectedCount, sparkConnectHost string, schemaMap map[string]string) {
 	t.Helper()
 	ctx := context.Background()
+	sparkConnectAddress := fmt.Sprintf("sc://%s:15002", sparkConnectHost)
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")

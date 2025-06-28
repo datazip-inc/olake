@@ -2,261 +2,252 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/docker/docker/api/types/container"
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 )
 
-// import (
-// 	"testing"
-
-// 	"github.com/datazip-inc/olake/drivers/abstract"
-// )
-
-// // Test functions using base utilities
-// func TestPostgresSetup(t *testing.T) {
-// 	_, absDriver := testPostgresClient(t)
-// 	absDriver.TestSetup(t)
-// }
-
-// func TestPostgresDiscover(t *testing.T) {
-// 	client, absDriver := testPostgresClient(t)
-// 	absDriver.TestDiscover(t, client, ExecuteQuery)
-// }
-
-// func TestPostgresRead(t *testing.T) {
-// 	client, absDriver := testPostgresClient(t)
-// 	absDriver.TestRead(t, client, ExecuteQuery, abstract.PostgresSchema)
-// }
-
 const (
-	testTablePrefix       = "test_table_olake"
-	sparkConnectAddress   = "sc://spark-iceberg:15002"
-	icebergDatabase       = "olake_iceberg"
-	cdcInitializationWait = 2 * time.Second
-	cdcProcessingWait     = 60 * time.Second
+	currentTestTable      = "postgres_test_table_olake"
+	sourceConfigPath      = "/test-olake/drivers/postgres/internal/testdata/source.json"
+	streamsFilePath       = "/test-olake/drivers/postgres/internal/testdata/streams.json"
+	destinationConfigPath = "/test-olake/drivers/postgres/internal/testdata/destination.json"
+	installCmd            = "apt-get update && apt-get install -y openjdk-17-jre-headless postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm && npm install -g chalk-cli"
 )
 
-var currentTestTable = fmt.Sprintf("%s_%d", testTablePrefix, time.Now().Unix())
+func sortJSONString(jsonStr string) (string, error) {
+	start := strings.IndexRune(jsonStr, '{')
+	end := strings.LastIndex(jsonStr, "}")
+	if start == -1 || end == -1 || start > end {
+		return "", fmt.Errorf("no valid JSON object found")
+	}
 
-// func setupPostgresClient(t *testing.T) *sqlx.DB {
-// 	t.Helper()
+	// 2) Slice out exactly from the first '{' to the last '}'
+	core := jsonStr[start : end+1]
 
-// 	config := Config{
-// 		Host:     defaultPostgresHost,
-// 		Port:     defaultPostgresPort,
-// 		Username: defaultPostgresUser,
-// 		Password: defaultPostgresPassword,
-// 		Database: defaultPostgresDB,
-// 		SSLConfiguration: &utils.SSLConfig{
-// 			Mode: "disable",
-// 		},
-// 		BatchSize: defaultBatchSize,
-// 	}
+	var data interface{}
+	if err := json.Unmarshal([]byte(core), &data); err != nil {
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
 
-// 	pgDriver := &Postgres{
-// 		config: &config,
-// 	}
-// 	pgDriver.CDCSupport = true
-// 	pgDriver.cdcConfig = CDC{
-// 		InitialWaitTime: defaultCDCWaitTime,
-// 		ReplicationSlot: defaultReplicationSlot,
-// 	}
+	// Convert to compact JSON string (no formatting)
+	compactBytes, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON: %w", err)
+	}
 
-// 	err := pgDriver.Setup(context.Background())
-// 	require.NoError(t, err, "Failed to setup PostgreSQL driver")
-// 	return pgDriver.client
-// }
+	// Convert to string and sort characters lexicographically
+	jsonString := string(compactBytes)
+	chars := []rune(jsonString)
+	sort.Slice(chars, func(i, j int) bool {
+		return chars[i] < chars[j]
+	})
+
+	return string(chars), nil
+}
 
 func TestPostgresIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	cwd, err := os.Getwd()
+	t.Logf("Host working directory: %s", cwd)
 	require.NoErrorf(t, err, "Failed to get current working directory")
-	projectRoot := filepath.Join(cwd, "../../../..")
+	projectRoot := filepath.Join(cwd, "../../..")
+	t.Logf("Root Project directory: %s", projectRoot)
 	testdataDir := filepath.Join(projectRoot, "drivers/postgres/internal/testdata")
-	sourceConfig := filepath.Join("drivers/postgres/internal/testdata", "source.json")
-	streamsFile := filepath.Join("drivers/postgres/internal/testdata", "streams.json")
+	dummyStreamFilePath := filepath.Join(testdataDir, "test_streams.json")
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
 			Image: "golang:1.23.2",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
-					fmt.Sprintf("%s:/olake:ro", projectRoot),
-					fmt.Sprintf("%s:/olake/drivers/postgres/internal/testdata:rw", testdataDir),
+					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
+					fmt.Sprintf("%s:/test-olake/drivers/postgres/internal/testdata:rw", testdataDir),
 				}
 			},
 			ConfigModifier: func(config *container.Config) {
-				config.WorkingDir = "/olake"
+				config.WorkingDir = "/test-olake"
 			},
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
 					PostStarts: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							installCmd := "apt-get update && apt-get install -y postgresql-client"
-							code, out, err := c.Exec(ctx, []string{"/bin/sh", "-c", installCmd})
-							if err != nil {
-								return fmt.Errorf("failed to install postgresql-client: %w\n%s", err, out)
-							}
-							if code != 0 {
-								return fmt.Errorf("install postgresql-client exited with code %d:\n%s", code, out)
+							// 1. Install required tools
+							if code, out, err := execCommand(ctx, c, installCmd); err != nil || code != 0 {
+								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
 
-							// buildCmd := "go build -o /olake/drivers/postgres/main.go"
-							// code, out, err = c.Exec(ctx, []string{"/bin/sh", "-c", buildCmd})
+							// Check working directory
+							// code, out, err := c.Exec(ctx, []string{"pwd"})
 							// if err != nil {
+							// 	t.Logf("Failed to get container working directory: %v", err)
+							// } else {
 							// 	outStr, _ := io.ReadAll(out)
-							// 	return fmt.Errorf("failed to build driver: %w\n%s", err, string(outStr))
+							// 	t.Logf("Container Working Directory: %s", strings.TrimSpace(string(outStr)))
 							// }
-							// if code != 0 {
-							// 	outStr, _ := io.ReadAll(out)
-							// 	return fmt.Errorf("build exited with code %d:\n%s", code, string(outStr))
-							// }
-							// t.Logf("psql installed")
-							setupSQL := fmt.Sprintf(`
-								CREATE TABLE IF NOT EXISTS %s (
-									col_bigint BIGINT,
-									col_bigserial BIGSERIAL PRIMARY KEY,
-									col_bool BOOLEAN,
-									col_char CHAR(1),
-									col_character CHAR(10),
-									col_character_varying VARCHAR(50),
-									col_date DATE,
-									col_daterange DATERANGE,
-									col_decimal NUMERIC,
-									col_double_precision DOUBLE PRECISION,
-									col_float4 REAL,
-									col_int INT,
-									col_int2 SMALLINT,
-									col_integer INTEGER,
-									col_interval INTERVAL,
-									col_json JSON,
-									col_jsonb JSONB,
-									col_jsonpath JSONPATH,
-									col_name NAME,
-									col_numeric NUMERIC,
-									col_real REAL,
-									col_text TEXT,
-									col_time TIME,
-									col_timestamp TIMESTAMP,
-									col_timestamptz TIMESTAMPTZ,
-									col_timetz TIMETZ,
-									col_uuid UUID,
-									col_varbit VARBIT(20),
-									col_xml XML,
-									CONSTRAINT unique_custom_key_7 UNIQUE (col_bigserial)
-								);
-								TRUNCATE %s;
-								INSERT INTO %s (
-									col_bigint, col_bool, col_char, col_character,
-									col_character_varying, col_date, col_daterange, col_decimal,
-									col_double_precision, col_float4, col_int, col_int2, col_integer,
-									col_interval, col_json, col_jsonb, col_jsonpath, col_name, col_numeric,
-									col_real, col_text, col_time, col_timestamp, col_timestamptz, col_timetz,
-									col_uuid, col_varbit, col_xml
-								) VALUES (
-									1234567890123456789, TRUE, 'c', 'char_val',
-									'varchar_val', '2023-01-01', '[2023-01-01,2023-01-02)', 123.45,
-									123.456789, 123.45, 123, 123, 12345, '1 hour', '{"key": "value"}',
-									'{"key": "value"}', '$.key', 'test_name', 123.45, 123.45,
-									'sample text', '12:00:00', '2023-01-01 12:00:00',
-									'2023-01-01 12:00:00+00', '12:00:00+00',
-									'123e4567-e89b-12d3-a456-426614174000', B'101010',
-									'<tag>value</tag>'
-								);
-								SELECT * FROM %s;
-							`, currentTestTable, currentTestTable, currentTestTable, currentTestTable)
-							code, out, err = c.Exec(ctx, []string{
-								"psql", "-U", "postgres", "-h", "host.docker.internal", "-p", "5433", "-c", setupSQL,
-							})
-							if err != nil {
-								return fmt.Errorf("pre-start psql exec error: %w\n%s", err, out)
+
+							// 2. Create test table and insert data
+							db, err := sqlx.ConnectContext(ctx, "postgres",
+								"postgres://postgres@localhost:5433/postgres?sslmode=disable",
+							)
+							require.NoError(t, err, "failed to connect to postgres")
+							defer db.Close()
+							ExecuteQuery(ctx, t, db, currentTestTable, "create")
+							ExecuteQuery(ctx, t, db, currentTestTable, "clean")
+							ExecuteQuery(ctx, t, db, currentTestTable, "add")
+
+							// 3. Run discover command
+							discoverCmd := fmt.Sprintf("/test-olake/build.sh driver-postgres discover --config %s", sourceConfigPath)
+							if code, out, err := execCommand(ctx, c, discoverCmd); err != nil || code != 0 {
+								return fmt.Errorf("discover failed (%d): %w\n%s", code, err, string(out))
 							}
 
-							var data []byte
-							_, err = out.Read(data)
-							if code != 0 {
-								return fmt.Errorf("pre-start psql exit %d:\n%s, data being read: %s", code, err, data)
+							streamsJSON, err := os.ReadFile(dummyStreamFilePath)
+							if err != nil {
+								return fmt.Errorf("failed to read expected streams JSON: %w", err)
+							}
+							testStreamsCmd := fmt.Sprintf("cat %s", streamsFilePath)
+							_, testStreamJSON, err := execCommand(ctx, c, testStreamsCmd)
+							if err != nil {
+								return fmt.Errorf("failed to read actual streams JSON: %w", err)
+							}
+							t.Logf("testStreamJson: %s", strings.TrimSpace(string(streamsJSON)))
+							expectedStream, err := sortJSONString(strings.TrimSpace(string(streamsJSON)))
+							if err != nil {
+								return fmt.Errorf("failed to sort expected JSON as string: %w", err)
+							}
+							t.Logf("testStreamJson: %s", strings.TrimSpace(string(testStreamJSON)))
+							testStream, err := sortJSONString(strings.TrimSpace(string(testStreamJSON)))
+							if err != nil {
+								return fmt.Errorf("failed to sort actual JSON as string: %w", err)
+							}
+
+							if expectedStream != testStream {
+								return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", expectedStream, testStream)
 							}
 							return nil
 						},
 					},
 					PreStops: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							cmd := fmt.Sprintf(
-								"/build.sh driver-postgres discover --config %s > %s",
-								sourceConfig, streamsFile,
+							cleanupSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", currentTestTable)
+							psqlCmd := fmt.Sprintf(
+								"psql -U postgres -h host.docker.internal -p 5433 -c %q",
+								cleanupSQL,
 							)
-							code, out, err := c.Exec(ctx, []string{"/bin/sh", "-c", cmd})
-							if err != nil {
-								outStr, _ := io.ReadAll(out)
-								return fmt.Errorf("pre-stop run discover error: %w\n%s", err, string(outStr))
-							}
-							outStr, readErr := io.ReadAll(out)
-							if readErr != nil {
-								return fmt.Errorf("failed to read discover command output: %w", readErr)
-							}
-							t.Logf("---- Discover command: %s ----\n", cmd)
-							t.Logf("---- Discover output ----\n%s\n----------------------------", string(outStr))
-							if code != 0 {
-								return fmt.Errorf("pre-stop discover exit %d\n%s", code, string(outStr))
-							}
-							return nil
-						},
-						func(ctx context.Context, c testcontainers.Container) error {
-							code, out, err := c.Exec(ctx, []string{"cat", streamsFile})
-							if err != nil {
-								return fmt.Errorf("pre-stop cat streams.json error: %w", err)
-							}
-							if code != 0 {
-								return fmt.Errorf("pre-stop cat exit %d", code)
-							}
-							outStr, err := io.ReadAll(out)
-							if err != nil {
-								return fmt.Errorf("failed to read output: %w", err)
-							}
-							t.Logf("---- contents of %s ----\n%s\n----------------------------", streamsFile, string(outStr))
-							t.Logf(currentTestTable)
-							t.Logf("stream contains the test table: %v", strings.Contains(string(outStr), currentTestTable))
-							if !strings.Contains(string(outStr), currentTestTable) {
-								return fmt.Errorf("did not find %q in streams.json:\n%s", currentTestTable, out)
-							}
-							return nil
-						},
-						func(ctx context.Context, c testcontainers.Container) error {
-							dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", currentTestTable)
-							code, out, err := c.Exec(ctx, []string{
-								"psql", "-U", "postgres", "-h", "host.docker.internal", "-p", "5433", "-c", dropSQL,
-							})
-							if err != nil {
-								return fmt.Errorf("pre-stop drop table error: %w\n%s", err, out)
-							}
-							if code != 0 {
-								return fmt.Errorf("pre-stop drop table exit %d:\n%s", code, out)
-							}
+							_, _, _ = execCommand(ctx, c, psqlCmd) // Best-effort cleanup
 							return nil
 						},
 					},
 				},
 			},
-			Cmd:      []string{"sleep", "300"},
-			Networks: []string{"iceberg_net"},
+			Cmd: []string{"sleep", "300"},
 		}
 
-		discoverContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 			ContainerRequest: req,
 			Started:          true,
 		})
-		require.NoError(t, err, "Failed to start discover container")
-		defer discoverContainer.Terminate(ctx)
+		require.NoError(t, err, "Container startup failed")
+		defer container.Terminate(ctx)
 	})
+
+	t.Run("Sync", func(t *testing.T) {
+		req := testcontainers.ContainerRequest{
+			Image: "golang:1.23.2",
+			HostConfigModifier: func(hc *container.HostConfig) {
+				hc.Binds = []string{
+					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
+					fmt.Sprintf("%s:/test-olake/drivers/postgres/internal/testdata:rw", testdataDir),
+				}
+			},
+			Networks: []string{"local-test_iceberg_net"},
+			ConfigModifier: func(config *container.Config) {
+				config.WorkingDir = "/test-olake"
+			},
+			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
+				{
+					PostStarts: []testcontainers.ContainerHook{
+						func(ctx context.Context, c testcontainers.Container) error {
+							if code, out, err := execCommand(ctx, c, installCmd); err != nil || code != 0 {
+								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
+							}
+
+							db, err := sqlx.ConnectContext(ctx, "postgres",
+								"postgres://postgres@localhost:5433/postgres?sslmode=disable",
+							)
+							require.NoError(t, err, "failed to connect to postgres")
+							defer db.Close()
+							ExecuteQuery(ctx, t, db, currentTestTable, "create")
+							ExecuteQuery(ctx, t, db, currentTestTable, "clean")
+							ExecuteQuery(ctx, t, db, currentTestTable, "add")
+
+							sparkConnectHost := "host.docker.internal"
+
+							// Spark network diagnostics
+							diagCmd := fmt.Sprintf(`echo "Testing network connectivity to %s:15002";ping -c 1 %s;nc -zv %s 15002;`, sparkConnectHost, sparkConnectHost, sparkConnectHost)
+
+							if code, out, err := execCommand(ctx, c, diagCmd); err != nil || code != 0 {
+								t.Logf("Network diagnostics failed (%d):\n%s", code, out)
+							}
+
+							fullSyncCmd := fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s", sourceConfigPath, streamsFilePath, destinationConfigPath)
+							if code, out, err := execCommand(ctx, c, fullSyncCmd); err != nil || code != 0 {
+								return fmt.Errorf("Full refresh failed (%d): %w\n%s", code, err, string(out))
+							}
+
+							abstract.VerifyIcebergSync(t, currentTestTable, "5", sparkConnectHost, abstract.PostgresSchema)
+							return nil
+						},
+					},
+					PreStops: []testcontainers.ContainerHook{
+						func(ctx context.Context, c testcontainers.Container) error {
+							cleanupSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", currentTestTable)
+							psqlCmd := fmt.Sprintf(
+								"psql -U postgres -h host.docker.internal -p 5433 -c %q",
+								cleanupSQL,
+							)
+							_, _, _ = execCommand(ctx, c, psqlCmd) // Best-effort cleanup
+							return nil
+						},
+					},
+				},
+			},
+			Cmd: []string{"sleep", "300"},
+		}
+
+		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+		require.NoError(t, err, "Container startup failed")
+		defer container.Terminate(ctx)
+	})
+
+}
+
+// Helper function to execute container commands
+func execCommand(
+	ctx context.Context,
+	c testcontainers.Container,
+	cmd string,
+) (int, []byte, error) {
+	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", cmd})
+	if err != nil {
+		return code, nil, err
+	}
+	output, _ := io.ReadAll(reader)
+	return code, output, nil
 }
