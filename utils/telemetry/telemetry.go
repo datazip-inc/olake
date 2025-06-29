@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -199,7 +200,7 @@ func getOutboundIP() string {
 
 func getUserID() string {
 	// check if id file exists
-	configFolder := viper.GetString("CONFIG_FOLDER")
+	configFolder := viper.GetString(constants.ConfigFolder)
 	if configFolder != "" {
 		if idBytes, err := os.ReadFile(filepath.Join(configFolder, fmt.Sprintf("%s.txt", userIDFile))); err == nil {
 			uID := strings.Trim(string(idBytes), `"`)
