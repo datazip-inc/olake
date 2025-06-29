@@ -24,6 +24,21 @@ Important reason why we are using Java to write is, current Golang-iceberg proje
 
 Its based in the directory olake-iceberg-java-writer. Read more ./olake-iceberg-java-writer/README.md on how to run it in standalone mode and test.
 
+## Environment Variables
+
+### OLAKE_DEBUG_MODE
+
+Set this environment variable to enable debug mode for the Java Iceberg writer. When enabled, the Java process will start with remote debugging options, allowing you to attach a debugger on port 5005.
+
+**Note:** Debug mode is only enabled during sync operations (not during check operations) to avoid blocking the connection check process.
+
+```bash
+# Enable debug mode
+export OLAKE_DEBUG_MODE=1
+
+# Run your sync command
+olake sync --config source.json --destination destination.json --catalog catalog.json
+```
 
 ## How to run 
 

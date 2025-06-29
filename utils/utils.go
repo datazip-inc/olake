@@ -296,29 +296,52 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 
 // return 0 for equal, -1 if a < b else 1 if a>b
 func CompareInterfaceValue(a, b interface{}) int {
-	switch a.(type) {
+	// Handle nil cases first
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+
+	switch aVal := a.(type) {
 	case int, int64, float32, float64:
-		af := 0.0
-		if a != nil {
-			af = reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
-		}
-		bf := 0.0
-		if b != nil {
-			bf = reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
-		}
+		af := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
+		bf := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
 		if af < bf {
 			return -1
 		} else if af > bf {
 			return 1
 		}
+		return 0
 	case string:
-		if a != nil && b != nil {
-			return strings.Compare(a.(string), b.(string))
+		return strings.Compare(aVal, b.(string))
+	case time.Time:
+		bTime := b.(time.Time)
+		if aVal.Before(bTime) {
+			return -1
+		} else if aVal.After(bTime) {
+			return 1
 		}
-		return Ternary(a == nil, -1, 1).(int)
+		return 0
+	case bool:
+		bBool := b.(bool)
+		// false < true
+		if !aVal && bBool {
+			return -1
+		} else if aVal && !bBool {
+			return 1
+		}
+		return 0
+	default:
+		// For any other types, convert to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 	}
-	return 0
 }
+
 func ConvertToString(value interface{}) string {
 	switch v := value.(type) {
 	case []byte:
