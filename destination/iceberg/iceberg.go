@@ -75,7 +75,7 @@ func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Optio
 	return i.SetupIcebergClient(!options.Backfill)
 }
 
-func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
+func (i *Iceberg) Write(ctx context.Context, record types.RawRecord) error {
 	// Convert record to Debezium format with thread ID
 	// We are adding the thread ID to process the records from multiple threads in parallel and separately so that we can commit when each thread finishes.
 	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled(), i.threadID)
@@ -88,11 +88,11 @@ func (i *Iceberg) Write(_ context.Context, record types.RawRecord) error {
 
 	// Check if buffer should be flushed
 	if i.localBuffer.size >= maxBatchSize {
-		err := flushLocalBuffer(i.localBuffer, i.client)
+		err := i.flushLocalBuffer(ctx, i.localBuffer)
 		if err != nil {
-			return fmt.Errorf("failed to flush buffer: %s", err)
+			return fmt.Errorf("thread id %s: failed to flush buffer: %s", i.threadID, err)
 		}
-		logger.Infof("Batch flushed to Iceberg server for stream %s", i.stream.Name())
+		logger.Infof("thread id %s: Batch flushed to Iceberg server for stream %s", i.threadID, i.stream.Name())
 	}
 
 	i.records.Add(1)
@@ -104,7 +104,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	defer func() {
 		err := i.CloseIcebergClient()
 		if err != nil {
-			logger.Errorf("Error closing Iceberg client: %s", err)
+			logger.Errorf("thread id %s: Error closing Iceberg client: %s", i.threadID, err)
 		}
 	}()
 	if ctx.Err() != nil {
@@ -113,15 +113,15 @@ func (i *Iceberg) Close(ctx context.Context) error {
 
 	// First flush any remaining data in the current thread's buffer
 	if len(i.localBuffer.records) > 0 {
-		err := flushLocalBuffer(i.localBuffer, i.client)
+		err := i.flushLocalBuffer(ctx, i.localBuffer)
 		if err != nil {
-			logger.Errorf("Error flushing buffer on close: %s", err)
+			logger.Errorf("thread id %s: Error flushing buffer on close: %s", i.threadID, err)
 			return err
 		}
 	}
 
 	// Send commit request for this thread using a special message format
-	ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 1000*time.Second)
 	defer cancel()
 
 	// Create a special commit message
@@ -133,11 +133,11 @@ func (i *Iceberg) Close(ctx context.Context) error {
 
 	res, err := i.client.SendRecords(ctx, req)
 	if err != nil {
-		logger.Errorf("Error sending commit message for thread %s: %s", i.threadID, err)
-		return fmt.Errorf("failed to send commit message for thread %s: %s", i.threadID, err)
+		logger.Errorf("thread id %s: Error sending commit message on close: %s", i.threadID, err)
+		return fmt.Errorf("thread id %s: failed to send commit message: %s", i.threadID, err)
 	}
 
-	logger.Infof("Sent commit message for thread %s: %s", i.threadID, res.GetResult())
+	logger.Infof("thread id %s: Sent commit message: %s", i.threadID, res.GetResult())
 
 	return nil
 }
@@ -146,6 +146,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Save the current stream reference
 	originalStream := i.stream
 	originalPartitionInfo := i.partitionInfo
+	i.threadID = getGoroutineID()
 
 	// Temporarily set stream to nil and clear partition fields to force a new server for the check
 	i.stream = nil
@@ -178,7 +179,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		return fmt.Errorf("error sending record to Iceberg RPC Server: %s", err)
 	}
 	// Print the response from the server
-	logger.Infof("Server Response: %s", res.GetResult())
+	logger.Infof("thread id %s: Server Response: %s", i.threadID, res.GetResult())
 
 	return nil
 }

@@ -297,7 +297,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 		// Reuse existing server
 		i.port, i.client, i.conn, i.cmd = server.port, server.client, server.conn, server.cmd
 		server.refCount++
-		logger.Infof("Reusing existing Iceberg server on port %d for stream %s, refCount %d", i.port, streamID, server.refCount)
+		logger.Infof("thread id %s: reusing existing Iceberg server on port %d for stream %s, refCount %d", i.threadID, i.port, streamID, server.refCount)
 		return nil
 	}
 
@@ -365,7 +365,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 		// If connection fails, clean up the process
 		if i.cmd != nil && i.cmd.Process != nil {
 			if killErr := i.cmd.Process.Kill(); killErr != nil {
-				logger.Errorf("Failed to kill process: %s", killErr)
+				logger.Errorf("thread id %s: Failed to kill process: %s", i.threadID, killErr)
 			}
 		}
 		return fmt.Errorf("failed to connect to iceberg writer: %s", err)
@@ -385,7 +385,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 		streamID:   streamID,
 	}
 
-	logger.Infof("Connected to new iceberg writer on port %d for stream %s, configHash %s", i.port, streamID, configHash)
+	logger.Infof("thread id %s: Connected to new iceberg writer on port %d for stream %s, configHash %s", i.threadID, i.port, streamID, configHash)
 	return nil
 }
 
@@ -451,13 +451,13 @@ func (i *Iceberg) CloseIcebergClient() error {
 
 	// If this was the last reference, shut down the server
 	if server.refCount <= 0 {
-		logger.Infof("Shutting down Iceberg server on port %d", i.port)
+		logger.Infof("thread id %s: shutting down Iceberg server on port %d", i.threadID, i.port)
 		server.conn.Close()
 
 		if server.cmd != nil && server.cmd.Process != nil {
 			err := server.cmd.Process.Kill()
 			if err != nil {
-				logger.Errorf("Failed to kill Iceberg server: %s", err)
+				logger.Errorf("thread id %s: Failed to kill Iceberg server: %s", i.threadID, err)
 			}
 		}
 
@@ -470,16 +470,16 @@ func (i *Iceberg) CloseIcebergClient() error {
 		return nil
 	}
 
-	logger.Infof("Decreased reference count for Iceberg server on port %d, refCount %d", i.port, server.refCount)
+	logger.Infof("thread id %s: decreased reference count for Iceberg server on port %d, refCount %d", i.threadID, i.port, server.refCount)
 
 	return nil
 }
 
 // flushLocalBuffer flushes a local buffer directly to the server
-func flushLocalBuffer(buffer *LocalBuffer, client proto.RecordIngestServiceClient) error {
+func (i *Iceberg) flushLocalBuffer(ctx context.Context, buffer *LocalBuffer) error {
 	// Send records directly to server
 	if len(buffer.records) > 0 {
-		err := sendRecords(buffer.records, client)
+		err := i.sendRecords(ctx, buffer.records)
 		if err != nil {
 			return err
 		}
@@ -492,7 +492,7 @@ func flushLocalBuffer(buffer *LocalBuffer, client proto.RecordIngestServiceClien
 }
 
 // sendRecords sends a slice of records to the Iceberg RPC server
-func sendRecords(records []string, client proto.RecordIngestServiceClient) error {
+func (i *Iceberg) sendRecords(ctx context.Context, records []string) error {
 	// Skip if empty
 	if len(records) == 0 {
 		return nil
@@ -511,18 +511,18 @@ func sendRecords(records []string, client proto.RecordIngestServiceClient) error
 		return nil
 	}
 
-	logger.Infof("Sending batch to Iceberg server: %d records", len(validRecords))
+	logger.Infof("thread id %s: Sending batch to Iceberg server: %d records", i.threadID, len(validRecords))
 	// Create request with all records
 	req := &proto.RecordIngestRequest{
 		Messages: validRecords,
 	}
 
 	// Send to gRPC server with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 1000*time.Second)
 	defer cancel()
 
 	// Send the batch to the server
-	res, err := client.SendRecords(ctx, req)
+	res, err := i.client.SendRecords(ctx, req)
 	if err != nil {
 		logger.Errorf("failed to send batch: %s", err)
 		return err

@@ -188,7 +188,6 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 					if err != nil {
 						return fmt.Errorf("failed to ack lsn: %s", err)
 					}
-					s.ClientXLogPos = pkm.ServerWALEnd
 				}
 			case pglogrepl.XLogDataByteID:
 				// Reset the idle timer on receiving WAL data.
