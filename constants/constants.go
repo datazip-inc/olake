@@ -16,6 +16,8 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	DBName                 = "_db"
+	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
+	ConfigFolder           = "CONFIG_FOLDER"
 	// EffectiveParquetSize is the effective size in bytes considering 512MB targeted parquet size and compression ratio as 8
 	EffectiveParquetSize = int64(512) * 1024 * 1024 * int64(8)
 )
