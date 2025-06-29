@@ -37,6 +37,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -120,11 +121,11 @@ public class IcebergUtil {
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
                                          Schema schema, String writeFormat) {
-    return createIcebergTable(icebergCatalog, tableIdentifier, schema, writeFormat, Collections.emptyMap());
+    return createIcebergTable(icebergCatalog, tableIdentifier, schema, writeFormat, Collections.emptyList());
   }
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
-                                         Schema schema, String writeFormat, Map<String, String> partitionTransforms) {
+                                         Schema schema, String writeFormat, List<Map<String, String>> partitionTransforms) {
 
     LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
         schema.identifierFieldNames());
@@ -149,10 +150,10 @@ public class IcebergUtil {
       // Start building the table
       PartitionSpec.Builder specBuilder = PartitionSpec.builderFor(schema);
       
-      // Apply each partition transform
-      for (Map.Entry<String, String> entry : partitionTransforms.entrySet()) {
-        String field = entry.getKey();
-        String transform = entry.getValue().toLowerCase(Locale.ENGLISH);
+      // Apply each partition transform in order
+      for (Map<String, String> partitionDef : partitionTransforms) {
+        String field = partitionDef.get("field");
+        String transform = partitionDef.get("transform").toLowerCase(Locale.ENGLISH);
         
         // Apply the appropriate transform based on the specified type
         switch (transform) {
