@@ -176,6 +176,8 @@ change the placeholders with actual values
 * `NAMESPACE` -> Namespace name inside catalog (ex, default)
 * `DATABRICK_USER_PERSONAL_ACCESS_TOKEN` -> Go to settings > developer > create PAT
 
+Note : Auth can be done using Oauth2 as well.
+
 ### Hive Catalog
 Create a json for writer config (writer.json)
 ```json
