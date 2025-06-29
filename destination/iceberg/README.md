@@ -155,6 +155,27 @@ change the placeholders with actual values
 * `ACCOUNT_ID` -> AWS account identifier
 * `BUCKET_NAME` -> Table Bucket Name
 
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "rest",
+    "normalization": true,
+    "rest_catalog_url": "https://<DATABRICK_WORKSPACE_URL>/api/2.1/unity-catalog/iceberg-rest",
+    "iceberg_s3_path": "<CATALOG_NAME>",
+    "iceberg_db": "<NAMESPACE>",
+    "token": "<DATABRICK_USER_PERSONAL_ACCESS_TOKEN>",
+    "no_identifier_tables": true
+  }
+}
+
+Currently Databricks Unity Iceberg support only allows tables with no identifiers.
+
+change the placeholders with actual values
+* `DATABRICK_WORKSPACE_URL` -> Databricks workplace URL (URL that you used to access your Databricks console)
+* `CATALOG_NAME` -> Catalog name (ex, workspace)
+* `NAMESPACE` -> Namespace name inside catalog (ex, default)
+* `DATABRICK_USER_PERSONAL_ACCESS_TOKEN` -> Go to settings > developer > create PAT
+
 ### Hive Catalog
 Create a json for writer config (writer.json)
 ```json

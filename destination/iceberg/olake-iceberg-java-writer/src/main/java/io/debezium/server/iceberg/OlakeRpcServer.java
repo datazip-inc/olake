@@ -79,6 +79,10 @@ public class OlakeRpcServer {
             upsert_records = Boolean.parseBoolean(stringConfigMap.get("upsert"));
         }       
 
+        if (stringConfigMap.get("create-identifier-fields") != null) {
+            createIdFields = Boolean.parseBoolean(stringConfigMap.get("create-identifier-fields"));
+        }
+
         // Parse partition fields from array to preserve order
         if (configMap.containsKey("partition-fields")) {
             List<Map<String, String>> partitionFieldsList = (List<Map<String, String>>) configMap.get("partition-fields");
@@ -103,16 +107,7 @@ public class OlakeRpcServer {
         keySerde.configure(Collections.emptyMap(), true);
         keyDeserializer = keySerde.deserializer();
 
-        OlakeRowsIngester ori;
-
-
-        // Retrieve a CDI-managed bean from the container
-        ori = new OlakeRowsIngester(upsert_records);
-        ori.setIcebergNamespace(stringConfigMap.get("table-namespace"));
-        ori.setIcebergCatalog(icebergCatalog);
-        // Pass partition transforms to the ingester
-        ori.setPartitionTransforms(partitionTransforms);
-
+        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms, createIdFields);
 
         // Build the server to listen on port 50051
         int port = 50051; // Default port
