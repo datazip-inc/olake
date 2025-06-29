@@ -7,4 +7,5 @@ use (
 	./drivers/mongodb
 	./drivers/mysql
 	./drivers/postgres
+	./drivers/oracle
 )

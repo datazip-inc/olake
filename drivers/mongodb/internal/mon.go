@@ -60,7 +60,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	// Validate the connection by pinging the database
 	if err := conn.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("failed to connect to MongoDB: %w", err)
+		return fmt.Errorf("failed to connect to MongoDB: %s", err)
 	}
 
 	m.client = conn
