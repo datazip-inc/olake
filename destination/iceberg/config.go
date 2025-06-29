@@ -62,7 +62,7 @@ type Config struct {
 	RestSigningRegion string `json:"rest_signing_region,omitempty"`
 	RestSigningV4     bool   `json:"rest_signing_v_4,omitempty"`
 	RestToken         string `json:"token,omitempty"`
-	RestOAuthURI      string `json:"oauth_uri,omitempty"`
+	RestOAuthURI      string `json:"oauth2_uri,omitempty"`
 	RestAuthType      string `json:"rest_auth_type,omitempty"`
 	RestScope         string `json:"scope,omitempty"`
 	RestCredential    string `json:"credential,omitempty"`

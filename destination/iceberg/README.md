@@ -129,6 +129,16 @@ Create a json for writer config (writer.json)
 }
 ```
 
+**Authentication Fields (optional):**
+- `token` - Bearer token for token-based authentication
+- `oauth2_uri` - OAuth2 server URI for OAuth2 authentication
+- `rest_auth_type` - Authentication type (e.g., "oauth2")
+- `credential` - Client secret or credential for OAuth2 (Usually id:secret)
+- `scope` - OAuth2 scopes (space-separated)
+- `rest_signing_name` - Service name for AWS Signature V4 (e.g., "s3tables")
+- `rest_signing_region` - Region for AWS Signature V4 signing
+- `rest_signing_v_4` - Enable AWS Signature V4 signing (boolean)
+
 ### S3 Table Bucket
 Create a json for writer config (writer.json)
 ```json
