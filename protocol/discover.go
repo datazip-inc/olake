@@ -26,7 +26,7 @@ var discoverCmd = &cobra.Command{
 
 		if streamsPath != "" {
 			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {
-				return fmt.Errorf("failed to read streams from %s: %w", streamsPath, err)
+				return fmt.Errorf("failed to read streams from %s: %s", streamsPath, err)
 			}
 		}
 		return nil
