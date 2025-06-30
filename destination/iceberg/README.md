@@ -129,6 +129,16 @@ Create a json for writer config (writer.json)
 }
 ```
 
+**Authentication Fields (optional):**
+- `token` - Bearer token for token-based authentication
+- `oauth2_uri` - OAuth2 server URI for OAuth2 authentication
+- `rest_auth_type` - Authentication type (e.g., "oauth2")
+- `credential` - Client secret or credential for OAuth2 (Usually id:secret)
+- `scope` - OAuth2 scopes (space-separated)
+- `rest_signing_name` - Service name for AWS Signature V4 (e.g., "s3tables")
+- `rest_signing_region` - Region for AWS Signature V4 signing
+- `rest_signing_v_4` - Enable AWS Signature V4 signing (boolean)
+
 ### S3 Table Bucket
 Create a json for writer config (writer.json)
 ```json
@@ -154,6 +164,29 @@ change the placeholders with actual values
 * `NAMESPACE` -> This will be your s3 table bucket namespace
 * `ACCOUNT_ID` -> AWS account identifier
 * `BUCKET_NAME` -> Table Bucket Name
+
+### Unity Catalog support (Rest)
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "rest",
+    "normalization": true,
+    "rest_catalog_url": "https://<DATABRICK_WORKSPACE_URL>/api/2.1/unity-catalog/iceberg-rest",
+    "iceberg_s3_path": "<CATALOG_NAME>",
+    "iceberg_db": "<NAMESPACE>",
+    "token": "<DATABRICK_USER_PERSONAL_ACCESS_TOKEN>",
+    "no_identifier_fields": true
+  }
+}
+
+change the placeholders with actual values
+* `DATABRICK_WORKSPACE_URL` -> Databricks workplace URL (URL that you used to access your Databricks console)
+* `CATALOG_NAME` -> Catalog name (ex, workspace)
+* `NAMESPACE` -> Namespace name inside catalog (ex, default)
+* `DATABRICK_USER_PERSONAL_ACCESS_TOKEN` -> Go to settings > developer > create PAT
+* no_identifier_fields -> true (This is needed for environments which doesn't support Equality delete based updates. Ex Databricks Unity managed iceberg tables)
+
+Note : Auth can be done using Oauth2 as well.
 
 ### Hive Catalog
 Create a json for writer config (writer.json)

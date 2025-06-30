@@ -56,19 +56,8 @@ public class IcebergTableOperator {
   // Map to store completed WriteResult per thread for later commit
   private final Map<String, List<WriteResult>> threadWriteResults = new ConcurrentHashMap<>();
 
-  public IcebergTableOperator() {
-    createIdentifierFields = true;
-    writerFactory2 = new IcebergTableWriterFactory();
-    writerFactory2.keepDeletes = true;
-    writerFactory2.upsert = true;
-    allowFieldAddition = true;
-    upsert = true;
-    cdcOpField = "_op_type";
-    cdcSourceTsMsField = "_cdc_timestamp";
-  }
-
-  public IcebergTableOperator(boolean upsert_records) {
-    createIdentifierFields = true;
+  public IcebergTableOperator(boolean upsert_records, boolean createIdentifierFields) {
+    this.createIdentifierFields = createIdentifierFields;
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
@@ -162,9 +151,10 @@ public class IcebergTableOperator {
    * @param newSchema
    */
   private void applyFieldAddition(Table icebergTable, Schema newSchema) {
-
-    UpdateSchema us = icebergTable.updateSchema().unionByNameWith(newSchema)
-        .setIdentifierFields(newSchema.identifierFieldNames());
+    UpdateSchema us = icebergTable.updateSchema().unionByNameWith(newSchema);
+    if (createIdentifierFields) {
+      us.setIdentifierFields(newSchema.identifierFieldNames());
+    }
     Schema newSchemaCombined = us.apply();
 
     // @NOTE avoid committing when there is no schema change. commit creates new
@@ -347,7 +337,7 @@ public class IcebergTableOperator {
         // Sorting with partitions values to make sure Iceberg-java writes it without
         // having too many files open. In a Clustered Writer way.
         convertedRecords = events.stream()
-            .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
+            .map(e -> (createIdentifierFields && upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
                 ? e.convert(icebergTable.schema(), cdcOpField)
                 : e.convertAsAppend(icebergTable.schema()))
             .sorted(partitionComparator)
@@ -355,7 +345,7 @@ public class IcebergTableOperator {
       } else {
         // Just convert without sorting for unpartitioned tables or single record
         convertedRecords = events.stream()
-            .map(e -> (upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
+            .map(e -> (createIdentifierFields && upsert && !icebergTable.schema().identifierFieldIds().isEmpty())
                 ? e.convert(icebergTable.schema(), cdcOpField)
                 : e.convertAsAppend(icebergTable.schema()))
             .collect(Collectors.toList());

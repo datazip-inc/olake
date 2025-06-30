@@ -26,6 +26,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
     private String icebergNamespace = "public";
     Catalog icebergCatalog;
+    boolean upsertRecords = true;
+    boolean createIdentifierFields = true;
     private final IcebergTableOperator icebergTableOperator;
     // Create a single reusable ObjectMapper instance
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -34,24 +36,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     // Lock object for table creation synchronization
     private final Object tableCreationLock = new Object();
 
-    public OlakeRowsIngester() {
-        icebergTableOperator = new IcebergTableOperator();
-    }
-
-    public OlakeRowsIngester(boolean upsert_records) {
-        icebergTableOperator = new IcebergTableOperator(upsert_records);
-    }
-
-    public void setIcebergNamespace(String icebergNamespace) {
+    public OlakeRowsIngester(boolean upsertRecords, String icebergNamespace, Catalog icebergCatalog, List<Map<String, String>> partitionTransforms, boolean createIdentifierFields) {
+        icebergTableOperator = new IcebergTableOperator(upsertRecords, createIdentifierFields);
+        this.upsertRecords = upsertRecords;
         this.icebergNamespace = icebergNamespace;
-    }
-
-    public void setIcebergCatalog(Catalog icebergCatalog) {
         this.icebergCatalog = icebergCatalog;
-    }
-
-    public void setPartitionTransforms(List<Map<String, String>> partitionTransforms) {
         this.partitionTransforms = partitionTransforms;
+        this.createIdentifierFields = createIdentifierFields;
     }
 
     @Override
@@ -148,7 +139,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         synchronized (tableCreationLock) {
             return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
                 try {
-                    return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(true), "parquet", partitionTransforms);
+                    return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(createIdentifierFields), "parquet", partitionTransforms);
                 } catch (Exception e) {
                     String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", tableId, e.getMessage());
                     LOGGER.error(errorMessage, e);
