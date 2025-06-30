@@ -60,7 +60,7 @@ var specCmd = &cobra.Command{
 		} else {
 			logger.Info("Reading cached Spec")
 
-			err := utils.UnmarshalFile(specfile, &spec)
+			err := utils.UnmarshalFile(specfile, &spec, false)
 			if err != nil {
 				return err
 			}
