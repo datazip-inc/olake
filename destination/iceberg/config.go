@@ -25,11 +25,12 @@ const (
 
 type Config struct {
 	// S3-compatible Storage Configuration
-	Region       string `json:"aws_region,omitempty"`
-	AccessKey    string `json:"aws_access_key,omitempty"`
-	SecretKey    string `json:"aws_secret_key,omitempty"`
-	SessionToken string `json:"aws_session_token,omitempty"`
-	ProfileName  string `json:"aws_profile,omitempty"`
+	Region             string `json:"aws_region,omitempty"`
+	AccessKey          string `json:"aws_access_key,omitempty"`
+	SecretKey          string `json:"aws_secret_key,omitempty"`
+	SessionToken       string `json:"aws_session_token,omitempty"`
+	ProfileName        string `json:"aws_profile,omitempty"`
+	NoIdentifierFields bool   `json:"no_identifier_fields"` // Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields
 	// S3 endpoint for custom S3-compatible services (like MinIO)
 	S3Endpoint  string `json:"s3_endpoint,omitempty"`
 	S3UseSSL    bool   `json:"s3_use_ssl,omitempty"`    // Use HTTPS if true
@@ -57,11 +58,14 @@ type Config struct {
 	JarPath         string `json:"sink_jar_path,omitempty"`        // Path to the Iceberg sink JAR
 	ServerHost      string `json:"sink_rpc_server_host,omitempty"` // gRPC server host
 
-	DebugMode bool `json:"debug_mode,omitempty"`
-
 	RestSigningName   string `json:"rest_signing_name,omitempty"`
 	RestSigningRegion string `json:"rest_signing_region,omitempty"`
 	RestSigningV4     bool   `json:"rest_signing_v_4,omitempty"`
+	RestToken         string `json:"token,omitempty"`
+	RestOAuthURI      string `json:"oauth2_uri,omitempty"`
+	RestAuthType      string `json:"rest_auth_type,omitempty"`
+	RestScope         string `json:"scope,omitempty"`
+	RestCredential    string `json:"credential,omitempty"`
 }
 
 func (c *Config) Validate() error {

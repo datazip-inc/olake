@@ -28,18 +28,18 @@ var syncCmd = &cobra.Command{
 		}
 
 		// unmarshal source config
-		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
+		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
 
 		// unmarshal destination config
 		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig); err != nil {
+		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
 			return err
 		}
 
 		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog); err != nil {
+		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
 			return err
 		}
 
@@ -50,7 +50,7 @@ var syncCmd = &cobra.Command{
 			Type: types.StreamType,
 		}
 		if statePath != "" {
-			if err := utils.UnmarshalFile(statePath, state); err != nil {
+			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
 		}
