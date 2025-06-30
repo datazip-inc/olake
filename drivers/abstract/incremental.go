@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -23,8 +24,7 @@ func (a *AbstractDriver) Incremental(_ context.Context, pool *destination.Writer
 	// Process each stream concurrently
 	streamProcessor := func(ctx context.Context, stream types.StreamInterface) (err error) {
 		//Kafka Specific
-		var lastPartition int
-		var lastOffset int64
+		var lastOffsets sync.Map
 
 		if stream.GetSyncMode() != types.INCREMENTAL && stream.GetSyncMode() != types.CDC {
 			return fmt.Errorf("stream %s is not configured for incremental or CDC sync mode", stream.ID())
@@ -43,9 +43,14 @@ func (a *AbstractDriver) Incremental(_ context.Context, pool *destination.Writer
 
 			if err == nil {
 				// Kafka Incremental Specific
-				key := fmt.Sprintf("partition_%d_offset", lastPartition)
-				a.state.SetCursor(stream.Self(), key, lastOffset)
-				logger.Infof("Persisted final cursor for stream %s: %s=%d", stream.ID(), key, lastOffset)
+				lastOffsets.Range(func(key, value interface{}) bool {
+					partition := key.(int)
+					offset := value.(int64)
+					keyStr := fmt.Sprintf("partition_%d_offset", partition)
+					a.state.SetCursor(stream.Self(), keyStr, offset)
+					logger.Infof("Persisted final cursor for stream %s: %s=%d", stream.ID(), keyStr, offset)
+					return true
+				})
 			}
 		}()
 
@@ -57,13 +62,16 @@ func (a *AbstractDriver) Incremental(_ context.Context, pool *destination.Writer
 				timestamp = time.Now().UnixMilli()
 			}
 			// Kafka Specific
+			if err := inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.UnixMilli(timestamp))); err != nil {
+				return err
+			}
+			// TODO: Make it parallel in nature
 			if partition, ok := data["partition"].(int); ok {
-				lastPartition = partition
+				if offset, ok := data["offset"].(int64); ok {
+					lastOffsets.Store(partition, offset)
+				}
 			}
-			if offset, ok := data["offset"].(int64); ok {
-				lastOffset = offset
-			}
-			return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.UnixMilli(timestamp)))
+			return nil
 		})
 	}
 
