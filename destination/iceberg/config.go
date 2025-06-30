@@ -30,7 +30,7 @@ type Config struct {
 	SecretKey          string `json:"aws_secret_key,omitempty"`
 	SessionToken       string `json:"aws_session_token,omitempty"`
 	ProfileName        string `json:"aws_profile,omitempty"`
-	NoIdentifierTables bool   `json:"no_identifier_tables"` // Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields
+	NoIdentifierFields bool   `json:"no_identifier_fields"` // Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields
 	// S3 endpoint for custom S3-compatible services (like MinIO)
 	S3Endpoint  string `json:"s3_endpoint,omitempty"`
 	S3UseSSL    bool   `json:"s3_use_ssl,omitempty"`    // Use HTTPS if true

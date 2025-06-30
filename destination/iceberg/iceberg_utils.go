@@ -175,7 +175,7 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 		"table-namespace":          i.config.IcebergDatabase,
 		"catalog-name":             "olake_iceberg",
 		"table-prefix":             "",
-		"create-identifier-fields": !i.config.NoIdentifierTables,
+		"create-identifier-fields": !i.config.NoIdentifierFields,
 		"upsert":                   strconv.FormatBool(upsert),
 		"upsert-keep-deletes":      "true",
 		"write.format.default":     "parquet",
