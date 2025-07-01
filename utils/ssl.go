@@ -1,6 +1,10 @@
 package utils
 
-import "errors"
+import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+)
 
 const (
 	SSLModeRequire    = "require"
@@ -66,4 +70,47 @@ func (sc *SSLConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// CreateTLSConfiguration creates a TLS configuration from the SSLConfig
+func CreateTLSConfiguration(sslConfig *SSLConfig) (*tls.Config, error) {
+	if sslConfig == nil {
+		return nil, errors.New("SSL configuration is nil")
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// For verify-ca and verify-full modes, we need to set up certificates
+	if sslConfig.Mode == SSLModeVerifyCA || sslConfig.Mode == SSLModeVerifyFull {
+		// Create a certificate pool and add the server CA certificate
+		caCertPool := x509.NewCertPool()
+		if ok := caCertPool.AppendCertsFromPEM([]byte(sslConfig.ServerCA)); !ok {
+			return nil, errors.New("failed to append server CA certificate")
+		}
+		tlsConfig.RootCAs = caCertPool
+
+		// If client certificates are provided, load them
+		if sslConfig.ClientCert != "" && sslConfig.ClientKey != "" {
+			cert, err := tls.X509KeyPair([]byte(sslConfig.ClientCert), []byte(sslConfig.ClientKey))
+			if err != nil {
+				return nil, errors.New("failed to load client certificate and key: " + err.Error())
+			}
+			tlsConfig.Certificates = []tls.Certificate{cert}
+		}
+
+		// For verify-full, we need to verify the server name
+		if sslConfig.Mode == SSLModeVerifyFull {
+			tlsConfig.InsecureSkipVerify = false
+		} else {
+			// For verify-ca, we don't need to verify the server name
+			tlsConfig.InsecureSkipVerify = true
+		}
+	} else if sslConfig.Mode == SSLModeRequire {
+		// For require mode, we don't verify the server certificate
+		tlsConfig.InsecureSkipVerify = true
+	}
+
+	return tlsConfig, nil
 }

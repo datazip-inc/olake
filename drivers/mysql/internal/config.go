@@ -12,15 +12,17 @@ import (
 
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
-	Host          string      `json:"hosts"`
-	Username      string      `json:"username"`
-	Password      string      `json:"password"`
-	Database      string      `json:"database"`
-	Port          int         `json:"port"`
-	TLSSkipVerify bool        `json:"tls_skip_verify"` // Add this field
-	UpdateMethod  interface{} `json:"update_method"`
-	MaxThreads    int         `json:"max_threads"`
-	RetryCount    int         `json:"backoff_retry_count"`
+	Host          string            `json:"hosts"`
+	Username      string            `json:"username"`
+	Password      string            `json:"password"`
+	Database      string            `json:"database"`
+	Port          int               `json:"port"`
+	TLSSkipVerify bool              `json:"tls_skip_verify"`
+	UpdateMethod  interface{}       `json:"update_method"`
+	MaxThreads    int               `json:"max_threads"`
+	RetryCount    int               `json:"backoff_retry_count"`
+	JDBCURLParams map[string]string `json:"jdbc_url_params,omitempty"` // Custom connection parameters
+	SSLConfig     *utils.SSLConfig  `json:"ssl_config,omitempty"`      // SSL configuration
 }
 type CDC struct {
 	InitialWaitTime int `json:"intial_wait_time"`
@@ -47,7 +49,44 @@ func (c *Config) URI() string {
 		AllowNativePasswords: true,
 	}
 
+	// Apply TLS configuration
+	if c.SSLConfig != nil {
+		switch c.SSLConfig.Mode {
+		case utils.SSLModeDisable:
+			cfg.TLSConfig = "false"
+		case utils.SSLModeRequire:
+			cfg.TLSConfig = "true"
+		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
+			// Register a custom TLS config with the MySQL driver
+			tlsConfigName := fmt.Sprintf("custom-tls-%s-%d", c.Host, c.Port)
+			err := registerTLSConfig(tlsConfigName, c.SSLConfig)
+			if err == nil {
+				cfg.TLSConfig = tlsConfigName
+			}
+		}
+	} else if c.TLSSkipVerify {
+		cfg.TLSConfig = "skip-verify"
+	}
+
+	// Apply custom JDBC URL parameters
+	if c.JDBCURLParams != nil && len(c.JDBCURLParams) > 0 {
+		params := make(map[string]string)
+		for k, v := range c.JDBCURLParams {
+			params[k] = v
+		}
+		cfg.Params = params
+	}
+
 	return cfg.FormatDSN()
+}
+
+// registerTLSConfig registers a custom TLS configuration with the MySQL driver
+func registerTLSConfig(name string, sslConfig *utils.SSLConfig) error {
+	tlsConfig, err := utils.CreateTLSConfiguration(sslConfig)
+	if err != nil {
+		return err
+	}
+	return mysql.RegisterTLSConfig(name, tlsConfig)
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -84,6 +123,13 @@ func (c *Config) Validate() error {
 	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
+	}
+
+	// Validate SSL configuration if provided
+	if c.SSLConfig != nil {
+		if err := c.SSLConfig.Validate(); err != nil {
+			return fmt.Errorf("invalid SSL configuration: %w", err)
+		}
 	}
 
 	return utils.Validate(c)

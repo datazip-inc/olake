@@ -36,10 +36,48 @@ Add MySql credentials in following format in `config.json` file. [More details.]
      },
     "tls_skip_verify": true,
     "max_threads":10,
-    "backoff_retry_count": 2
+    "backoff_retry_count": 2,
+    "jdbc_url_params": {
+      "connectTimeout": "30000",
+      "socketTimeout": "30000",
+      "useSSL": "true"
+    },
+    "ssl_config": {
+      "mode": "verify-ca",
+      "server_ca": "-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+      "client_cert": "-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+      "client_key": "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----"
+    }
   }
 ```
 
+#### JDBC URL Parameters
+
+The `jdbc_url_params` field allows you to specify custom connection parameters for the MySQL JDBC connection. These parameters will be appended to the connection string. Common parameters include:
+
+- `connectTimeout`: Connection timeout in milliseconds
+- `socketTimeout`: Socket timeout in milliseconds
+- `useSSL`: Whether to use SSL for the connection
+- `autoReconnect`: Whether to automatically reconnect if connection is lost
+- `characterEncoding`: Character encoding to use
+- `serverTimezone`: Server timezone to use
+
+#### SSL Configuration
+
+The `ssl_config` field provides advanced SSL configuration options:
+
+- `mode`: SSL mode to use. Options include:
+  - `disable`: No SSL
+  - `require`: Use SSL, but don't verify the server certificate
+  - `verify-ca`: Verify that the server certificate is signed by a trusted CA
+  - `verify-full`: Verify that the server certificate is signed by a trusted CA and the server hostname matches the certificate
+
+When using `verify-ca` or `verify-full` modes, you must provide:
+- `server_ca`: The CA certificate in PEM format
+- `client_cert`: The client certificate in PEM format
+- `client_key`: The client private key in PEM format
+
+For simple SSL connections without certificate verification, you can use the `tls_skip_verify` option instead of the full SSL configuration.
 
 ## Commands
 
