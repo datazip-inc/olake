@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -13,14 +15,25 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+const chunkSize int64 = 500000 // Default chunk size for MySQL
+
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 		// Build query for the chunk
-		pkColumns := stream.GetStream().SourceDefinedPrimaryKey
-		pkColumn := pkColumns.Array()[0]
+		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
+		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
+		sort.Strings(pkColumns)
 		// Get chunks from state or calculate new ones
-		stmt := jdbc.MysqlChunkScanQuery(stream, pkColumn, chunk)
+		stmt := ""
+		if chunkColumn != "" {
+			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk)
+		} else if len(pkColumns) > 0 {
+			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk)
+		} else {
+			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk)
+		}
+		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
@@ -46,77 +59,104 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	pool.AddRecordsToSync(approxRowCount)
 
 	chunks := types.NewSet[types.Chunk]()
-	err = jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
-		// Get primary key column using the provided function
-		pkColumn := stream.GetStream().SourceDefinedPrimaryKey.Array()[0]
-		// Get table extremes
-		minVal, maxVal, err := m.getTableExtremes(stream, pkColumn, tx)
-		if err != nil {
-			return err
-		}
-		if minVal == nil {
-			return nil
-		}
-		chunks.Insert(types.Chunk{
-			Min: nil,
-			Max: utils.ConvertToString(minVal),
-		})
-
-		logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
-
-		// Calculate optimal chunk size based on table statistics
-		chunkSize, err := m.calculateChunkSize(stream)
-		if err != nil {
-			return fmt.Errorf("failed to calculate chunk size: %s", err)
-		}
-
-		// Generate chunks based on range
-		query := jdbc.NextChunkEndQuery(stream, pkColumn, chunkSize)
-
-		currentVal := minVal
-		for {
-			var nextValRaw interface{}
-			err := tx.QueryRow(query, currentVal).Scan(&nextValRaw)
-			if err != nil && err == sql.ErrNoRows || nextValRaw == nil {
-				break
-			} else if err != nil {
-				return fmt.Errorf("failed to get next chunk end: %s", err)
+	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
+	// Takes the user defined batch size as chunkSize
+	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
+		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+			// Get primary key column using the provided function
+			pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
+			if chunkColumn != "" {
+				pkColumns = []string{chunkColumn}
 			}
-			if currentVal != nil && nextValRaw != nil {
+			sort.Strings(pkColumns)
+			// Get table extremes
+			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx)
+			if err != nil {
+				return fmt.Errorf("failed to get table extremes: %s", err)
+			}
+			if minVal == nil {
+				return nil
+			}
+			chunks.Insert(types.Chunk{
+				Min: nil,
+				Max: utils.ConvertToString(minVal),
+			})
+
+			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
+
+			// Generate chunks based on range
+			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
+
+			currentVal := minVal
+			for {
+				// Split the current value into parts
+				columns := strings.Split(utils.ConvertToString(currentVal), ",")
+
+				// Create args array with the correct number of arguments for the query
+				args := make([]interface{}, 0)
+				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
+					// For each column combination in the WHERE clause, we need to add the necessary parts
+					for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
+						args = append(args, columns[partIndex])
+					}
+				}
+				var nextValRaw interface{}
+				err := tx.QueryRow(query, args...).Scan(&nextValRaw)
+				if err == sql.ErrNoRows || nextValRaw == nil {
+					break
+				} else if err != nil {
+					return fmt.Errorf("failed to get next chunk end: %s", err)
+				}
+				if currentVal != nil && nextValRaw != nil {
+					chunks.Insert(types.Chunk{
+						Min: utils.ConvertToString(currentVal),
+						Max: utils.ConvertToString(nextValRaw),
+					})
+				}
+				currentVal = nextValRaw
+			}
+			if currentVal != nil {
 				chunks.Insert(types.Chunk{
 					Min: utils.ConvertToString(currentVal),
-					Max: utils.ConvertToString(nextValRaw),
+					Max: nil,
 				})
 			}
-			currentVal = nextValRaw
-		}
-		if currentVal != nil {
+
+			return nil
+		})
+	}
+	limitOffsetChunking := func(chunks *types.Set[types.Chunk]) error {
+		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			chunks.Insert(types.Chunk{
-				Min: utils.ConvertToString(currentVal),
+				Min: nil,
+				Max: utils.ConvertToString(chunkSize),
+			})
+			lastChunk := chunkSize
+			for lastChunk < approxRowCount {
+				chunks.Insert(types.Chunk{
+					Min: utils.ConvertToString(lastChunk),
+					Max: utils.ConvertToString(lastChunk + chunkSize),
+				})
+				lastChunk += chunkSize
+			}
+			chunks.Insert(types.Chunk{
+				Min: utils.ConvertToString(lastChunk),
 				Max: nil,
 			})
-		}
+			return nil
+		})
+	}
 
-		return nil
-	})
+	if stream.GetStream().SourceDefinedPrimaryKey.Len() > 0 || chunkColumn != "" {
+		err = splitViaPrimaryKey(stream, chunks)
+	} else {
+		err = limitOffsetChunking(chunks)
+	}
 	return chunks, err
 }
 
-func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumn string, tx *sql.Tx) (min, max any, err error) {
-	query := jdbc.MinMaxQuery(stream, pkColumn)
+func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
 	err = tx.QueryRow(query).Scan(&min, &max)
-	if err != nil {
-		return "", "", err
-	}
 	return min, max, err
-}
-func (m *MySQL) calculateChunkSize(stream types.StreamInterface) (int, error) {
-	var totalRecords int
-	query := jdbc.MySQLTableRowsQuery()
-	err := m.client.QueryRow(query, stream.Name()).Scan(&totalRecords)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get estimated records count: %s", err)
-	}
-	// number of chunks based on max threads
-	return totalRecords / (m.config.MaxThreads * 8), nil
 }

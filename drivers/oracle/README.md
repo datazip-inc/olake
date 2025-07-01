@@ -1,47 +1,39 @@
-# Postgres Driver
-The Postgres Driver enables data synchronization from Postgres to your desired destination. It supports both **Full Refresh** and **CDC (Change Data Capture)** modes.
+# Oracle Driver
+The Oracle Driver enables data synchronization from Oracle to your desired destination. It supports **Full Refresh** mode.
 
 ---
 
 ## Supported Modes
 1. **Full Refresh**
-   Fetches the complete dataset from Postgres.
-2. **CDC (Change Data Capture)**
-   Tracks and syncs incremental changes from Postgres in real time.
-3. **Strict CDC (Change Data Capture)**
-   Tracks only new changes from the current position in the PostgreSQL WAL, without performing an initial backfill.
+   Fetches the complete dataset from Oracle.
 
 ---
 
 ## Setup and Configuration
-To run the Postgres Driver, configure the following files with your specific credentials and settings:
+To run the Oracle Driver, configure the following files with your specific credentials and settings:
 
-- **`config.json`**: postgres connection details.
+- **`config.json`**: oracle connection details.
 - **`streams.json`**: List of collections and fields to sync (generated using the *Discover* command).
 - **`write.json`**: Configuration for the destination where the data will be written.
 
 Place these files in your project directory before running the commands.
 
 ### Config File
-Add Postgres credentials in following format in `config.json` file. [More details.](https://olake.io/docs/connectors/postgres/config)
+Add Oracle credentials in following format in `config.json` file. [More details.](https://olake.io/docs/connectors/oracle/config)
    ```json
    {
-    "host": "postgres-host",
-    "port": 5432,
-    "database": "postgres_db",
-    "username": "postgres_user",
-    "password": "postgres_pass",
+    "host": "oracle-host",
+    "username": "oracle-user",
+    "password": "oracle-password",
+    "service_name": "oracle-service-name",
+    "sid": "ez",
+    "port": 1521,
+    "max_threads": 10,
+    "retry_count": 0,
     "jdbc_url_params": {},
     "ssl": {
         "mode": "disable"
-    },
-    "update_method": {
-        "replication_slot": "postgres_slot",
-        "intial_wait_time":120
-    },
-    "reader_batch_size": 100000,
-    "max_threads" :50,
-    "retry_count" :2,
+    }
   }
 ```
 
@@ -55,7 +47,7 @@ The *Discover* command generates json content for `streams.json` file, which def
 #### Usage
 To run the Discover command, use the following syntax
    ```bash
-   ./build.sh driver-postgres discover --config /postgres/examples/config.json
+   ./build.sh driver-oracle discover --config /oracle/examples/config.json
    ```
 
 #### Example Response (Formatted)
@@ -69,9 +61,7 @@ After executing the Discover command, a formatted response will look like this:
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "chunk_column":"",
-                  "normalization": false,
-                  "append_only": false
+                  "normalization": false
                }
          ]
       },
@@ -94,32 +84,12 @@ Before running the Sync command, the generated `streams.json` file must be confi
    Remove streams from selected streams.
 - Add Partition based on Column Value
    Modify partition_regex field to partition destination data based on column value
-- Add split column (primary key) based on which full load chunks can be created
 
 - Modify Each Stream:<br>
    For each stream you want to sync:<br>
    - Add the following properties:
       ```json
-      "sync_mode": "cdc",
-      ```
-   - Specify the cursor field (only for incremental syncs):
-      ```json
-      "cursor_field": "<cursor field from available_cursor_fields>"
-      ```
-   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration. \
-      Similarly, for `chunk_column`, ensure it is defined in the stream settings as required.
-      ```json
-         "selected_streams": {
-            "public": [
-                  {
-                     "partition_regex": "",
-                     "stream_name": "table_1",
-                     "chunk_column":"",         //column name to be specified
-                     "normalization": false,
-                     "append_only": false
-                  }
-            ]
-         },
+      "sync_mode": "full_refresh",
       ```
 
 - Final Streams Example
@@ -213,53 +183,10 @@ Example (Local Test Configuration (JDBC + Minio))
 Find more about writer docs [here.](https://olake.io/docs/category/destinations-writers)
 
 ### Sync Command
-The *Sync* command fetches data from Postgres and ingests it into the destination.
+The *Sync* command fetches data from Oracle and ingests it into the destination.
 
 ```bash
-./build.sh driver-postgres sync --config /postgres/examples/config.json --catalog /postgres/examples/streams.json --destination /postgres/examples/write.json
+./build.sh driver-oracle sync --config /oracle/examples/config.json --catalog /oracle/examples/streams.json --destination /oracle/examples/write.json
 ```
 
-To run sync with state
-```bash
-./build.sh driver-postgres sync --config /postgres/examples/config.json --catalog /postgres/examples/streams.json --destination /postgres/examples/write.json --state /postgres/examples/state.json
-```
-
-
-### State File
-The State file is generated by the CLI command at the completion of a batch or the end of a sync. This file can be used to save the sync progress and later resume from a specific checkpoint.
-#### State File Format
-You can save the state in a `state.json` file using the following format:
-```json
-{
-    "type": "GLOBAL",
-    "global": {
-        "state": {
-            "lsn": "2D9/AD00445A"
-        },
-        "streams": [
-            "public.table_1",
-            "public.table_2"
-        ]
-    },
-    "streams": [
-        {
-            "stream": "table_1",
-            "namespace": "public",
-            "sync_mode": "",
-            "state": {
-                "chunks": []
-            }
-        },
-        {
-            "stream": "table_2",
-            "namespace": "public",
-            "sync_mode": "",
-            "state": {
-                "chunks": []
-            }
-        }
-    ]
-}
-```
-
-Find more at [Postgres Docs](https://olake.io/docs/category/postgres)
+Find more at [Oracle Docs](https://olake.io/docs/category/oracle)

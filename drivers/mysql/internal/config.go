@@ -2,11 +2,11 @@ package driver
 
 import (
 	"fmt"
-	"github.com/go-sql-driver/mysql"
 	"strings"
 
+	"github.com/go-sql-driver/mysql"
+
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
 
