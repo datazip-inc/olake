@@ -50,7 +50,7 @@
         <version.commons.configuration>2.10.1</version.commons.configuration>
         <version.ant>1.10.14</version.ant>
         <version.jose4j>0.9.4</version.jose4j>
-        <version.zookeeper>3.9.2</version.zookeeper>
+        <version.zookeeper>3.9.3</version.zookeeper>
         <version.vertx>4.5.3</version.vertx>
         <version.jetty>9.4.57.v20241219</version.jetty>
         <version.logback>1.5.13</version.logback>
