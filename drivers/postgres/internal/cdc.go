@@ -44,7 +44,9 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	fullLoadAck := func() error {
 		p.state.SetGlobal(waljs.WALState{LSN: socket.CurrentWalPosition.String()})
 		p.state.ResetStreams()
-		// set current lsn to commit on
+		// set lsn to start cdc from
+		p.Socket.ConfirmedFlushLSN = socket.CurrentWalPosition
+		p.Socket.ClientXLogPos = socket.CurrentWalPosition
 		return p.Socket.AdvanceLSN(ctx, p.client)
 	}
 

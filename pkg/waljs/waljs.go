@@ -143,9 +143,7 @@ func (s *Socket) StreamMessages(ctx context.Context, db *sqlx.DB, callback abstr
 		return fmt.Errorf("failed to get replication slot: %s", err)
 	}
 
-	// update lsn's
-	s.ConfirmedFlushLSN = slot.LSN
-	s.ClientXLogPos = slot.LSN
+	// update current wal lsn
 	s.CurrentWalPosition = slot.CurrentLSN
 
 	// Start logical replication with wal2json plugin arguments.
