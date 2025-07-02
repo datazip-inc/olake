@@ -140,6 +140,7 @@ func TestPostgresIntegration(t *testing.T) {
 					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
 					fmt.Sprintf("%s:/test-olake/drivers/postgres/internal/testdata:rw", testdataDir),
 				}
+				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
 			ConfigModifier: func(config *container.Config) {
 				config.WorkingDir = "/test-olake"
