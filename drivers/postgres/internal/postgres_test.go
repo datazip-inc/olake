@@ -222,16 +222,14 @@ func TestPostgresIntegration(t *testing.T) {
 										ExecuteQuery(ctx, t, db, currentTestTable, operation)
 									}
 									cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s --state %s", sourceConfigPath, streamsPath, destinationConfigPath, statePath)
-									t.Logf("Sync successfull - %s", operation)
 								} else {
 									cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s", sourceConfigPath, streamsPath, destinationConfigPath)
-									t.Logf("Sync successfull")
 								}
 
 								if code, out, err := execCommand(ctx, c, cmd); err != nil || code != 0 {
 									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
 								}
-
+								t.Logf("Sync successfull")
 								abstract.VerifyIcebergSync(t, currentTestTable, sparkConnectHost, PostgresSchema, schema, opSymbol)
 								return nil
 							}
