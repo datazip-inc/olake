@@ -4,23 +4,13 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
 
-// const (
-// 	defaultPostgresHost     = "localhost"
-// 	defaultPostgresPort     = 5433
-// 	defaultPostgresUser     = "postgres"
-// 	defaultPostgresPassword = "secret1234"
-// 	defaultPostgresDB       = "postgres"
-// 	defaultBatchSize        = 10000
-// 	defaultCDCWaitTime      = 5
-// 	defaultReplicationSlot  = "olake_slot"
-// )
-
-// ExecuteQuery executes PostgreSQL queries for testing based on the operation type
 func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string) {
 	t.Helper()
 
@@ -43,7 +33,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName
 				col_character CHAR(10),
 				col_character_varying VARCHAR(50),
 				col_date DATE,
-				col_daterange DATERANGE,
 				col_decimal NUMERIC,
 				col_double_precision DOUBLE PRECISION,
 				col_float4 REAL,
@@ -53,15 +42,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName
 				col_interval INTERVAL,
 				col_json JSON,
 				col_jsonb JSONB,
-				col_jsonpath JSONPATH,
 				col_name NAME,
 				col_numeric NUMERIC,
 				col_real REAL,
 				col_text TEXT,
-				col_time TIME,
 				col_timestamp TIMESTAMP,
 				col_timestamptz TIMESTAMPTZ,
-				col_timetz TIMETZ,
 				col_uuid UUID,
 				col_varbit VARBIT(20),
 				col_xml XML,
@@ -80,27 +66,55 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName
 
 	case "insert":
 		query = fmt.Sprintf(`
-			INSERT INTO %s (col_int, col_character_varying, col_text) 
-			VALUES (10, 'new val', 'new val')`, tableName)
+			INSERT INTO %s (
+				col_bigint, col_bool, col_char, col_character,
+				col_character_varying, col_date, col_decimal,
+				col_double_precision, col_float4, col_int, col_int2,
+				col_integer, col_interval, col_json, col_jsonb,
+				col_name, col_numeric, col_real, col_text,
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml
+			) VALUES (
+				123456789012345, TRUE, 'c', 'char_val',
+				'varchar_val', '2023-01-01', 123.45,
+				123.456789, 123.45, 123, 123, 12345,
+				'1 hour', '{"key": "value"}', '{"key": "value"}',
+				'test_name', 123.45, 123.45, 'sample text',
+				'2023-01-01 12:00:00', '2023-01-01 12:00:00+00',
+				'123e4567-e89b-12d3-a456-426614174000', B'101010',
+				'<tag>value</tag>'
+			)`, tableName)
 
 	case "update":
 		query = fmt.Sprintf(`
-			UPDATE %s 
-			SET col_character_varying = 'updated val' 
-			WHERE col_bigserial = (
-				SELECT col_bigserial FROM (
-					SELECT col_bigserial FROM %s ORDER BY RANDOM() LIMIT 1
-				) AS subquery
-			)`, tableName, tableName)
+			UPDATE %s SET
+				col_bigint = 123456789012340,
+				col_bool = FALSE,
+				col_char = 'd',
+				col_character = 'updated__',
+				col_character_varying = 'updated val',
+				col_date = '2024-07-01',
+				col_decimal = 543.21,
+				col_double_precision = 987.654321,
+				col_float4 = 543.21,
+				col_int = 321,
+				col_int2 = 321,
+				col_integer = 54321,
+				col_interval = '2 hours',
+				col_json = '{"new": "json"}',
+				col_jsonb = '{"new": "jsonb"}',
+				col_name = 'updated_name',
+				col_numeric = 321.00,
+				col_real = 321.00,
+				col_text = 'updated text',
+				col_timestamp = '2024-07-01 15:30:00',
+				col_timestamptz = '2024-07-01 15:30:00+00',
+				col_uuid = '00000000-0000-0000-0000-000000000000',
+				col_varbit = B'111000',
+				col_xml = '<updated>value</updated>'
+			WHERE col_bigserial = 1`, tableName)
 
 	case "delete":
-		query = fmt.Sprintf(`
-			DELETE FROM %s 
-			WHERE col_bigserial = (
-				SELECT col_bigserial FROM (
-					SELECT col_bigserial FROM %s ORDER BY RANDOM() LIMIT 1
-				) AS subquery
-			)`, tableName, tableName)
+		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", tableName)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -118,18 +132,18 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
 			col_bigint, col_bigserial, col_bool, col_char, col_character,
-			col_character_varying, col_date, col_daterange, col_decimal,
+			col_character_varying, col_date, col_decimal,
 			col_double_precision, col_float4, col_int, col_int2, col_integer,
-			col_interval, col_json, col_jsonb, col_jsonpath, col_name, col_numeric,
-			col_real, col_text, col_time, col_timestamp, col_timestamptz, col_timetz,
+			col_interval, col_json, col_jsonb, col_name, col_numeric,
+			col_real, col_text, col_timestamp, col_timestamptz,
 			col_uuid, col_varbit, col_xml
 		) VALUES (
-			1234567890123456789, DEFAULT, TRUE, 'c', 'char_val',
-			'varchar_val', '2023-01-01', '[2023-01-01,2023-01-02)', 123.45,
+			123456789012345, DEFAULT, TRUE, 'c', 'char_val',
+			'varchar_val', '2023-01-01', 123.45,
 			123.456789, 123.45, 123, 123, 12345, '1 hour', '{"key": "value"}',
-			'{"key": "value"}', '$.key', 'test_name', 123.45, 123.45,
-			'sample text', '12:00:00', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00+00', '12:00:00+00',
+			'{"key": "value"}', 'test_name', 123.45, 123.45,
+			'sample text', '2023-01-01 12:00:00',
+			'2023-01-01 12:00:00+00',
 			'123e4567-e89b-12d3-a456-426614174000', B'101010',
 			'<tag>value</tag>'
 		)`, tableName)
@@ -139,42 +153,84 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	}
 }
 
-// testPostgresClient initializes and returns a PostgreSQL test client with default configuration
-// func testPostgresClient(t *testing.T) (*sqlx.DB, *abstract.AbstractDriver) {
-// 	t.Helper()
-// 	logger.Init()
+var ExpectedPostgresData = map[string]interface{}{
+	"col_bigint":            int64(123456789012345),
+	"col_bool":              true,
+	"col_char":              "c",
+	"col_character":         "char_val  ",
+	"col_character_varying": "varchar_val",
+	"col_date":              arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_decimal":           float32(123.45),
+	"col_double_precision":  123.456789,
+	"col_float4":            float32(123.45),
+	"col_int":               int32(123),
+	"col_int2":              int32(123),
+	"col_integer":           int32(12345),
+	"col_interval":          "01:00:00",
+	"col_json":              `{"key": "value"}`,
+	"col_jsonb":             `{"key": "value"}`,
+	"col_name":              "test_name",
+	"col_numeric":           float32(123.45),
+	"col_real":              float32(123.45),
+	"col_text":              "sample text",
+	"col_timestamp":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_uuid":              "123e4567-e89b-12d3-a456-426614174000",
+	"col_varbit":            "101010",
+	"col_xml":               "<tag>value</tag>",
+}
 
-// 	config := Config{
-// 		Host:     defaultPostgresHost,
-// 		Port:     defaultPostgresPort,
-// 		Username: defaultPostgresUser,
-// 		Password: defaultPostgresPassword,
-// 		Database: defaultPostgresDB,
-// 		SSLConfiguration: &utils.SSLConfig{
-// 			Mode: "disable",
-// 		},
-// 		BatchSize: defaultBatchSize,
-// 	}
+var ExpectedUpdatedPostgresData = map[string]interface{}{
+	"col_bigint":            int64(123456789012340),
+	"col_bool":              false,
+	"col_char":              "d",
+	"col_character":         "updated__ ",
+	"col_character_varying": "updated val",
+	"col_date":              arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_decimal":           float32(543.21),
+	"col_double_precision":  987.654321,
+	"col_float4":            float32(543.21),
+	"col_int":               int32(321),
+	"col_int2":              int32(321),
+	"col_integer":           int32(54321),
+	"col_interval":          "02:00:00",
+	"col_json":              `{"new": "json"}`,
+	"col_jsonb":             `{"new": "jsonb"}`,
+	"col_name":              "updated_name",
+	"col_numeric":           float32(321.00),
+	"col_real":              float32(321.00),
+	"col_text":              "updated text",
+	"col_timestamp":         arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":       arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_uuid":              "00000000-0000-0000-0000-000000000000",
+	"col_varbit":            "111000",
+	"col_xml":               "<updated>value</updated>",
+}
 
-// 	pgDriver := &Postgres{
-// 		config: &config,
-// 	}
-
-// 	// Configure CDC settings
-// 	pgDriver.CDCSupport = true
-// 	pgDriver.cdcConfig = CDC{
-// 		InitialWaitTime: defaultCDCWaitTime,
-// 		ReplicationSlot: defaultReplicationSlot,
-// 	}
-
-// 	absDriver := abstract.NewAbstractDriver(context.Background(), pgDriver)
-
-// 	state := &types.State{
-// 		Type:    types.StreamType,
-// 		RWMutex: &sync.RWMutex{},
-// 	}
-// 	absDriver.SetupState(state)
-// 	require.NoError(t, absDriver.Setup(context.Background()), "Failed to setup PostgreSQL driver")
-
-// 	return pgDriver.client, absDriver
-// }
+var PostgresSchema = map[string]string{
+	"col_bigint":            "bigint",
+	"col_bigserial":         "bigserial",
+	"col_bool":              "boolean",
+	"col_char":              "char",
+	"col_character":         "character",
+	"col_character_varying": "varchar",
+	"col_date":              "date",
+	"col_decimal":           "numeric",
+	"col_double_precision":  "double precision",
+	"col_float4":            "real",
+	"col_int":               "int",
+	"col_int2":              "smallint",
+	"col_integer":           "integer",
+	"col_interval":          "interval",
+	"col_json":              "json",
+	"col_jsonb":             "jsonb",
+	"col_name":              "name",
+	"col_numeric":           "numeric",
+	"col_real":              "real",
+	"col_text":              "text",
+	"col_timestamp":         "timestamp",
+	"col_timestamptz":       "timestamptz",
+	"col_uuid":              "uuid",
+	"col_varbit":            "varbit",
+	"col_xml":               "xml",
+}

@@ -117,7 +117,7 @@ var GlobalTypeMapping = map[string]string{
 	"date":                        "timestamp",
 	"timestamp":                   "timestamp",
 	"datetime":                    "timestamp",
-	"timestampz":                  "timestamp",
+	"timestamptz":                 "timestamp",
 	"timestamp with time zone":    "timestamp",
 	"timestamp without time zone": "timestamp",
 
@@ -131,38 +131,6 @@ var GlobalTypeMapping = map[string]string{
 	"varbit":      "string",
 	"bit(n)":      "string",
 	"varying(n)":  "string",
-}
-
-var PostgresSchema = map[string]string{
-	"col_bigint":            "bigint",
-	"col_bigserial":         "bigserial",
-	"col_bool":              "boolean",
-	"col_char":              "char",
-	"col_character":         "character",
-	"col_character_varying": "varchar",
-	"col_date":              "date",
-	"col_daterange":         "daterange",
-	"col_decimal":           "numeric",
-	"col_double_precision":  "double precision",
-	"col_float4":            "real",
-	"col_int":               "int",
-	"col_int2":              "smallint",
-	"col_integer":           "integer",
-	"col_interval":          "interval",
-	"col_json":              "json",
-	"col_jsonb":             "jsonb",
-	"col_jsonpath":          "jsonpath",
-	"col_name":              "name",
-	"col_numeric":           "numeric",
-	"col_real":              "real",
-	"col_text":              "text",
-	"col_time":              "time",
-	"col_timestamp":         "timestamp",
-	"col_timestamptz":       "timestamptz",
-	"col_timetz":            "timetz",
-	"col_uuid":              "uuid",
-	"col_varbit":            "varbit",
-	"col_xml":               "xml",
 }
 
 var MySQLSchema = map[string]string{

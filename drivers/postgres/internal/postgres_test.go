@@ -21,41 +21,12 @@ import (
 const (
 	currentTestTable      = "postgres_test_table_olake"
 	sourceConfigPath      = "/test-olake/drivers/postgres/internal/testdata/source.json"
-	streamsFilePath       = "/test-olake/drivers/postgres/internal/testdata/streams.json"
+	streamsPath           = "/test-olake/drivers/postgres/internal/testdata/streams.json"
 	destinationConfigPath = "/test-olake/drivers/postgres/internal/testdata/destination.json"
-	installCmd            = "apt-get update && apt-get install -y openjdk-17-jre-headless postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm && npm install -g chalk-cli"
+	statePath             = "/test-olake/drivers/postgres/internal/testdata/state.json"
+	installCmd            = "apt-get update && apt-get install -y openjdk-17-jre-headless maven postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
+	sparkConnectHost      = "localhost"
 )
-
-func sortJSONString(jsonStr string) (string, error) {
-	start := strings.IndexRune(jsonStr, '{')
-	end := strings.LastIndex(jsonStr, "}")
-	if start == -1 || end == -1 || start > end {
-		return "", fmt.Errorf("no valid JSON object found")
-	}
-
-	// 2) Slice out exactly from the first '{' to the last '}'
-	core := jsonStr[start : end+1]
-
-	var data interface{}
-	if err := json.Unmarshal([]byte(core), &data); err != nil {
-		return "", fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	// Convert to compact JSON string (no formatting)
-	compactBytes, err := json.Marshal(data)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	// Convert to string and sort characters lexicographically
-	jsonString := string(compactBytes)
-	chars := []rune(jsonString)
-	sort.Slice(chars, func(i, j int) bool {
-		return chars[i] < chars[j]
-	})
-
-	return string(chars), nil
-}
 
 func TestPostgresIntegration(t *testing.T) {
 	ctx := context.Background()
@@ -80,9 +51,12 @@ func TestPostgresIntegration(t *testing.T) {
 			ConfigModifier: func(config *container.Config) {
 				config.WorkingDir = "/test-olake"
 			},
+			Env: map[string]string{
+				"DEBUG": "false",
+			},
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
-					PostStarts: []testcontainers.ContainerHook{
+					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
 							// 1. Install required tools
 							if code, out, err := execCommand(ctx, c, installCmd); err != nil || code != 0 {
@@ -114,11 +88,12 @@ func TestPostgresIntegration(t *testing.T) {
 								return fmt.Errorf("discover failed (%d): %w\n%s", code, err, string(out))
 							}
 
+							// 4. Verify streams.json file
 							streamsJSON, err := os.ReadFile(dummyStreamFilePath)
 							if err != nil {
 								return fmt.Errorf("failed to read expected streams JSON: %w", err)
 							}
-							testStreamsCmd := fmt.Sprintf("cat %s", streamsFilePath)
+							testStreamsCmd := fmt.Sprintf("cat %s", streamsPath)
 							_, testStreamJSON, err := execCommand(ctx, c, testStreamsCmd)
 							if err != nil {
 								return fmt.Errorf("failed to read actual streams JSON: %w", err)
@@ -133,27 +108,19 @@ func TestPostgresIntegration(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("failed to sort actual JSON as string: %w", err)
 							}
-
 							if expectedStream != testStream {
 								return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", expectedStream, testStream)
 							}
-							return nil
-						},
-					},
-					PreStops: []testcontainers.ContainerHook{
-						func(ctx context.Context, c testcontainers.Container) error {
-							cleanupSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", currentTestTable)
-							psqlCmd := fmt.Sprintf(
-								"psql -U postgres -h host.docker.internal -p 5433 -c %q",
-								cleanupSQL,
-							)
-							_, _, _ = execCommand(ctx, c, psqlCmd) // Best-effort cleanup
+
+							// 5. Clean up
+							ExecuteQuery(ctx, t, db, currentTestTable, "drop")
+							t.Logf("Postgres discover test-container clean up")
 							return nil
 						},
 					},
 				},
 			},
-			Cmd: []string{"sleep", "300"},
+			Cmd: []string{"tail", "-f", "/dev/null"},
 		}
 
 		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -173,18 +140,22 @@ func TestPostgresIntegration(t *testing.T) {
 					fmt.Sprintf("%s:/test-olake/drivers/postgres/internal/testdata:rw", testdataDir),
 				}
 			},
-			Networks: []string{"local-test_iceberg_net"},
 			ConfigModifier: func(config *container.Config) {
 				config.WorkingDir = "/test-olake"
 			},
+			Env: map[string]string{
+				"DEBUG": "false",
+			},
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
-					PostStarts: []testcontainers.ContainerHook{
+					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
+							// 1. Install required tools
 							if code, out, err := execCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
 
+							// 2. Create test table and insert data
 							db, err := sqlx.ConnectContext(ctx, "postgres",
 								"postgres://postgres@localhost:5433/postgres?sslmode=disable",
 							)
@@ -194,38 +165,92 @@ func TestPostgresIntegration(t *testing.T) {
 							ExecuteQuery(ctx, t, db, currentTestTable, "clean")
 							ExecuteQuery(ctx, t, db, currentTestTable, "add")
 
-							sparkConnectHost := "host.docker.internal"
-
-							// Spark network diagnostics
-							diagCmd := fmt.Sprintf(`echo "Testing network connectivity to %s:15002";ping -c 1 %s;nc -zv %s 15002;`, sparkConnectHost, sparkConnectHost, sparkConnectHost)
-
-							if code, out, err := execCommand(ctx, c, diagCmd); err != nil || code != 0 {
-								t.Logf("Network diagnostics failed (%d):\n%s", code, out)
-							}
-
-							fullSyncCmd := fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s", sourceConfigPath, streamsFilePath, destinationConfigPath)
-							if code, out, err := execCommand(ctx, c, fullSyncCmd); err != nil || code != 0 {
-								return fmt.Errorf("Full refresh failed (%d): %w\n%s", code, err, string(out))
-							}
-
-							abstract.VerifyIcebergSync(t, currentTestTable, "5", sparkConnectHost, abstract.PostgresSchema)
-							return nil
-						},
-					},
-					PreStops: []testcontainers.ContainerHook{
-						func(ctx context.Context, c testcontainers.Container) error {
-							cleanupSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", currentTestTable)
-							psqlCmd := fmt.Sprintf(
-								"psql -U postgres -h host.docker.internal -p 5433 -c %q",
-								cleanupSQL,
+							streamUpdateCmd := fmt.Sprintf(
+								`jq '.selected_streams.public[] .normalization = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
+								streamsPath, streamsPath,
 							)
-							_, _, _ = execCommand(ctx, c, psqlCmd) // Best-effort cleanup
+							if code, out, err := execCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
+								return fmt.Errorf("failed to enable normalization in streams.json (%d): %w\n%s",
+									code, err, out,
+								)
+							}
+							t.Logf("Enabled normalization in %s", streamsPath)
+
+							testCases := []struct {
+								syncMode    string
+								operation   string
+								useState    bool
+								opSymbol    string
+								dummySchema map[string]interface{}
+							}{
+								{
+									syncMode:    "Full-Refresh",
+									operation:   "",
+									useState:    false,
+									opSymbol:    "r",
+									dummySchema: ExpectedPostgresData,
+								},
+								{
+									syncMode:    "CDC - insert",
+									operation:   "insert",
+									useState:    true,
+									opSymbol:    "c",
+									dummySchema: ExpectedPostgresData,
+								},
+								{
+									syncMode:    "CDC - update",
+									operation:   "update",
+									useState:    true,
+									opSymbol:    "u",
+									dummySchema: ExpectedUpdatedPostgresData,
+								},
+								{
+									syncMode:    "CDC - delete",
+									operation:   "delete",
+									useState:    true,
+									opSymbol:    "d",
+									dummySchema: nil,
+								},
+							}
+
+							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
+								var cmd string
+								if useState {
+									if operation != "" {
+										ExecuteQuery(ctx, t, db, currentTestTable, operation)
+									}
+									cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s --state %s", sourceConfigPath, streamsPath, destinationConfigPath, statePath)
+									t.Logf("Sync successfull - %s", operation)
+								} else {
+									cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s", sourceConfigPath, streamsPath, destinationConfigPath)
+									t.Logf("Sync successfull")
+								}
+
+								if code, out, err := execCommand(ctx, c, cmd); err != nil || code != 0 {
+									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
+								}
+
+								abstract.VerifyIcebergSync(t, currentTestTable, sparkConnectHost, PostgresSchema, schema, opSymbol)
+								return nil
+							}
+
+							// 3. Run Sync command and verify records in Iceberg
+							for _, test := range testCases {
+								t.Logf("Running test for: %s", test.syncMode)
+								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
+									return err
+								}
+							}
+
+							// 4. Clean up
+							ExecuteQuery(ctx, t, db, currentTestTable, "drop")
+							t.Logf("Postgres sync test-container clean up")
 							return nil
 						},
 					},
 				},
 			},
-			Cmd: []string{"sleep", "300"},
+			Cmd: []string{"tail", "-f", "/dev/null"},
 		}
 
 		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -250,4 +275,35 @@ func execCommand(
 	}
 	output, _ := io.ReadAll(reader)
 	return code, output, nil
+}
+
+func sortJSONString(jsonStr string) (string, error) {
+	start := strings.IndexRune(jsonStr, '{')
+	end := strings.LastIndex(jsonStr, "}")
+	if start == -1 || end == -1 || start > end {
+		return "", fmt.Errorf("no valid JSON object found")
+	}
+
+	// 2) Slice out exactly from the first '{' to the last '}'
+	core := jsonStr[start : end+1]
+
+	var data interface{}
+	if err := json.Unmarshal([]byte(core), &data); err != nil {
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	// Convert to compact JSON string (no formatting)
+	compactBytes, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Convert to string and sort characters lexicographically
+	jsonString := string(compactBytes)
+	chars := []rune(jsonString)
+	sort.Slice(chars, func(i, j int) bool {
+		return chars[i] < chars[j]
+	})
+
+	return string(chars), nil
 }

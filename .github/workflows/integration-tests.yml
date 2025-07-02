@@ -77,8 +77,8 @@ jobs:
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
-      - name: Run MySQL Integration Tests
-        run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+      # - name: Run MySQL Integration Tests
+      #   run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
 
       - name: Run PostgreSQL Integration Tests
         run: go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0

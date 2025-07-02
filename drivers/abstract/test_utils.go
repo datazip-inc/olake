@@ -11,7 +11,6 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -136,7 +135,7 @@ func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery Exec
 				time.Sleep(cdcProcessingWait)
 			}
 
-			// VerifyIcebergSync(t, currentTestTable, tc.expectedCount, schemaMap)
+			// VerifyIcebergSync(t, currentTestTable, tc.expectedCount, datatypeSchema)
 		})
 	}
 }
@@ -192,7 +191,7 @@ func (a *AbstractDriver) getTestStream(t *testing.T, tableName string) *types.St
 }
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName string, expectedCount, sparkConnectHost string, schemaMap map[string]string) {
+func VerifyIcebergSync(t *testing.T, tableName string, sparkConnectHost string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol string) {
 	t.Helper()
 	ctx := context.Background()
 	sparkConnectAddress := fmt.Sprintf("sc://%s:15002", sparkConnectHost)
@@ -205,28 +204,39 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount, sparkConne
 		}
 	}()
 
-	query := fmt.Sprintf(
-		"SELECT COUNT(DISTINCT _olake_id) as unique_count FROM %s.%s.%s",
-		icebergDatabase, icebergDatabase, tableName,
+	selectQuery := fmt.Sprintf(
+		"SELECT * FROM %s.%s.%s WHERE _op_type = '%s'",
+		icebergDatabase, icebergDatabase, tableName, opSymbol,
 	)
-	t.Logf("Executing query: %s", query)
+	t.Logf("Executing query: %s", selectQuery)
 
-	countDf, err := spark.Sql(ctx, query)
-	require.NoError(t, err, "Failed to query unique count from the table")
+	selectQueryDf, err := spark.Sql(ctx, selectQuery)
+	require.NoError(t, err, "Failed to select query from the table")
 
-	countRows, err := countDf.Collect(ctx)
-	require.NoError(t, err, "Failed to collect count data from Iceberg")
-	require.NotEmpty(t, countRows, "Count result is empty")
+	selectRows, err := selectQueryDf.Collect(ctx)
+	require.NoError(t, err, "Failed to collect data rows from Iceberg")
 
-	countValue := countRows[0].Value("unique_count")
-	require.NotNil(t, countValue, "Count value is nil")
+	// delete row checked
+	if opSymbol == "d" {
+		deletedID := selectRows[0].Value("_olake_id")
+		require.Equalf(t, "1", deletedID, "Delete verification failed: expected _olake_id = '1', got %s", deletedID)
+		return
+	}
 
-	actualCount := utils.ConvertToString(countValue)
-	require.Equal(t, expectedCount, actualCount,
-		"Unique olake_id count mismatch in Iceberg")
+	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
-	t.Logf("Verified %s unique olake_id records in Iceberg table %s",
-		actualCount, tableName)
+	for rowIdx, row := range selectRows {
+		icebergMap := make(map[string]interface{}, len(schema)+1)
+		for _, col := range row.FieldNames() {
+			icebergMap[col] = row.Value(col)
+		}
+		for key, expected := range schema {
+			icebergValue, ok := icebergMap[key]
+			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
+			require.Equal(t, icebergValue, expected, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+		}
+	}
+	t.Logf("Verified synced data in Iceberg")
 
 	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergDatabase, icebergDatabase, tableName)
 	describeDf, err := spark.Sql(ctx, describeQuery)
@@ -243,7 +253,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount, sparkConne
 		}
 	}
 
-	for col, dbType := range schemaMap {
+	for col, dbType := range datatypeSchema {
 		iceType, found := icebergSchema[col]
 		require.True(t, found, "Column %s not found in Iceberg schema", col)
 
@@ -254,6 +264,6 @@ func VerifyIcebergSync(t *testing.T, tableName string, expectedCount, sparkConne
 		}
 		require.Equal(t, expectedIceType, iceType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
-		t.Logf("Verified column %s: PostgreSQL type %s -> Iceberg type %s", col, dbType, iceType)
 	}
+	t.Logf("Verified datatypes in Iceberg after sync")
 }

@@ -317,7 +317,7 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 
 // NextRowIDQuery returns the query to fetch the next max row id
 func NextRowIDQuery(stream types.StreamInterface, currentSCN string, ROWID string, chunkSize int64) string {
-	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %s.%s AS OF SCN %s WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), currentSCN, ROWID, chunkSize)
+	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q AS OF SCN %s WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), currentSCN, ROWID, chunkSize)
 }
 
 // OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
@@ -325,7 +325,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk) strin
 	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
 	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
 
-	baseCondition := fmt.Sprintf("SELECT * FROM %s.%s AS OF SCN %s", stream.Namespace(), stream.Name(), currentSCN)
+	baseCondition := fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s", stream.Namespace(), stream.Name(), currentSCN)
 
 	if chunk.Min != nil && chunk.Max != nil {
 		chunkMax := strings.Split(chunk.Max.(string), ",")[1]
@@ -338,7 +338,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk) strin
 
 // OracleMinMaxCountQuery returns the query to fetch the min ROWID, max ROWID and number of rows of a table in OracleDB
 func OracleMinMaxCountQuery(stream types.StreamInterface, currentSCN string) string {
-	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId, COUNT(*) AS totalRows FROM %s.%s AS OF SCN %s`, stream.Namespace(), stream.Name(), currentSCN)
+	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId, COUNT(*) AS totalRows FROM %q.%q AS OF SCN %s`, stream.Namespace(), stream.Name(), currentSCN)
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
@@ -353,5 +353,5 @@ func OracleCurrentSCNQuery() string {
 
 // OracleEmptyCheckQuery returns the query to check if a table is empty in OracleDB
 func OracleEmptyCheckQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf("SELECT 1 FROM %s.%s WHERE ROWNUM = 1", stream.Namespace(), stream.Name())
+	return fmt.Sprintf("SELECT 1 FROM %q.%q WHERE ROWNUM = 1", stream.Namespace(), stream.Name())
 }

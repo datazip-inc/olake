@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -100,7 +101,7 @@ func LogRequest(req *http.Request) {
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
 func FileLogger(content any, fileName, fileExtension string) error {
 	// get config folder
-	filePath := viper.GetString("CONFIG_FOLDER")
+	filePath := viper.GetString(constants.ConfigFolder)
 	if filePath == "" {
 		return fmt.Errorf("config folder is not set")
 	}
@@ -167,8 +168,8 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 
 func Init() {
 	// check working directory
-	if viper.GetString("CONFIG_FOLDER") == "" {
-		viper.SetDefault("CONFIG_FOLDER", os.TempDir())
+	if viper.GetString(constants.ConfigFolder) == "" {
+		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 	}
 	// Set up timestamp for log file names
 	currentTimestamp := time.Now().UTC()
@@ -178,7 +179,7 @@ func Init() {
 
 	// Configure rotating file logs
 	rotatingFile := &lumberjack.Logger{
-		Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString("CONFIG_FOLDER"), timestamp),
+		Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString(constants.ConfigFolder), timestamp),
 		MaxSize:    100, // Max size in MB
 		MaxBackups: 5,   // Number of old log files to retain
 		MaxAge:     30,  // Days to retain old log files
