@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -17,8 +19,10 @@ var (
 	destinationConfigPath string
 	statePath             string
 	streamsPath           string
+	syncID                string
 	batchSize             int64
 	noSave                bool
+	encryptionKey         string
 
 	catalog           *types.Catalog
 	state             *types.State
@@ -34,12 +38,16 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// set global variables
-
 		if !noSave {
-			viper.Set("CONFIG_FOLDER", utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
+			viper.Set(constants.ConfigFolder, utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
+		}
+
+		if encryptionKey != "" {
+			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
+		telemetry.Init()
 
 		if len(args) == 0 {
 			return cmd.Help()
@@ -70,6 +78,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
+	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
