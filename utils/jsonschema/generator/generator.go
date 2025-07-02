@@ -376,7 +376,7 @@ func (g *JSONSchemaGenerator) generateSchemaForExpr(ownerDecl *declInfo, fieldEx
 		g.LogDebug("returning cached simple schema for ", ownerDecl.defKey)
 		generatedSchema = simpleDef.schema
 	}
-	
+
 	//
 	if generatedSchema == nil {
 		switch fieldType := fieldExpr.(type) {
@@ -638,44 +638,46 @@ func (g *JSONSchemaGenerator) generateInterfaceSchemaForField(decl *declInfo, fi
 		return nil, err
 	}
 
-	if schemaAnno != nil {
-		if len(schemaAnno.oneOf) > 0 || len(schemaAnno.allOf) > 0 || len(schemaAnno.anyOf) > 0 {
-			iSchema = schema.NewBasicSchema("")
+	// we do not generate schema for fields without annotations `@jsonSchema`
+	if schemaAnno == nil {
+		return nil, nil
+	}
 
-			err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
-			if err != nil {
-				return nil, err
-			}
+	if len(schemaAnno.oneOf) > 0 || len(schemaAnno.allOf) > 0 || len(schemaAnno.anyOf) > 0 {
+		iSchema = schema.NewBasicSchema("")
 
-			return iSchema, nil
+		err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
+		if err != nil {
+			return nil, err
 		}
 
-		if len(schemaAnno.schemaType) > 0 {
-			// Create schema based on the type specified in the annotation
-			switch schemaAnno.schemaType[0] {
-			case "string":
-				iSchema = schema.NewStringSchema()
-			case "integer":
-				iSchema = schema.NewNumericSchema("integer")
-			case "number":
-				iSchema = schema.NewNumericSchema("number")
-			case "boolean":
-				iSchema = schema.NewBasicSchema("boolean")
-			case "object":
-				iSchema = schema.NewObjectSchema(g.options.SupressXAttrs)
-			case "array":
-				iSchema = schema.NewArraySchema()
-			default:
-				iSchema = schema.NewBasicSchema(schemaAnno.schemaType[0])
-			}
+		return iSchema, nil
+	}
 
-			err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
-			if err != nil {
-				return nil, err
-			}
-			return iSchema, nil
+	if len(schemaAnno.schemaType) > 0 {
+		// Create schema based on the type specified in the annotation
+		switch schemaAnno.schemaType[0] {
+		case "string":
+			iSchema = schema.NewStringSchema()
+		case "integer":
+			iSchema = schema.NewNumericSchema("integer")
+		case "number":
+			iSchema = schema.NewNumericSchema("number")
+		case "boolean":
+			iSchema = schema.NewBasicSchema("boolean")
+		case "object":
+			iSchema = schema.NewObjectSchema(g.options.SupressXAttrs)
+		case "array":
+			iSchema = schema.NewArraySchema()
+		default:
+			iSchema = schema.NewBasicSchema(schemaAnno.schemaType[0])
 		}
 
+		err = g.addCommonAttrs(iSchema, schemaAnno, field.Names[0].Name, parentKey)
+		if err != nil {
+			return nil, err
+		}
+		return iSchema, nil
 	}
 
 	var hasAnno, fhasXof, dhasAnno bool
