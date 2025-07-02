@@ -15,6 +15,7 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	DBName                 = "_db"
+	DefaultReadPreference  = "secondaryPreferred"
 )
 
 type DriverType string

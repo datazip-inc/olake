@@ -24,10 +24,6 @@ type Config struct {
 	ChunkingStrategy string   `json:"chunking_strategy"`
 }
 
-const (
-	defaultReadPreference = "secondaryPreferred"
-)
-
 func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	if c.Srv {
@@ -46,7 +42,7 @@ func (c *Config) URI() string {
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
 		if c.ReadPreference == "" {
-			c.ReadPreference = defaultReadPreference
+			c.ReadPreference = constants.DefaultReadPreference
 		}
 		query.Set("readPreference", c.ReadPreference)
 	}
