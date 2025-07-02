@@ -188,7 +188,7 @@ func (g *JSONSchemaGenerator) doGenerate() (schema.JSONSchema, error) {
 	}
 
 	if err == nil {
-		rootSchema.SetSchemaURI(string(g.options.SpecVersion))
+		// rootSchema.SetSchemaURI(string(g.options.SpecVersion))
 
 		for _, def := range g.globalDefCache {
 			if g.shouldReturnRef(def.decl) {
@@ -376,9 +376,9 @@ func (g *JSONSchemaGenerator) generateSchemaForExpr(ownerDecl *declInfo, fieldEx
 		g.LogDebug("returning cached simple schema for ", ownerDecl.defKey)
 		generatedSchema = simpleDef.schema
 	}
-
+	
+	//
 	if generatedSchema == nil {
-
 		switch fieldType := fieldExpr.(type) {
 		case *ast.StructType:
 			g.LogVerbose("field type is struct: ")

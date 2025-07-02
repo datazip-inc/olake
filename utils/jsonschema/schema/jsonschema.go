@@ -95,7 +95,6 @@ type JSONSchema interface {
 	SetDefault(def string) error
 	SetConstant(def interface{})
 	SetType(typeList string)
-	SetOrder(order int)
 }
 
 // Definitions hold schema definitions.
@@ -348,12 +347,9 @@ func (s *basicSchema) GetOrder() int {
 func (s *basicSchema) AddDefinition(key string, def JSONSchema) {
 	s.Definitions[key] = def
 }
+
 func (s *basicSchema) SetSchemaURI(uri string) {
 	s.SchemaURI = uri
-}
-
-func (s *basicSchema) SetOrder(order int) {
-	s.Order = order
 }
 
 func (s *basicSchema) SetID(id string) {

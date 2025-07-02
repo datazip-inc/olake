@@ -18,7 +18,7 @@ type Config struct {
 	//   description="Database host addresses for connection",
 	//   type="string",
 	//   default="mysql-host",
-	//   order=1
+	//   required=true
 	// )
 	Host string `json:"hosts"`
 
@@ -29,7 +29,7 @@ type Config struct {
 	//   description="Username used to authenticate with the database",
 	//   type="string",
 	//   default="mysql-user",
-	//   order=4
+	//   required=true
 	// )
 	Username string `json:"username"`
 
@@ -41,7 +41,7 @@ type Config struct {
 	//   type="string",
 	//   format="password",
 	//   default="mysql-password",
-	//   order=5
+	//   required=true
 	// )
 	Password string `json:"password"`
 
@@ -52,7 +52,7 @@ type Config struct {
 	//   description="Name of the database to use for connection",
 	//   type="string",
 	//   default="mysql-database",
-	//   order=3
+	//   required=true
 	// )
 	Database string `json:"database"`
 
@@ -63,7 +63,7 @@ type Config struct {
 	//   description="Database server listening port",
 	//   type="integer",
 	//   default=3306,
-	//   order=2
+	//   required=true
 	// )
 	Port int `json:"port"`
 
@@ -73,8 +73,7 @@ type Config struct {
 	//   title="Skip TLS Verification",
 	//   description="Determines if TLS certificate verification should be skipped for secure connections",
 	//   type="boolean",
-	//   default=true,
-	//   order=10
+	//   default=true
 	// )
 	TLSSkipVerify bool `json:"tls_skip_verify"`
 
@@ -83,30 +82,17 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Update Method",
 	//   description="Method to use for updates",
-	//   oneOf=["CDC","FullRefresh"],
-	//   order=6
+	//   oneOf=["CDC","StandAlone"]
 	// )
 	UpdateMethod interface{} `json:"update_method"`
 
-	// DefaultMode
-	//
-	// @jsonSchema(
-	//   title="Default Mode",
-	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
-	//   type="string",
-	//   default="cdc",
-	//   order=7
-	// )
-	DefaultMode types.SyncMode `json:"default_mode"`
-
 	// MaxThreads
-	//
+	//s
 	// @jsonSchema(
 	//   title="Max Threads",
 	//   description="Maximum concurrent threads for data sync",
 	//   type="integer",
-	//   default=5,
-	//   order=8
+	//   default=5
 	// )
 	MaxThreads int `json:"max_threads"`
 
@@ -116,8 +102,7 @@ type Config struct {
 	//   title="Backoff Retry Count",
 	//   description="Number of sync retries (exponential backoff on failure)",
 	//   type="integer",
-	//   default=2,
-	//   order=9
+	//   default=2
 	// )
 	RetryCount int `json:"backoff_retry_count"`
 }
@@ -142,14 +127,14 @@ type CDC struct {
 	InitialWaitTime int `json:"intial_wait_time"`
 }
 
-// FullRefresh represents the full refresh configuration
+// StandAlone represents the full refresh configuration
 //
 // @jsonSchema(
 //
-//	title="Full Refresh"
+//	title="Stand alone"
 //
 // )
-type FullRefresh struct{}
+type StandAlone struct{}
 
 // URI generates the connection URI for the MySQL database
 func (c *Config) URI() string {

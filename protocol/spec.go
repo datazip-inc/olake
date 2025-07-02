@@ -41,7 +41,7 @@ var specCmd = &cobra.Command{
 
 		// Check if spec already exists
 		var specData map[string]interface{}
-		if err := utils.UnmarshalFile(fmt.Sprintf("%s.json", fileName), &specData); err == nil {
+		if err := utils.UnmarshalFile(fmt.Sprintf("%s.json", fileName), &specData, false); err == nil {
 			logger.Info(specData)
 			return nil
 		}

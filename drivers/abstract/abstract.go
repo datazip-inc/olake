@@ -46,16 +46,16 @@ func (a *AbstractDriver) SetupState(state *types.State) {
 	a.driver.SetupState(state)
 }
 
+func (a *AbstractDriver) Type() string {
+	return a.driver.Type()
+}
+
 func (a *AbstractDriver) GetConfigRef() Config {
 	return a.driver.GetConfigRef()
 }
 
 func (a *AbstractDriver) Spec() any {
 	return a.driver.Spec()
-}
-
-func (a *AbstractDriver) Type() string {
-	return a.driver.Type()
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
@@ -109,10 +109,6 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 
 func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
-}
-
-func (a *AbstractDriver) Type() string {
-	return a.driver.Type()
 }
 
 // Read handles different sync modes for data retrieval

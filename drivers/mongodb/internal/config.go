@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -17,9 +16,9 @@ type Config struct {
 	//   description="Specifies the hostnames or IP addresses of MongoDB for connection",
 	//   type="array",
 	//   default=["host1:27017", "host2:27017"],
-	//   order=1
+	//	 required=true
 	// )
-	Hosts []string `json:"hosts" validate:"required" min:"1"`
+	Hosts []string `json:"hosts"`
 
 	// Database
 	//
@@ -28,9 +27,9 @@ type Config struct {
 	//   description="Name of the mongodb database selected for replication",
 	//   type="string",
 	//   default="database",
-	//   order=2
+	// 	 required="true"
 	// )
-	Database string `json:"database" validate:"required"`
+	Database string `json:"database"`
 
 	// AuthDB
 	//
@@ -39,9 +38,9 @@ type Config struct {
 	//   description="Authentication database (mostly admin)",
 	//   type="string",
 	//   default="admin",
-	//   order=3
+	//   required=true
 	// )
-	AuthDB string `json:"authdb" validate:"required"`
+	AuthDB string `json:"authdb"`
 
 	// Username
 	//
@@ -50,9 +49,9 @@ type Config struct {
 	//   description="Username for MongoDB authentication",
 	//   type="string",
 	//   default="test",
-	//   order=4
+	//   required=true
 	// )
-	Username string `json:"username" validate:"required"`
+	Username string `json:"username"`
 
 	// Password
 	//
@@ -62,9 +61,9 @@ type Config struct {
 	//   type="string",
 	//   format="password",
 	//   default="test",
-	//   order=5
+	//   required=true
 	// )
-	Password string `json:"password" validate:"required"`
+	Password string `json:"password"`
 
 	// ReplicaSet
 	//
@@ -72,8 +71,7 @@ type Config struct {
 	//   title="Replica Set",
 	//   description="MongoDB replica set name (if applicable)",
 	//   type="string",
-	//   default="rs0",
-	//   order=6
+	//   default="rs0"
 	// )
 	ReplicaSet string `json:"replica_set"`
 
@@ -82,9 +80,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Read Preference",
 	//   description="Read preference for MongoDB (e.g., primary, secondaryPreferred)",
-	//   type="string",
-	//   default="",
-	//   order=7
+	//   type="string"
 	// )
 	ReadPreference string `json:"read_preference"`
 
@@ -94,8 +90,7 @@ type Config struct {
 	//   title="Use SRV",
 	//   description="Enable this option if using DNS SRV connection strings. When set to true, the hosts field must contain only one entry - a DNS SRV address (['mongodataset.pigiy.mongodb.net'])",
 	//   type="boolean",
-	//   default=false,
-	//   order=8
+	//   default=false
 	// )
 	Srv bool `json:"srv"`
 
@@ -105,21 +100,9 @@ type Config struct {
 	//   title="Max Threads",
 	//   description="Max parallel threads for chunk snapshotting",
 	//   type="integer",
-	//   default=5,
-	//   order=9
+	//   default=5
 	// )
 	MaxThreads int `json:"max_threads" validate:"required" gt:"0"`
-
-	// DefaultMode
-	//
-	// @jsonSchema(
-	//   title="Default Mode",
-	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
-	//   type="string",
-	//   default="cdc",
-	//   order=10
-	// )
-	DefaultMode types.SyncMode `json:"default_mode"`
 
 	// RetryCount
 	//
@@ -127,8 +110,7 @@ type Config struct {
 	//   title="Retry Count",
 	//   description="Number of sync retry attempts using exponential backoff",
 	//   type="integer",
-	//   default=2,
-	//   order=11
+	//   default=2
 	// )
 	RetryCount int `json:"backoff_retry_count"`
 
@@ -137,12 +119,11 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Chunking Strategy",
 	//   description="Chunking strategy (timestamp, uses split vector strategy if the field is left empty)",
-	//   type="string",
-	//   order=12
+	//   type="string"
 	// )
 	ChunkingStrategy string `json:"chunking_strategy"`
 
-	ServerRAM int `json:"server_ram" validate:"required" gt:"0"`
+	ServerRAM int `json:"server_ram"`
 }
 
 func (c *Config) URI() string {

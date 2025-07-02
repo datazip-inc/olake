@@ -10,16 +10,99 @@ import (
 )
 
 type Config struct {
-	Host             string            `json:"host"`
-	Username         string            `json:"username"`
-	Password         string            `json:"password"`
-	ServiceName      string            `json:"service_name"`
-	SID              string            `json:"sid"`
-	Port             int               `json:"port"`
-	MaxThreads       int               `json:"max_threads"`
-	RetryCount       int               `json:"backoff_retry_count"`
-	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
-	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
+	// Host
+	//
+	// @jsonSchema(
+	//   title="Host",
+	//   description="Hostname or IP address of the Oracle database server.",
+	//   type="string",
+	//   required=true
+	// )
+	Host string `json:"host"`
+
+	// Username
+	//
+	// @jsonSchema(
+	//   title="Username",
+	//   description="Username for authenticating with the Oracle database.",
+	//   type="string",
+	//   required=true
+	// )
+	Username string `json:"username"`
+
+	// Password
+	//
+	// @jsonSchema(
+	//   title="Password",
+	//   description="Password for the Oracle database user.",
+	//   type="string",
+	//   format="password",
+	//   required=true
+	// )
+	Password string `json:"password"`
+
+	// ServiceName
+	//
+	// @jsonSchema(
+	//   title="Service Name",
+	//   description="The Oracle database service name to connect to.",
+	//   type="string",
+	//   required=true
+	// )
+	ServiceName string `json:"service_name"`
+
+	// SID
+	//
+	// @jsonSchema(
+	//   title="SID",
+	//   description="The Oracle database SID to connect to.",
+	//   type="string"
+	// )
+	SID string `json:"sid"`
+
+	// Port
+	//
+	// @jsonSchema(
+	//   title="Port",
+	//   description="Port number on which the Oracle database is listening.",
+	//   type="integer",
+	//   required=true
+	// )
+	Port int `json:"port"`
+
+	// MaxThreads
+	//
+	// @jsonSchema(
+	//   title="Max Threads",
+	//   description="Max parallel threads for chunk snapshotting",
+	//   type="integer"
+	// )
+	MaxThreads int `json:"max_threads"`
+
+	// RetryCount
+	//
+	// @jsonSchema(
+	//   title="Retry Count",
+	//   description="Number of sync retry attempts using exponential backoff",
+	//   type="integer"
+	// )
+	RetryCount int `json:"backoff_retry_count"`
+
+	// SSLConfiguration
+	//
+	// @jsonSchema(
+	//   title="SSL Mode",
+	//   description="Database connection SSL configuration (e.g., SSL mode)"
+	// )
+	SSLConfiguration *utils.SSLConfig `json:"ssl"`
+
+	// JDBCURLParams
+	//
+	// @jsonSchema(
+	//   title="JDBC URL Parameters",
+	//   description="Additional JDBC URL params for connection tuning (optional)"
+	// )
+	JDBCURLParams map[string]string `json:"jdbc_url_params"`
 }
 
 func (c *Config) connectionString() string {

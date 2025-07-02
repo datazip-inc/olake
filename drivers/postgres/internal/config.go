@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/lib/pq"
 )
@@ -18,8 +19,7 @@ type Config struct {
 	//   title="Postgres Host",
 	//   description="Database host address for connection",
 	//   type="string",
-	//   required=true,
-	//   order=1
+	//   required=true
 	// )
 	Host string `json:"host"`
 
@@ -30,8 +30,7 @@ type Config struct {
 	//   description="Database server listening port",
 	//   type="integer",
 	//   default=5432,
-	//   required=true,
-	//   order=2
+	//   required=true
 	// )
 	Port int `json:"port"`
 
@@ -41,8 +40,7 @@ type Config struct {
 	//   title="Database Name",
 	//   description="Name of the database to use for connection",
 	//   type="string",
-	//   required=true,
-	//   order=3
+	//   required=true
 	// )
 	Database string `json:"database"`
 
@@ -52,8 +50,7 @@ type Config struct {
 	//   title="Username",
 	//   description="Username used to authenticate with the database",
 	//   type="string",
-	//   required=true,
-	//   order=4
+	//   required=true
 	// )
 	Username string `json:"username"`
 
@@ -64,8 +61,7 @@ type Config struct {
 	//   description="Password for database authentication",
 	//   type="string",
 	//   format="password",
-	//   required=true,
-	//   order=5
+	//   required=true
 	// )
 	Password string `json:"password"`
 
@@ -74,8 +70,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="JDBC URL Parameters",
 	//   description="Additional JDBC URL parameters for connection tuning (optional)",
-	//   type="string",
-	//   order=6
+	//   type="string"
 	// )
 	JDBCURLParams map[string]string `json:"jdbc_url_params"`
 
@@ -83,16 +78,14 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="SSL Configuration",
-	//   description="Database connection SSL configuration (e.g., SSL mode)",
-	//   order=7
+	//   description="Database connection SSL configuration (e.g., SSL mode)"
 	// )
 	SSLConfiguration *utils.SSLConfig `json:"ssl"`
 
 	// @jsonSchema(
 	//   title="Update Method",
 	//   description="Method to use for updates (CDC - Change Data Capture or Full Refresh)",
-	//   oneOf=["CDC","FullRefresh"],
-	//   order=8
+	//   oneOf=["CDC","StandAlone"]
 	// )
 	UpdateMethod interface{} `json:"update_method"`
 
@@ -102,8 +95,7 @@ type Config struct {
 	//   title="Default Mode",
 	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
 	//   type="string",
-	//   default="cdc",
-	//   order=10
+	//   default="cdc"
 	// )
 	DefaultSyncMode types.SyncMode `json:"default_mode"`
 
@@ -113,8 +105,7 @@ type Config struct {
 	//   title="Reader Batch Size",
 	//   description="Max batch size for read operations",
 	//   type="integer",
-	//   default=100000,
-	//   order=9
+	//   default=100000
 	// )
 	BatchSize int `json:"reader_batch_size"`
 
@@ -124,8 +115,7 @@ type Config struct {
 	//   title="Max Threads",
 	//   description="Max parallel threads for chunk snapshotting",
 	//   type="integer",
-	//   default=5,
-	//   order=11
+	//   default=5
 	// )
 	MaxThreads int `json:"max_threads"`
 	RetryCount int `json:"retry_count"`
@@ -161,14 +151,14 @@ type CDC struct {
 	InitialWaitTime int `json:"intial_wait_time"`
 }
 
-// FullRefresh represents the full refresh configuration
+// StandAlone represents the full refresh configuration
 //
 // @jsonSchema(
 //
-//	title="Full Refresh"
+//	title="Stand alone"
 //
 // )
-type FullRefresh struct{}
+type StandAlone struct{}
 
 func (c *Config) Validate() error {
 	if c.Host == "" {

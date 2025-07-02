@@ -13,7 +13,6 @@ type Config struct {
 	//   title="S3 Bucket",
 	//   description="The name of an existing Amazon S3 bucket with appropriate access permissions to store output files",
 	//   type="string",
-	//   order=1,
 	//   required=true
 	// )
 	Bucket string `json:"s3_bucket,omitempty"`
@@ -24,7 +23,6 @@ type Config struct {
 	//   title="S3 Region",
 	//   description="Specify the AWS region where the S3 bucket is hosted",
 	//   type="string",
-	//   order=2,
 	//   required=true
 	// )
 	Region string `json:"s3_region,omitempty"`
@@ -35,7 +33,6 @@ type Config struct {
 	//   title="S3 Access Key",
 	//   description="The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string",
 	//   type="string",
-	//   order=3,
 	//   required=true
 	// )
 	AccessKey string `json:"s3_access_key,omitempty"`
@@ -47,19 +44,16 @@ type Config struct {
 	//   description="The AWS secret key for S3 authentication—typically 40+ characters long",
 	//   type="string",
 	//   format="password",
-	//   order=4,
 	//   required=true
 	// )
 	SecretKey string `json:"s3_secret_key,omitempty"`
 
-	// Prefix
+	// Path
 	//
 	// @jsonSchema(
-	//   title="S3 Prefix",
+	//   title="S3 Path",
 	//   description="Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')",
-	//   type="string",
-	//   default="",
-	//   order=5
+	//   type="string"
 	// )
 	Prefix string `json:"s3_path,omitempty"`
 }
