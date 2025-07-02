@@ -161,19 +161,15 @@ func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ t
 	return nil
 }
 
-// Clear removes data for the specified streams from Iceberg tables
-func (i *Iceberg) Clear(selectedStream []string) error {
-	if len(selectedStream) == 0 {
+func (i *Iceberg) DropStreams(selectedStreams []string) error {
+	if len(selectedStreams) == 0 {
 		logger.Info("No streams selected for clearing, skipping clear operation")
 		return nil
 	}
 
-	logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStream), selectedStream)
+	logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
 
-	// For Iceberg, we need to drop and recreate tables or use Iceberg's delete functionality
-
-	for _, streamID := range selectedStream {
-		// Parse stream ID to get namespace and stream name
+	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
 			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
@@ -185,7 +181,7 @@ func (i *Iceberg) Clear(selectedStream []string) error {
 
 		logger.Infof("Clearing Iceberg table: %s", tableName)
 
-		// Todo
+		// TODO: Implement Iceberg table clearing logic
 		// 1. Connect to the Iceberg catalog
 		// 2. Use Iceberg's delete API or drop/recreate the table
 		// 3. Handle any Iceberg-specific cleanup

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -367,22 +368,20 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 	return filepath.Join(p.basePath, strings.TrimSuffix(result, "/"))
 }
 
-func (p *Parquet) Clear(selectedStream []string) error {
-	if len(selectedStream) == 0 {
+func (p *Parquet) DropStreams(selectedStreams []string) error {
+	if len(selectedStreams) == 0 {
 		logger.Info("No streams selected for clearing, skipping clear operation")
 		return nil
 	}
 
-	logger.Infof("Clearing destination for %d selected streams: %v", len(selectedStream), selectedStream)
+	logger.Infof("Clearing destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
 
-	// Clear local files
-	if err := p.clearLocalFiles(selectedStream); err != nil {
-		return fmt.Errorf("failed to clear local files: %s", err)
-	}
-
-	// Clear S3 files if configured
-	if p.s3Client != nil {
-		if err := p.clearS3Files(selectedStream); err != nil {
+	if p.s3Client == nil {
+		if err := p.clearLocalFiles(selectedStreams); err != nil {
+			return fmt.Errorf("failed to clear local files: %s", err)
+		}
+	} else {
+		if err := p.clearS3Files(selectedStreams); err != nil {
 			return fmt.Errorf("failed to clear S3 files: %s", err)
 		}
 	}
@@ -391,11 +390,8 @@ func (p *Parquet) Clear(selectedStream []string) error {
 	return nil
 }
 
-// clearLocalFiles removes local files for the specified streams
-func (p *Parquet) clearLocalFiles(selectedStream []string) error {
-	for _, streamID := range selectedStream {
-		// Parse stream ID to get namespace and stream name
-		// streamID format: "namespace.stream_name"
+func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
+	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
 			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
@@ -407,13 +403,11 @@ func (p *Parquet) clearLocalFiles(selectedStream []string) error {
 
 		logger.Infof("Clearing local path: %s", streamPath)
 
-		// Check if the path exists before attempting to delete
 		if _, err := os.Stat(streamPath); os.IsNotExist(err) {
 			logger.Debugf("Local path does not exist, skipping: %s", streamPath)
 			continue
 		}
 
-		// Remove the entire stream directory and all its contents
 		if err := os.RemoveAll(streamPath); err != nil {
 			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
 		}
@@ -424,14 +418,8 @@ func (p *Parquet) clearLocalFiles(selectedStream []string) error {
 	return nil
 }
 
-// clearS3Files removes S3 files for the specified streams
-func (p *Parquet) clearS3Files(selectedStream []string) error {
-	if p.s3Client == nil {
-		return nil
-	}
-
-	for _, streamID := range selectedStream {
-		// Parse stream ID to get namespace and stream name
+func (p *Parquet) clearS3Files(selectedStreams []string) error {
+	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
 			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
@@ -440,60 +428,154 @@ func (p *Parquet) clearS3Files(selectedStream []string) error {
 
 		namespace, streamName := parts[0], parts[1]
 
-		// Construct S3 prefix path
-		s3Prefix := filepath.Join(namespace, streamName)
+		s3Prefix := namespace + "/" + streamName
 		if p.config.Prefix != "" {
-			s3Prefix = filepath.Join(p.config.Prefix, s3Prefix)
+			s3Prefix = p.config.Prefix + "/" + s3Prefix
 		}
 
 		logger.Infof("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3Prefix)
 
-		// List objects with the prefix
-		listInput := &s3.ListObjectsV2Input{
-			Bucket: aws.String(p.config.Bucket),
-			Prefix: aws.String(s3Prefix + "/"), // Add trailing slash to ensure we get the directory
-		}
-
-		// Delete objects in batches
-		err := p.s3Client.ListObjectsV2Pages(listInput, func(page *s3.ListObjectsV2Output, lastPage bool) bool {
-			if len(page.Contents) == 0 {
-				return true
-			}
-
-			// Prepare delete objects input
-			var objectsToDelete []*s3.ObjectIdentifier
-			for _, obj := range page.Contents {
-				objectsToDelete = append(objectsToDelete, &s3.ObjectIdentifier{
-					Key: obj.Key,
-				})
-			}
-
-			// Delete objects
-			deleteInput := &s3.DeleteObjectsInput{
-				Bucket: aws.String(p.config.Bucket),
-				Delete: &s3.Delete{
-					Objects: objectsToDelete,
-				},
-			}
-
-			_, err := p.s3Client.DeleteObjects(deleteInput)
-			if err != nil {
-				logger.Errorf("Failed to delete S3 objects for prefix %s: %s", s3Prefix, err)
-				return false
-			}
-
-			logger.Infof("Deleted %d objects from S3 prefix: s3://%s/%s", len(objectsToDelete), p.config.Bucket, s3Prefix)
-			return true
-		})
-
-		if err != nil {
-			return fmt.Errorf("failed to list/delete S3 objects for prefix %s: %s", s3Prefix, err)
+		if err := p.deleteS3PrefixWithWorkerPool(s3Prefix); err != nil {
+			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3Prefix, err)
 		}
 
 		logger.Infof("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3Prefix)
 	}
 
 	return nil
+}
+
+func (p *Parquet) deleteS3PrefixWithWorkerPool(prefix string) error {
+	listInput := &s3.ListObjectsV2Input{
+		Bucket: aws.String(p.config.Bucket),
+		Prefix: aws.String(prefix + "/"),
+	}
+
+	var allObjectKeys []string
+	err := p.s3Client.ListObjectsV2Pages(listInput, func(page *s3.ListObjectsV2Output, lastPage bool) bool {
+		for _, obj := range page.Contents {
+			allObjectKeys = append(allObjectKeys, *obj.Key)
+		}
+		return true
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to list S3 objects: %s", err)
+	}
+
+	if len(allObjectKeys) == 0 {
+		logger.Debugf("No objects found for prefix: %s", prefix)
+		return nil
+	}
+
+	logger.Infof("Found %d objects to delete for prefix: %s", len(allObjectKeys), prefix)
+
+	return p.deleteWithWorkerPool(allObjectKeys)
+}
+
+// deleteWithWorkerPool uses concurrent workers to delete objects in batches
+func (p *Parquet) deleteWithWorkerPool(objectKeys []string) error {
+	const (
+		batchSize  = 1000 // S3 limit per delete request
+		numWorkers = 5    // Number of concurrent workers, can be configured/updated as needed
+	)
+
+	// Create batches of object keys
+	var batches [][]string
+	for i := 0; i < len(objectKeys); i += batchSize {
+		end := i + batchSize
+		if end > len(objectKeys) {
+			end = len(objectKeys)
+		}
+		batches = append(batches, objectKeys[i:end])
+	}
+
+	logger.Infof("Created %d batches of up to %d objects each", len(batches), batchSize)
+
+	// Create channels for worker pool
+	batchChan := make(chan []string, len(batches))
+	resultChan := make(chan error, len(batches))
+
+	// Start worker goroutines
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			p.deleteWorker(workerID, batchChan, resultChan)
+		}(i)
+	}
+
+	// Send batches to workers
+	go func() {
+		defer close(batchChan)
+		for _, batch := range batches {
+			batchChan <- batch
+		}
+	}()
+
+	// Wait for all workers to complete
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results and track progress
+	completedBatches := 0
+	totalBatches := len(batches)
+
+	for err := range resultChan {
+		completedBatches++
+		if err != nil {
+			logger.Errorf("Batch deletion failed: %s", err)
+			return fmt.Errorf("failed to delete batch %d/%d: %s", completedBatches, totalBatches, err)
+		}
+
+		logger.Infof("Completed batch %d/%d (%.1f%%)", completedBatches, totalBatches,
+			float64(completedBatches)/float64(totalBatches)*100)
+	}
+
+	logger.Infof("Successfully deleted all %d objects using %d workers", len(objectKeys), numWorkers)
+	return nil
+}
+
+// deleteWorker is a worker goroutine that processes batches of objects
+func (p *Parquet) deleteWorker(workerID int, batchChan <-chan []string, resultChan chan<- error) {
+	for batch := range batchChan {
+		var objectsToDelete []*s3.ObjectIdentifier
+		for _, key := range batch {
+			objectsToDelete = append(objectsToDelete, &s3.ObjectIdentifier{
+				Key: aws.String(key),
+			})
+		}
+
+		deleteInput := &s3.DeleteObjectsInput{
+			Bucket: aws.String(p.config.Bucket),
+			Delete: &s3.Delete{
+				Objects: objectsToDelete,
+			},
+		}
+
+		maxRetries := 3
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			_, err := p.s3Client.DeleteObjects(deleteInput)
+			if err == nil {
+				logger.Debugf("Worker %d: Successfully deleted batch of %d objects", workerID, len(batch))
+				resultChan <- nil
+				break
+			}
+
+			if attempt == maxRetries {
+				logger.Errorf("Worker %d: Failed to delete batch after %d attempts: %s", workerID, maxRetries, err)
+				resultChan <- fmt.Errorf("worker %d failed to delete batch: %s", workerID, err)
+				return
+			}
+
+			backoffTime := time.Duration(attempt*attempt) * time.Second
+			logger.Warnf("Worker %d: Retry %d/%d after %v backoff: %s", workerID, attempt, maxRetries, backoffTime, err)
+			time.Sleep(backoffTime)
+		}
+	}
 }
 
 func init() {

@@ -9,25 +9,45 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"golang.org/x/sync/errgroup"
 )
 
 const DestError = "destination error"
 
-type NewFunc func() Writer
-type InsertFunction func(record types.RawRecord) (err error)
-type CloseFunction func()
+type (
+	NewFunc        func() Writer
+	InsertFunction func(record types.RawRecord) (err error)
+	CloseFunction  func()
+	WriterOption   func(Writer) error
+
+	Options struct {
+		Identifier string
+		Number     int64
+		Backfill   bool
+	}
+
+	ThreadOptions func(opt *Options)
+
+	ThreadEvent struct {
+		Close  CloseFunction
+		Insert InsertFunction
+	}
+
+	WriterPool struct {
+		totalRecords  atomic.Int64
+		recordCount   atomic.Int64
+		ThreadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
+		config        any          // respective writer config
+		init          NewFunc      // To initialize exclusive destination threads
+		group         *errgroup.Group
+		groupCtx      context.Context
+		tmu           sync.Mutex // Mutex between threads
+	}
+)
 
 var RegisteredWriters = map[types.AdapterType]NewFunc{}
-
-type Options struct {
-	Identifier string
-	Number     int64
-	Backfill   bool
-}
-
-type ThreadOptions func(opt *Options)
 
 func WithIdentifier(identifier string) ThreadOptions {
 	return func(opt *Options) {
@@ -47,19 +67,26 @@ func WithBackfill(backfill bool) ThreadOptions {
 	}
 }
 
-type WriterPool struct {
-	totalRecords  atomic.Int64
-	recordCount   atomic.Int64
-	ThreadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
-	config        any          // respective writer config
-	init          NewFunc      // To initialize exclusive destination threads
-	group         *errgroup.Group
-	groupCtx      context.Context
-	tmu           sync.Mutex // Mutex between threads
+func WithClearDestination(selectedStreams []string) WriterOption {
+	return func(adapter Writer) error {
+		if len(selectedStreams) == 0 {
+			logger.Info("No streams selected for clearing, skipping clear operation")
+			return nil
+		}
+
+		logger.Info("Clearing destination for selected streams...")
+
+		if err := adapter.DropStreams(selectedStreams); err != nil {
+			return fmt.Errorf("failed to clear destination: %s", err)
+		}
+
+		logger.Info("Destination cleared successfully.")
+		return nil
+	}
 }
 
-// Shouldn't the name be NewWriterPool?
-func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, error) {
+// NewWriter creates a new WriterPool with optional configuration
+func NewWriter(ctx context.Context, config *types.WriterConfig, opts ...WriterOption) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -76,7 +103,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 	}
 
 	group, ctx := errgroup.WithContext(ctx)
-	return &WriterPool{
+	pool := &WriterPool{
 		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
 		ThreadCounter: atomic.Int64{},
@@ -85,12 +112,16 @@ func NewWriter(ctx context.Context, config *types.WriterConfig) (*WriterPool, er
 		group:         group,
 		groupCtx:      ctx,
 		tmu:           sync.Mutex{},
-	}, nil
-}
+	}
 
-type ThreadEvent struct {
-	Close  CloseFunction
-	Insert InsertFunction
+	// Apply all options with the configured adapter
+	for _, opt := range opts {
+		if err := opt(adapter); err != nil {
+			return nil, err
+		}
+	}
+
+	return pool, nil
 }
 
 // Initialize new adapter thread for writing into destination
