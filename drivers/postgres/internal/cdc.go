@@ -40,12 +40,20 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	}
 
 	p.Socket = socket
-	currentLSN := p.Socket.ConfirmedFlushLSN
 	globalState := p.state.GetGlobal()
+	fullLoadAck := func() error {
+		p.state.SetGlobal(waljs.WALState{LSN: socket.CurrentWalPosition.String()})
+		p.state.ResetStreams()
+		// set lsn to start cdc from
+		p.Socket.ConfirmedFlushLSN = socket.CurrentWalPosition
+		p.Socket.ClientXLogPos = socket.CurrentWalPosition
+		return p.Socket.AdvanceLSN(ctx, p.client)
+	}
 
 	if globalState == nil || globalState.State == nil {
-		p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-		p.state.ResetStreams()
+		if err := fullLoadAck(); err != nil {
+			return fmt.Errorf("failed to ack lsn for full load: %s", err)
+		}
 	} else {
 		// global state exist check for cursor and cursor mismatch
 		var postgresGlobalState waljs.WALState
@@ -53,18 +61,21 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			return fmt.Errorf("failed to unmarshal global state: %s", err)
 		}
 		if postgresGlobalState.LSN == "" {
-			p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-			p.state.ResetStreams()
+			if err := fullLoadAck(); err != nil {
+				return fmt.Errorf("failed to ack lsn for full load: %s", err)
+			}
 		} else {
 			parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
 				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
 			}
 			// TODO: handle cursor mismatch with user input (Example: user provide if it has to fail or do full load with new resume token)
-			if parsed != currentLSN {
-				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
-				p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-				p.state.ResetStreams()
+			// if confirmed flush lsn is not same as stored in state
+			if parsed != socket.ConfirmedFlushLSN {
+				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
+				if err := fullLoadAck(); err != nil {
+					return fmt.Errorf("failed to ack lsn for full load: %s", err)
+				}
 			}
 		}
 	}
@@ -72,7 +83,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 }
 
 func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
-	return p.Socket.StreamMessages(ctx, callback)
+	return p.Socket.StreamMessages(ctx, p.client, callback)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {

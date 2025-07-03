@@ -23,12 +23,12 @@ var checkCmd = &cobra.Command{
 		// check for destination config
 		if destinationConfigPath != "not-set" {
 			destinationConfig = &types.WriterConfig{}
-			return utils.UnmarshalFile(destinationConfigPath, destinationConfig)
+			return utils.UnmarshalFile(destinationConfigPath, destinationConfig, true)
 		}
 
 		// check for source config
 		if configPath != "not-set" {
-			return utils.UnmarshalFile(configPath, connector.GetConfigRef())
+			return utils.UnmarshalFile(configPath, connector.GetConfigRef(), true)
 		}
 
 		return nil

@@ -17,6 +17,7 @@ import (
 
 const (
 	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn, pg_current_wal_lsn() as current_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	AdvanceLSNTemplate   = "SELECT * FROM pg_replication_slot_advance('%s', '%s')"
 	noRecordErr          = "no record found"
 )
 
@@ -36,8 +37,8 @@ type Socket struct {
 	changeFilter ChangeFilter
 	// confirmedLSN is the position from which replication should start (Prev marked lsn)
 	ConfirmedFlushLSN pglogrepl.LSN
-	// Current wal position till where sync has to happen
-	currentWalPosition pglogrepl.LSN
+	// wal position at a point of time
+	CurrentWalPosition pglogrepl.LSN
 	// replicationSlot is the name of the PostgreSQL replication slot being used
 	replicationSlot string
 	// initialWaitTime is the duration to wait for initial data before timing out
@@ -100,10 +101,20 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		changeFilter:       NewChangeFilter(typeConverter, config.Tables.Array()...),
 		ConfirmedFlushLSN:  slot.LSN,
 		ClientXLogPos:      slot.LSN,
-		currentWalPosition: slot.CurrentLSN,
+		CurrentWalPosition: slot.CurrentLSN,
 		replicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
 	}, nil
+}
+
+// advanceLSN advances the logical replication position to the current WAL position.
+func (s *Socket) AdvanceLSN(ctx context.Context, db *sqlx.DB) error {
+	// Get replication slot position
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(AdvanceLSNTemplate, s.replicationSlot, s.CurrentWalPosition.String())); err != nil {
+		return fmt.Errorf("failed to advance replication slot: %s", err)
+	}
+	logger.Debugf("advanced LSN to %s", s.CurrentWalPosition.String())
+	return nil
 }
 
 // Confirm that Logs has been recorded
@@ -117,7 +128,7 @@ func (s *Socket) AcknowledgeLSN(ctx context.Context, fakeAck bool) error {
 		WALFlushPosition: walPosition,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to send standby status message: %s", err)
+		return fmt.Errorf("failed to send standby status message on wal position[%s]: %s", walPosition.String(), err)
 	}
 
 	// Update local pointer and state
@@ -125,7 +136,16 @@ func (s *Socket) AcknowledgeLSN(ctx context.Context, fakeAck bool) error {
 	return nil
 }
 
-func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
+func (s *Socket) StreamMessages(ctx context.Context, db *sqlx.DB, callback abstract.CDCMsgFn) error {
+	// update current lsn information
+	var slot ReplicationSlot
+	if err := db.Get(&slot, fmt.Sprintf(ReplicationSlotTempl, s.replicationSlot)); err != nil {
+		return fmt.Errorf("failed to get replication slot: %s", err)
+	}
+
+	// update current wal lsn
+	s.CurrentWalPosition = slot.CurrentLSN
+
 	// Start logical replication with wal2json plugin arguments.
 	var tables []string
 	for key := range s.changeFilter.tables {
@@ -141,7 +161,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 	); err != nil {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
-	logger.Infof("Started logical replication for slot[%s] from lsn[%s] to lsn[%s]", s.replicationSlot, s.ConfirmedFlushLSN, s.currentWalPosition)
+	logger.Infof("Started logical replication for slot[%s] from lsn[%s] to lsn[%s]", s.replicationSlot, s.ConfirmedFlushLSN, s.CurrentWalPosition)
 	messageReceived := false
 	cdcStartTime := time.Now()
 	for {
@@ -154,8 +174,8 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 				return nil
 			}
 
-			if s.ClientXLogPos >= s.currentWalPosition {
-				logger.Infof("finishing sync, reached wal position: %s", s.currentWalPosition)
+			if s.ClientXLogPos >= s.CurrentWalPosition {
+				logger.Infof("finishing sync, reached wal position: %s", s.CurrentWalPosition)
 				return nil
 			}
 
@@ -180,6 +200,7 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %s", err)
 				}
+				s.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
 					logger.Debugf("keep alive message received: %v", pkm)
 					// send fake acknowledgement
@@ -187,7 +208,6 @@ func (s *Socket) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn)
 					if err != nil {
 						return fmt.Errorf("failed to ack lsn: %s", err)
 					}
-					s.ClientXLogPos = pkm.ServerWALEnd
 				}
 			case pglogrepl.XLogDataByteID:
 				// Reset the idle timer on receiving WAL data.
