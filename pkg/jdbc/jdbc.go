@@ -324,6 +324,18 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 		quote := utils.Ternary(driver == "mysql", "`", "\"").(string)
 		quotedColumn := fmt.Sprintf("%s%s%s", quote, cond.Column, quote)
 
+		// Handle unquoted null value
+		if cond.Value == "null" {
+			switch cond.Operator {
+			case "=":
+				return fmt.Sprintf("%s IS NULL", quotedColumn), nil
+			case "!=":
+				return fmt.Sprintf("%s IS NOT NULL", quotedColumn), nil
+			default:
+				return fmt.Sprintf("%s %s NULL", quotedColumn, cond.Operator), nil
+			}
+		}
+
 		// Parse and format value
 		value := cond.Value
 		if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {

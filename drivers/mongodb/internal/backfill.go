@@ -388,20 +388,22 @@ func buildFilter(stream types.StreamInterface) (bson.D, error) {
 		}
 		// TODO: add condition for null values
 		value := func(field, val string) interface{} {
-			if field == "_id" && len(val) == 24 {
-				if oid, err := primitive.ObjectIDFromHex(val); err == nil {
-					return oid
-				}
-			}
-
-			if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
-				return strings.ToLower(val) == "true"
+			// Handle unquoted null
+			if val == "null" {
+				return nil
 			}
 
 			if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
 				val = val[1 : len(val)-1]
 			}
-
+			if field == "_id" && len(val) == 24 {
+				if oid, err := primitive.ObjectIDFromHex(val); err == nil {
+					return oid
+				}
+			}
+			if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
+				return strings.ToLower(val) == "true"
+			}
 			if timeVal, err := typeutils.ReformatDate(val); err == nil {
 				return timeVal
 			}
