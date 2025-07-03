@@ -87,6 +87,7 @@ var syncCmd = &cobra.Command{
 		cdcStreams := []types.StreamInterface{}
 		standardModeStreams := []types.StreamInterface{}
 		cdcStreamsState := []*types.StreamState{}
+		clearStreams := []string{}
 
 		var stateStreamMap = make(map[string]*types.StreamState)
 		for _, stream := range state.Streams {
@@ -94,6 +95,13 @@ var syncCmd = &cobra.Command{
 		}
 		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+
+			if elem.Stream.SyncMode == types.FULLREFRESH {
+				clearStreams = append(clearStreams, elem.ID())
+			} else if clearDestinationFlag && (catalog.SelectedStreams == nil || selected) {
+				clearStreams = append(clearStreams, elem.ID())
+			}
+
 			// Check if the stream is in the selectedStreamMap
 			if !(catalog.SelectedStreams == nil || selected) {
 				logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
@@ -134,7 +142,7 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
-		pool, err := destination.NewWriter(cmd.Context(), destinationConfig, clearDestinationFlag, selectedStreams)
+		pool, err := destination.NewWriter(cmd.Context(), destinationConfig, len(clearStreams) > 0, clearStreams)
 		if err != nil {
 			return err
 		}
