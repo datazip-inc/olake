@@ -24,9 +24,9 @@ var (
 	noSave                bool
 	clearDestinationFlag  bool
 	encryptionKey         string
-	catalog           *types.Catalog
-	state             *types.State
-	destinationConfig *types.WriterConfig
+	catalog               *types.Catalog
+	state                 *types.State
+	destinationConfig     *types.WriterConfig
 
 	commands  = []*cobra.Command{}
 	connector *abstract.AbstractDriver

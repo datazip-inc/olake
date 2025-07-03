@@ -452,7 +452,7 @@ func (p *Parquet) deleteS3PrefixWithWorkerPool(prefix string) error {
 	}
 
 	var allObjectKeys []string
-	err := p.s3Client.ListObjectsV2Pages(listInput, func(page *s3.ListObjectsV2Output, lastPage bool) bool {
+	err := p.s3Client.ListObjectsV2Pages(listInput, func(page *s3.ListObjectsV2Output, _ bool) bool {
 		for _, obj := range page.Contents {
 			allObjectKeys = append(allObjectKeys, *obj.Key)
 		}
