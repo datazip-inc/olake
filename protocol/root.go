@@ -52,7 +52,6 @@ var RootCmd = &cobra.Command{
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
-		logger.Infof("viper.GetBool(\"debug\") → %v", viper.GetBool("debug"))
 		if viper.GetBool("debug") {
 			telemetry.Init()
 		}
