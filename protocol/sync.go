@@ -131,20 +131,10 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
-		var writerOpts []destination.WriterOption
-		if clearDestinationFlag {
-			writerOpts = append(writerOpts, destination.WithClearDestination(selectedStreams))
-		}
-
-		pool, err := destination.NewWriter(cmd.Context(), destinationConfig, writerOpts...)
+		pool, err := destination.NewWriter(cmd.Context(), destinationConfig, clearDestinationFlag, selectedStreams)
 		if err != nil {
 			return err
 		}
-
-		// start monitoring stats
-		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
-			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync()
-		})
 
 		if clearDestinationFlag {
 			logger.Info("Resetting sync state for a fresh start.")
@@ -154,6 +144,11 @@ var syncCmd = &cobra.Command{
 			}
 			logger.Info("Sync state has been reset.")
 		}
+
+		// start monitoring stats
+		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
+			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync()
+		})
 
 		// Setup State for Connector
 		connector.SetupState(state)

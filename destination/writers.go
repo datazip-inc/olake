@@ -67,26 +67,8 @@ func WithBackfill(backfill bool) ThreadOptions {
 	}
 }
 
-func WithClearDestination(selectedStreams []string) WriterOption {
-	return func(adapter Writer) error {
-		if len(selectedStreams) == 0 {
-			logger.Info("No streams selected for clearing, skipping clear operation")
-			return nil
-		}
-
-		logger.Info("Clearing destination for selected streams...")
-
-		if err := adapter.DropStreams(selectedStreams); err != nil {
-			return fmt.Errorf("failed to clear destination: %s", err)
-		}
-
-		logger.Info("Destination cleared successfully.")
-		return nil
-	}
-}
-
 // NewWriter creates a new WriterPool with optional configuration
-func NewWriter(ctx context.Context, config *types.WriterConfig, opts ...WriterOption) (*WriterPool, error) {
+func NewWriter(ctx context.Context, config *types.WriterConfig, clearDestination bool, selectedStreams []string) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -102,6 +84,15 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, opts ...WriterOp
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
+	// Clear destination if flag is set
+	if clearDestination {
+		logger.Info("Clearing destination for selected streams...")
+		if err := adapter.DropStreams(selectedStreams); err != nil {
+			return nil, fmt.Errorf("failed to clear destination: %s", err)
+		}
+		logger.Info("Destination cleared successfully.")
+	}
+
 	group, ctx := errgroup.WithContext(ctx)
 	pool := &WriterPool{
 		totalRecords:  atomic.Int64{},
@@ -112,13 +103,6 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, opts ...WriterOp
 		group:         group,
 		groupCtx:      ctx,
 		tmu:           sync.Mutex{},
-	}
-
-	// Apply all options with the configured adapter
-	for _, opt := range opts {
-		if err := opt(adapter); err != nil {
-			return nil, err
-		}
 	}
 
 	return pool, nil

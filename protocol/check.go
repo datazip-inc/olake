@@ -37,7 +37,7 @@ var checkCmd = &cobra.Command{
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
-				_, err := destination.NewWriter(cmd.Context(), destinationConfig)
+				_, err := destination.NewWriter(cmd.Context(), destinationConfig, false, nil)
 				return err
 			}
 
