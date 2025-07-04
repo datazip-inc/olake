@@ -5,193 +5,18 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
-	"github.com/datazip-inc/olake/destination"
-	"github.com/datazip-inc/olake/destination/iceberg"
-	"github.com/datazip-inc/olake/types"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	testTablePrefix = "test_table_olake"
-	// sparkConnectAddress   = "sc://host.docker.internal:15002"
-	icebergDatabase       = "olake_iceberg"
-	cdcInitializationWait = 2 * time.Second
-	cdcProcessingWait     = 60 * time.Second
+	icebergDatabase  = "olake_iceberg"
+	sparkConnectHost = "localhost"
 )
 
-// TODO: redesign integration tests according to new structure
-var currentTestTable = fmt.Sprintf("%s_%d", testTablePrefix, time.Now().Unix())
-
-type ExecuteQuery func(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string)
-
-// TestSetup tests the driver setup and connection check
-func (a *AbstractDriver) TestSetup(t *testing.T) {
-	t.Helper()
-	require.NoError(t, a.Setup(context.Background()), "Connection check failed")
-}
-
-// TestDiscover tests the discovery of tables
-func (a *AbstractDriver) TestDiscover(t *testing.T, conn interface{}, execQuery ExecuteQuery) {
-	t.Helper()
-	ctx := context.Background()
-
-	// Setup and cleanup test table
-	execQuery(ctx, t, conn, currentTestTable, "create")
-	defer execQuery(ctx, t, conn, currentTestTable, "drop")
-	execQuery(ctx, t, conn, currentTestTable, "clean")
-	execQuery(ctx, t, conn, currentTestTable, "add")
-
-	streams, err := a.Discover(ctx)
-	require.NoError(t, err, "Discover failed")
-	require.NotEmpty(t, streams, "No streams found")
-
-	found := false
-	for _, stream := range streams {
-		if stream.Name == currentTestTable {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "Unable to find test table %s", currentTestTable)
-}
-
-// TestRead tests full refresh and CDC read operations
-func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery ExecuteQuery, _ map[string]string) {
-	t.Helper()
-	ctx := context.Background()
-
-	// Setup table and initial data
-	execQuery(ctx, t, conn, currentTestTable, "create")
-	defer execQuery(ctx, t, conn, currentTestTable, "drop")
-	execQuery(ctx, t, conn, currentTestTable, "clean")
-	execQuery(ctx, t, conn, currentTestTable, "add")
-
-	// Initialize writer pool
-	pool := setupWriterPool(ctx, t)
-
-	// Define test cases
-	testCases := []struct {
-		name          string
-		syncMode      types.SyncMode
-		operation     string
-		expectedCount string
-	}{
-		{
-			name:          "full refresh read",
-			syncMode:      types.FULLREFRESH,
-			operation:     "",
-			expectedCount: "5",
-		},
-		{
-			name:          "cdc read - insert operation",
-			syncMode:      types.CDC,
-			operation:     "insert",
-			expectedCount: "6",
-		},
-		{
-			name:          "cdc read - update operation",
-			syncMode:      types.CDC,
-			operation:     "update",
-			expectedCount: "6",
-		},
-		{
-			name:          "cdc read - delete operation",
-			syncMode:      types.CDC,
-			operation:     "delete",
-			expectedCount: "6",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			testStream := a.getTestStream(t, currentTestTable)
-			configuredStream := &types.ConfiguredStream{Stream: testStream}
-			configuredStream.Stream.SyncMode = tc.syncMode
-			configuredStream.StreamMetadata.Normalization = true
-			if tc.syncMode == types.CDC {
-				// Execute the operation for CDC tests
-				execQuery(ctx, t, conn, currentTestTable, tc.operation)
-
-				// Wait for CDC initialization
-				time.Sleep(cdcInitializationWait)
-
-				require.NoError(t,
-					a.Read(ctx, pool, []types.StreamInterface{}, []types.StreamInterface{configuredStream}),
-					"CDC read operation failed",
-				)
-
-				// Wait for CDC to process
-				time.Sleep(cdcProcessingWait)
-			} else {
-				// Handle full refresh read
-				require.NoError(t,
-					a.Read(ctx, pool, []types.StreamInterface{configuredStream}, []types.StreamInterface{}),
-					"Read operation failed",
-				)
-				time.Sleep(cdcProcessingWait)
-			}
-
-			// VerifyIcebergSync(t, currentTestTable, tc.expectedCount, datatypeSchema)
-		})
-	}
-}
-
-// setupWriterPool initializes and returns a new writer pool
-func setupWriterPool(ctx context.Context, t *testing.T) *destination.WriterPool {
-	t.Helper()
-
-	// Register Parquet writer
-	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
-		return &iceberg.Iceberg{}
-	}
-
-	pool, err := destination.NewWriter(ctx, &types.WriterConfig{
-		Type: "ICEBERG",
-		WriterConfig: map[string]any{
-			"catalog_type":    "jdbc",
-			"jdbc_url":        "jdbc:postgresql://localhost:5432/iceberg",
-			"jdbc_username":   "iceberg",
-			"jdbc_password":   "password",
-			"normalization":   false,
-			"iceberg_s3_path": "s3a://warehouse",
-			"s3_endpoint":     "http://localhost:9000",
-			"s3_use_ssl":      false,
-			"s3_path_style":   true,
-			"aws_access_key":  "admin",
-			"aws_region":      "us-east-1",
-			"aws_secret_key":  "password",
-			"iceberg_db":      icebergDatabase,
-		},
-	})
-	require.NoError(t, err, "Failed to create writer pool")
-
-	return pool
-}
-
-// getTestStream retrieves the test stream by table name
-func (a *AbstractDriver) getTestStream(t *testing.T, tableName string) *types.Stream {
-	t.Helper()
-
-	streams, err := a.Discover(context.Background())
-	require.NoError(t, err, "Discover failed")
-	require.NotEmpty(t, streams, "No streams found")
-
-	for _, stream := range streams {
-		if stream.Name == tableName {
-			return stream
-		}
-	}
-
-	require.Fail(t, "Could not find stream for table %s", tableName)
-	return nil
-}
-
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName string, sparkConnectHost string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol string) {
+func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol string) {
 	t.Helper()
 	ctx := context.Background()
 	sparkConnectAddress := fmt.Sprintf("sc://%s:15002", sparkConnectHost)
@@ -259,7 +84,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, sparkConnectHost string, 
 
 		expectedIceType, mapped := GlobalTypeMapping[dbType]
 		if !mapped {
-			t.Logf("No mapping defined for PostgreSQL type %s (column %s), skipping check", dbType, col)
+			t.Logf("No mapping defined for driver type %s (column %s), skipping check", dbType, col)
 			continue
 		}
 		require.Equal(t, expectedIceType, iceType,
@@ -267,3 +92,5 @@ func VerifyIcebergSync(t *testing.T, tableName string, sparkConnectHost string, 
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
 }
+
+// SELECT * FROM olake_iceberg.olake_iceberg.mysql_test_table_olake;

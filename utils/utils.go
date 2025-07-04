@@ -2,11 +2,14 @@ package utils
 
 import (
 	//nolint:gosec,G115
+	"context"
+	//nolint:gosec
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -18,6 +21,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -368,4 +372,49 @@ func ComputeConfigHash(srcPath, destPath string) string {
 	}
 	sum := sha256.Sum256(append(a, b...))
 	return hex.EncodeToString(sum[:])
+}
+
+// Helper function to execute container commands
+func ExecCommand(
+	ctx context.Context,
+	c testcontainers.Container,
+	cmd string,
+) (int, []byte, error) {
+	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", cmd})
+	if err != nil {
+		return code, nil, err
+	}
+	output, _ := io.ReadAll(reader)
+	return code, output, nil
+}
+
+func SortJSONString(jsonStr string) (string, error) {
+	start := strings.IndexRune(jsonStr, '{')
+	end := strings.LastIndex(jsonStr, "}")
+	if start == -1 || end == -1 || start > end {
+		return "", fmt.Errorf("no valid JSON object found")
+	}
+
+	// 2) Slice out exactly from the first '{' to the last '}'
+	core := jsonStr[start : end+1]
+
+	var data interface{}
+	if err := json.Unmarshal([]byte(core), &data); err != nil {
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	// Convert to compact JSON string (no formatting)
+	compactBytes, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Convert to string and sort characters lexicographically
+	jsonString := string(compactBytes)
+	chars := []rune(jsonString)
+	sort.Slice(chars, func(i, j int) bool {
+		return chars[i] < chars[j]
+	})
+
+	return string(chars), nil
 }

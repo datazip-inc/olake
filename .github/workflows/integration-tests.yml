@@ -20,6 +20,9 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      matrix:
+        driver: [ mysql, postgres ]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -76,12 +79,14 @@ jobs:
       - name: Build Iceberg Sink
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
-
-      # - name: Run MySQL Integration Tests
-      #   run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
-
-      - name: Run PostgreSQL Integration Tests
-        run: go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
+      
+      - name: Run ${{ matrix.driver }} Integration Tests
+        run: |
+          if [ "${{ matrix.driver }}" = "mysql" ]; then
+            go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+          else
+            go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
+          fi
 
       - name: Cleanup
         if: always()

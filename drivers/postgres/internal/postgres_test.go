@@ -2,16 +2,14 @@ package driver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/docker/docker/api/types/container"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -25,7 +23,6 @@ const (
 	destinationConfigPath = "/test-olake/drivers/postgres/internal/testdata/destination.json"
 	statePath             = "/test-olake/drivers/postgres/internal/testdata/state.json"
 	installCmd            = "apt-get update && apt-get install -y openjdk-17-jre-headless maven postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
-	sparkConnectHost      = "localhost"
 )
 
 func TestPostgresIntegration(t *testing.T) {
@@ -60,18 +57,9 @@ func TestPostgresIntegration(t *testing.T) {
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
 							// 1. Install required tools
-							if code, out, err := execCommand(ctx, c, installCmd); err != nil || code != 0 {
+							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
-
-							// Check working directory
-							// code, out, err := c.Exec(ctx, []string{"pwd"})
-							// if err != nil {
-							// 	t.Logf("Failed to get container working directory: %v", err)
-							// } else {
-							// 	outStr, _ := io.ReadAll(out)
-							// 	t.Logf("Container Working Directory: %s", strings.TrimSpace(string(outStr)))
-							// }
 
 							// 2. Create test table and insert data
 							db, err := sqlx.ConnectContext(ctx, "postgres",
@@ -85,7 +73,7 @@ func TestPostgresIntegration(t *testing.T) {
 
 							// 3. Run discover command
 							discoverCmd := fmt.Sprintf("/test-olake/build.sh driver-postgres discover --config %s", sourceConfigPath)
-							if code, out, err := execCommand(ctx, c, discoverCmd); err != nil || code != 0 {
+							if code, out, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("discover failed (%d): %w\n%s", code, err, string(out))
 							}
 
@@ -95,17 +83,17 @@ func TestPostgresIntegration(t *testing.T) {
 								return fmt.Errorf("failed to read expected streams JSON: %w", err)
 							}
 							testStreamsCmd := fmt.Sprintf("cat %s", streamsPath)
-							_, testStreamJSON, err := execCommand(ctx, c, testStreamsCmd)
+							_, testStreamJSON, err := utils.ExecCommand(ctx, c, testStreamsCmd)
 							if err != nil {
 								return fmt.Errorf("failed to read actual streams JSON: %w", err)
 							}
-							t.Logf("testStreamJson: %s", strings.TrimSpace(string(streamsJSON)))
-							expectedStream, err := sortJSONString(strings.TrimSpace(string(streamsJSON)))
+							t.Logf("GeneratedStreamJson: %s", strings.TrimSpace(string(streamsJSON)))
+							expectedStream, err := utils.SortJSONString(strings.TrimSpace(string(streamsJSON)))
 							if err != nil {
 								return fmt.Errorf("failed to sort expected JSON as string: %w", err)
 							}
 							t.Logf("testStreamJson: %s", strings.TrimSpace(string(testStreamJSON)))
-							testStream, err := sortJSONString(strings.TrimSpace(string(testStreamJSON)))
+							testStream, err := utils.SortJSONString(strings.TrimSpace(string(testStreamJSON)))
 							if err != nil {
 								return fmt.Errorf("failed to sort actual JSON as string: %w", err)
 							}
@@ -153,7 +141,7 @@ func TestPostgresIntegration(t *testing.T) {
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
 							// 1. Install required tools
-							if code, out, err := execCommand(ctx, c, installCmd); err != nil || code != 0 {
+							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
 
@@ -171,7 +159,7 @@ func TestPostgresIntegration(t *testing.T) {
 								`jq '.selected_streams.public[] .normalization = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 								streamsPath, streamsPath,
 							)
-							if code, out, err := execCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
+							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json (%d): %w\n%s",
 									code, err, out,
 								)
@@ -226,11 +214,11 @@ func TestPostgresIntegration(t *testing.T) {
 									cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s", sourceConfigPath, streamsPath, destinationConfigPath)
 								}
 
-								if code, out, err := execCommand(ctx, c, cmd); err != nil || code != 0 {
+								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
 									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
 								}
 								t.Logf("Sync successfull")
-								abstract.VerifyIcebergSync(t, currentTestTable, sparkConnectHost, PostgresSchema, schema, opSymbol)
+								abstract.VerifyIcebergSync(t, currentTestTable, PostgresSchema, schema, opSymbol)
 								return nil
 							}
 
@@ -261,49 +249,4 @@ func TestPostgresIntegration(t *testing.T) {
 		defer container.Terminate(ctx)
 	})
 
-}
-
-// Helper function to execute container commands
-func execCommand(
-	ctx context.Context,
-	c testcontainers.Container,
-	cmd string,
-) (int, []byte, error) {
-	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", cmd})
-	if err != nil {
-		return code, nil, err
-	}
-	output, _ := io.ReadAll(reader)
-	return code, output, nil
-}
-
-func sortJSONString(jsonStr string) (string, error) {
-	start := strings.IndexRune(jsonStr, '{')
-	end := strings.LastIndex(jsonStr, "}")
-	if start == -1 || end == -1 || start > end {
-		return "", fmt.Errorf("no valid JSON object found")
-	}
-
-	// 2) Slice out exactly from the first '{' to the last '}'
-	core := jsonStr[start : end+1]
-
-	var data interface{}
-	if err := json.Unmarshal([]byte(core), &data); err != nil {
-		return "", fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	// Convert to compact JSON string (no formatting)
-	compactBytes, err := json.Marshal(data)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	// Convert to string and sort characters lexicographically
-	jsonString := string(compactBytes)
-	chars := []rune(jsonString)
-	sort.Slice(chars, func(i, j int) bool {
-		return chars[i] < chars[j]
-	})
-
-	return string(chars), nil
 }
