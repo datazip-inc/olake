@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/lib/pq"
 )
@@ -88,16 +87,6 @@ type Config struct {
 	//   oneOf=["CDC","StandAlone"]
 	// )
 	UpdateMethod interface{} `json:"update_method"`
-
-	// DefaultSyncMode
-	//
-	// @jsonSchema(
-	//   title="Default Mode",
-	//   description="Default sync mode (CDC - Change Data Capture or Full Refresh)",
-	//   type="string",
-	//   default="cdc"
-	// )
-	DefaultSyncMode types.SyncMode `json:"default_mode"`
 
 	// BatchSize
 	//

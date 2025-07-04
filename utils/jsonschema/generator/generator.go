@@ -318,27 +318,29 @@ func (g *JSONSchemaGenerator) generateObjectSchema(declInfo *declInfo, field *as
 				return nil, err
 			}
 
-			if schemaAnno != nil {
-
-				propName, propIgnore := jsonTagInfo(propField)
-
-				if propIgnore {
-					continue
-				}
-
-				fschema, e := g.generateSchemaForExpr(declInfo, propField.Type, propField, declInfo.defKey)
-
-				if e != nil {
-					err = e
-					break
-				}
-
-				props[propName] = fschema
-
-				if g.fieldIsRequired(propField) {
-					objectSchema.AddRequiredField(propName)
-				}
+			if schemaAnno == nil {
+				continue
 			}
+
+			propName, propIgnore := jsonTagInfo(propField)
+
+			if propIgnore {
+				continue
+			}
+
+			fschema, e := g.generateSchemaForExpr(declInfo, propField.Type, propField, declInfo.defKey)
+
+			if e != nil {
+				err = e
+				break
+			}
+
+			props[propName] = fschema
+
+			if g.fieldIsRequired(propField) {
+				objectSchema.AddRequiredField(propName)
+			}
+
 		}
 	}
 
@@ -377,7 +379,6 @@ func (g *JSONSchemaGenerator) generateSchemaForExpr(ownerDecl *declInfo, fieldEx
 		generatedSchema = simpleDef.schema
 	}
 
-	//
 	if generatedSchema == nil {
 		switch fieldType := fieldExpr.(type) {
 		case *ast.StructType:
@@ -638,7 +639,6 @@ func (g *JSONSchemaGenerator) generateInterfaceSchemaForField(decl *declInfo, fi
 		return nil, err
 	}
 
-	// we do not generate schema for fields without annotations `@jsonSchema`
 	if schemaAnno == nil {
 		return nil, nil
 	}
