@@ -9,7 +9,6 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"golang.org/x/sync/errgroup"
 )
@@ -68,7 +67,7 @@ func WithBackfill(backfill bool) ThreadOptions {
 }
 
 // NewWriter creates a new WriterPool with optional configuration
-func NewWriter(ctx context.Context, config *types.WriterConfig, clearDestination bool, selectedStreams []string) (*WriterPool, error) {
+func NewWriter(ctx context.Context, config *types.WriterConfig, dropStreams []string) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -85,16 +84,14 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, clearDestination
 	}
 
 	// Clear destination if flag is set
-	if clearDestination {
-		logger.Info("Clearing destination for selected streams...")
-		if err := adapter.DropStreams(selectedStreams); err != nil {
+	if dropStreams != nil {
+		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
 			return nil, fmt.Errorf("failed to clear destination: %s", err)
 		}
-		logger.Info("Destination cleared successfully.")
 	}
 
 	group, ctx := errgroup.WithContext(ctx)
-	pool := &WriterPool{
+	return &WriterPool{
 		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
 		ThreadCounter: atomic.Int64{},
@@ -103,9 +100,7 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, clearDestination
 		group:         group,
 		groupCtx:      ctx,
 		tmu:           sync.Mutex{},
-	}
-
-	return pool, nil
+	}, nil
 }
 
 // Initialize new adapter thread for writing into destination

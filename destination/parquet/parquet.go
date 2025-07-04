@@ -368,7 +368,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 	return filepath.Join(p.basePath, strings.TrimSuffix(result, "/"))
 }
 
-func (p *Parquet) DropStreams(selectedStreams []string) error {
+func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) error {
 	if len(selectedStreams) == 0 {
 		logger.Info("No streams selected for clearing, skipping clear operation")
 		return nil
@@ -381,7 +381,7 @@ func (p *Parquet) DropStreams(selectedStreams []string) error {
 			return fmt.Errorf("failed to clear local files: %s", err)
 		}
 	} else {
-		if err := p.clearS3Files(selectedStreams); err != nil {
+		if err := p.clearS3Files(ctx, selectedStreams); err != nil {
 			return fmt.Errorf("failed to clear S3 files: %s", err)
 		}
 	}
@@ -412,13 +412,26 @@ func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
 			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
 		}
 
-		logger.Infof("Successfully cleared local path: %s", streamPath)
+		logger.Debugf("Successfully cleared local path: %s", streamPath)
 	}
 
 	return nil
 }
 
-func (p *Parquet) clearS3Files(selectedStreams []string) error {
+func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) error {
+	deleteS3PrefixStandard := func(prefix string) error {
+		iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
+			Bucket: aws.String(p.config.Bucket),
+			Prefix: aws.String(prefix + "/"),
+		})
+
+		if err := s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter); err != nil {
+			return fmt.Errorf("batch delete failed for prefix %s: %w", prefix, err)
+		}
+
+		return nil
+	}
+
 	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
@@ -428,33 +441,18 @@ func (p *Parquet) clearS3Files(selectedStreams []string) error {
 
 		namespace, streamName := parts[0], parts[1]
 
-		s3Prefix := namespace + "/" + streamName
+		s3TablePath := namespace + "/" + streamName
 		if p.config.Prefix != "" {
-			s3Prefix = p.config.Prefix + "/" + s3Prefix
+			s3TablePath = p.config.Prefix + "/" + s3TablePath
 		}
 
-		logger.Infof("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3Prefix)
+		logger.Debugf("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 
-		if err := p.deleteS3PrefixStandard(s3Prefix); err != nil {
-			return fmt.Errorf("failed to clear S3 prefix %s: %w", s3Prefix, err)
+		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
+			return fmt.Errorf("failed to clear S3 prefix %s: %w", s3TablePath, err)
 		}
 
-		logger.Infof("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3Prefix)
-	}
-
-	return nil
-}
-
-func (p *Parquet) deleteS3PrefixStandard(prefix string) error {
-	ctx := context.Background()
-
-	iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
-		Bucket: aws.String(p.config.Bucket),
-		Prefix: aws.String(prefix + "/"),
-	})
-
-	if err := s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter); err != nil {
-		return fmt.Errorf("batch delete failed for prefix %s: %w", prefix, err)
+		logger.Debugf("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 	}
 
 	return nil

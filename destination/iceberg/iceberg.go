@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -207,35 +206,17 @@ func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ t
 	return nil
 }
 
-func (i *Iceberg) DropStreams(selectedStreams []string) error {
-	if len(selectedStreams) == 0 {
-		logger.Info("No streams selected for clearing, skipping clear operation")
-		return nil
-	}
+func (i *Iceberg) DropStreams(_ context.Context, _ []string) error {
+	logger.Info("iceberg destination not support clear destination, skipping clear operation")
 
-	logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+	// logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
 
-	for _, streamID := range selectedStreams {
-		parts := strings.SplitN(streamID, ".", 2)
-		if len(parts) != 2 {
-			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
-			continue
-		}
+	// TODO: Implement Iceberg table clearing logic
+	// 1. Connect to the Iceberg catalog
+	// 2. Use Iceberg's delete API or drop/recreate the table
+	// 3. Handle any Iceberg-specific cleanup
 
-		namespace, streamName := parts[0], parts[1]
-		tableName := fmt.Sprintf("%s.%s", namespace, streamName)
-
-		logger.Infof("Clearing Iceberg table: %s", tableName)
-
-		// TODO: Implement Iceberg table clearing logic
-		// 1. Connect to the Iceberg catalog
-		// 2. Use Iceberg's delete API or drop/recreate the table
-		// 3. Handle any Iceberg-specific cleanup
-
-		logger.Infof("Successfully cleared Iceberg table: %s", tableName)
-	}
-
-	logger.Info("Successfully cleared Iceberg destination for selected streams")
+	// logger.Info("Successfully cleared Iceberg destination for selected streams")
 	return nil
 }
 
