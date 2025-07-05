@@ -37,6 +37,11 @@ var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		viper.AutomaticEnv()
+		if err := viper.BindEnv("debug", "DEBUG"); err != nil {
+			logger.Errorf("Error in debug flag: %s", err)
+		}
+
 		// set global variables
 		if !noSave {
 			viper.Set(constants.ConfigFolder, utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
@@ -47,7 +52,9 @@ var RootCmd = &cobra.Command{
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
-		telemetry.Init()
+		if viper.GetBool("debug") {
+			telemetry.Init()
+		}
 
 		if len(args) == 0 {
 			return cmd.Help()
