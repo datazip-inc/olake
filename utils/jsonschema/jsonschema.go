@@ -28,15 +28,19 @@ func Reflect(v interface{}) (schema.JSONSchema, error) {
 		typeOf = typeOf.Elem()
 	}
 
+	// TODO: Remove hardcoded values
+	// opts.AutoCreateDefs = !r.inlineDefs
+	// opts.IncludeTests = r.includeTests
+	// opts.SupressXAttrs = r.suppressXAttrs
+
 	opts := generator.NewOptions()
-	opts.AutoCreateDefs = !r.inlineDefs
-	opts.IncludeTests = r.includeTests
-	opts.SupressXAttrs = r.suppressXAttrs
+	opts.AutoCreateDefs = false
+	opts.IncludeTests = false
+	opts.SupressXAttrs = true
 	opts.LogLevel = generator.VerboseLevel
 
 	r.opts = opts
 	r.gen = generator.NewJSONSchemaGenerator(basePackage, typeOf.Name(), opts)
-
 	return r.gen.Generate()
 }
 

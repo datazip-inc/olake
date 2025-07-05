@@ -341,6 +341,7 @@ func (s *basicSchema) GetDefault() interface{} {
 func (s *basicSchema) AddDefinition(key string, def JSONSchema) {
 	s.Definitions[key] = def
 }
+
 func (s *basicSchema) SetSchemaURI(uri string) {
 	s.SchemaURI = uri
 }
