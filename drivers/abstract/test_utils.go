@@ -166,7 +166,7 @@ func setupWriterPool(ctx context.Context, t *testing.T) *destination.WriterPool 
 			"aws_secret_key":  "password",
 			"iceberg_db":      icebergDatabase,
 		},
-	})
+	}, nil)
 	require.NoError(t, err, "Failed to create writer pool")
 
 	return pool

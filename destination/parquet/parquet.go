@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -365,6 +366,96 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 	})
 
 	return filepath.Join(p.basePath, strings.TrimSuffix(result, "/"))
+}
+
+func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) error {
+	if len(selectedStreams) == 0 {
+		logger.Info("No streams selected for clearing, skipping clear operation")
+		return nil
+	}
+
+	logger.Infof("Clearing destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+
+	if p.s3Client == nil {
+		if err := p.clearLocalFiles(selectedStreams); err != nil {
+			return fmt.Errorf("failed to clear local files: %s", err)
+		}
+	} else {
+		if err := p.clearS3Files(ctx, selectedStreams); err != nil {
+			return fmt.Errorf("failed to clear S3 files: %s", err)
+		}
+	}
+
+	logger.Info("Successfully cleared destination for selected streams")
+	return nil
+}
+
+func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
+	for _, streamID := range selectedStreams {
+		parts := strings.SplitN(streamID, ".", 2)
+		if len(parts) != 2 {
+			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			continue
+		}
+
+		namespace, streamName := parts[0], parts[1]
+		streamPath := filepath.Join(p.config.Path, namespace, streamName)
+
+		logger.Infof("Clearing local path: %s", streamPath)
+
+		if _, err := os.Stat(streamPath); os.IsNotExist(err) {
+			logger.Debugf("Local path does not exist, skipping: %s", streamPath)
+			continue
+		}
+
+		if err := os.RemoveAll(streamPath); err != nil {
+			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
+		}
+
+		logger.Debugf("Successfully cleared local path: %s", streamPath)
+	}
+
+	return nil
+}
+
+func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) error {
+	deleteS3PrefixStandard := func(prefix string) error {
+		iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
+			Bucket: aws.String(p.config.Bucket),
+			Prefix: aws.String(prefix + "/"),
+		})
+
+		if err := s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter); err != nil {
+			return fmt.Errorf("batch delete failed for prefix %s: %w", prefix, err)
+		}
+
+		return nil
+	}
+
+	for _, streamID := range selectedStreams {
+		parts := strings.SplitN(streamID, ".", 2)
+		if len(parts) != 2 {
+			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			continue
+		}
+
+		namespace, streamName := parts[0], parts[1]
+
+		s3TablePath := namespace + "/" + streamName
+		if p.config.Prefix != "" {
+			s3TablePath = p.config.Prefix + "/" + s3TablePath
+		}
+
+		logger.Debugf("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
+
+		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
+			return fmt.Errorf("failed to clear S3 prefix %s: %w", s3TablePath, err)
+		}
+
+		logger.Debugf("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
+	}
+
+	return nil
 }
 
 func init() {
