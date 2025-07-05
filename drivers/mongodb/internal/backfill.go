@@ -386,7 +386,6 @@ func buildFilter(stream types.StreamInterface) (bson.D, error) {
 			"=":  "$eq",
 			"!=": "$ne",
 		}
-		// TODO: add condition for null values
 		value := func(field, val string) interface{} {
 			// Handle unquoted null
 			if val == "null" {
