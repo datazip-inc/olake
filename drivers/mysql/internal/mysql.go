@@ -114,7 +114,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %w", err)
+		return nil, fmt.Errorf("failed to query tables: %s", err)
 	}
 	defer rows.Close()
 

@@ -113,7 +113,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				if err == sql.ErrNoRows || nextValRaw == nil {
 					break
 				} else if err != nil {
-					return fmt.Errorf("failed to get next chunk end: %w", err)
+					return fmt.Errorf("failed to get next chunk end: %s", err)
 				}
 				if currentVal != nil && nextValRaw != nil {
 					chunks.Insert(types.Chunk{

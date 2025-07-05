@@ -3,9 +3,12 @@ package protocol
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -17,13 +20,13 @@ var discoverCmd = &cobra.Command{
 			return fmt.Errorf("--config not passed")
 		}
 
-		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
+		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
 
 		if streamsPath != "" {
-			if err := utils.UnmarshalFile(streamsPath, &catalog); err != nil {
-				return fmt.Errorf("failed to read streams from %s: %w", streamsPath, err)
+			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {
+				return fmt.Errorf("failed to read streams from %s: %s", streamsPath, err)
 			}
 		}
 		return nil
@@ -41,8 +44,14 @@ var discoverCmd = &cobra.Command{
 		if len(streams) == 0 {
 			return errors.New("no streams found in connector")
 		}
-
 		types.LogCatalog(streams, catalog)
+
+		// Discover Telemetry Tracking
+		defer func() {
+			telemetry.TrackDiscover(len(streams), connector.Type())
+			logger.Infof("Discover completed, wait 5 seconds cleanup in progress...")
+			time.Sleep(5 * time.Second)
+		}()
 		return nil
 	},
 }
