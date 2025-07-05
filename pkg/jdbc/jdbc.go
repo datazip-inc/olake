@@ -318,7 +318,6 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) err
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition
 func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
-	// TODO: add condition for null values
 	buildCondition := func(cond types.Condition, driver string) (string, error) {
 		// Get column quote style
 		quote := utils.Ternary(driver == "mysql", "`", "\"").(string)
