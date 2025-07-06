@@ -111,6 +111,7 @@ func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Optio
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]FileMetadata)
+	p.config.Prefix = utils.NormalizeS3Prefix(p.config.Prefix)
 
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
@@ -429,9 +430,10 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 		if err := s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter); err != nil {
 			return fmt.Errorf("batch delete failed for prefix %s: %w", prefix, err)
 		}
-
 		return nil
 	}
+
+	normalizedPrefix := utils.NormalizeS3Prefix(p.config.Prefix)
 
 	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
@@ -442,10 +444,8 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 
 		namespace, streamName := parts[0], parts[1]
 
-		s3TablePath := filepath.Join(namespace, streamName)
-		if p.config.Prefix != "" {
-			s3TablePath = filepath.Join(p.config.Prefix, s3TablePath)
-		}
+		s3TablePath := filepath.Join(normalizedPrefix, namespace, streamName)
+		s3TablePath = utils.NormalizeS3Prefix(s3TablePath)
 
 		logger.Debugf("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 
@@ -455,7 +455,6 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 
 		logger.Debugf("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 	}
-
 	return nil
 }
 
