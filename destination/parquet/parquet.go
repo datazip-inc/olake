@@ -441,9 +441,9 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 
 		namespace, streamName := parts[0], parts[1]
 
-		s3TablePath := namespace + "/" + streamName
+		s3TablePath := filepath.Join(namespace, streamName)
 		if p.config.Prefix != "" {
-			s3TablePath = p.config.Prefix + "/" + s3TablePath
+			s3TablePath = filepath.Join(p.config.Prefix, s3TablePath)
 		}
 
 		logger.Debugf("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
