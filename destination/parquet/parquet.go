@@ -255,10 +255,11 @@ func (p *Parquet) Close(ctx context.Context) error {
 				defer file.Close()
 
 				// Construct S3 key path
+				s3KeyPath := basePath
 				if p.config.Prefix != "" {
-					basePath = filepath.Join(p.config.Prefix, basePath)
+					s3KeyPath = filepath.Join(p.config.Prefix, s3KeyPath)
 				}
-				s3KeyPath := filepath.Join(basePath, fileMetadata.fileName)
+				s3KeyPath = filepath.Join(s3KeyPath, fileMetadata.fileName)
 
 				// Upload to S3
 				_, err = p.s3Client.PutObject(&s3.PutObjectInput{
