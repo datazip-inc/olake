@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/lib/pq"
 )
 
 type Config struct {
@@ -168,26 +168,24 @@ func (c *Config) Validate() error {
 
 	// default number of threads
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = 2
+		c.MaxThreads = constants.DefaultThreadCount
 	}
 
-	// construct the connection string
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", url.QueryEscape(c.Username), url.QueryEscape(c.Password), c.Host, c.Port, url.QueryEscape(c.Database))
-	parsed, err := url.Parse(connStr)
-	if err != nil {
-		return fmt.Errorf("failed to parse connection string: %s", err)
+	// Add the connection parameters to the url
+	parsed := &url.URL{
+		Scheme: "postgres",
+		User:   utils.Ternary(c.Password != "", url.UserPassword(c.Username, c.Password), url.User(c.Username)).(*url.Userinfo),
+		Host:   fmt.Sprintf("%s:%d", c.Host, c.Port),
+		Path:   "/" + c.Database,
 	}
 
 	query := parsed.Query()
 
 	// Set additional connection parameters if available
 	if len(c.JDBCURLParams) > 0 {
-		params := ""
 		for k, v := range c.JDBCURLParams {
-			params += fmt.Sprintf("%s=%s ", pq.QuoteIdentifier(k), pq.QuoteLiteral(v))
+			query.Add(k, v)
 		}
-
-		query.Add("options", params)
 	}
 
 	if c.SSLConfiguration == nil {
@@ -201,7 +199,7 @@ func (c *Config) Validate() error {
 		query.Add("sslmode", sslmode)
 	}
 
-	err = c.SSLConfiguration.Validate()
+	err := c.SSLConfiguration.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
@@ -217,7 +215,6 @@ func (c *Config) Validate() error {
 	if c.SSLConfiguration.ClientKey != "" {
 		query.Add("sslkey", c.SSLConfiguration.ClientKey)
 	}
-
 	parsed.RawQuery = query.Encode()
 	c.Connection = parsed
 
