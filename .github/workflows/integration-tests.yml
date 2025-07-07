@@ -77,42 +77,11 @@ jobs:
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
-      - name: Run Integration Tests in Parallel
-        shell: bash
-        run: |
-          # Create log files
-          touch mysql.log postgres.log
-          
-          # Tail logs with prefixing
-          tail -f mysql.log | sed -e 's/^/[MySQL] /' &
-          tail -f postgres.log | sed -e 's/^/[PostgreSQL] /' &
-          
-          # Kill tail processes on exit
-          trap 'kill $(jobs -p)' EXIT
-          
-          # Run tests in background
-          go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0 > mysql.log 2>&1 &
-          MYSQL_PID=$!
-          
-          go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0 > postgres.log 2>&1 &
-          POSTGRES_PID=$!
-          
-          # Wait for completion and capture status
-          wait $MYSQL_PID; MYSQL_STATUS=$?
-          wait $POSTGRES_PID; POSTGRES_STATUS=$?
-          
-          # Check results
-          if [ $MYSQL_STATUS -ne 0 ]; then
-            echo "::error::MySQL tests failed"
-          fi
-          if [ $POSTGRES_STATUS -ne 0 ]; then
-            echo "::error::PostgreSQL tests failed"
-          fi
-          
-          # Final status
-          if [ $MYSQL_STATUS -ne 0 ] || [ $POSTGRES_STATUS -ne 0 ]; then
-            exit 1
-          fi
+      - name: Run MySQL Integration Tests
+        run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
+
+      - name: Run PostgreSQL Integration Tests
+        run: go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
 
       - name: Cleanup
         if: always()
