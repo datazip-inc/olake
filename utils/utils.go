@@ -240,10 +240,6 @@ func TimestampedFileName(extension string) string {
 	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
-func NormalizeS3Prefix(prefix string) string {
-	return strings.Trim(prefix, "/")
-}
-
 func IsJSON(str string) bool {
 	var js json.RawMessage
 	return json.Unmarshal([]byte(str), &js) == nil

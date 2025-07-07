@@ -111,7 +111,6 @@ func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Optio
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]FileMetadata)
-	p.config.Prefix = utils.NormalizeS3Prefix(p.config.Prefix)
 
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
@@ -187,6 +186,8 @@ func (p *Parquet) Check(_ context.Context) error {
 			return fmt.Errorf("failed to write test file to S3: %s", err)
 		}
 		p.config.Path = os.TempDir()
+		// trim '/' from prefix path
+		p.config.Prefix = strings.Trim(p.config.Prefix, "/")
 		logger.Info("s3 writer configuration found")
 	} else if p.config.Path != "" {
 		logger.Infof("local writer configuration found, writing at location[%s]", p.config.Path)
@@ -421,19 +422,17 @@ func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
 }
 
 func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) error {
-	deleteS3PrefixStandard := func(prefix string) error {
+	deleteS3PrefixStandard := func(filtPath string) error {
 		iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
 			Bucket: aws.String(p.config.Bucket),
-			Prefix: aws.String(prefix + "/"),
+			Prefix: aws.String(filtPath),
 		})
 
 		if err := s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter); err != nil {
-			return fmt.Errorf("batch delete failed for prefix %s: %w", prefix, err)
+			return fmt.Errorf("batch delete failed for filtPath %s: %s", filtPath, err)
 		}
 		return nil
 	}
-
-	normalizedPrefix := utils.NormalizeS3Prefix(p.config.Prefix)
 
 	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
@@ -443,14 +442,10 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 		}
 
 		namespace, streamName := parts[0], parts[1]
-
-		s3TablePath := filepath.Join(normalizedPrefix, namespace, streamName)
-		s3TablePath = utils.NormalizeS3Prefix(s3TablePath)
-
+		s3TablePath := filepath.Join(p.config.Prefix, namespace, streamName, "/")
 		logger.Debugf("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
-
 		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
-			return fmt.Errorf("failed to clear S3 prefix %s: %w", s3TablePath, err)
+			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
 		}
 
 		logger.Debugf("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
