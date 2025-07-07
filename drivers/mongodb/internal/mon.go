@@ -125,7 +125,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.INCREMENTAL, types.CDC)
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
@@ -142,6 +142,12 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				stream.WithPrimaryKey(key)
 			}
 		}
+
+		// Add potential cursor fields for incremental sync
+		// We'll discover cursor fields from actual data during schema resolution
+		// Common timestamp fields that can be used as cursors
+		potentialCursorFields := []string{"created_at", "updated_at", "timestamp", "date", "time", "_id"}
+		stream.WithCursorField(potentialCursorFields...)
 
 		// Define find options for fetching documents in ascending and descending order.
 		findOpts := []*options.FindOptions{

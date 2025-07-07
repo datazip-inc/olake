@@ -89,6 +89,7 @@ var syncCmd = &cobra.Command{
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
 		cdcStreams := []types.StreamInterface{}
+		incrementalStreams := []types.StreamInterface{}
 		standardModeStreams := []types.StreamInterface{}
 		cdcStreamsState := []*types.StreamState{}
 
@@ -119,13 +120,17 @@ var syncCmd = &cobra.Command{
 			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
 
-			if elem.Stream.SyncMode == types.CDC || elem.Stream.SyncMode == types.STRICTCDC {
+			switch elem.Stream.SyncMode {
+			case types.CDC, types.STRICTCDC:
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {
 					cdcStreamsState = append(cdcStreamsState, streamState)
 				}
-			} else {
+			case types.INCREMENTAL:
+				incrementalStreams = append(incrementalStreams, elem)
+				logger.Infof("Stream %s configured for incremental sync with cursor field: %s", elem.ID(), elem.Cursor())
+			default:
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
@@ -154,7 +159,7 @@ var syncCmd = &cobra.Command{
 		}()
 
 		// init group
-		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
+		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams, incrementalStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
