@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/docker/docker/api/types/container"
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -21,7 +22,7 @@ const (
 	streamsPath           = "/test-olake/drivers/postgres/internal/testdata/streams.json"
 	destinationConfigPath = "/test-olake/drivers/postgres/internal/testdata/destination.json"
 	statePath             = "/test-olake/drivers/postgres/internal/testdata/state.json"
-	installCmd            = "apt-get update && apt-get install -y openjdk-17-jre-headless maven postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
+	installCmd            = "apt-get update && apt-get install -y openjdk-17-jre-headless maven postgresql postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
 )
 
 func TestPostgresIntegration(t *testing.T) {
