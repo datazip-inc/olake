@@ -31,7 +31,10 @@ type DriverInterface interface {
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
 	//incremental specific
-	IncrementalSync(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error
+	PreIncremental(ctx context.Context, streams ...types.StreamInterface) error            // to init state
+	PostIncremental(ctx context.Context, stream types.StreamInterface, success bool) error // to save state
+	IncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
+
 	// specific to cdc
 	CDCSupported() bool
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state

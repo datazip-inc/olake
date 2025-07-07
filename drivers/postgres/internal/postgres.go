@@ -184,6 +184,9 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		for _, column := range primaryKeyOutput {
 			stream.WithPrimaryKey(column.Name)
 		}
+		for _, column := range columnSchemaOutput {
+			stream.WithCursorField(column.Name)
+		}
 
 		return stream, nil
 	}

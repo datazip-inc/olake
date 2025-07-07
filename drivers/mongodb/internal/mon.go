@@ -24,11 +24,12 @@ const (
 )
 
 type Mongo struct {
-	config     *Config
-	client     *mongo.Client
-	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
-	cdcCursor  sync.Map
-	state      *types.State // reference to globally present state
+	config            *Config
+	client            *mongo.Client
+	CDCSupport        bool // indicates if the MongoDB instance supports Change Streams
+	cdcCursor         sync.Map
+	incrementalCursor sync.Map     // tracks incremental sync cursor state per stream
+	state             *types.State // reference to globally present state
 }
 
 // config reference; must be pointer
@@ -143,12 +144,6 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			}
 		}
 
-		// Add potential cursor fields for incremental sync
-		// We'll discover cursor fields from actual data during schema resolution
-		// Common timestamp fields that can be used as cursors
-		potentialCursorFields := []string{"created_at", "updated_at", "timestamp", "date", "time", "_id"}
-		stream.WithCursorField(potentialCursorFields...)
-
 		// Define find options for fetching documents in ascending and descending order.
 		findOpts := []*options.FindOptions{
 			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
@@ -184,6 +179,23 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
+
+	// Add all discovered fields as potential cursor fields
+	if stream.Schema != nil {
+		stream.Schema.Properties.Range(func(key, value interface{}) bool {
+			if fieldName, ok := key.(string); ok {
+				stream.WithCursorField(fieldName)
+			}
+			return true
+		})
+	}
+
+	// For MongoDB, prioritize '_id' as the default cursor field since it contains timestamp
+	// and is always present in MongoDB collections
+	if stream.AvailableCursorFields.Exists("_id") {
+		stream.CursorField = "_id"
+	}
+
 	return stream, err
 }
 

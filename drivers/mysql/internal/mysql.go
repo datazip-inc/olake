@@ -146,6 +146,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		defer rows.Close()
 
+		columnNames := []string{}
 		for rows.Next() {
 			var columnName, columnType, dataType, isNullable, columnKey string
 			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
@@ -165,7 +166,10 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			if columnKey == "PRI" {
 				stream.WithPrimaryKey(columnName)
 			}
+			columnNames = append(columnNames, columnName)
 		}
+		stream.WithCursorField(columnNames...)
+
 		return stream, rows.Err()
 	}
 	stream, err := produceTableSchema(ctx, streamName)

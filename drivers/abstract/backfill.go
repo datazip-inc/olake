@@ -52,6 +52,16 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
 				if chunksLeft == 0 && backfilledStreams != nil {
+					// Update cursor state if cursor field exists
+					if cursorField := stream.Cursor(); cursorField != "" {
+						cursorVal := chunk.Max
+						if cursorVal == nil {
+							cursorVal = a.state.GetCursor(stream.Self(), cursorField)
+						}
+						if cursorVal != nil {
+							a.state.SetCursor(stream.Self(), cursorField, cursorVal)
+						}
+					}
 					backfilledStreams <- stream.ID()
 				}
 			}

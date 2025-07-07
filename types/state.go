@@ -53,6 +53,7 @@ func (s *State) initStreamState(stream *ConfiguredStream) *StreamState {
 	return &StreamState{
 		Stream:     stream.Name(),
 		Namespace:  stream.Namespace(),
+		SyncMode:   string(stream.GetSyncMode()),
 		State:      sync.Map{},
 		HoldsValue: atomic.Bool{},
 	}

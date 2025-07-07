@@ -33,15 +33,23 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
 	defer cursor.Close(ctx)
+
 	for cursor.Next(ctx) {
 		var doc bson.M
-		if _, err = cursor.Current.LookupErr("_id"); err != nil {
-			return fmt.Errorf("looking up idProperty: %s", err)
-		} else if err = cursor.Decode(&doc); err != nil {
+		if err = cursor.Decode(&doc); err != nil {
 			return fmt.Errorf("backfill decoding document: %s", err)
 		}
+
 		// filter mongo object
 		filterMongoObject(doc)
+
+		// Update cursor state if cursor field exists
+		if cursorField := stream.Cursor(); cursorField != "" {
+			if val, ok := doc[cursorField]; ok {
+				m.state.SetCursor(stream.Self(), cursorField, val)
+			}
+		}
+
 		if err := OnMessage(doc); err != nil {
 			return fmt.Errorf("failed to send message to writer: %s", err)
 		}
