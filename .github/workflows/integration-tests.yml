@@ -73,6 +73,10 @@ jobs:
       - name: Build Project
         run: go build -v ./...
 
+      - name: Build Iceberg Sink
+        working-directory: ./destination/iceberg/olake-iceberg-java-writer
+        run: mvn clean package -DskipTests
+
       - name: Run Integration Tests in Parallel
         shell: bash
         run: |
@@ -109,9 +113,6 @@ jobs:
           if [ $MYSQL_STATUS -ne 0 ] || [ $POSTGRES_STATUS -ne 0 ]; then
             exit 1
           fi
-
-      - name: Run PostgreSQL Integration Tests
-        run: go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
 
       - name: Cleanup
         if: always()
