@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/datazip-inc/olake/constants"
@@ -37,9 +38,11 @@ var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		viper.AutomaticEnv()
-		if err := viper.BindEnv("debug", "DEBUG"); err != nil {
-			logger.Errorf("Error in debug flag: %s", err)
+		debugEnv := os.Getenv("DEBUG")
+		if debugEnv == "true" {
+			viper.Set("debug", true)
+		} else {
+			viper.Set("debug", false)
 		}
 
 		// set global variables

@@ -151,8 +151,7 @@ func TrackSyncCompleted(status bool, records int64) {
 
 func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{}) error {
 	if t.client == nil {
-		logger.Debug("Telemetry client is nil, not sending event:", eventName)
-		return nil
+		return fmt.Errorf("telemetry client is nil")
 	}
 
 	// Add common properties

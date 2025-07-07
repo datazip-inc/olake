@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -86,19 +85,10 @@ func TestMySQLIntegration(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("failed to read actual streams JSON: %w", err)
 							}
-							t.Logf("GeneratedStreamJson: %s", strings.TrimSpace(string(streamsJSON)))
-							expectedStream, err := utils.SortJSONString(strings.TrimSpace(string(streamsJSON)))
-							if err != nil {
-								return fmt.Errorf("failed to sort expected JSON as string: %w", err)
+							if !utils.NormalizedEqual(string(streamsJSON), string(testStreamJSON)) {
+								return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", string(streamsJSON), string(testStreamJSON))
 							}
-							t.Logf("TestStreamJson: %s", strings.TrimSpace(string(testStreamJSON)))
-							testStream, err := utils.SortJSONString(strings.TrimSpace(string(testStreamJSON)))
-							if err != nil {
-								return fmt.Errorf("failed to sort actual JSON as string: %w", err)
-							}
-							if expectedStream != testStream {
-								return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", expectedStream, testStream)
-							}
+							t.Logf("Generated streams validated with test streams")
 
 							// 5. Clean up
 							ExecuteQuery(ctx, t, db, currentTestTable, "drop")
@@ -217,7 +207,7 @@ func TestMySQLIntegration(t *testing.T) {
 									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
 								}
 								t.Logf("Sync successfull")
-								abstract.VerifyIcebergSync(t, currentTestTable, MySQLSchema, schema, opSymbol)
+								abstract.VerifyIcebergSync(t, currentTestTable, MySQLSchema, schema, opSymbol, "mysql")
 								return nil
 							}
 

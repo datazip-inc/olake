@@ -16,7 +16,7 @@ const (
 )
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol string) {
+func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
 	t.Helper()
 	ctx := context.Background()
 	sparkConnectAddress := fmt.Sprintf("sc://%s:15002", sparkConnectHost)
@@ -40,6 +40,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 
 	selectRows, err := selectQueryDf.Collect(ctx)
 	require.NoError(t, err, "Failed to collect data rows from Iceberg")
+	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	// delete row checked
 	if opSymbol == "d" {
@@ -47,8 +48,6 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 		require.Equalf(t, "1", deletedID, "Delete verification failed: expected _olake_id = '1', got %s", deletedID)
 		return
 	}
-
-	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	for rowIdx, row := range selectRows {
 		icebergMap := make(map[string]interface{}, len(schema)+1)
@@ -61,7 +60,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 			require.Equal(t, icebergValue, expected, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
 	}
-	t.Logf("Verified synced data in Iceberg")
+	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
 	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergDatabase, icebergDatabase, tableName)
 	describeDf, err := spark.Sql(ctx, describeQuery)

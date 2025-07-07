@@ -388,33 +388,37 @@ func ExecCommand(
 	return code, output, nil
 }
 
-func SortJSONString(jsonStr string) (string, error) {
-	start := strings.IndexRune(jsonStr, '{')
-	end := strings.LastIndex(jsonStr, "}")
-	if start == -1 || end == -1 || start > end {
-		return "", fmt.Errorf("no valid JSON object found")
+func NormalizedEqual(strune1, strune2 string) bool {
+	normalize := func(s string) (string, error) {
+		// Slice out exactly from the first '{' to the last '}'
+		start := strings.IndexRune(s, '{')
+		end := strings.LastIndex(s, "}")
+		if start < 0 || end < 0 || start > end {
+			return "", fmt.Errorf("no valid JSON object found")
+		}
+		core := s[start : end+1]
+		// remove whitespace
+		core = strings.ReplaceAll(core, " ", "")
+		core = strings.ReplaceAll(core, "\n", "")
+		core = strings.ReplaceAll(core, "\t", "")
+		return core, nil
 	}
 
-	// 2) Slice out exactly from the first '{' to the last '}'
-	core := jsonStr[start : end+1]
-
-	var data interface{}
-	if err := json.Unmarshal([]byte(core), &data); err != nil {
-		return "", fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	// Convert to compact JSON string (no formatting)
-	compactBytes, err := json.Marshal(data)
+	c1, err := normalize(strune1)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal JSON: %w", err)
+		return false
+	}
+	c2, err := normalize(strune2)
+	if err != nil {
+		return false
 	}
 
-	// Convert to string and sort characters lexicographically
-	jsonString := string(compactBytes)
-	chars := []rune(jsonString)
-	sort.Slice(chars, func(i, j int) bool {
-		return chars[i] < chars[j]
-	})
-
-	return string(chars), nil
+	rune1 := []rune(c1)
+	rune2 := []rune(c2)
+	if len(rune1) != len(rune2) {
+		return false
+	}
+	sort.Slice(rune1, func(i, j int) bool { return rune1[i] < rune1[j] })
+	sort.Slice(rune2, func(i, j int) bool { return rune2[i] < rune2[j] })
+	return string(rune1) == string(rune2)
 }
