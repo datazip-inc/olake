@@ -11,16 +11,14 @@ import (
 )
 
 const (
-	icebergDatabase  = "olake_iceberg"
-	sparkConnectHost = "localhost"
+	icebergDatabase     = "olake_iceberg"
+	sparkConnectAddress = "sc://localhost:15002"
 )
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
 func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
 	t.Helper()
 	ctx := context.Background()
-	sparkConnectAddress := fmt.Sprintf("sc://%s:15002", sparkConnectHost)
-
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 	defer func() {
