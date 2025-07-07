@@ -35,5 +35,7 @@ type Writer interface {
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
 	EvolveSchema(bool, bool, map[string]*types.Property, types.Record, time.Time) error
+	// DropStreams is used to clear the destination before re-writing the stream
+	DropStreams(ctx context.Context, selectedStream []string) error
 	Close(ctx context.Context) error
 }
