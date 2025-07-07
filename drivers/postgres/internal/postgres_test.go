@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/docker/docker/api/types/container"
 	"github.com/jmoiron/sqlx"
@@ -90,20 +91,6 @@ func TestPostgresIntegration(t *testing.T) {
 							}
 							t.Logf("Generated streams validated with test streams")
 
-							// expectedStream, err := utils.SortJSONString(strings.TrimSpace(string(streamsJSON)))
-							// if err != nil {
-							// 	return fmt.Errorf("failed to sort expected JSON as string: %w", err)
-							// }
-							// testStream, err := utils.SortJSONString(strings.TrimSpace(string(testStreamJSON)))
-							// if err != nil {
-							// 	return fmt.Errorf("failed to sort actual JSON as string: %w", err)
-							// }
-							// if expectedStream != testStream {
-							// 	return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", expectedStream, testStream)
-							// } else {
-							// 	t.Logf("Generated streams validated with test streams")
-							// }
-
 							// 5. Clean up
 							ExecuteQuery(ctx, t, db, currentTestTable, "drop")
 							t.Logf("Postgres discover test-container clean up")
@@ -123,133 +110,133 @@ func TestPostgresIntegration(t *testing.T) {
 		defer container.Terminate(ctx)
 	})
 
-	// t.Run("Sync", func(t *testing.T) {
-	// 	req := testcontainers.ContainerRequest{
-	// 		Image: "golang:1.23.2",
-	// 		HostConfigModifier: func(hc *container.HostConfig) {
-	// 			hc.Binds = []string{
-	// 				fmt.Sprintf("%s:/test-olake:rw", projectRoot),
-	// 				fmt.Sprintf("%s:/test-olake/drivers/postgres/internal/testdata:rw", testdataDir),
-	// 			}
-	// 			hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
-	// 		},
-	// 		ConfigModifier: func(config *container.Config) {
-	// 			config.WorkingDir = "/test-olake"
-	// 		},
-	// 		Env: map[string]string{
-	// 			"DEBUG": "false",
-	// 		},
-	// 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
-	// 			{
-	// 				PostReadies: []testcontainers.ContainerHook{
-	// 					func(ctx context.Context, c testcontainers.Container) error {
-	// 						// 1. Install required tools
-	// 						if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-	// 							return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
-	// 						}
+	t.Run("Sync", func(t *testing.T) {
+		req := testcontainers.ContainerRequest{
+			Image: "golang:1.23.2",
+			HostConfigModifier: func(hc *container.HostConfig) {
+				hc.Binds = []string{
+					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
+					fmt.Sprintf("%s:/test-olake/drivers/postgres/internal/testdata:rw", testdataDir),
+				}
+				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
+			},
+			ConfigModifier: func(config *container.Config) {
+				config.WorkingDir = "/test-olake"
+			},
+			Env: map[string]string{
+				"DEBUG": "false",
+			},
+			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
+				{
+					PostReadies: []testcontainers.ContainerHook{
+						func(ctx context.Context, c testcontainers.Container) error {
+							// 1. Install required tools
+							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
+								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
+							}
 
-	// 						// 2. Create test table and insert data
-	// 						db, err := sqlx.ConnectContext(ctx, "postgres",
-	// 							"postgres://postgres@localhost:5433/postgres?sslmode=disable",
-	// 						)
-	// 						require.NoError(t, err, "failed to connect to postgres")
-	// 						defer db.Close()
-	// 						ExecuteQuery(ctx, t, db, currentTestTable, "create")
-	// 						ExecuteQuery(ctx, t, db, currentTestTable, "clean")
-	// 						ExecuteQuery(ctx, t, db, currentTestTable, "add")
+							// 2. Create test table and insert data
+							db, err := sqlx.ConnectContext(ctx, "postgres",
+								"postgres://postgres@localhost:5433/postgres?sslmode=disable",
+							)
+							require.NoError(t, err, "failed to connect to postgres")
+							defer db.Close()
+							ExecuteQuery(ctx, t, db, currentTestTable, "create")
+							ExecuteQuery(ctx, t, db, currentTestTable, "clean")
+							ExecuteQuery(ctx, t, db, currentTestTable, "add")
 
-	// 						streamUpdateCmd := fmt.Sprintf(
-	// 							`jq '.selected_streams.public[] .normalization = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
-	// 							streamsPath, streamsPath,
-	// 						)
-	// 						if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
-	// 							return fmt.Errorf("failed to enable normalization in streams.json (%d): %w\n%s",
-	// 								code, err, out,
-	// 							)
-	// 						}
-	// 						t.Logf("Enabled normalization in %s", streamsPath)
+							streamUpdateCmd := fmt.Sprintf(
+								`jq '.selected_streams.public[] .normalization = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
+								streamsPath, streamsPath,
+							)
+							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
+								return fmt.Errorf("failed to enable normalization in streams.json (%d): %w\n%s",
+									code, err, out,
+								)
+							}
+							t.Logf("Enabled normalization in %s", streamsPath)
 
-	// 						testCases := []struct {
-	// 							syncMode    string
-	// 							operation   string
-	// 							useState    bool
-	// 							opSymbol    string
-	// 							dummySchema map[string]interface{}
-	// 						}{
-	// 							{
-	// 								syncMode:    "Full-Refresh",
-	// 								operation:   "",
-	// 								useState:    false,
-	// 								opSymbol:    "r",
-	// 								dummySchema: ExpectedPostgresData,
-	// 							},
-	// 							{
-	// 								syncMode:    "CDC - insert",
-	// 								operation:   "insert",
-	// 								useState:    true,
-	// 								opSymbol:    "c",
-	// 								dummySchema: ExpectedPostgresData,
-	// 							},
-	// 							{
-	// 								syncMode:    "CDC - update",
-	// 								operation:   "update",
-	// 								useState:    true,
-	// 								opSymbol:    "u",
-	// 								dummySchema: ExpectedUpdatedPostgresData,
-	// 							},
-	// 							{
-	// 								syncMode:    "CDC - delete",
-	// 								operation:   "delete",
-	// 								useState:    true,
-	// 								opSymbol:    "d",
-	// 								dummySchema: nil,
-	// 							},
-	// 						}
+							testCases := []struct {
+								syncMode    string
+								operation   string
+								useState    bool
+								opSymbol    string
+								dummySchema map[string]interface{}
+							}{
+								{
+									syncMode:    "Full-Refresh",
+									operation:   "",
+									useState:    false,
+									opSymbol:    "r",
+									dummySchema: ExpectedPostgresData,
+								},
+								{
+									syncMode:    "CDC - insert",
+									operation:   "insert",
+									useState:    true,
+									opSymbol:    "c",
+									dummySchema: ExpectedPostgresData,
+								},
+								{
+									syncMode:    "CDC - update",
+									operation:   "update",
+									useState:    true,
+									opSymbol:    "u",
+									dummySchema: ExpectedUpdatedPostgresData,
+								},
+								{
+									syncMode:    "CDC - delete",
+									operation:   "delete",
+									useState:    true,
+									opSymbol:    "d",
+									dummySchema: nil,
+								},
+							}
 
-	// 						runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
-	// 							var cmd string
-	// 							if useState {
-	// 								if operation != "" {
-	// 									ExecuteQuery(ctx, t, db, currentTestTable, operation)
-	// 								}
-	// 								cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s --state %s", sourceConfigPath, streamsPath, destinationConfigPath, statePath)
-	// 							} else {
-	// 								cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s", sourceConfigPath, streamsPath, destinationConfigPath)
-	// 							}
+							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
+								var cmd string
+								if useState {
+									if operation != "" {
+										ExecuteQuery(ctx, t, db, currentTestTable, operation)
+									}
+									cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s --state %s", sourceConfigPath, streamsPath, destinationConfigPath, statePath)
+								} else {
+									cmd = fmt.Sprintf("/test-olake/build.sh driver-postgres sync --config %s --catalog %s --destination %s", sourceConfigPath, streamsPath, destinationConfigPath)
+								}
 
-	// 							if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
-	// 								return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
-	// 							}
-	// 							t.Logf("Sync successfull")
-	// 							abstract.VerifyIcebergSync(t, currentTestTable, PostgresSchema, schema, opSymbol, "postgres")
-	// 							return nil
-	// 						}
+								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
+									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
+								}
+								t.Logf("Sync successfull")
+								abstract.VerifyIcebergSync(t, currentTestTable, PostgresSchema, schema, opSymbol, "postgres")
+								return nil
+							}
 
-	// 						// 3. Run Sync command and verify records in Iceberg
-	// 						for _, test := range testCases {
-	// 							t.Logf("Running test for: %s", test.syncMode)
-	// 							if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
-	// 								return err
-	// 							}
-	// 						}
+							// 3. Run Sync command and verify records in Iceberg
+							for _, test := range testCases {
+								t.Logf("Running test for: %s", test.syncMode)
+								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
+									return err
+								}
+							}
 
-	// 						// 4. Clean up
-	// 						ExecuteQuery(ctx, t, db, currentTestTable, "drop")
-	// 						t.Logf("Postgres sync test-container clean up")
-	// 						return nil
-	// 					},
-	// 				},
-	// 			},
-	// 		},
-	// 		Cmd: []string{"tail", "-f", "/dev/null"},
-	// 	}
+							// 4. Clean up
+							ExecuteQuery(ctx, t, db, currentTestTable, "drop")
+							t.Logf("Postgres sync test-container clean up")
+							return nil
+						},
+					},
+				},
+			},
+			Cmd: []string{"tail", "-f", "/dev/null"},
+		}
 
-	// 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-	// 		ContainerRequest: req,
-	// 		Started:          true,
-	// 	})
-	// 	require.NoError(t, err, "Container startup failed")
-	// 	defer container.Terminate(ctx)
-	// })
+		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+		require.NoError(t, err, "Container startup failed")
+		defer container.Terminate(ctx)
+	})
 
 }
