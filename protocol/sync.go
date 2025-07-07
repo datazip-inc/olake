@@ -49,7 +49,7 @@ var syncCmd = &cobra.Command{
 		state = &types.State{
 			Type: types.StreamType,
 		}
-		if statePath != "" {
+		if statePath != "" && !clearDestinationFlag {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
@@ -61,12 +61,8 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
-		if err != nil {
-			return err
-		}
 		// setup conector first
-		err = connector.Setup(cmd.Context())
+		err := connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -91,6 +87,7 @@ var syncCmd = &cobra.Command{
 		cdcStreams := []types.StreamInterface{}
 		standardModeStreams := []types.StreamInterface{}
 		cdcStreamsState := []*types.StreamState{}
+		fullLoadStreams := []string{}
 
 		var stateStreamMap = make(map[string]*types.StreamState)
 		for _, stream := range state.Streams {
@@ -126,6 +123,10 @@ var syncCmd = &cobra.Command{
 					cdcStreamsState = append(cdcStreamsState, streamState)
 				}
 			} else {
+				if elem.Stream.SyncMode == types.FULLREFRESH {
+					fullLoadStreams = append(fullLoadStreams, elem.ID())
+				}
+
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
@@ -137,6 +138,12 @@ var syncCmd = &cobra.Command{
 		}
 
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
+
+		fullLoadStreams = utils.Ternary(clearDestinationFlag, selectedStreams, fullLoadStreams).([]string)
+		pool, err := destination.NewWriter(cmd.Context(), destinationConfig, fullLoadStreams)
+		if err != nil {
+			return err
+		}
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
