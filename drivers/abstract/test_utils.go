@@ -91,5 +91,3 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
 }
-
-// SELECT * FROM olake_iceberg.olake_iceberg.mysql_test_table_olake;
