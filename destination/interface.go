@@ -37,6 +37,5 @@ type Writer interface {
 	EvolveSchema(bool, bool, map[string]*types.Property, types.Record, time.Time) error
 	// DropStreams is used to clear the destination before re-writing the stream
 	DropStreams(ctx context.Context, selectedStream []string) error
-	// Clear(ctx context.Context, stream types.StreamInterface, streamMetadata map[string]types.StreamMetadata) error
 	Close(ctx context.Context) error
 }
