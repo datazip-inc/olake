@@ -59,9 +59,8 @@ func (a *AbstractDriver) SetIncrementalCursor(streamID string, val interface{}) 
 }
 
 func (a *AbstractDriver) GetIncrementalCursor(streamID string) (interface{}, bool) {
-	 return a.driver.GetIncrementalCursor(streamID)
+	return a.driver.GetIncrementalCursor(streamID)
 }
-
 
 func (a *AbstractDriver) Type() string {
 	return a.driver.Type()

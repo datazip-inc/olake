@@ -391,7 +391,6 @@ func CompareInterfaceValue(a, b interface{}) int {
 	}
 }
 
-
 func ConvertToString(value interface{}) string {
 	switch v := value.(type) {
 	case []byte:
