@@ -328,35 +328,23 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf(`SELECT cols.column_name FROM all_constraints cons, all_cons_columns cols WHERE cons.constraint_type = 'P' AND cons.constraint_name = cols.constraint_name AND cons.owner = cols.owner AND cons.owner = '%s' AND cols.table_name = '%s'`, schemaName, tableName)
 }
 
-// NextRowIDQuery returns the query to fetch the next max row id
-func NextRowIDQuery(stream types.StreamInterface, currentSCN string, ROWID string, chunkSize int64) string {
-	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q AS OF SCN %s WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), currentSCN, ROWID, chunkSize)
-}
-
 // OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
-func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk) string {
+func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
 	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
+	chunkMax := chunk.Max.(string)
 
-	baseCondition := fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s", stream.Namespace(), stream.Name(), currentSCN)
-
-	if chunk.Min != nil && chunk.Max != nil {
-		chunkMax := strings.Split(chunk.Max.(string), ",")[1]
-		return fmt.Sprintf("%s WHERE ROWID >= '%v' AND ROWID < '%v'", baseCondition, chunkMin, chunkMax)
-	} else if chunk.Min != nil {
-		return fmt.Sprintf("%s WHERE ROWID >= '%v'", baseCondition, chunkMin)
+	filterClause := ""
+	if filter != "" {
+		filterClause = " AND " + filter
 	}
-	return baseCondition
-}
 
-// OracleMinMaxCountQuery returns the query to fetch the min ROWID, max ROWID and number of rows of a table in OracleDB
-func OracleMinMaxCountQuery(stream types.StreamInterface, currentSCN string) string {
-	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId, COUNT(*) AS totalRows FROM %q.%q AS OF SCN %s`, stream.Namespace(), stream.Name(), currentSCN)
+	return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID BETWEEN '%v' AND '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, chunkMax, filterClause)
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
-func OracleTableSizeQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT SUM(bytes) AS size_kb FROM user_segments WHERE segment_name = '%s' AND segment_type = 'TABLE'`, stream.Name())
+func OracleBlockSizeQuery() string {
+	return `SELECT TO_NUMBER(value) FROM v$parameter WHERE name = 'db_block_size'`
 }
 
 // OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
@@ -367,6 +355,32 @@ func OracleCurrentSCNQuery() string {
 // OracleEmptyCheckQuery returns the query to check if a table is empty in OracleDB
 func OracleEmptyCheckQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf("SELECT 1 FROM %q.%q WHERE ROWNUM = 1", stream.Namespace(), stream.Name())
+}
+
+// OracleChunkMakerQuery returns the query to make chunks in OracleDB using DBMS_PARALLEL_EXECUTE
+func OracleChunkMakerQuery(stream types.StreamInterface, blocksPerChunk int64, taskName string) string {
+	return fmt.Sprintf(`BEGIN
+  						DBMS_PARALLEL_EXECUTE.create_task('%s');
+  						DBMS_PARALLEL_EXECUTE.create_chunks_by_rowid(
+    					task_name   => '%s',
+    					table_owner => '%s',
+    					table_name  => '%s',	
+    					by_row      => FALSE,
+    					chunk_size  => %d
+  						);
+						END;`,
+		taskName, taskName, stream.Namespace(), stream.Name(), blocksPerChunk,
+	)
+}
+
+// OracleChunkTaskCleanerQuery returns the query to clean up a chunk task in OracleDB
+func OracleChunkTaskCleanerQuery(taskName string) string {
+	return fmt.Sprintf(`BEGIN DBMS_PARALLEL_EXECUTE.drop_task('%s'); END;`, taskName)
+}
+
+// OracleChunkRetrievalQuery returns the query to retrieve chunks from DBMS_PARALLEL_EXECUTE in OracleDB
+func OracleChunkRetrievalQuery(taskName string) string {
+	return fmt.Sprintf(`SELECT chunk_id, start_rowid, end_rowid FROM user_parallel_execute_chunks WHERE task_name = '%s' ORDER BY chunk_id`, taskName)
 }
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition
