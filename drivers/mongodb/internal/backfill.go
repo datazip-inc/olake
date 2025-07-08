@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
@@ -19,42 +20,51 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (maxCursorVal any, err error) {
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
 	filter, err := buildFilter(stream)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return nil, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter), opts)
+	// Always chunk on _id
+	pipeline := generatePipeline(chunk.Min, chunk.Max, filter)
+
+	// Sort by the incremental cursor field for correct ordering
+	cursorField := stream.Cursor()
+	if cursorField != "" {
+		pipeline = append(pipeline, bson.D{{Key: "$sort", Value: bson.D{{Key: cursorField, Value: 1}}}})
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline, opts)
 	if err != nil {
-		return fmt.Errorf("failed to create cursor: %s", err)
+		return nil, fmt.Errorf("failed to create cursor: %s", err)
 	}
 	defer cursor.Close(ctx)
 
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if err = cursor.Decode(&doc); err != nil {
-			return fmt.Errorf("backfill decoding document: %s", err)
+			return nil, fmt.Errorf("backfill decoding document: %s", err)
 		}
 
-		// filter mongo object
 		filterMongoObject(doc)
 
-		// Update cursor state if cursor field exists
-		if cursorField := stream.Cursor(); cursorField != "" {
-			if val, ok := doc[cursorField]; ok {
-				m.state.SetCursor(stream.Self(), cursorField, val)
+		// Track max value of the *incremental cursor field*
+		if val, ok := doc[cursorField]; ok && val != nil {
+			if maxCursorVal == nil || utils.CompareInterfaceValue(val, maxCursorVal) > 0 {
+				maxCursorVal = val
 			}
 		}
 
 		if err := OnMessage(doc); err != nil {
-			return fmt.Errorf("failed to send message to writer: %s", err)
+			return nil, fmt.Errorf("failed to send message to writer: %s", err)
 		}
 	}
-	return cursor.Err()
+
+	return maxCursorVal, cursor.Err()
 }
 
 func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

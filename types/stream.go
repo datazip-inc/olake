@@ -27,8 +27,10 @@ type Stream struct {
 	AdditionalProperties string `json:"additional_properties,omitempty"`
 	// Renderable JSON Schema for additional properties supported by respective driver for individual stream
 	AdditionalPropertiesSchema schema.JSONSchema `json:"additional_properties_schema,omitempty"`
+	// Cursor field to be used for incremental sync
 	CursorField                string            `json:"cursor_field,omitempty"`
-	SyncMode                   SyncMode          `json:"sync_mode,omitempty"` // Mode being used for syncing data
+	// Mode being used for syncing data
+	SyncMode                   SyncMode          `json:"sync_mode,omitempty"`
 }
 
 func NewStream(name, namespace string) *Stream {

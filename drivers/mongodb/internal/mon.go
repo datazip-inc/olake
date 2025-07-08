@@ -24,12 +24,11 @@ const (
 )
 
 type Mongo struct {
-	config            *Config
-	client            *mongo.Client
-	CDCSupport        bool // indicates if the MongoDB instance supports Change Streams
-	cdcCursor         sync.Map
-	incrementalCursor sync.Map     // tracks incremental sync cursor state per stream
-	state             *types.State // reference to globally present state
+	config     *Config
+	client     *mongo.Client
+	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
+	cursor     sync.Map
+	state      *types.State // reference to globally present state
 }
 
 // config reference; must be pointer
@@ -44,6 +43,17 @@ func (m *Mongo) Spec() any {
 
 func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
+}
+
+func (m *Mongo) SetIncrementalCursor(streamID string, newVal interface{}) {
+	existing, ok := m.cursor.Load(streamID)
+	if !ok || utils.CompareInterfaceValue(newVal, existing) > 0 {
+		m.cursor.Store(streamID, newVal)
+	}
+}
+
+func (m *Mongo) GetIncrementalCursor(streamID string) (interface{}, bool) {
+	return m.cursor.Load(streamID)
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {

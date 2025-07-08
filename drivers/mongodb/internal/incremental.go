@@ -14,58 +14,39 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// PreIncremental initializes cursor state for incremental sync
-func (m *Mongo) PreIncremental(ctx context.Context, streams ...types.StreamInterface) error {
-	for _, stream := range streams {
-		cursorField := stream.Cursor()
-		if cursorField == "" {
-			return fmt.Errorf("cursor field is required for incremental sync")
-		}
-
-		prevCursorValue := m.state.GetCursor(stream.Self(), cursorField)
-		m.incrementalCursor.Store(stream.ID(), prevCursorValue)
-		logger.Infof("PreIncremental: stored cursor value for stream=%s, value=%v", stream.ID(), prevCursorValue)
-	}
-	return nil
-}
-
-// PostIncremental updates state with cursor value
-func (m *Mongo) PostIncremental(ctx context.Context, stream types.StreamInterface, success bool) error {
-	if success {
-		cursorField := stream.Cursor()
-		val, ok := m.incrementalCursor.Load(stream.ID())
-		if ok && val != nil {
-			m.state.SetCursor(stream.Self(), cursorField, val)
-			logger.Infof("PostIncremental: updated state cursor for stream[%s] to %v", stream.ID(), val)
-		} else {
-			logger.Debugf("PostIncremental: no new cursor value found for stream: %s", stream.ID())
-		}
-	}
-	return nil
-}
-
-func (m *Mongo) IncrementalIterator(ctx context.Context, stream types.StreamInterface, lastCursorValue interface{}, processFn abstract.BackfillMsgFn) error {
+func (m *Mongo) IncrementalIterator(
+	ctx context.Context,
+	stream types.StreamInterface,
+	lastCursorValue interface{},
+	processFn abstract.BackfillMsgFn,
+) error {
 	cursorField := stream.Cursor()
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 
 	filter := bson.M{}
 	if lastCursorValue != nil {
+		cursorVal := lastCursorValue
+
+		// Convert string cursor value to correct type
 		switch v := lastCursorValue.(type) {
 		case string:
-			if cursorField == "_id" {
+			switch cursorField {
+			case "_id":
 				oid, err := primitive.ObjectIDFromHex(v)
 				if err != nil {
-					return fmt.Errorf("invalid _id in state: %w", err)
+					return fmt.Errorf("invalid _id hex: %w", err)
 				}
-				filter[cursorField] = bson.M{"$gt": oid}
-			} else {
-				filter[cursorField] = bson.M{"$gt": v}
+				cursorVal = oid
+			case "timestamp":
+				t, err := time.Parse(time.RFC3339, v)
+				if err != nil {
+					return fmt.Errorf("invalid timestamp format: %w", err)
+				}
+				cursorVal = t
 			}
-		case primitive.ObjectID:
-			filter[cursorField] = bson.M{"$gt": v}
-		default:
-			return fmt.Errorf("invalid type for %s cursor: %T", cursorField, v)
 		}
+
+		filter[cursorField] = bson.M{"$gt": cursorVal}
 	}
 
 	findOpts := options.Find().
@@ -73,6 +54,7 @@ func (m *Mongo) IncrementalIterator(ctx context.Context, stream types.StreamInte
 		SetBatchSize(int32(m.config.BatchSize)).
 		SetMaxTime(30 * time.Second)
 
+	// Add hint if index exists on cursor field
 	if cursorField != "_id" {
 		if idxCur, err := collection.Indexes().List(ctx); err == nil {
 			defer idxCur.Close(ctx)
@@ -120,7 +102,7 @@ func (m *Mongo) IncrementalIterator(ctx context.Context, stream types.StreamInte
 	}
 
 	if maxCursor != nil {
-		m.incrementalCursor.Store(stream.ID(), maxCursor)
+		m.cursor.Store(stream.ID(), maxCursor)
 		logger.Infof("Updated incremental cursor for stream[%s] to %v", stream.ID(), maxCursor)
 	}
 

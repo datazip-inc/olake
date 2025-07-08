@@ -61,7 +61,7 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-				// setup conector first
+		// setup conector first
 		err := connector.Setup(cmd.Context())
 		if err != nil {
 			return err
@@ -109,7 +109,11 @@ var syncCmd = &cobra.Command{
 			}
 
 			elem.StreamMetadata = sMetadata
-			elem.CursorField = source.CursorField
+			if sMetadata.CursorField != "" {
+				elem.CursorField = sMetadata.CursorField
+			} else {
+				elem.CursorField = source.CursorField
+			}
 
 			err := elem.Validate(source)
 			if err != nil {
@@ -127,7 +131,6 @@ var syncCmd = &cobra.Command{
 				}
 			case types.INCREMENTAL:
 				incrementalStreams = append(incrementalStreams, elem)
-				logger.Infof("Stream %s configured for incremental sync with cursor field: %s", elem.ID(), elem.Cursor())
 			default:
 				standardModeStreams = append(standardModeStreams, elem)
 			}
