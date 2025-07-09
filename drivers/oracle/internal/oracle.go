@@ -25,10 +25,6 @@ type Oracle struct {
 	CDCSupport bool
 }
 
-const (
-	userTablesQuery = `SELECT USER AS owner, table_name FROM user_tables`
-)
-
 func (o *Oracle) Setup(ctx context.Context) error {
 	err := o.config.Validate()
 	if err != nil {
@@ -91,7 +87,8 @@ func (o *Oracle) MaxRetries() int {
 func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Oracle database")
 	// TODO: Add support for custom schema names
-	rows, err := o.client.QueryContext(ctx, userTablesQuery)
+	query := jdbc.OracleTableDiscoveryQuery()
+	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %s", err)
 	}

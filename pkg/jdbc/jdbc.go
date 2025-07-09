@@ -318,6 +318,11 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) err
 
 // OracleDB Specific Queries
 
+// OracleTableDiscoveryQuery returns the query to fetch the username and table name of all the tables which the current user has access to in OracleDB
+func OracleTableDiscoveryQuery() string {
+	return `SELECT owner, table_name FROM all_tables WHERE owner NOT IN (SELECT username FROM all_users WHERE oracle_maintained = 'Y')`
+}
+
 // OracleTableDetailsQuery returns the query to fetch the details of a table in OracleDB
 func OracleTableDetailsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf("SELECT column_name, data_type, nullable, data_precision, data_scale FROM all_tab_columns WHERE owner = '%s' AND table_name = '%s'", schemaName, tableName)
@@ -349,7 +354,7 @@ func OracleBlockSizeQuery() string {
 
 // OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
 func OracleCurrentSCNQuery() string {
-	return `SELECT CURRENT_SCN FROM V$DATABASE`
+	return `SELECT TO_CHAR(DBMS_FLASHBACK.GET_SYSTEM_CHANGE_NUMBER) AS SCN_STR FROM DUAL`
 }
 
 // OracleEmptyCheckQuery returns the query to check if a table is empty in OracleDB
