@@ -18,10 +18,12 @@ type SpecConfig struct {
 	// @jsonSchema(
 	//   title="Iceberg Database",
 	//   description="Specifies the name of the Iceberg database to be used in the destination",
-	//   type="string"
+	//   type="string",
+	//   required=true
 	// )
 	IcebergDatabase string `json:"iceberg_db,omitempty"`
 
+	// Iceberg S3 Path
 	//
 	// @jsonSchema(
 	//   title="Iceberg S3 Path",
@@ -103,7 +105,8 @@ type JDBCCatalogSpec struct {
 	//   default=true,
 	//   description="Specifies whether path-style access is used for S3; 'true' enables path-style addressing instead of the default virtual-hosted style",
 	//   title="Use Path Style for S3",
-	//   type="boolean"
+	//   type="boolean",
+	//   default=true
 	// )
 	UsePathStyle bool `json:"s3_path_style,omitempty"`
 }
@@ -138,7 +141,8 @@ type HiveCatalogSpec struct {
 	// @jsonSchema(
 	//   title="Enable SASL for Hive",
 	//   description="Indicates if SASL authentication is enabled for the Hive connection; 'false' means SASL is disabled",
-	//   type="boolean"
+	//   type="boolean",
+	//   default=false
 	// )
 	HiveSaslEnabled bool `json:"hive_sasl_enabled,omitempty"`
 
@@ -156,7 +160,8 @@ type HiveCatalogSpec struct {
 	//   default=true,
 	//   description="Specifies whether path-style access is used for S3; 'true' enables path-style addressing instead of the default virtual-hosted style",
 	//   title="Use Path Style for S3",
-	//   type="boolean"
+	//   type="boolean",
+	//   default=true
 	// )
 	UsePathStyle bool `json:"s3_path_style,omitempty"`
 }
@@ -251,6 +256,16 @@ type RestCatalogSpec struct {
 	//   type="string"
 	// )
 	RestCredential string `json:"credential,omitempty"`
+
+	//NoIdentifierFields
+	//
+	// @jsonSchema(
+	//   title="Disable Identifier Table",
+	//   description="Disable creation of Iceberg identifier tables for this catalog, Needed for environments which doesn't support equality deletes based updates (Ex, Databricks unity managed Iceberg tables)",
+	//   type="boolean",
+	//   default=false
+	// )
+	NoIdentifierFields bool `json:"no_identifier_fields,omitempty"`
 }
 
 // Glue catalog configuration

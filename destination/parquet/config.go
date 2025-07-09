@@ -53,7 +53,8 @@ type Config struct {
 	// @jsonSchema(
 	//   title="S3 Path",
 	//   description="Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')",
-	//   type="string"
+	//   type="string",
+	//   required=true
 	// )
 	Prefix string `json:"s3_path,omitempty"`
 }

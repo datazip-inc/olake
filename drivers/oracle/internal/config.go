@@ -41,25 +41,6 @@ type Config struct {
 	// )
 	Password string `json:"password"`
 
-	// ServiceName
-	//
-	// @jsonSchema(
-	//   title="Service Name",
-	//   description="The Oracle database service name to connect to.",
-	//   type="string",
-	//   required=true
-	// )
-	ServiceName string `json:"service_name"`
-
-	// SID
-	//
-	// @jsonSchema(
-	//   title="SID",
-	//   description="The Oracle database SID to connect to.",
-	//   type="string"
-	// )
-	SID string `json:"sid"`
-
 	// Port
 	//
 	// @jsonSchema(
@@ -75,7 +56,8 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Max Threads",
 	//   description="Max parallel threads for chunk snapshotting",
-	//   type="integer"
+	//   type="integer",
+	//   default=3
 	// )
 	MaxThreads int `json:"max_threads"`
 
@@ -84,7 +66,8 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Retry Count",
 	//   description="Number of sync retry attempts using exponential backoff",
-	//   type="integer"
+	//   type="integer",
+	//   default=3
 	// )
 	RetryCount int `json:"backoff_retry_count"`
 
@@ -100,9 +83,53 @@ type Config struct {
 	//
 	// @jsonSchema(
 	//   title="JDBC URL Parameters",
-	//   description="Additional JDBC URL params for connection tuning (optional)"
+	//   description="Additional JDBC URL params for connection tuning (optional)",
+	//   additionalProperties="string"
 	// )
 	JDBCURLParams map[string]string `json:"jdbc_url_params"`
+
+	// ConnectionType
+	//
+	// @jsonSchema(
+	//   title="Connection Type",
+	//   description="Connection type for Oracle database (e.g., SID or Service Name)",
+	//   oneOf=["SID","ServiceName"]
+	// )
+	ConnectionType interface{} `json:"connection_type"`
+}
+
+// SID
+//
+// @jsonSchema(
+//
+//	title="SID"
+//
+// )
+type SID struct {
+	// @jsonSchema(
+	//   title="SID",
+	//   description="The Oracle database SID to connect to",
+	//   type="string",
+	//   required=true
+	// )
+	SID string `json:"sid"`
+}
+
+// ServiceName
+//
+// @jsonSchema(
+//
+//	title="Service Name"
+//
+// )
+type ServiceName struct {
+	// @jsonSchema(
+	//   title="Service Name",
+	//   description="The Oracle database service name to connect to",
+	//   type="string",
+	//   required=true
+	// )
+	ServiceName string `json:"service_name"`
 }
 
 func (c *Config) connectionString() string {
@@ -113,8 +140,8 @@ func (c *Config) connectionString() string {
 	}
 
 	// Add sid if provided
-	if c.SID != "" {
-		urlOptions["sid"] = c.SID
+	if c.ConnectionType == "SID" {
+		urlOptions["sid"] = c.ConnectionType.(SID).SID
 	}
 
 	// Add SSL params if provided
@@ -127,7 +154,7 @@ func (c *Config) connectionString() string {
 		// TODO: Add support for more SSL params
 	}
 
-	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, c.Username, c.Password, urlOptions)
+	return go_ora.BuildUrl(c.Host, c.Port, c.ConnectionType.(ServiceName).ServiceName, c.Username, c.Password, urlOptions)
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -146,7 +173,7 @@ func (c *Config) Validate() error {
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
 	}
-	if c.ServiceName == "" && c.SID == "" {
+	if c.ConnectionType.(SID).SID == "" && c.ConnectionType.(ServiceName).ServiceName == "" {
 		return fmt.Errorf("service_name or sid is required")
 	}
 

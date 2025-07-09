@@ -16,7 +16,6 @@ type Config struct {
 	//   title="Hosts",
 	//   description="Specifies the hostnames or IP addresses of MongoDB for connection",
 	//   type="array",
-	//   default=["host1:27017", "host2:27017"],
 	//	 required=true
 	// )
 	Hosts []string `json:"hosts"`
@@ -27,7 +26,6 @@ type Config struct {
 	//   title="Database Name",
 	//   description="Name of the mongodb database selected for replication",
 	//   type="string",
-	//   default="database",
 	// 	 required="true"
 	// )
 	Database string `json:"database"`
@@ -49,7 +47,6 @@ type Config struct {
 	//   title="Username",
 	//   description="Username for MongoDB authentication",
 	//   type="string",
-	//   default="test",
 	//   required=true
 	// )
 	Username string `json:"username"`
@@ -61,7 +58,6 @@ type Config struct {
 	//   description="MongoDB password",
 	//   type="string",
 	//   format="password",
-	//   default="test",
 	//   required=true
 	// )
 	Password string `json:"password"`
@@ -101,9 +97,9 @@ type Config struct {
 	//   title="Max Threads",
 	//   description="Max parallel threads for chunk snapshotting",
 	//   type="integer",
-	//   default=5
+	//   default=3
 	// )
-	MaxThreads int `json:"max_threads" validate:"required" gt:"0"`
+	MaxThreads int `json:"max_threads"`
 
 	// RetryCount
 	//
@@ -111,16 +107,18 @@ type Config struct {
 	//   title="Retry Count",
 	//   description="Number of sync retry attempts using exponential backoff",
 	//   type="integer",
-	//   default=2
+	//   default=3
 	// )
 	RetryCount int `json:"backoff_retry_count"`
 
 	// ChunkingStrategy
 	//
-	// @jsonSchema(
+	// @jsonschema(
 	//   title="Chunking Strategy",
 	//   description="Chunking strategy (timestamp, uses split vector strategy if the field is left empty)",
-	//   type="string"
+	//   type="string",
+	//   enum=["Split Vector", "Timestamp"],
+	//   default="Split Vector"
 	// )
 	ChunkingStrategy string `json:"chunking_strategy"`
 

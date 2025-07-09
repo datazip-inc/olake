@@ -17,10 +17,9 @@ type Config struct {
 	//   title="MySQL Host",
 	//   description="Database host addresses for connection",
 	//   type="string",
-	//   default="mysql-host",
 	//   required=true
 	// )
-	Host string `json:"hosts"`
+	Host string `json:"host"`
 
 	// Username
 	//
@@ -28,7 +27,6 @@ type Config struct {
 	//   title="Username",
 	//   description="Username used to authenticate with the database",
 	//   type="string",
-	//   default="mysql-user",
 	//   required=true
 	// )
 	Username string `json:"username"`
@@ -40,7 +38,6 @@ type Config struct {
 	//   description="Password for database authentication",
 	//   type="string",
 	//   format="password",
-	//   default="mysql-password",
 	//   required=true
 	// )
 	Password string `json:"password"`
@@ -51,7 +48,6 @@ type Config struct {
 	//   title="Database",
 	//   description="Name of the database to use for connection",
 	//   type="string",
-	//   default="mysql-database",
 	//   required=true
 	// )
 	Database string `json:"database"`
@@ -62,7 +58,6 @@ type Config struct {
 	//   title="Port",
 	//   description="Database server listening port",
 	//   type="integer",
-	//   default=3306,
 	//   required=true
 	// )
 	Port int `json:"port"`
@@ -82,7 +77,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Update Method",
 	//   description="Method to use for updates",
-	//   oneOf=["CDC","StandAlone"]
+	//   oneOf=["CDC","FullRefresh"]
 	// )
 	UpdateMethod interface{} `json:"update_method"`
 
@@ -92,7 +87,7 @@ type Config struct {
 	//   title="Max Threads",
 	//   description="Maximum concurrent threads for data sync",
 	//   type="integer",
-	//   default=5
+	//   default=3
 	// )
 	MaxThreads int `json:"max_threads"`
 
@@ -102,7 +97,7 @@ type Config struct {
 	//   title="Backoff Retry Count",
 	//   description="Number of sync retries (exponential backoff on failure)",
 	//   type="integer",
-	//   default=2
+	//   default=3
 	// )
 	RetryCount int `json:"backoff_retry_count"`
 }
@@ -112,7 +107,8 @@ type Config struct {
 // @jsonSchema(
 //
 //	title="CDC",
-//	description="Change Data Capture configuration"
+//	description="Change Data Capture configuration",
+//	additionalProperties=false
 //
 // )
 type CDC struct {
@@ -122,19 +118,21 @@ type CDC struct {
 	//   title="Initial Wait Time",
 	//   description="Idle timeout for Bin log reading",
 	//   type="integer",
-	//   default=10
+	//   default=120,
+	//   required=true
 	// )
-	InitialWaitTime int `json:"intial_wait_time"`
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
-// StandAlone represents the full refresh configuration
+// FullRefresh represents the full refresh configuration
 //
 // @jsonSchema(
 //
-//	title="Stand alone"
+//	title="Full Refresh",
+//	additionalProperties=false
 //
 // )
-type StandAlone struct{}
+type FullRefresh struct{}
 
 // URI generates the connection URI for the MySQL database
 func (c *Config) URI() string {

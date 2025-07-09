@@ -28,7 +28,6 @@ type Config struct {
 	//   title="Postgres Port",
 	//   description="Database server listening port",
 	//   type="integer",
-	//   default=5432,
 	//   required=true
 	// )
 	Port int `json:"port"`
@@ -69,7 +68,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="JDBC URL Parameters",
 	//   description="Additional JDBC URL parameters for connection tuning (optional)",
-	//   type="string"
+	//   additionalProperties="string"
 	// )
 	JDBCURLParams map[string]string `json:"jdbc_url_params"`
 
@@ -84,7 +83,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Update Method",
 	//   description="Method to use for updates (CDC - Change Data Capture or Full Refresh)",
-	//   oneOf=["CDC","StandAlone"]
+	//   oneOf=["CDC","FullRefresh"]
 	// )
 	UpdateMethod interface{} `json:"update_method"`
 
@@ -104,9 +103,18 @@ type Config struct {
 	//   title="Max Threads",
 	//   description="Max parallel threads for chunk snapshotting",
 	//   type="integer",
-	//   default=5
+	//   default=3
 	// )
 	MaxThreads int `json:"max_threads"`
+
+	// RetryCount
+	//
+	// @jsonSchema(
+	//   title="Retry Count",
+	//   description="Number of sync retry attempts using exponential backoff",
+	//   type="integer",
+	//   default=3
+	// )
 	RetryCount int `json:"retry_count"`
 }
 
@@ -115,7 +123,8 @@ type Config struct {
 // @jsonSchema(
 //
 //	title="CDC",
-//	description="Change Data Capture configuration"
+//	description="Change Data Capture configuration",
+//	additionalProperties=false
 //
 // )
 type CDC struct {
@@ -125,6 +134,7 @@ type CDC struct {
 	// title="Replication Slot",
 	// description="Slot to retain WAL logs for consistent replication",
 	// type="string",
+	// required=true,
 	// default="postgres_slot"
 	// )
 	ReplicationSlot string `json:"replication_slot"`
@@ -135,19 +145,21 @@ type CDC struct {
 	//   title="Initial Wait Time",
 	//   description="Idle timeout for WAL log reading",
 	//   type="integer",
-	//   default=10
+	//   default=120,
+	//   required=true
 	// )
-	InitialWaitTime int `json:"intial_wait_time"`
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
-// StandAlone represents the full refresh configuration
+// FullRefresh represents the full refresh configuration
 //
 // @jsonSchema(
 //
-//	title="Stand alone"
+//	title="Full Refresh",
+//	additionalProperties=false
 //
 // )
-type StandAlone struct{}
+type FullRefresh struct{}
 
 func (c *Config) Validate() error {
 	if c.Host == "" {

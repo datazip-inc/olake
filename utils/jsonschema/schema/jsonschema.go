@@ -3,6 +3,7 @@ package schema
 import (
 	"strings"
 
+	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 )
 
@@ -379,8 +380,12 @@ func (s *basicSchema) SetNot(not JSONSchema) {
 }
 
 func (s *basicSchema) SetDefault(def string) error {
-	s.DefaultValue = def
-
+	// boolean defaults to boolean values and not string
+	if s.JSONType != nil && s.JSONType.String == "boolean" {
+		s.DefaultValue = utils.Ternary(def == "true", true, false)
+	} else {
+		s.DefaultValue = def
+	}
 	return nil
 }
 
