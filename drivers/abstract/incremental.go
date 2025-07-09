@@ -23,7 +23,7 @@ func (a *AbstractDriver) RunIncrementalSync(ctx context.Context, pool *destinati
 		}
 
 		prevCursor := a.state.GetCursor(stream.Self(), cursorField)
-		a.driver.SetIncrementalCursor(stream.ID(), prevCursor)
+		a.state.SetCursor(stream.Self(), cursorField, prevCursor)
 		logger.Infof("Incremental: loaded cursor for stream[%s] = %v", stream.ID(), prevCursor)
 
 		if prevCursor == nil {
@@ -75,7 +75,7 @@ func (a *AbstractDriver) RunIncrementalSync(ctx context.Context, pool *destinati
 					}
 				}()
 
-				RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+				_ = RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 					innerCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 					defer cancel()
 

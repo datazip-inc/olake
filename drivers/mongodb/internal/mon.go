@@ -45,17 +45,6 @@ func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
 }
 
-func (m *Mongo) SetIncrementalCursor(streamID string, newVal interface{}) {
-	existing, ok := m.cursor.Load(streamID)
-	if !ok || utils.CompareInterfaceValue(newVal, existing) > 0 {
-		m.cursor.Store(streamID, newVal)
-	}
-}
-
-func (m *Mongo) GetIncrementalCursor(streamID string) (interface{}, bool) {
-	return m.cursor.Load(streamID)
-}
-
 func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 	opts.ApplyURI(m.config.URI())

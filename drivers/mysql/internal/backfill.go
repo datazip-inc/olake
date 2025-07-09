@@ -17,13 +17,12 @@ import (
 
 const chunkSize int64 = 500000 // Default chunk size for MySQL
 
-func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (any, error) {
 	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return nil, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
-	// Begin transaction with repeatable read isolation
-	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+	err = jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 		// Build query for the chunk
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
@@ -51,6 +50,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			return OnMessage(record)
 		})
 	})
+	return nil, err
 }
 
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

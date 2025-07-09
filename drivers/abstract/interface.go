@@ -31,8 +31,6 @@ type DriverInterface interface {
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) (any, error)
 	//incremental specific
-	SetIncrementalCursor(streamID string, val interface{})
-	GetIncrementalCursor(streamID string) (interface{}, bool)
 	IncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
 
 	// specific to cdc

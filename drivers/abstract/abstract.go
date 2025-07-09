@@ -54,14 +54,6 @@ func (a *AbstractDriver) Spec() any {
 	return a.driver.Spec()
 }
 
-func (a *AbstractDriver) SetIncrementalCursor(streamID string, val interface{}) {
-	a.driver.SetIncrementalCursor(streamID, val)
-}
-
-func (a *AbstractDriver) GetIncrementalCursor(streamID string) (interface{}, bool) {
-	return a.driver.GetIncrementalCursor(streamID)
-}
-
 func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
