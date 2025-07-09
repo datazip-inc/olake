@@ -15,12 +15,12 @@ import (
 )
 
 // ChunkIterator implements the abstract.DriverInterface
-func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (any, error) {
+func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	//TODO: Verify the requirement of Transaction in Oracle Sync and remove if not required
 	// Begin transaction with default isolation
 	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %s", err)
+		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer tx.Rollback()
 
@@ -31,14 +31,13 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 		return tx.QueryContext(ctx, query)
 	})
 
-	err = setter.Capture(func(rows *sql.Rows) error {
+	return setter.Capture(func(rows *sql.Rows) error {
 		record := make(types.Record)
 		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
 		return OnMessage(record)
 	})
-	return nil, err
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

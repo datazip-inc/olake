@@ -29,10 +29,9 @@ type DriverInterface interface {
 	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
-	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) (any, error)
+	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
 	//incremental specific
-	IncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
-
+	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state

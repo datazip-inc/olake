@@ -45,7 +45,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
-		m.cursor.Store(stream.ID(), prevResumeToken)
+		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
 	return nil
 }
@@ -59,7 +59,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	resumeToken, ok := m.cursor.Load(stream.ID())
+	resumeToken, ok := m.cdcCursor.Load(stream.ID())
 	if !ok {
 		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
 	}
@@ -93,7 +93,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 			Data:      record.FullDocument,
 			Kind:      record.OperationType,
 		}
-		m.cursor.Store(stream.ID(), cursor.ResumeToken().Lookup(cdcCursorField).StringValue())
+		m.cdcCursor.Store(stream.ID(), cursor.ResumeToken().Lookup(cdcCursorField).StringValue())
 		if err := OnMessage(change); err != nil {
 			return fmt.Errorf("failed to process message: %s", err)
 		}
@@ -103,7 +103,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 
 func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
 	if noErr {
-		val, ok := m.cursor.Load(stream.ID())
+		val, ok := m.cdcCursor.Load(stream.ID())
 		if ok {
 			m.state.SetCursor(stream.Self(), cdcCursorField, val)
 		} else {

@@ -18,7 +18,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -297,6 +296,7 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 
 // return 0 for equal, -1 if a < b else 1 if a>b
 func CompareInterfaceValue(a, b interface{}) int {
+	// Handle nil cases first
 	if a == nil && b == nil {
 		return 0
 	}
@@ -308,75 +308,7 @@ func CompareInterfaceValue(a, b interface{}) int {
 	}
 
 	switch aVal := a.(type) {
-
-	case time.Time:
-		switch bVal := b.(type) {
-		case time.Time:
-			if aVal.Before(bVal) {
-				return -1
-			} else if aVal.After(bVal) {
-				return 1
-			}
-			return 0
-		case primitive.DateTime:
-			bt := bVal.Time()
-			if aVal.Before(bt) {
-				return -1
-			} else if aVal.After(bt) {
-				return 1
-			}
-			return 0
-		default:
-			return 1
-		}
-
-	case primitive.DateTime:
-		at := aVal.Time()
-		switch bVal := b.(type) {
-		case time.Time:
-			if at.Before(bVal) {
-				return -1
-			} else if at.After(bVal) {
-				return 1
-			}
-			return 0
-		case primitive.DateTime:
-			bt := bVal.Time()
-			if at.Before(bt) {
-				return -1
-			} else if at.After(bt) {
-				return 1
-			}
-			return 0
-		default:
-			return 1
-		}
-
-	case primitive.ObjectID:
-		bOID, ok := b.(primitive.ObjectID)
-		if !ok {
-			return 1
-		}
-		if aVal.Timestamp().Before(bOID.Timestamp()) {
-			return -1
-		} else if aVal.Timestamp().After(bOID.Timestamp()) {
-			return 1
-		}
-		return 0
-
-	case string:
-		return strings.Compare(aVal, b.(string))
-
-	case bool:
-		bBool := b.(bool)
-		if !aVal && bBool {
-			return -1
-		} else if aVal && !bBool {
-			return 1
-		}
-		return 0
-
-	case int, int64, float32, float64:
+	case uint, uint32, uint64, int, int32, int64, float32, float64:
 		af := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
 		bf := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
 		if af < bf {
@@ -385,8 +317,27 @@ func CompareInterfaceValue(a, b interface{}) int {
 			return 1
 		}
 		return 0
-
+	case string:
+		return strings.Compare(aVal, b.(string))
+	case time.Time:
+		bTime := b.(time.Time)
+		if aVal.Before(bTime) {
+			return -1
+		} else if aVal.After(bTime) {
+			return 1
+		}
+		return 0
+	case bool:
+		bBool := b.(bool)
+		// false < true
+		if !aVal && bBool {
+			return -1
+		} else if aVal && !bBool {
+			return 1
+		}
+		return 0
 	default:
+		// For any other types, convert to string for comparison
 		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 	}
 }

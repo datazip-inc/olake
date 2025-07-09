@@ -87,7 +87,7 @@ var syncCmd = &cobra.Command{
 		cdcStreams := []types.StreamInterface{}
 		incrementalStreams := []types.StreamInterface{}
 		standardModeStreams := []types.StreamInterface{}
-		cdcStreamsState := []*types.StreamState{}
+		newStreamsState := []*types.StreamState{}
 		fullLoadStreams := []string{}
 
 		var stateStreamMap = make(map[string]*types.StreamState)
@@ -109,11 +109,6 @@ var syncCmd = &cobra.Command{
 			}
 
 			elem.StreamMetadata = sMetadata
-			if sMetadata.CursorField != "" {
-				elem.CursorField = sMetadata.CursorField
-			} else {
-				elem.CursorField = source.CursorField
-			}
 
 			err := elem.Validate(source)
 			if err != nil {
@@ -127,16 +122,21 @@ var syncCmd = &cobra.Command{
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {
-					cdcStreamsState = append(cdcStreamsState, streamState)
+					newStreamsState = append(newStreamsState, streamState)
 				}
 			case types.INCREMENTAL:
 				incrementalStreams = append(incrementalStreams, elem)
+				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+				if exists {
+					newStreamsState = append(newStreamsState, streamState)
+				}
 			default:
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
 			return false
 		})
+		state.Streams = newStreamsState
 		if len(selectedStreams) == 0 {
 			return fmt.Errorf("no valid streams found in catalog")
 		}

@@ -44,7 +44,6 @@ type StreamMetadata struct {
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization" default:"false"`
 	Filter         string `json:"filter,omitempty"`
-	CursorField    string `json:"cursor_field,omitempty"`
 }
 
 // ConfiguredCatalog is a dto for formatted airbyte catalog serialization

@@ -8,17 +8,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-// PreIncremental is not supported for Oracle
-func (o *Oracle) PreIncremental(ctx context.Context, streams ...types.StreamInterface) error {
-	return fmt.Errorf("incremental sync is not supported for Oracle driver")
-}
-
-// PostIncremental is not supported for Oracle
-func (o *Oracle) PostIncremental(ctx context.Context, stream types.StreamInterface, success bool) error {
-	return fmt.Errorf("incremental sync is not supported for Oracle driver")
-}
-
 // IncrementalChanges is not supported for Oracle
-func (o *Oracle) IncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
+func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
 	return fmt.Errorf("incremental sync is not supported for Oracle driver")
 }

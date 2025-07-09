@@ -27,7 +27,7 @@ type Mongo struct {
 	config     *Config
 	client     *mongo.Client
 	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
-	cursor     sync.Map
+	cdcCursor  sync.Map
 	state      *types.State // reference to globally present state
 }
 
@@ -180,21 +180,12 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	}
 
 	// Add all discovered fields as potential cursor fields
-	if stream.Schema != nil {
-		stream.Schema.Properties.Range(func(key, value interface{}) bool {
-			if fieldName, ok := key.(string); ok {
-				stream.WithCursorField(fieldName)
-			}
-			return true
-		})
-	}
-
-	// For MongoDB, prioritize '_id' as the default cursor field since it contains timestamp
-	// and is always present in MongoDB collections
-	if stream.AvailableCursorFields.Exists("_id") {
-		stream.CursorField = "_id"
-	}
-
+	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+		if fieldName, ok := key.(string); ok {
+			stream.WithCursorField(fieldName)
+		}
+		return true
+	})
 	return stream, err
 }
 

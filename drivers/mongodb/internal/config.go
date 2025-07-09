@@ -22,7 +22,6 @@ type Config struct {
 	Database         string   `json:"database"`
 	RetryCount       int      `json:"backoff_retry_count"`
 	ChunkingStrategy string   `json:"chunking_strategy"`
-	BatchSize        int      `json:"reader_batch_size"`
 }
 
 func (c *Config) URI() string {
@@ -64,10 +63,5 @@ func (c *Config) URI() string {
 
 // TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
-	// Set default batch size if not provided
-	if c.BatchSize <= 0 {
-		c.BatchSize = 10000 // default batch size
-	}
-
 	return utils.Validate(c)
 }

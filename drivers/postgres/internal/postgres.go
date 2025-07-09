@@ -176,7 +176,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				logger.Debugf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
 				datatype = types.String
 			}
-			stream.WithCursorField(column.Name)
+
 			stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
 		}
 

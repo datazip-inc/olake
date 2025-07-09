@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -12,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
@@ -22,9 +22,9 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		if err != nil {
 			return fmt.Errorf("failed to get or split chunks: %s", err)
 		}
+		// set state chunks
 		a.state.SetChunks(stream.Self(), chunksSet)
 	}
-
 	chunks := chunksSet.Array()
 	if len(chunks) == 0 {
 		if backfilledStreams != nil {
@@ -33,69 +33,56 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		return nil
 	}
 
+	// Sort chunks by their minimum value
 	sort.Slice(chunks, func(i, j int) bool {
 		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
 	})
-
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
-	cursorField := stream.Cursor()
-
-	var (
-		finalMaxCursor     any
-		chunkMaxCursorLock sync.Mutex
-	)
-
+	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
+		var maxCursorValue any // required for incremental
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
-
 		defer func() {
 			inserter.Close()
-
+			// wait for chunk completion
 			if writerErr := <-errorChannel; writerErr != nil {
 				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
+			}
+
+			// check for panics before saving state
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic recovered in backfill: %v, prev error: %s", r, err)
 			}
 
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
-
-				if chunksLeft == 0 && a.state.HasCompletedBackfill(stream.Self()) {
-					cursorField := stream.Cursor()
-					a.state.SetCursor(stream.Self(), cursorField, finalMaxCursor)
-					logger.Infof("Final backfill cursor locked in for stream[%s] = %v", stream.ID(), finalMaxCursor)
-				}
-
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
+
+				// if it is incremental update the max cursor value received in chunk
+				if stream.GetSyncMode() == types.INCREMENTAL && maxCursorValue != nil {
+					prevCursor := a.state.GetCursor(stream.Self(), stream.Cursor())
+					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
+						a.state.SetCursor(stream.Self(), stream.Cursor(), maxCursorValue)
+					}
+				}
 			}
 		}()
-
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			maxCursorVal, err := a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+				// if incremental enabled check cursor value
+				if stream.GetSyncMode() == types.INCREMENTAL {
+					cursorVal := data[stream.Cursor()]
+					maxCursorValue = utils.Ternary(typeutils.Compare(cursorVal, maxCursorValue) == 1, cursorVal, maxCursorValue)
+				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
 			})
-			if err != nil {
-				return err
-			}
-			if cursorField != "" && maxCursorVal != nil {
-				chunkMaxCursorLock.Lock()
-				if finalMaxCursor == nil || utils.CompareInterfaceValue(maxCursorVal, finalMaxCursor) > 0 {
-					finalMaxCursor = maxCursorVal
-				}
-				chunkMaxCursorLock.Unlock()
-			}
-			return nil
 		})
 	}
-
 	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)
-
-	// Wait for all concurrent operations to complete
-	if err := a.GlobalConnGroup.Block(); err != nil {
-		return fmt.Errorf("error occurred while waiting for connection group: %s", err)
-	}
 	return nil
 }
