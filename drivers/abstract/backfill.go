@@ -59,6 +59,13 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+
+				if chunksLeft == 0 && a.state.HasCompletedBackfill(stream.Self()) {
+					cursorField := stream.Cursor()
+					a.state.SetCursor(stream.Self(), cursorField, finalMaxCursor)
+					logger.Infof("Final backfill cursor locked in for stream[%s] = %v", stream.ID(), finalMaxCursor)
+				}
+
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
@@ -73,8 +80,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			if err != nil {
 				return err
 			}
-
-			a.driver.SetIncrementalCursor(stream.ID(), maxCursorVal)
 			if cursorField != "" && maxCursorVal != nil {
 				chunkMaxCursorLock.Lock()
 				if finalMaxCursor == nil || utils.CompareInterfaceValue(maxCursorVal, finalMaxCursor) > 0 {
@@ -92,12 +97,5 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	if err := a.GlobalConnGroup.Block(); err != nil {
 		return fmt.Errorf("error occurred while waiting for connection group: %s", err)
 	}
-
-	if cursorField != "" && finalMaxCursor != nil {
-		a.driver.SetIncrementalCursor(stream.ID(), finalMaxCursor)
-		a.state.SetCursor(stream.Self(), cursorField, finalMaxCursor)
-		logger.Infof("Backfill cursor set for stream[%s] = %v", stream.ID(), finalMaxCursor)
-	}
-
 	return nil
 }

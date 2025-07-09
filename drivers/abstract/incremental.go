@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -21,7 +22,6 @@ func (a *AbstractDriver) RunIncrementalSync(ctx context.Context, pool *destinati
 			return fmt.Errorf("cursor field required for stream: %s", stream.ID())
 		}
 
-		// PRE: store last known cursor into in-memory cache
 		prevCursor := a.state.GetCursor(stream.Self(), cursorField)
 		a.driver.SetIncrementalCursor(stream.ID(), prevCursor)
 		logger.Infof("Incremental: loaded cursor for stream[%s] = %v", stream.ID(), prevCursor)
@@ -37,7 +37,6 @@ func (a *AbstractDriver) RunIncrementalSync(ctx context.Context, pool *destinati
 		return fmt.Errorf("backfill setup failed: %s", err)
 	}
 
-	// Step 2: Run Incremental fetch per-stream
 	completed := 0
 	for completed < len(streams) {
 		select {
@@ -45,15 +44,9 @@ func (a *AbstractDriver) RunIncrementalSync(ctx context.Context, pool *destinati
 			return ctx.Err()
 		case <-a.GlobalConnGroup.Ctx().Done():
 			return nil
-		case streamID := <-backfillWaitChannel:
-			if val, ok := a.driver.GetIncrementalCursor(streamID); ok && val != nil {
-				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool {
-					return s.ID() == streamID
-				})
-				stream := streams[index]
-				cursorField := stream.Cursor()
-				a.state.SetCursor(stream.Self(), cursorField, val)
-				logger.Infof("Final backfill cursor locked in for stream[%s] = %v", stream.ID(), val)
+		case streamID, ok := <-backfillWaitChannel:
+			if !ok {
+				return fmt.Errorf("backfill channel closed unexpectedly")
 			}
 			completed++
 			a.GlobalConnGroup.Add(func(ctx context.Context) error {
@@ -65,37 +58,40 @@ func (a *AbstractDriver) RunIncrementalSync(ctx context.Context, pool *destinati
 
 				errChan := make(chan error, 1)
 				writer := pool.NewThread(ctx, stream, errChan)
+
+				var count int
+				var cursorVal any
+
 				defer func() {
 					writer.Close()
 					if threadErr := <-errChan; threadErr != nil {
 						logger.Errorf("Writer error for stream %s: %v", stream.ID(), threadErr)
 					}
+					if cursorVal != nil {
+						a.state.SetCursor(stream.Self(), cursorField, cursorVal)
+						logger.Infof("Cursor updated for stream[%s] = %v (records: %d)", stream.ID(), cursorVal, count)
+					} else {
+						logger.Infof("Incremental sync done for stream[%s] (records: %d, no cursor)", stream.ID(), count)
+					}
 				}()
 
-				count := 0
-				err := a.driver.IncrementalChanges(ctx, stream, func(record map[string]any) error {
-					val, ok := record[cursorField]
-					if ok {
-						a.driver.SetIncrementalCursor(stream.ID(), val)
-					}
-					pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
-					id := utils.GetKeysHash(record, pk...)
-					count++
-					return writer.Insert(types.CreateRawRecord(id, record, "r", time.Now().UTC()))
-				})
-				if err != nil {
-					return fmt.Errorf("incremental fetch failed for stream %s: %w", stream.ID(), err)
-				}
+				RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+					innerCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					defer cancel()
 
-				val, ok := a.driver.GetIncrementalCursor(stream.ID())
-				if ok && val != nil {
-					a.state.SetCursor(stream.Self(), cursorField, val)
-					logger.Infof("Cursor updated for stream[%s] = %v (records: %d)", stream.ID(), val, count)
-				} else {
-					logger.Infof("Incremental sync done for stream[%s] (records: %d, no cursor)", stream.ID(), count)
-				}
+					return a.driver.IncrementalChanges(innerCtx, stream, func(record map[string]any) error {
+						if val, ok := record[cursorField]; ok {
+							cursorVal = val
+						}
+						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
+						id := utils.GetKeysHash(record, pk...)
+						count++
+						return writer.Insert(types.CreateRawRecord(id, record, "r", time.Now().UTC()))
+					})
+				})
 				return nil
 			})
+
 		}
 	}
 	return nil
