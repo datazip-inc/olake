@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/datazip-inc/olake/constants"
@@ -37,6 +38,13 @@ var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		debugEnv := os.Getenv("DEBUG")
+		if debugEnv == "true" {
+			viper.Set("debug", true)
+		} else {
+			viper.Set("debug", false)
+		}
+
 		// set global variables
 		if !noSave {
 			viper.Set(constants.ConfigFolder, utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
@@ -47,7 +55,9 @@ var RootCmd = &cobra.Command{
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
-		telemetry.Init()
+		if viper.GetBool("debug") {
+			telemetry.Init()
+		}
 
 		if len(args) == 0 {
 			return cmd.Help()
