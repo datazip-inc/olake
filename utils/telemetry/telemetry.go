@@ -151,7 +151,6 @@ func TrackSyncCompleted(status bool, records int64) {
 }
 
 func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{}) error {
-	logger.Infof("Sending event: %s", os.Getenv("TELEMETRY_DISABLED"))
 	if disabled, _ := strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED")); disabled {
 		return nil
 	}
