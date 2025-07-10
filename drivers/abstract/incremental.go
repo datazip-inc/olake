@@ -66,7 +66,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				defer func() {
 					inserter.Close()
 					if threadErr := <-errChan; threadErr != nil {
-						err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
+						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 					}
 
 					// check for panics before saving state
