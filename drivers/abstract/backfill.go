@@ -76,17 +76,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
-					rawCursorValue := data[cursorField]
-					// typecasting to make sure it is consistent
-					// TODO: remove it on global data type mapping
-					cursorColType, err := stream.Schema().GetType(cursorField)
-					if err != nil {
-						return fmt.Errorf("failed to get cursor column type: %s", err)
-					}
-					cursorValue, err := typeutils.ReformatValue(cursorColType, rawCursorValue)
-					if err != nil {
-						return fmt.Errorf("failed to reformat value of cursor, col[%s] into type[%s]: %s", cursorField, cursorColType, err)
-					}
+					cursorValue := data[cursorField]
 					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
