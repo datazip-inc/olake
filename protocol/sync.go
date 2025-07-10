@@ -131,6 +131,7 @@ var syncCmd = &cobra.Command{
 					newStreamsState = append(newStreamsState, streamState)
 				}
 			default:
+				fullLoadStreams = append(fullLoadStreams, elem.ID())
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 

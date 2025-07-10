@@ -48,20 +48,21 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 				stream := streams[index]
+				cursorField := stream.Cursor()
 				// TODO: make inremental state consistent save it as string and typecast while reading
-				// get cursor col from state and typecast it to cursor col type for comparisons
-				stateCursorValue := a.state.GetCursor(stream.Self(), stream.Cursor())
-				cursorColType, err := stream.Schema().GetType(stream.Cursor())
+				// get cursor column from state and typecast it to cursor column type for comparisons
+				stateCursorValue := a.state.GetCursor(stream.Self(), cursorField)
+				cursorColType, err := stream.Schema().GetType(cursorField)
 				if err != nil {
 					return fmt.Errorf("failed to get cursor column type: %s", err)
 				}
 				maxCursorValue, err := typeutils.ReformatValue(cursorColType, stateCursorValue)
 				if err != nil {
-					return fmt.Errorf("failed to reformat value of cursor received from state, col[%s] into type[%s]: %s", stream.Cursor(), cursorColType, err)
+					return fmt.Errorf("failed to reformat value of cursor received from state, col[%s] into type[%s]: %s", cursorField, cursorColType, err)
 				}
 
 				errChan := make(chan error, 1)
-				inserter := pool.NewThread(ctx, streams[index], errChan)
+				inserter := pool.NewThread(ctx, stream, errChan)
 				defer func() {
 					inserter.Close()
 					if threadErr := <-errChan; threadErr != nil {
@@ -75,16 +76,16 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), stream.Cursor(), maxCursorValue)
+						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
-						cursorVal := record[stream.Cursor()]
-						maxCursorValue = utils.Ternary(typeutils.Compare(cursorVal, maxCursorValue) == 1, cursorVal, maxCursorValue)
+						cursorValue := record[cursorField]
+						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
-						return inserter.Insert(types.CreateRawRecord(id, record, "r", time.Now().UTC()))
+						return inserter.Insert(types.CreateRawRecord(id, record, "r", time.Unix(0, 0)))
 					})
 				})
 			})

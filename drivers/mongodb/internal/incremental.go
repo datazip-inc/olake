@@ -15,6 +15,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
 	filter := buildMongoCondition(types.Condition{Column: cursorField, Value: fmt.Sprintf("%v", lastCursorValue), Operator: ">"})
+	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
 	logger.Infof("Starting incremental sync for stream[%s] with filter: %v", stream.ID(), filter)

@@ -118,7 +118,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				}
 			}
 
-			// check for panics befor saving state
+			// check for panics before saving state
 			if r := recover(); r != nil {
 				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 			}
