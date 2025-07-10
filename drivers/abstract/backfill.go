@@ -41,6 +41,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxCursorValue any // required for incremental
+		cursorField := stream.Cursor()
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
@@ -64,9 +65,9 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 
 				// if it is incremental update the max cursor value received in chunk
 				if stream.GetSyncMode() == types.INCREMENTAL && maxCursorValue != nil {
-					prevCursor := a.state.GetCursor(stream.Self(), stream.Cursor())
+					prevCursor := a.state.GetCursor(stream.Self(), cursorField)
 					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
-						a.state.SetCursor(stream.Self(), stream.Cursor(), maxCursorValue)
+						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
 					}
 				}
 			}
@@ -75,8 +76,18 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
-					cursorVal := data[stream.Cursor()]
-					maxCursorValue = utils.Ternary(typeutils.Compare(cursorVal, maxCursorValue) == 1, cursorVal, maxCursorValue)
+					rawCursorValue := data[cursorField]
+					// typecasting to make sure it is consistent
+					// TODO: remove it on global data type mapping
+					cursorColType, err := stream.Schema().GetType(cursorField)
+					if err != nil {
+						return fmt.Errorf("failed to get cursor column type: %s", err)
+					}
+					cursorValue, err := typeutils.ReformatValue(cursorColType, rawCursorValue)
+					if err != nil {
+						return fmt.Errorf("failed to reformat value of cursor, col[%s] into type[%s]: %s", cursorField, cursorColType, err)
+					}
+					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
