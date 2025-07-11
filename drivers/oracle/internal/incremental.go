@@ -7,6 +7,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -20,11 +21,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
 	}
 	incrementalCondition := fmt.Sprintf("%q > '%v'", cursorField, lastCursorValue)
-	if filter != "" {
-		filter = fmt.Sprintf("%s AND %s", filter, incrementalCondition)
-	} else {
-		filter = incrementalCondition
-	}
+	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)
 
 	query := fmt.Sprintf("SELECT * FROM %q.%q WHERE %s ORDER BY %q",
 		stream.Namespace(), stream.Name(), filter, cursorField)
