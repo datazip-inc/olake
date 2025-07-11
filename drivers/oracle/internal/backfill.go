@@ -55,6 +55,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			return nil, fmt.Errorf("failed to get current SCN: %s", err)
 		}
 
+		// TODO: Add implementation of AddRecordsToSync function which expects total number of records to be synced
 		query = jdbc.OracleEmptyCheckQuery(stream)
 		err = o.client.QueryRow(query).Scan(new(interface{}))
 		if err != nil {
@@ -74,10 +75,12 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		blocksPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
 
 		taskName := fmt.Sprintf("chunk_%s_%s_%s", stream.Namespace(), stream.Name(), time.Now().Format("20060102150405.000000"))
-
 		defer func(taskName string) {
 			stmt := jdbc.OracleChunkTaskCleanerQuery(taskName)
-			o.client.ExecContext(ctx, stmt)
+			_, err := o.client.ExecContext(ctx, stmt)
+			if err != nil {
+				logger.Warnf("failed to clean up chunk task: %s", err)
+			}
 		}(taskName)
 
 		query = jdbc.OracleChunkMakerQuery(stream, blocksPerChunk, taskName)
