@@ -1,11 +1,14 @@
 package jsonschema
 
 import (
+	"fmt"
 	"log"
 	"reflect"
+	"strings"
 
 	"github.com/goccy/go-json"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/jsonschema/generator"
 	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"sigs.k8s.io/yaml"
@@ -98,4 +101,12 @@ func ToYamlSchema(obj interface{}) (string, error) {
 	}
 
 	return string(yamlData), nil
+}
+
+func LoadUISchema(schemaType string) (map[string]interface{}, error) {
+	var uischema map[string]interface{}
+	if err := json.Unmarshal([]byte(constants.UISchemaMap[strings.ToLower(schemaType)]), &uischema); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ui schema: %v", err)
+	}
+	return uischema, nil
 }

@@ -19,7 +19,7 @@ type Config struct {
 	//   type="string",
 	//   required=true
 	// )
-	Host string `json:"host"`
+	Host string `json:"hosts"`
 
 	// Username
 	//
