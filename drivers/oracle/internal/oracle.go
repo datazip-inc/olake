@@ -19,12 +19,13 @@ import (
 )
 
 type Oracle struct {
-	config *Config
-	client *sqlx.DB
-	state  *types.State
+	config     *Config
+	client     *sqlx.DB
+	state      *types.State
 	CDCSupport bool
 }
-const(
+
+const (
 	userTablesQuery = `SELECT USER AS owner, table_name FROM user_tables`
 )
 
