@@ -49,7 +49,7 @@ const PostgresUISchema = `{
     },
     "update_method": {
         "ui:grid": [
-            { "intial_wait_time": 12, "replication_slot": 12 }
+            { "initial_wait_time": 12, "replication_slot": 12 }
         ],
         "ui:options": {
             "title": false,
