@@ -64,6 +64,12 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						if threadErr := <-errChan; threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
+
+						// check for panics before saving state
+						if r := recover(); r != nil {
+							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
+						}
+
 						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
@@ -111,6 +117,12 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
+
+			// check for panics before saving state
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
+			}
+
 			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
