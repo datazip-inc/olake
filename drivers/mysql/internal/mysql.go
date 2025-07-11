@@ -151,6 +151,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
+			stream.WithCursorField(columnName)
 			datatype := types.Unknown
 
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
