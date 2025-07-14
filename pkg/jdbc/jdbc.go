@@ -339,10 +339,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
 	chunkMax := chunk.Max.(string)
 
-	filterClause := ""
-	if filter != "" {
-		filterClause = " AND " + filter
-	}
+	filterClause := utils.Ternary(filter == "", "", " AND "+filter).(string)
 
 	return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID BETWEEN '%v' AND '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, chunkMax, filterClause)
 }
@@ -362,10 +359,14 @@ func OracleEmptyCheckQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf("SELECT 1 FROM %q.%q WHERE ROWNUM = 1", stream.Namespace(), stream.Name())
 }
 
-// OracleChunkMakerQuery returns the query to make chunks in OracleDB using DBMS_PARALLEL_EXECUTE
-func OracleChunkMakerQuery(stream types.StreamInterface, blocksPerChunk int64, taskName string) string {
+// OracleTaskCreationQuery returns the query to create a task in OracleDB
+func OracleTaskCreationQuery(taskName string) string {
+	return fmt.Sprintf(`BEGIN DBMS_PARALLEL_EXECUTE.create_task('%s'); END;`, taskName)
+}
+
+// OracleChunkCreationQuery returns the query to make chunks in OracleDB using DBMS_PARALLEL_EXECUTE
+func OracleChunkCreationQuery(stream types.StreamInterface, blocksPerChunk int64, taskName string) string {
 	return fmt.Sprintf(`BEGIN
-  						DBMS_PARALLEL_EXECUTE.create_task('%s');
   						DBMS_PARALLEL_EXECUTE.create_chunks_by_rowid(
     					task_name   => '%s',
     					table_owner => '%s',
@@ -374,7 +375,7 @@ func OracleChunkMakerQuery(stream types.StreamInterface, blocksPerChunk int64, t
     					chunk_size  => %d
   						);
 						END;`,
-		taskName, taskName, stream.Namespace(), stream.Name(), blocksPerChunk,
+		taskName, stream.Namespace(), stream.Name(), blocksPerChunk,
 	)
 }
 

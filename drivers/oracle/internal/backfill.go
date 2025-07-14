@@ -75,6 +75,11 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		blocksPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
 
 		taskName := fmt.Sprintf("chunk_%s_%s_%s", stream.Namespace(), stream.Name(), time.Now().Format("20060102150405.000000"))
+		query = jdbc.OracleTaskCreationQuery(taskName)
+		_, err = o.client.ExecContext(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create task: %s", err)
+		}
 		defer func(taskName string) {
 			stmt := jdbc.OracleChunkTaskCleanerQuery(taskName)
 			_, err := o.client.ExecContext(ctx, stmt)
@@ -83,7 +88,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			}
 		}(taskName)
 
-		query = jdbc.OracleChunkMakerQuery(stream, blocksPerChunk, taskName)
+		query = jdbc.OracleChunkCreationQuery(stream, blocksPerChunk, taskName)
 		_, err = o.client.ExecContext(ctx, query)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create chunks: %s", err)
@@ -116,7 +121,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			return nil, fmt.Errorf("error iterating chunks: %s", err)
 		}
 
-		return chunks, nil
+		return chunks, rows.Err()
 	}
 	return splitViaRowId(stream)
 }

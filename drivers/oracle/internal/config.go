@@ -45,7 +45,7 @@ func (c *Config) connectionString() string {
 	}
 
 	// Quote the username to handle case sensitivity
-	quotedUsername := fmt.Sprintf("\"%s\"", c.Username)
+	quotedUsername := fmt.Sprintf("%q", c.Username)
 
 	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, quotedUsername, c.Password, urlOptions)
 }
