@@ -55,10 +55,13 @@ type LocationInfo struct {
 }
 
 func Init() {
-	if disabled, _ := strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED")); disabled {
-		return
-	}
 	go func() {
+		// check for disable
+		disabled, _ := strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED"))
+		if disabled {
+			return
+		}
+
 		ip := getOutboundIP()
 		client := analytics.New(segmentAPIKey)
 		telemetry = &Telemetry{
