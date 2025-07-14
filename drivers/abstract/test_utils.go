@@ -120,7 +120,7 @@ func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery Exec
 				time.Sleep(cdcInitializationWait)
 
 				require.NoError(t,
-					a.Read(ctx, pool, []types.StreamInterface{}, []types.StreamInterface{configuredStream}),
+					a.Read(ctx, pool, []types.StreamInterface{}, []types.StreamInterface{configuredStream}, []types.StreamInterface{}),
 					"CDC read operation failed",
 				)
 
@@ -129,7 +129,7 @@ func (a *AbstractDriver) TestRead(t *testing.T, conn interface{}, execQuery Exec
 			} else {
 				// Handle full refresh read
 				require.NoError(t,
-					a.Read(ctx, pool, []types.StreamInterface{configuredStream}, []types.StreamInterface{}),
+					a.Read(ctx, pool, []types.StreamInterface{configuredStream}, []types.StreamInterface{}, []types.StreamInterface{}),
 					"Read operation failed",
 				)
 				time.Sleep(cdcProcessingWait)
