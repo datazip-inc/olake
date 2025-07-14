@@ -136,7 +136,9 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		if err := rows.Scan(&columnName, &dataType, &isNullable, &dataPrecision, &dataScale); err != nil {
 			return nil, fmt.Errorf("failed to scan column: %s", err)
 		}
-		stream.WithCursorField(columnName)
+		if strings.EqualFold("N", isNullable) {
+			stream.WithCursorField(columnName)
+		}
 		datatype := types.Unknown
 		if val, found := reformatOracleDatatype(dataType, dataPrecision, dataScale); found {
 			datatype = val

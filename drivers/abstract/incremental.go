@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -52,7 +53,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				// TODO: make inremental state consistent save it as string and typecast while reading
 				// get cursor column from state and typecast it to cursor column type for comparisons
 				stateCursorValue := a.state.GetCursor(stream.Self(), cursorField)
-				cursorColType, err := stream.Schema().GetType(cursorField)
+				cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorField))
 				if err != nil {
 					return fmt.Errorf("failed to get cursor column type: %s", err)
 				}

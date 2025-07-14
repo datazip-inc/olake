@@ -3,6 +3,8 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
@@ -20,7 +22,21 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	if err != nil {
 		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
 	}
-	incrementalCondition := fmt.Sprintf("%q > '%v'", cursorField, lastCursorValue)
+
+	datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
+	if err != nil {
+		return fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
+	}
+	isTimestamp := strings.Contains(string(datatype), "timestamp")
+
+	incrementalCondition := ""
+	if isTimestamp {
+		parsedTime := fmt.Sprintf("TO_TIMESTAMP_TZ('%s','YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\"')", lastCursorValue.(time.Time).UTC().Format(time.RFC3339Nano))
+		incrementalCondition = fmt.Sprintf("%q > %s", cursorField, parsedTime)
+	} else {
+		incrementalCondition = fmt.Sprintf("%q > '%v'", cursorField, lastCursorValue)
+	}
+
 	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)
 
 	query := fmt.Sprintf("SELECT * FROM %q.%q WHERE %s ORDER BY %q",
@@ -30,18 +46,18 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 
 	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %w", err)
+		return fmt.Errorf("failed to execute incremental query: %s", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		record := make(types.Record)
 		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record: %w", err)
+			return fmt.Errorf("failed to scan record: %s", err)
 		}
 
 		if err := processFn(record); err != nil {
-			return fmt.Errorf("process error: %w", err)
+			return fmt.Errorf("process error: %s", err)
 		}
 	}
 

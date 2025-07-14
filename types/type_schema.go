@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/datazip-inc/olake/utils"
@@ -87,7 +86,7 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 }
 
 func (t *TypeSchema) GetType(column string) (DataType, error) {
-	p, found := t.Properties.Load(strings.ToLower(column))
+	p, found := t.Properties.Load(column)
 	if !found {
 		return "", fmt.Errorf("column [%s] missing from type schema", column)
 	}
