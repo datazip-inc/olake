@@ -3,6 +3,10 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -225,4 +229,84 @@ func verifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 
 	t.Logf("Verified %s unique olake_id records in Iceberg table %s",
 		actualCount, tableName)
+}
+
+type TestConfig struct {
+	ProjectRoot     string
+	SourcePath      string
+	CatalogPath     string
+	DestinationPath string
+	StatePath       string
+}
+
+func GetTestConfig(driver string) *TestConfig {
+	return &TestConfig{
+		ProjectRoot:     GetHostRoot(),
+		SourcePath:      fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/source.json", driver),
+		CatalogPath:     fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/streams.json", driver),
+		DestinationPath: fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/destination.json", driver),
+		StatePath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/state.json", driver),
+	}
+}
+
+func IsRPSAboveBenchmark(driver string, isBackfill bool) (bool, error) {
+	benchmarkFile := utils.Ternary(isBackfill, "benchmark.json", "benchmark_cdc.json").(string)
+	var stats map[string]interface{}
+	if err := utils.UnmarshalFile(filepath.Join(GetHostRoot(), fmt.Sprintf("drivers/%s/internal/testconfig/stats.json", driver)), &stats, false); err != nil {
+		return false, err
+	}
+
+	rps, err := GetRPSFromStats(stats)
+	if err != nil {
+		return false, err
+	}
+
+	// compare with benchmark stats
+	var benchmarkStats map[string]interface{}
+	if err := utils.UnmarshalFile(filepath.Join(GetHostRoot(), fmt.Sprintf("drivers/%s/internal/testconfig/%s", driver, benchmarkFile)), &benchmarkStats, false); err != nil {
+		return false, err
+	}
+
+	benchmarkRps, err := GetRPSFromStats(benchmarkStats)
+	if err != nil {
+		return false, err
+	}
+
+	if rps < 0*benchmarkRps {
+		return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
+	}
+
+	return true, nil
+}
+
+func EnableNormalizationCmd(tableName string, config TestConfig) string {
+	return fmt.Sprintf(`jq '.selected_streams["performance"] |= map(if .stream_name == "%s" then .normalization = true | . else . end)' %s > /tmp/streams.json && mv /tmp/streams.json %s`, tableName, config.CatalogPath, config.CatalogPath)
+}
+
+func GetRPSFromStats(stats map[string]interface{}) (float64, error) {
+	rps, err := strconv.ParseFloat(strings.Split(stats["Speed"].(string), " ")[0], 64)
+	if err != nil {
+		return 0, err
+	}
+	return rps, nil
+}
+
+func DiscoverCommand(driver string, config TestConfig) string {
+	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", driver, config.SourcePath)
+}
+
+func SyncCommand(driver string, isBackfill bool, config TestConfig) string {
+	return fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s %s", driver, config.SourcePath, config.CatalogPath, config.DestinationPath, utils.Ternary(isBackfill, "", fmt.Sprintf("--state %s", config.StatePath)).(string))
+}
+
+func InstallCmd() string {
+	return "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
+}
+
+func GetHostRoot() string {
+	pwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(pwd, "../../..")
 }
