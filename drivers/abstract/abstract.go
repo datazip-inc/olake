@@ -139,13 +139,6 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		}
 	}
 
-	// start incremental ffor incremental streams
-	if len(incrementalStreams) > 0 {
-		if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
-			return fmt.Errorf("failed to run incremental sync: %s", err)
-		}
-	}
-
 	// start backfill for full refresh streams
 	for _, stream := range fullRefreshStreams {
 		a.GlobalCtxGroup.Add(func(ctx context.Context) error {
