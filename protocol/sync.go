@@ -85,8 +85,9 @@ var syncCmd = &cobra.Command{
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
 		cdcStreams := []types.StreamInterface{}
+		incrementalStreams := []types.StreamInterface{}
 		standardModeStreams := []types.StreamInterface{}
-		cdcStreamsState := []*types.StreamState{}
+		newStreamsState := []*types.StreamState{}
 		fullLoadStreams := []string{}
 
 		var stateStreamMap = make(map[string]*types.StreamState)
@@ -116,23 +117,27 @@ var syncCmd = &cobra.Command{
 			}
 
 			selectedStreams = append(selectedStreams, elem.ID())
-			if elem.Stream.SyncMode == types.CDC || elem.Stream.SyncMode == types.STRICTCDC {
+			switch elem.Stream.SyncMode {
+			case types.CDC, types.STRICTCDC:
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {
-					cdcStreamsState = append(cdcStreamsState, streamState)
+					newStreamsState = append(newStreamsState, streamState)
 				}
-			} else {
-				if elem.Stream.SyncMode == types.FULLREFRESH {
-					fullLoadStreams = append(fullLoadStreams, elem.ID())
+			case types.INCREMENTAL:
+				incrementalStreams = append(incrementalStreams, elem)
+				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+				if exists {
+					newStreamsState = append(newStreamsState, streamState)
 				}
-
+			default:
+				fullLoadStreams = append(fullLoadStreams, elem.ID())
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
 			return false
 		})
-		state.Streams = cdcStreamsState
+		state.Streams = newStreamsState
 		if len(selectedStreams) == 0 {
 			return fmt.Errorf("no valid streams found in catalog")
 		}
@@ -161,7 +166,7 @@ var syncCmd = &cobra.Command{
 		}()
 
 		// init group
-		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
+		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams, incrementalStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}

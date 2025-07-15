@@ -7,17 +7,8 @@ import (
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
-	StreamMetadata          StreamMetadata `json:"-"`
-	InitialCursorStateValue any            `json:"-"` // Cached initial state value
-
-	Stream *Stream `json:"stream,omitempty"`
-
-	// Column that's being used as cursor; MUST NOT BE mutated
-	//
-	// Cursor field is used in Incremental and in Mixed type CDC Read where connector uses
-	// this field as recovery column incase of some inconsistencies
-	CursorField    string   `json:"cursor_field,omitempty"`
-	ExcludeColumns []string `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
+	StreamMetadata StreamMetadata `json:"-"`
+	Stream         *Stream        `json:"stream,omitempty"`
 }
 
 // Condition represents a single condition in a filter
@@ -66,7 +57,7 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 }
 
 func (s *ConfiguredStream) Cursor() string {
-	return s.CursorField
+	return s.Stream.CursorField
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
@@ -108,8 +99,8 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	// no cursor validation in cdc and backfill sync
-	if s.Stream.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.CursorField) {
-		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.AvailableCursorFields)
+	if s.Stream.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.Cursor()) {
+		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.Cursor(), source.AvailableCursorFields)
 	}
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
