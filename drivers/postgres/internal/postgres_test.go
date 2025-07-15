@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
@@ -20,7 +20,7 @@ func testSetup(ctx context.Context, t *testing.T) interface{} {
 }
 
 func TestPostgresIntegration(t *testing.T) {
-	testConfig := &abstract.TestInterface{
+	testConfig := &testutils.TestInterface{
 		Driver:             string(constants.Postgres),
 		Namespace:          "public",
 		ExpectedData:       ExpectedPostgresData,

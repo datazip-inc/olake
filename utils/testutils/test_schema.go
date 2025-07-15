@@ -1,4 +1,4 @@
-package abstract
+package testutils
 
 // GlobalTypeToDataType maps database-specific types (Postgres/MySQL) to internal standard types
 var GlobalTypeMapping = map[string]string{
