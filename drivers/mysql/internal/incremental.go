@@ -12,8 +12,7 @@ import (
 func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	cursorField := stream.Cursor()
 	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
-	batchSize := 10000
-	query := fmt.Sprintf(`SELECT * FROM %s WHERE %s > ? ORDER BY %s LIMIT %d`, stream.Name(), cursorField, cursorField, batchSize)
+	query := fmt.Sprintf(`SELECT * FROM %s WHERE %s >= ? ORDER BY %s`, stream.Name(), cursorField, cursorField)
 
 	rows, err := m.client.QueryContext(ctx, query, []any{lastCursorValue}...)
 	if err != nil {
