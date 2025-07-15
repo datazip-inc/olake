@@ -119,14 +119,8 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	}
 
 	// separate streams for incremental and full refresh
-	var incrementalStreams, fullRefreshStreams []types.StreamInterface
-	for _, stream := range standardStreams {
-		if stream.GetSyncMode() == types.INCREMENTAL {
-			incrementalStreams = append(incrementalStreams, stream)
-		} else {
-			fullRefreshStreams = append(fullRefreshStreams, stream)
-		}
-	}
+	var fullRefreshStreams []types.StreamInterface
+	fullRefreshStreams = append(fullRefreshStreams, standardStreams...)
 
 	// run cdc sync
 	if len(cdcStreams) > 0 {
