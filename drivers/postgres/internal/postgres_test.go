@@ -11,15 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	currentTestTable      = "postgres_test_table_olake"
-	sourceConfigPath      = "/test-olake/drivers/postgres/internal/testdata/source.json"
-	streamsPath           = "/test-olake/drivers/postgres/internal/testdata/streams.json"
-	destinationConfigPath = "/test-olake/drivers/postgres/internal/testdata/destination.json"
-	statePath             = "/test-olake/drivers/postgres/internal/testdata/state.json"
-	namespace             = "public"
-)
-
 func testSetup(ctx context.Context, t *testing.T) interface{} {
 	db, err := sqlx.ConnectContext(ctx, "postgres",
 		"postgres://postgres@localhost:5433/postgres?sslmode=disable",
@@ -29,5 +20,14 @@ func testSetup(ctx context.Context, t *testing.T) interface{} {
 }
 
 func TestPostgresIntegration(t *testing.T) {
-	abstract.TestIntegration(t, string(constants.Postgres), sourceConfigPath, streamsPath, destinationConfigPath, statePath, namespace, ExpectedPostgresData, ExpectedUpdatedPostgresData, PostgresSchema, ExecuteQuery, testSetup)
+	testConfig := &abstract.TestInterface{
+		Driver:             string(constants.Postgres),
+		Namespace:          "public",
+		ExpectedData:       ExpectedPostgresData,
+		ExpectedUpdateData: ExpectedUpdatedPostgresData,
+		DataTypeSchema:     PostgresSchema,
+		ExecuteQuery:       ExecuteQuery,
+		TestSetup:          testSetup,
+	}
+	testConfig.TestIntegration(t)
 }

@@ -24,18 +24,33 @@ const (
 	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
 )
 
-type ExecuteQuery func(ctx context.Context, t *testing.T, db interface{}, tableName, operation string)
+type TestInterface struct {
+	Driver             string
+	Namespace          string
+	ExpectedData       map[string]interface{}
+	ExpectedUpdateData map[string]interface{}
+	DataTypeSchema     map[string]string
+	ExecuteQuery       func(ctx context.Context, t *testing.T, db interface{}, tableName, operation string)
+	TestSetup          func(ctx context.Context, t *testing.T) interface{}
+}
 
-func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destinationConfigPath, statePath, namespace string, expectedData, expectedUpdatedData map[string]interface{}, datatypeSchema map[string]string, execQuery ExecuteQuery, testSetup func(ctx context.Context, t *testing.T) interface{}) {
+func (cfg *TestInterface) TestIntegration(t *testing.T) {
 	ctx := context.Background()
 	cwd, err := os.Getwd()
 	t.Logf("Host working directory: %s", cwd)
 	require.NoErrorf(t, err, "Failed to get current working directory")
 	projectRoot := filepath.Join(cwd, "../../..")
 	t.Logf("Root Project directory: %s", projectRoot)
-	testdataDir := filepath.Join(projectRoot, "drivers", driver, "internal", "testdata")
+	testdataDir := filepath.Join(projectRoot, "drivers", cfg.Driver, "internal", "testdata")
+	t.Logf("Test data directory: %s", testdataDir)
 	dummyStreamFilePath := filepath.Join(testdataDir, "test_streams.json")
-	currentTestTable := fmt.Sprintf("%s_test_table_olake", driver)
+	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.Driver)
+	var (
+		sourceConfigPath      = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/source.json", cfg.Driver)
+		streamsPath           = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/streams.json", cfg.Driver)
+		destinationConfigPath = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/destination.json", cfg.Driver)
+		statePath             = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/state.json", cfg.Driver)
+	)
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -43,7 +58,7 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
-					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", testdataDir, driver),
+					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", testdataDir, cfg.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
@@ -61,18 +76,18 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
-							db := testSetup(ctx, t)
+							db := cfg.TestSetup(ctx, t)
 							defer func() {
 								if closer, ok := db.(interface{ Close() error }); ok {
 									closer.Close()
 								}
 							}()
-							execQuery(ctx, t, db, currentTestTable, "create")
-							execQuery(ctx, t, db, currentTestTable, "clean")
-							execQuery(ctx, t, db, currentTestTable, "add")
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "create")
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "clean")
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "add")
 
 							// 3. Run discover command
-							discoverCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", driver, sourceConfigPath)
+							discoverCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", cfg.Driver, sourceConfigPath)
 							if code, out, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("discover failed (%d): %w\n%s", code, err, string(out))
 							}
@@ -93,8 +108,8 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 							t.Logf("Generated streams validated with test streams")
 
 							// 5. Clean up
-							execQuery(ctx, t, db, currentTestTable, "drop")
-							t.Logf("%s discover test-container clean up", driver)
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "drop")
+							t.Logf("%s discover test-container clean up", cfg.Driver)
 							return nil
 						},
 					},
@@ -121,7 +136,7 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
-					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", testdataDir, driver),
+					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", testdataDir, cfg.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
@@ -140,19 +155,19 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
 
-							db := testSetup(ctx, t)
+							db := cfg.TestSetup(ctx, t)
 							defer func() {
 								if closer, ok := db.(interface{ Close() error }); ok {
 									closer.Close()
 								}
 							}()
-							execQuery(ctx, t, db, currentTestTable, "create")
-							execQuery(ctx, t, db, currentTestTable, "clean")
-							execQuery(ctx, t, db, currentTestTable, "add")
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "create")
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "clean")
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "add")
 
 							streamUpdateCmd := fmt.Sprintf(
 								`jq '.selected_streams.%s[] .normalization = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
-								namespace, streamsPath, streamsPath,
+								cfg.Namespace, streamsPath, streamsPath,
 							)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json (%d): %w\n%s",
@@ -173,21 +188,21 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 									operation:   "",
 									useState:    false,
 									opSymbol:    "r",
-									dummySchema: expectedData,
+									dummySchema: cfg.ExpectedData,
 								},
 								{
 									syncMode:    "CDC - insert",
 									operation:   "insert",
 									useState:    true,
 									opSymbol:    "c",
-									dummySchema: expectedData,
+									dummySchema: cfg.ExpectedData,
 								},
 								{
 									syncMode:    "CDC - update",
 									operation:   "update",
 									useState:    true,
 									opSymbol:    "u",
-									dummySchema: expectedUpdatedData,
+									dummySchema: cfg.ExpectedUpdateData,
 								},
 								{
 									syncMode:    "CDC - delete",
@@ -202,18 +217,18 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 								var cmd string
 								if useState {
 									if operation != "" {
-										execQuery(ctx, t, db, currentTestTable, operation)
+										cfg.ExecuteQuery(ctx, t, db, currentTestTable, operation)
 									}
-									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s --state %s", driver, sourceConfigPath, streamsPath, destinationConfigPath, statePath)
+									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s --state %s", cfg.Driver, sourceConfigPath, streamsPath, destinationConfigPath, statePath)
 								} else {
-									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", driver, sourceConfigPath, streamsPath, destinationConfigPath)
+									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", cfg.Driver, sourceConfigPath, streamsPath, destinationConfigPath)
 								}
 
 								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
 									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
 								}
-								t.Logf("Sync successful for %s driver", driver)
-								VerifyIcebergSync(t, currentTestTable, datatypeSchema, schema, opSymbol, "%s")
+								t.Logf("Sync successful for %s driver", cfg.Driver)
+								VerifyIcebergSync(t, currentTestTable, cfg.DataTypeSchema, schema, opSymbol, "%s")
 								return nil
 							}
 
@@ -226,8 +241,8 @@ func TestIntegration(t *testing.T, driver, sourceConfigPath, streamsPath, destin
 							}
 
 							// 4. Clean up
-							execQuery(ctx, t, db, currentTestTable, "drop")
-							t.Logf("%s sync test-container clean up", driver)
+							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "drop")
+							t.Logf("%s sync test-container clean up", cfg.Driver)
 							return nil
 						},
 					},

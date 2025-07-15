@@ -10,15 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	currentTestTable      = "mysql_test_table_olake"
-	sourceConfigPath      = "/test-olake/drivers/mysql/internal/testdata/source.json"
-	streamsPath           = "/test-olake/drivers/mysql/internal/testdata/streams.json"
-	destinationConfigPath = "/test-olake/drivers/mysql/internal/testdata/destination.json"
-	statePath             = "/test-olake/drivers/mysql/internal/testdata/state.json"
-	namespace             = "olake_mysql_test"
-)
-
 func testSetup(ctx context.Context, t *testing.T) interface{} {
 	db, err := sqlx.ConnectContext(ctx, "mysql",
 		"mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true",
@@ -28,5 +19,14 @@ func testSetup(ctx context.Context, t *testing.T) interface{} {
 }
 
 func TestMySQLIntegration(t *testing.T) {
-	abstract.TestIntegration(t, string(constants.MySQL), sourceConfigPath, streamsPath, destinationConfigPath, statePath, namespace, ExpectedMySQLData, ExpectedUpdatedMySQLData, MySQLSchema, ExecuteQuery, testSetup)
+	testConfig := &abstract.TestInterface{
+		Driver:             string(constants.MySQL),
+		Namespace:          "olake_mysql_test",
+		ExpectedData:       ExpectedMySQLData,
+		ExpectedUpdateData: ExpectedUpdatedMySQLData,
+		DataTypeSchema:     MySQLSchema,
+		ExecuteQuery:       ExecuteQuery,
+		TestSetup:          testSetup,
+	}
+	testConfig.TestIntegration(t)
 }
