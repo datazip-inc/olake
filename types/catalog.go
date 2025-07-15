@@ -110,8 +110,14 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	oldStreams := createStreamMap(oldCatalog)
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
-		if exists && newStream.SupportedSyncModes().Exists(oldStream.Stream.SyncMode) {
+		if !exists {
+			return nil
+		}
+		if newStream.SupportedSyncModes().Exists(oldStream.Stream.SyncMode) {
 			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
+		}
+		if newStream.Stream.AvailableCursorFields.Exists(oldStream.Stream.CursorField) {
+			newStream.Stream.CursorField = oldStream.Stream.CursorField
 		}
 		return nil
 	})
