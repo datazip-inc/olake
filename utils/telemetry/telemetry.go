@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +56,12 @@ type LocationInfo struct {
 
 func Init() {
 	go func() {
+		// check for disable
+		disabled, _ := strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED"))
+		if disabled {
+			return
+		}
+
 		ip := getOutboundIP()
 		client := analytics.New(segmentAPIKey)
 		telemetry = &Telemetry{
