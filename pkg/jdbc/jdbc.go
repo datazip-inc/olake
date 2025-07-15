@@ -337,11 +337,14 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
 	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
-	chunkMax := chunk.Max.(string)
 
 	filterClause := utils.Ternary(filter == "", "", " AND "+filter).(string)
 
-	return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID BETWEEN '%v' AND '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, chunkMax, filterClause)
+	if chunk.Max != nil {
+		chunkMax := chunk.Max.(string)
+		return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID BETWEEN '%v' AND '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, chunkMax, filterClause)
+	}
+	return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID >= '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, filterClause)
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB

@@ -88,6 +88,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			}
 		}(taskName)
 
+		// TODO: Research about filteration during chunk creation and CREATE_CHUNKS_BY_SQL strategy
 		query = jdbc.OracleChunkCreationQuery(stream, blocksPerChunk, taskName)
 		_, err = o.client.ExecContext(ctx, query)
 		if err != nil {
@@ -102,6 +103,8 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		}
 		defer rows.Close()
 
+		// Collect all start rowids first
+		var startRowIDs []string
 		for rows.Next() {
 			var chunkID int
 			var startRowID, endRowID string
@@ -109,16 +112,22 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			if err != nil {
 				return nil, fmt.Errorf("failed to scan chunk %d: %s", chunkID, err)
 			}
-
-			// Format chunk with SCN and rowid range
-			chunks.Insert(types.Chunk{
-				Min: fmt.Sprintf("%s,%s", currentSCN, startRowID),
-				Max: endRowID,
-			})
+			startRowIDs = append(startRowIDs, startRowID)
 		}
 
-		if err = rows.Err(); err != nil {
-			return nil, fmt.Errorf("error iterating chunks: %s", err)
+		// Create chunks with new boundary logic
+		for i, startRowID := range startRowIDs {
+			var maxRowID interface{}
+			if i < len(startRowIDs)-1 {
+				maxRowID = startRowIDs[i+1]
+			} else {
+				maxRowID = nil
+			}
+
+			chunks.Insert(types.Chunk{
+				Min: fmt.Sprintf("%s,%s", currentSCN, startRowID),
+				Max: maxRowID,
+			})
 		}
 
 		return chunks, rows.Err()
