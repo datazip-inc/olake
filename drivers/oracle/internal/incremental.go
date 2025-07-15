@@ -32,9 +32,9 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	incrementalCondition := ""
 	if isTimestamp {
 		parsedTime := fmt.Sprintf("TO_TIMESTAMP_TZ('%s','YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\"')", lastCursorValue.(time.Time).UTC().Format(time.RFC3339Nano))
-		incrementalCondition = fmt.Sprintf("%q > %s", cursorField, parsedTime)
+		incrementalCondition = fmt.Sprintf("%q >= %s", cursorField, parsedTime)
 	} else {
-		incrementalCondition = fmt.Sprintf("%q > '%v'", cursorField, lastCursorValue)
+		incrementalCondition = fmt.Sprintf("%q >= '%v'", cursorField, lastCursorValue)
 	}
 
 	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)

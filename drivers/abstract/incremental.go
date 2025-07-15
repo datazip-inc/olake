@@ -86,7 +86,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
-						return inserter.Insert(types.CreateRawRecord(id, record, "r", time.Unix(0, 0)))
+						return inserter.Insert(types.CreateRawRecord(id, record, "c", time.Unix(0, 0)))
 					})
 				})
 			})
