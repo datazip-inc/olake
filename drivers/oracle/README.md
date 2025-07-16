@@ -62,7 +62,7 @@ After executing the Discover command, a formatted response will look like this:
                   "partition_regex": "",
                   "stream_name": "table_1",
                   "normalization": false,
-                  "filter": "id > 1"
+                  "filter": "ID > 1"
                }
          ]
       },
@@ -100,7 +100,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "table_1",
                      "normalization": false,
-                     "filter": "id > 1 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
+                     "filter": "ID > 1 and UPDATED_AT > \"01-MAR-24 03.00.00.123456 PM\""
                   }
             ]
          },
@@ -127,7 +127,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                "name": "table_1",
                "namespace": "public",
                ...
-               "sync_mode": "cdc"
+               "sync_mode": "full_refresh"
             }
          }
       ]
