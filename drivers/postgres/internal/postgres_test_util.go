@@ -11,11 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation string) {
 	t.Helper()
-
-	db, ok := conn.(*sqlx.DB)
-	require.True(t, ok, "Expected *sqlx.DB connection")
+	db, ok := sqlx.ConnectContext(ctx, "postgres",
+		"postgres://postgres@localhost:5433/postgres?sslmode=disable",
+	)
+	require.NoError(t, ok, "failed to connect to postgres")
 
 	var (
 		query string

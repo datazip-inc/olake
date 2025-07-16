@@ -24,17 +24,15 @@ const (
 	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
 )
 
-type TestInterface struct {
+type IntegrationTest struct {
 	Driver             string
-	Namespace          string
 	ExpectedData       map[string]interface{}
 	ExpectedUpdateData map[string]interface{}
 	DataTypeSchema     map[string]string
-	ExecuteQuery       func(ctx context.Context, t *testing.T, db interface{}, tableName, operation string)
-	TestSetup          func(ctx context.Context, t *testing.T) interface{}
+	ExecuteQuery       func(ctx context.Context, t *testing.T, tableName, operation string)
 }
 
-func (cfg *TestInterface) TestIntegration(t *testing.T) {
+func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	ctx := context.Background()
 	cwd, err := os.Getwd()
 	t.Logf("Host working directory: %s", cwd)
@@ -66,7 +64,7 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 				config.WorkingDir = "/test-olake"
 			},
 			Env: map[string]string{
-				"DEBUG": "false",
+				"TELEMETRY_DISABLED": "true",
 			},
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
@@ -76,15 +74,11 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
-							db := cfg.TestSetup(ctx, t)
-							defer func() {
-								if closer, ok := db.(interface{ Close() error }); ok {
-									closer.Close()
-								}
-							}()
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "create")
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "clean")
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "add")
+
+							// 2. Query on test table
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "create")
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "clean")
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "add")
 
 							// 3. Run discover command
 							discoverCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", cfg.Driver, sourceConfigPath)
@@ -108,7 +102,7 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 							t.Logf("Generated streams validated with test streams")
 
 							// 5. Clean up
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "drop")
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "drop")
 							t.Logf("%s discover test-container clean up", cfg.Driver)
 							return nil
 						},
@@ -144,7 +138,7 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 				config.WorkingDir = "/test-olake"
 			},
 			Env: map[string]string{
-				"DEBUG": "false",
+				"TELEMETRY_DISABLED": "true",
 			},
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
@@ -155,19 +149,14 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
 							}
 
-							db := cfg.TestSetup(ctx, t)
-							defer func() {
-								if closer, ok := db.(interface{ Close() error }); ok {
-									closer.Close()
-								}
-							}()
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "create")
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "clean")
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "add")
+							// 2. Query on test table
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "create")
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "clean")
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "add")
 
 							streamUpdateCmd := fmt.Sprintf(
-								`jq '.selected_streams.%s[] .normalization = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
-								cfg.Namespace, streamsPath, streamsPath,
+								`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
+								streamsPath, streamsPath,
 							)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json (%d): %w\n%s",
@@ -217,7 +206,7 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 								var cmd string
 								if useState {
 									if operation != "" {
-										cfg.ExecuteQuery(ctx, t, db, currentTestTable, operation)
+										cfg.ExecuteQuery(ctx, t, currentTestTable, operation)
 									}
 									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s --state %s", cfg.Driver, sourceConfigPath, streamsPath, destinationConfigPath, statePath)
 								} else {
@@ -228,7 +217,7 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
 								}
 								t.Logf("Sync successful for %s driver", cfg.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.DataTypeSchema, schema, opSymbol, "%s")
+								VerifyIcebergSync(t, currentTestTable, cfg.DataTypeSchema, schema, opSymbol, cfg.Driver)
 								return nil
 							}
 
@@ -241,7 +230,7 @@ func (cfg *TestInterface) TestIntegration(t *testing.T) {
 							}
 
 							// 4. Clean up
-							cfg.ExecuteQuery(ctx, t, db, currentTestTable, "drop")
+							cfg.ExecuteQuery(ctx, t, currentTestTable, "drop")
 							t.Logf("%s sync test-container clean up", cfg.Driver)
 							return nil
 						},

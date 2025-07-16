@@ -13,10 +13,12 @@ import (
 )
 
 // ExecuteQuery executes MySQL queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, conn interface{}, tableName string, operation string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation string) {
 	t.Helper()
-	db, ok := conn.(*sqlx.DB)
-	require.True(t, ok, "Expected *sqlx.DB connection")
+	db, ok := sqlx.ConnectContext(ctx, "mysql",
+		"mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true",
+	)
+	require.NoError(t, ok, "failed to connect to  mysql")
 
 	var (
 		query string
