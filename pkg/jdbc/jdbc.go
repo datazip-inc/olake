@@ -342,7 +342,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
-		return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID BETWEEN '%v' AND '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, chunkMax, filterClause)
+		return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID >= '%v' AND ROWID < '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, chunkMax, filterClause)
 	}
 	return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID >= '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, filterClause)
 }

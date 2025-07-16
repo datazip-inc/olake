@@ -115,11 +115,11 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			startRowIDs = append(startRowIDs, startRowID)
 		}
 
-		// Create chunks with new boundary logic
-		for i, startRowID := range startRowIDs {
+		for idx, startRowID := range startRowIDs {
 			var maxRowID interface{}
-			if i < len(startRowIDs)-1 {
-				maxRowID = startRowIDs[i+1]
+
+			if idx < len(startRowIDs)-1 {
+				maxRowID = startRowIDs[idx+1]
 			} else {
 				maxRowID = nil
 			}
