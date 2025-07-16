@@ -30,6 +30,8 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	isTimestamp := strings.Contains(string(datatype), "timestamp")
 
 	incrementalCondition := ""
+	
+	// Convert Go time format to Oracle TO_TIMESTAMP_TZ format with timezone support
 	if isTimestamp {
 		parsedTime := fmt.Sprintf("TO_TIMESTAMP_TZ('%s','YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\"')", lastCursorValue.(time.Time).UTC().Format(time.RFC3339Nano))
 		incrementalCondition = fmt.Sprintf("%q >= %s", cursorField, parsedTime)
