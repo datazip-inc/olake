@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -28,12 +29,18 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		return fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
 	}
 	isTimestamp := strings.Contains(string(datatype), "timestamp")
-
-	incrementalCondition := ""
 	
+	incrementalCondition := ""
+
 	// Convert Go time format to Oracle TO_TIMESTAMP_TZ format with timezone support
 	if isTimestamp {
-		parsedTime := fmt.Sprintf("TO_TIMESTAMP_TZ('%s','YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\"')", lastCursorValue.(time.Time).UTC().Format(time.RFC3339Nano))
+		cursorValueType := reflect.TypeOf(lastCursorValue)
+		parsedTime := ""
+		if cursorValueType.String() == "string" {
+			parsedTime = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\"')", lastCursorValue)
+		} else {
+			parsedTime = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\"')", lastCursorValue.(time.Time).UTC().Format(time.RFC3339Nano))
+		}
 		incrementalCondition = fmt.Sprintf("%q >= %s", cursorField, parsedTime)
 	} else {
 		incrementalCondition = fmt.Sprintf("%q >= '%v'", cursorField, lastCursorValue)
