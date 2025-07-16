@@ -84,86 +84,17 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		m.cdcConfig = *cdc
 	}
 	m.client = client
-
-	binLogPermissions, err := checkBinlogPermissions(m)
-	if err != nil {
-		logger.Errorf("failed to check binlog permissions for CDC support: %v", err)
-	}
-
-	userPermissions, err := checkUserPermissions(m)
-	if err != nil {
-		logger.Errorf("failed to check user permissions for CDC support: %v", err)
-	}
-
+	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if binlog is configured
-	m.CDCSupport = binLogPermissions && userPermissions
+	cdcSupported, err := m.IsCDCSupported(ctx)
+	if err != nil {
+		logger.Warnf("failed to check CDC support: %s", err)
+	}
+	if !cdcSupported {
+		logger.Warnf("CDC is not supported")
+	}
+	m.CDCSupport = cdcSupported
 	return nil
-}
-
-// QueryRow executes a query and scans the result into the destination
-func QueryRow(client *sqlx.DB, query string, dest ...any) error {
-	return client.QueryRow(query).Scan(dest...)
-}
-
-// checkBinLogPermissions verifies the binary log permissions required for CDC support
-func checkBinlogPermissions(m *MySQL) (bool, error) {
-	var variableName string
-	var variableValue string
-
-	err := QueryRow(m.client, "SHOW VARIABLES LIKE 'log_bin'", &variableName, &variableValue)
-	if err != nil {
-		return false, fmt.Errorf("failed to check log_bin: %w", err)
-	}
-	if variableValue != "ON" {
-		logger.Warnf("log_bin is not set to 'ON'")
-		return false, nil
-	}
-
-	err = QueryRow(m.client, "SHOW VARIABLES LIKE 'binlog_format'", &variableName, &variableValue)
-	if err != nil {
-		return false, fmt.Errorf("failed to check binlog_format: %w", err)
-	}
-	if variableValue != "ROW" {
-		logger.Warnf("binlog_format is not set to ROW")
-		return false, nil
-	}
-
-	err = QueryRow(m.client, "SHOW VARIABLES LIKE 'binlog_row_metadata'", &variableName, &variableValue)
-	if err != nil {
-		return false, fmt.Errorf("failed to check binlog_row_metadata: %w", err)
-	}
-	if variableValue != "FULL" {
-		logger.Warnf("binlog_row_metadata is not set to FULL")
-		return false, nil
-	}
-
-	return true, nil
-}
-
-// checkUserPermissions verifies user permissions required for CDC support
-func checkUserPermissions(m *MySQL) (bool, error) {
-	var userGrants string
-
-	err := QueryRow(m.client, "SHOW GRANTS FOR CURRENT_USER()", &userGrants)
-	if err != nil {
-		return false, fmt.Errorf("failed to check user privileges: %w", err)
-	}
-	if !strings.Contains(userGrants, "REPLICATION CLIENT") {
-		logger.Warnf("user does not have REPLICATION CLIENT privilege")
-		return false, nil
-	}
-
-	if !strings.Contains(userGrants, "REPLICATION SLAVE") {
-		logger.Warnf("user does not have REPLICATION SLAVE privilege")
-		return false, nil
-	}
-
-	return true, nil
-}
-
-// Check verifies the database connection
-func (m *MySQL) Check() error {
-	return m.Setup()
 }
 
 // Type returns the database type
@@ -264,4 +195,63 @@ func (m *MySQL) Close() error {
 		return m.client.Close()
 	}
 	return nil
+}
+
+func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
+	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
+	if err != nil {
+		return false, fmt.Errorf("failed to get MySQL version: %s", err)
+	}
+
+	// Use the appropriate query based on the MySQL version
+	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+	rows, err := m.client.QueryContext(ctx, query)
+	if err != nil {
+		return false, fmt.Errorf("failed to get master status: %s", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return false, fmt.Errorf("no binlog position available")
+	}
+
+	var position uint32
+	var file, binlogDoDB, binlogIgnoreDB, executeGtidSet string
+	if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
+		return false, fmt.Errorf("failed to scan binlog position: %s", err)
+	}
+	// checkMySQLConfig checks a MySQL configuration value against an expected value
+	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
+		var name, value string
+		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
+			return false, fmt.Errorf("failed to check %s: %s", name, err)
+		}
+
+		if strings.ToUpper(value) != expectedValue {
+			logger.Warnf(warnMessage)
+			return false, nil
+		}
+
+		return true, nil
+	}
+
+	// Check binlog configurations
+	configChecks := []struct {
+		query         string
+		expectedValue string
+		errMessage    string
+	}{
+		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
+		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
+		{jdbc.MySQLBinlogRowMetadataQuery(), "FULL", "binlog_row_metadata is not set to FULL"},
+	}
+
+	for _, check := range configChecks {
+		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
+			return ok, err
+		}
+	}
+
+	return true, nil
 }
