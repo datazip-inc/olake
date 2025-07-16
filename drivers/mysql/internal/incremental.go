@@ -13,7 +13,7 @@ import (
 func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	cursorField := stream.Cursor()
 	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
-	query := fmt.Sprintf(`SELECT * FROM %s.%s WHERE %s >= ? ORDER BY %s`, stream.Namespace(), stream.Name(), cursorField, cursorField)
+	query := jdbc.MySQLIncrementalQuery(stream)
 
 	logger.Infof("Starting incremental sync for stream[%s]", stream.ID())
 
