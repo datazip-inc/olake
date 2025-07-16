@@ -199,27 +199,8 @@ func (m *MySQL) Close() error {
 
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
-	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
-	if err != nil {
-		return false, fmt.Errorf("failed to get MySQL version: %s", err)
-	}
-
-	// Use the appropriate query based on the MySQL version
-	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
-	rows, err := m.client.QueryContext(ctx, query)
-	if err != nil {
-		return false, fmt.Errorf("failed to get master status: %s", err)
-	}
-	defer rows.Close()
-
-	if !rows.Next() {
-		return false, fmt.Errorf("no binlog position available")
-	}
-
-	var position uint32
-	var file, binlogDoDB, binlogIgnoreDB, executeGtidSet string
-	if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
-		return false, fmt.Errorf("failed to scan binlog position: %s", err)
+	if _, err := m.getCurrentBinlogPosition(); err != nil {
+		return false, fmt.Errorf("failed to get binlog position: %s", err)
 	}
 	// checkMySQLConfig checks a MySQL configuration value against an expected value
 	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
