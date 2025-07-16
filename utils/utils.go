@@ -4,6 +4,8 @@ import (
 	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"reflect"
@@ -12,11 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -60,12 +64,22 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 	return -1, false
 }
 
-// returns cond ? a ; b
+// returns cond ? a ; b (note: it is not function ternary)
 func Ternary(cond bool, a, b any) any {
 	if cond {
 		return a
 	}
 	return b
+}
+
+func ForEach[T any](set []T, action func(elem T) error) error {
+	for _, elem := range set {
+		err := action(elem)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Unmarshal serializes and deserializes any from into the object
@@ -74,11 +88,11 @@ func Unmarshal(from, object any) error {
 	reformatted := reformatInnerMaps(from)
 	b, err := json.Marshal(reformatted)
 	if err != nil {
-		return fmt.Errorf("error marshaling object: %v", err)
+		return fmt.Errorf("error marshaling object: %s", err)
 	}
 	err = json.Unmarshal(b, object)
 	if err != nil {
-		return fmt.Errorf("error unmarshalling from object: %v", err)
+		return fmt.Errorf("error unmarshalling from object: %s", err)
 	}
 
 	return nil
@@ -138,21 +152,27 @@ func CheckIfFilesExists(files ...string) error {
 // 	return content
 // }
 
-func UnmarshalFile(file string, dest any) error {
+func UnmarshalFile(file string, dest any, credsFile bool) error {
 	if err := CheckIfFilesExists(file); err != nil {
 		return err
 	}
-
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("file not found : %s", err)
 	}
-
-	err = json.Unmarshal(data, dest)
+	decryptedJSON := data
+	// Use the encryption package to decrypt JSON
+	if credsFile && viper.GetString(constants.EncryptionKey) != "" {
+		dConfig, err := Decrypt(string(data))
+		if err != nil {
+			return fmt.Errorf("failed to decrypt config file[%s]: %s", file, err)
+		}
+		decryptedJSON = []byte(dConfig)
+	}
+	err = json.Unmarshal(decryptedJSON, dest)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
 	}
-
 	return nil
 }
 
@@ -227,6 +247,17 @@ func IsJSON(str string) bool {
 
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
+	// if single primary key is present use as it is
+	if len(keys) == 1 {
+		if _, ok := m[keys[0]]; ok {
+			return fmt.Sprint(m[keys[0]])
+		}
+	}
+
+	// If no primary key is present, the entire record is hashed to generate the olakeID.
+	if len(keys) == 0 {
+		return GetHash(m)
+	}
 	sort.Strings(keys)
 
 	var str strings.Builder
@@ -265,29 +296,52 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 
 // return 0 for equal, -1 if a < b else 1 if a>b
 func CompareInterfaceValue(a, b interface{}) int {
-	switch a.(type) {
-	case int, int64, float32, float64:
-		af := 0.0
-		if a != nil {
-			af = reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
-		}
-		bf := 0.0
-		if b != nil {
-			bf = reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
-		}
+	// Handle nil cases first
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+
+	switch aVal := a.(type) {
+	case uint, uint32, uint64, int, int32, int64, float32, float64:
+		af := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
+		bf := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
 		if af < bf {
 			return -1
 		} else if af > bf {
 			return 1
 		}
+		return 0
 	case string:
-		if a != nil && b != nil {
-			return strings.Compare(a.(string), b.(string))
+		return strings.Compare(aVal, b.(string))
+	case time.Time:
+		bTime := b.(time.Time)
+		if aVal.Before(bTime) {
+			return -1
+		} else if aVal.After(bTime) {
+			return 1
 		}
-		return Ternary(a == nil, -1, 1).(int)
+		return 0
+	case bool:
+		bBool := b.(bool)
+		// false < true
+		if !aVal && bBool {
+			return -1
+		} else if aVal && !bBool {
+			return 1
+		}
+		return 0
+	default:
+		// For any other types, convert to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 	}
-	return 0
 }
+
 func ConvertToString(value interface{}) string {
 	switch v := value.(type) {
 	case []byte:
@@ -297,4 +351,21 @@ func ConvertToString(value interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v) // Fallback
 	}
+}
+
+func ComputeConfigHash(srcPath, destPath string) string {
+	if srcPath == "" || destPath == "" {
+		// no config or no destination → no meaningful hash
+		return ""
+	}
+	a, err := os.ReadFile(srcPath)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(destPath)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(append(a, b...))
+	return hex.EncodeToString(sum[:])
 }

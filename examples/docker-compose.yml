@@ -1,0 +1,382 @@
+x-app-defaults:
+  host_persistence_path: &hostPersistencePath   ${PWD}/olake-data
+  worker_config_volume_details: &workerConfigVolumeDetails
+    type: bind
+    source: *hostPersistencePath
+    target: /tmp/olake-config
+
+x-signup-defaults:
+  username: &defaultUsername "admin"
+  password: &defaultPassword "password"
+  email: &defaultEmail "admin@example.com"
+
+services:
+  rest:
+    image: tabulario/iceberg-rest
+    container_name: iceberg-rest
+    ports:
+      - 8181:8181
+    volumes:
+      - catalog-data:/catalog
+    environment:
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9090
+      CATALOG_URI: jdbc:postgresql://postgresql:5432/postgres
+      CATALOG_JDBC_USER: temporal
+      CATALOG_JDBC_PASSWORD: temporal
+    networks:
+      - app-network
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      mc:
+        condition: service_completed_successfully
+
+  minio:
+    image: minio/minio
+    hostname: minio
+    container_name: minio
+    ports:
+      - 9090:9090  # server address
+      - 8443:9091  # console address
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+      MINIO_DOMAIN: minio
+    command: server --address ":9090" --console-address ":9091" /data
+    networks:
+      app-network:
+        aliases:
+          - warehouse.minio
+
+  mc:
+    image: minio/mc
+    container_name: mc
+    environment:
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      AWS_REGION: us-east-1
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set minio http://minio:9090 minio minio123) do echo '...waiting...' && sleep 1; done;
+      echo 'Ensuring warehouse bucket exists and is public...';
+      if /usr/bin/mc stat minio/warehouse > /dev/null 2>&1; then
+        echo 'Warehouse bucket exists, removing for fresh start...';
+        /usr/bin/mc rm -r --force minio/warehouse || echo 'Failed to remove warehouse, proceeding...';
+      fi;
+      /usr/bin/mc mb minio/warehouse;
+      /usr/bin/mc anonymous set public minio/warehouse;
+      echo 'Minio warehouse bucket setup complete.';
+      "
+    networks:
+      - app-network
+    depends_on:
+      - minio
+
+  primary_mysql:
+    container_name: primary_mysql
+    image: mysql:8.0
+    hostname: primary_mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: main
+    command:
+      - "--server-id=1" # Set a unique server identifier for replication.
+      - "--log-bin=mysql-bin" # Enable binary logging (needed for replication and CDC).
+      - "--binlog-format=ROW" # Use ROW format to record every change in each row.
+      - "--gtid-mode=ON" # Enable Global Transaction Identifiers (GTIDs).
+      - "--enforce-gtid-consistency=ON" # Ensure all transactions are GTID compliant.
+      - "--local-infile=1" # Enable local data loading for importing files.
+      - "--binlog_expire_logs_seconds=604800" # Set binary log expiration to 7 days (604800 seconds).
+      - "--skip-host-cache" # Disable host cache for DNS resolution.
+      - "--skip-name-resolve" # Disable DNS host name resolution to improve performance.
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - app-network
+    healthcheck:
+      test: [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-ppassword",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  init-mysql-tasks:
+    image: ubuntu/mysql:8.0-22.04_edge
+    container_name: init-mysql-tasks
+    entrypoint: >
+      bash -c "
+        set -e; # Exit immediately if a command exits with a non-zero status.
+
+        export DEBIAN_FRONTEND=noninteractive;
+        echo 'Updating package list and installing curl...';
+        apt-get update -qq && apt-get install -y curl;
+        echo 'curl installed.';
+
+        echo 'Waiting for MySQL (primary_mysql) to be ready...';
+        until mysqladmin ping -h primary_mysql -P 3306 -u root -ppassword --silent; do
+          echo 'Still waiting for MySQL...';
+          sleep 2;
+        done
+        echo 'MySQL is ready.';
+
+        # --- Start of tasks init-cdc-user ---
+        echo 'Creating replication user (cdc_user)...';
+        mysql -h primary_mysql -P 3306 -u root -ppassword -e \"
+          CREATE USER IF NOT EXISTS 'cdc_user'@'%' IDENTIFIED BY 'cdc_password';
+          GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'cdc_user'@'%';
+          FLUSH PRIVILEGES;
+        \";
+        echo 'Replication user created and privileges flushed.';
+
+        echo 'Setting global binlog_row_metadata to FULL...';
+        mysql -h primary_mysql -P 3306 -u root -ppassword -e \"SET GLOBAL binlog_row_metadata = 'FULL';\";
+        echo 'Global binlog_row_metadata set to FULL.';
+        # --- End of tasks init-cdc-user ---
+
+        # --- Start of weather data load (replaces large employees database) ---
+        echo 'init-mysql-tasks: Preparing to load weather sample database...';
+
+        echo 'init-mysql-tasks: Downloading weather CSV data...';
+        curl -SLJk -o /tmp/weather.csv https://corgis-edu.github.io/corgis/datasets/csv/weather/weather.csv;
+        echo 'init-mysql-tasks: Weather CSV downloaded.';
+
+        echo 'init-mysql-tasks: Creating weather database...';
+        mysql -h primary_mysql -u root -ppassword -e \"CREATE DATABASE IF NOT EXISTS weather;\";
+
+        echo 'init-mysql-tasks: Creating weather table...';
+        mysql -h primary_mysql -u root -ppassword weather -e \"CREATE TABLE IF NOT EXISTS weather (id INT AUTO_INCREMENT PRIMARY KEY, precipitation FLOAT, date_full VARCHAR(20), date_month INT, date_week_of INT, date_year INT, station_city VARCHAR(100), station_code VARCHAR(10), station_location VARCHAR(100), station_state VARCHAR(50), temperature_avg FLOAT, temperature_max FLOAT, temperature_min FLOAT, wind_direction INT, wind_speed FLOAT);\";
+
+        echo 'init-mysql-tasks: Loading weather data into MySQL (this should be much faster)...';
+        mysql --local-infile=1 -h primary_mysql -u root -ppassword weather -e \"LOAD DATA LOCAL INFILE '/tmp/weather.csv' INTO TABLE weather FIELDS TERMINATED BY ',' ENCLOSED BY '\\\"' LINES TERMINATED BY '\\n' IGNORE 1 ROWS (precipitation, date_full, date_month, date_week_of, date_year, station_city, station_code, station_location, station_state, temperature_avg, temperature_max, temperature_min, wind_direction, wind_speed);\";
+        
+        echo 'init-mysql-tasks: Verifying data load with sample queries...';
+        mysql -h primary_mysql -u root -ppassword weather -e \"SELECT COUNT(*) as total_rows FROM weather;\";
+        mysql -h primary_mysql -u root -ppassword weather -e \"SELECT * FROM weather LIMIT 5;\";
+        
+        echo 'init-mysql-tasks: Weather database loading process complete.';
+        # --- End of weather data load ---
+
+        # --- Start of tasks binlog-checker ---
+        echo 'Performing MySQL binlog check...';
+        sleep 3; # Brief pause to help ensure binlog file is written and available after DML
+
+        echo 'Listing MySQL binaries in /usr/bin:' && ls -l /usr/bin/mysql*;
+        echo 'Attempting to run mysqlbinlog:';
+        /usr/bin/mysqlbinlog /var/lib/mysql/mysql-bin.000001 || echo 'mysqlbinlog not found!';
+        # --- End of tasks binlog-checker ---
+        echo 'All MySQL initialization tasks (CDC user setup, data loading, and binlog check) completed successfully.';
+      "
+    restart: "no"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    depends_on:
+      primary_mysql:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  olake-app:
+    image: olakego/ui:latest
+    pull_policy: always
+    container_name: olake-app
+    environment:
+      PERSISTENT_DIR: *hostPersistencePath
+      POSTGRES_DB: "postgres://olake:olake@postgresql:5432/olakedb"
+    ports:
+      - "8000:8000"  # Expose UI port
+      - "8080:8080"  # Expose backend API port
+    volumes:
+      - <<: *workerConfigVolumeDetails
+    networks:
+      - app-network
+    depends_on:
+      postgresql:
+        condition: service_healthy # Wait for postgres to be healthy
+      temporal:
+        condition: service_started # Or service_healthy if temporal has a healthcheck
+      init-mysql-tasks:
+        condition: service_completed_successfully # Wait for binlog-checker to complete
+    restart: unless-stopped
+    healthcheck: # Updated healthcheck for olake-app
+      test: ["CMD-SHELL", "nc -z localhost 8080"] # Check if port 8080 is listening
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s # Give it time to start up before first health check
+
+  signup-init:
+    image: curlimages/curl:latest
+    container_name: olake-signup-init
+    networks:
+      - app-network
+    depends_on:
+      olake-app:
+        condition: service_healthy # Wait for olake-app to be healthy
+    environment:
+      USERNAME: *defaultUsername
+      PASSWORD: *defaultPassword
+      EMAIL: *defaultEmail
+      OLAKE_APP_URL: "http://olake-app:8080/signup"
+    command: >
+      sh -c "
+        echo 'signup-init: Initializing user setup...'
+        # The depends_on condition: service_healthy should handle the waiting for olake-app.
+
+        JSON_PAYLOAD=$$(printf '{\"username\":\"%s\",\"password\":\"%s\",\"email\":\"%s\"}' \"$${USERNAME}\" \"$${PASSWORD}\" \"$${EMAIL}\")
+        echo \"signup-init: Attempting to create user '$${USERNAME}' via $${OLAKE_APP_URL}\"
+
+        HTTP_RESPONSE_CODE=$$(/usr/bin/curl -s -o /dev/stderr -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d \"$${JSON_PAYLOAD}\" \"$${OLAKE_APP_URL}\")
+
+        # The actual response body from olake-app will be printed to stderr by the '-o /dev/stderr' curl option.
+        # A newline after stderr output from curl can make logs cleaner.
+        echo '' 
+
+        if ! [ \"$${HTTP_RESPONSE_CODE}\" -eq \"$${HTTP_RESPONSE_CODE}\" ] 2>/dev/null; then
+            echo \"signup-init: ERROR - HTTP_RESPONSE_CODE is not a number: '$${HTTP_RESPONSE_CODE}'\"
+            exit 1;
+        fi
+
+        if [ \"$${HTTP_RESPONSE_CODE}\" -ge 200 ] && [ \"$${HTTP_RESPONSE_CODE}\" -lt 300 ]; then
+          echo \"signup-init: User '$${USERNAME}' creation request successful (HTTP $${HTTP_RESPONSE_CODE}).\";
+        else
+          echo \"signup-init: User '$${USERNAME}' creation request FAILED (HTTP $${HTTP_RESPONSE_CODE}). Server response body above.\";
+          exit 1; # Exit with error if signup failed
+        fi
+        echo 'signup-init: User setup process complete.';
+      "
+    restart: "no"
+
+  temporal-worker:
+    image: olakego/ui-worker:latest
+    pull_policy: always
+    container_name: olake-temporal-worker
+    networks:
+      - app-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - <<: *workerConfigVolumeDetails
+    environment:
+      TEMPORAL_ADDRESS: "temporal:7233"
+      PERSISTENT_DIR: *hostPersistencePath
+    depends_on:
+      temporal:
+        condition: service_started # Or service_healthy if temporal has a healthcheck
+      olake-app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgresql:
+    container_name: temporal-postgresql
+    image: postgres:13
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    networks:
+      - app-network
+    ports:
+      - "5432:5432"
+    volumes:
+      - temporal-postgresql-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -h localhost -p 5432"] # Checks if server is accepting connections
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    container_name: temporal
+    image: temporalio/auto-setup:1.22.3
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy # Wait for elasticsearch to be healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+      - ENABLE_ES=true
+      - ES_SEEDS=elasticsearch
+      - ES_VERSION=v7
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    networks:
+      - app-network
+    ports:
+      - "7233:7233"
+    restart: unless-stopped
+
+  temporal-ui:
+    container_name: temporal-ui
+    image: temporalio/ui:2.16.2
+    depends_on:
+      temporal:
+        condition: service_started
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    networks:
+      - app-network
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  elasticsearch:
+    container_name: temporal-elasticsearch
+    image: elasticsearch:7.17.10
+    environment:
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=512mb
+      - cluster.routing.allocation.disk.watermark.high=256mb
+      - cluster.routing.allocation.disk.watermark.flood_stage=128mb
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - xpack.security.enabled=false
+    networks:
+      - app-network
+    expose:
+      - 9200
+    volumes:
+      - temporal-elasticsearch-data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  minio-data:
+  mysql-data:
+  catalog-data:
+  postgres-data:
+  temporal-postgresql-data:
+    driver: local
+  olake-config-data:
+    driver: local
+  temporal-elasticsearch-data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
+    name: app-network

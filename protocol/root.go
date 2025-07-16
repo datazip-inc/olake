@@ -1,13 +1,15 @@
 package protocol
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -16,22 +18,18 @@ var (
 	configPath            string
 	destinationConfigPath string
 	statePath             string
-	catalogPath           string
+	streamsPath           string
+	syncID                string
 	batchSize             int64
 	noSave                bool
-
-	catalog           *types.Catalog
-	state             *types.State
-	destinationConfig *types.WriterConfig
+	clearDestinationFlag  bool
+	encryptionKey         string
+	catalog               *types.Catalog
+	state                 *types.State
+	destinationConfig     *types.WriterConfig
 
 	commands  = []*cobra.Command{}
-	connector Driver
-
-	concurrentStreamExecution = 6
-	// Global Stream concurrency group;
-	//
-	// Not to confuse with individual stream level concurrency
-	GlobalCxGroup = utils.NewCGroupWithLimit(context.Background(), concurrentStreamExecution)
+	connector *abstract.AbstractDriver
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -41,10 +39,15 @@ var RootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// set global variables
 		if !noSave {
-			viper.Set("CONFIG_FOLDER", filepath.Dir(configPath))
+			viper.Set(constants.ConfigFolder, utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
+		}
+
+		if encryptionKey != "" {
+			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
+		telemetry.Init()
 
 		if len(args) == 0 {
 			return cmd.Help()
@@ -60,19 +63,23 @@ var RootCmd = &cobra.Command{
 
 func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
-	connector = driver.(Driver)
+	connector = abstract.NewAbstractDriver(RootCmd.Context(), driver.(abstract.DriverInterface))
 
 	return RootCmd
 }
 
 func init() {
+	// TODO: replace --catalog flag with --streams
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
-	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "", "(Required) Config for connector")
-	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "", "(Required) Destination config for connector")
-	RootCmd.PersistentFlags().StringVarP(&catalogPath, "catalog", "", "", "(Required) Catalog for connector")
+	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
+	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
+	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector")
+	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
+	RootCmd.PersistentFlags().BoolVarP(&clearDestinationFlag, "clear-destination", "", false, "(Optional) Flag to clear destination and reset sync state for selected streams to force full refresh. Note: Destination is automatically cleared for full refresh streams regardless of this flag.")
+	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

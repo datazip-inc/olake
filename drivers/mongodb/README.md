@@ -4,23 +4,25 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
 ---
 
 ## Supported Modes
-1. **Full Refresh**  
+1. **Full Refresh**
    Fetches the complete dataset from MongoDB.
-2. **CDC (Change Data Capture)**  
+2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from MongoDB in real time.
+3. **Strict CDC (Change Data Capture)**
+   Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
 
 ---
 
 ## Setup and Configuration
 To run the MongoDB Driver, configure the following files with your specific credentials and settings:
 
-- **`config.json`**: MongoDB connection details.  
-- **`catalog.json`**: List of collections and fields to sync (generated using the *Discover* command).  
+- **`config.json`**: MongoDB connection details.
+- **`streams.json`**: List of collections and fields to sync (generated using the *Discover* command).
 - **`write.json`**: Configuration for the destination where the data will be written.
 
 Place these files in your project directory before running the commands.
 
-### Config File 
+### Config File
 Add MongoDB credentials in following format in `config.json` file. To check more about config [visit docs](https://olake.io/docs/connectors/mongodb/config)
    ```json
    {
@@ -38,20 +40,19 @@ Add MongoDB credentials in following format in `config.json` file. To check more
       "server-ram": 16,
       "database": "database",
       "max_threads": 50,
-      "default_mode" : "cdc",
       "backoff_retry_count": 2,
-      "partition_strategy":""
+      "chunking_strategy":""
    }
 ```
 
 ## Commands
 ### Discover Command
-The *Discover* command generates json content for `catalog.json` file, which defines the schema of the collections to be synced.
+The *Discover* command generates json content for `streams.json` file, which defines the schema of the collections to be synced.
 
 #### Usage
 To run the Discover command, use the following syntax
    ```bash
-   ./build.sh driver-mongodb discover --config /mongodb/examples/config.json 
+   ./build.sh driver-mongodb discover --config /mongodb/examples/config.json
    ```
 
 #### Example Response (Formatted)
@@ -64,7 +65,10 @@ After executing the Discover command, a formatted response will look like this:
          "namespace": [
                {
                   "partition_regex": "",
-                  "stream_name": "incr"
+                  "stream_name": "incr",
+                  "normalization": false,
+                  "append_only": false,
+                  "filter": "id > 1"
                }
          ]
       },
@@ -81,8 +85,8 @@ After executing the Discover command, a formatted response will look like this:
 }
 ```
 
-#### Configure Catalog
-Before running the Sync command, the generated `catalog.json` file must be configured. Follow these steps:
+#### Configure Streams
+Before running the Sync command, the generated `streams.json` file must be configured. Follow these steps:
 - Remove Unnecessary Streams:<br>
    Remove streams from selected streams.
 - Add Partition based on Column Value
@@ -98,14 +102,46 @@ Before running the Sync command, the generated `catalog.json` file must be confi
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
-- Final Catalog Example
+   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "incr",
+                     "normalization": false,
+                     "append_only": false
+                  }
+            ]
+         },
+      ```
+   - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "incr",
+                     "normalization": false,
+                     "filter": "_id > 6835a56c558d36492e3c39e2 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
+                  }
+            ]
+         },
+      ```
+      For primitive types like _id, directly provide the value without using any quotes.
+
+- Final Streams Example
+<br> `normalization` determines that level 1 flattening is required. <br>
+<br> The `append_only` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow) <br>
    ```json
    {
       "selected_streams": {
          "namespace": [
                {
                   "partition_regex": "",
-                  "stream_name": "incr"
+                  "stream_name": "incr",
+                  "normalization": false,
+                  "append_only": false
                }
          ]
       },
@@ -125,15 +161,13 @@ Before running the Sync command, the generated `catalog.json` file must be confi
 
 
 
-### Writer File 
+### Writer File
 The Writer file defines the configuration for the destination where data needs to be added.<br>
-`normalization` determine that Level 1 flattening is required. <br>
 Example (For Local):
    ```
    {
       "type": "PARQUET",
       "writer": {
-         "normalization":true,
          "local_path": "./examples/reader"
       }
    }
@@ -143,11 +177,10 @@ Example (For S3):
    {
       "type": "PARQUET",
       "writer": {
-         "normalization":false,
-         "s3_bucket": "olake",  
+         "s3_bucket": "olake",
          "s3_region": "",
-         "s3_access_key": "", 
-         "s3_secret_key": "", 
+         "s3_access_key": "",
+         "s3_secret_key": "",
          "s3_path": ""
       }
    }
@@ -158,7 +191,6 @@ Example (For AWS S3 + Glue Configuration)
   {
       "type": "ICEBERG",
       "writer": {
-        "normalization": false,
         "s3_path": "s3://{bucket_name}/{path_prefix}/",
         "aws_region": "ap-south-1",
         "aws_access_key": "XXX",
@@ -179,7 +211,6 @@ Example (Local Test Configuration (JDBC + Minio))
       "jdbc_url": "jdbc:postgresql://localhost:5432/iceberg",
       "jdbc_username": "iceberg",
       "jdbc_password": "password",
-      "normalization": false,
       "iceberg_s3_path": "s3a://warehouse",
       "s3_endpoint": "http://localhost:9000",
       "s3_use_ssl": false,
@@ -197,16 +228,16 @@ For Detailed overview check [here.](https://olake.io/docs/category/destinations-
 The *Sync* command fetches data from MongoDB and ingests it into the destination.
 
 ```bash
-./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/catalog.json --destination /mongodb/examples/write.json
+./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/streams.json --destination /mongodb/examples/write.json
 ```
 
-To run sync with state 
+To run sync with state
 ```bash
-./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/catalog.json --destination /mongodb/examples/write.json --state /mongodb/examples/state.json
+./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/streams.json --destination /mongodb/examples/write.json --state /mongodb/examples/state.json
 ```
 
 
-### State File 
+### State File
 The State file is generated by the CLI command at the completion of a batch or the end of a sync. This file can be used to save the sync progress and later resume from a specific checkpoint.
 #### State File Format
 You can save the state in a `state.json` file using the following format:

@@ -134,6 +134,10 @@ func newCGroup(ctx context.Context, limit int) *CxGroup {
 	return group
 }
 
+func (g *CxGroup) Ctx() context.Context {
+	return g.ctx
+}
+
 func (g *CxGroup) Add(execute func(ctx context.Context) error) {
 	g.executor.Go(func() error {
 		return execute(g.ctx)
@@ -146,9 +150,14 @@ func (g *CxGroup) Block() error {
 
 func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx context.Context, one T) error) {
 	for _, one := range array {
-		// schedule an execution
-		group.Add(func(ctx context.Context) error {
-			return execute(ctx, one)
-		})
+		select {
+		case <-group.ctx.Done():
+			break
+		default:
+			// schedule an execution
+			group.Add(func(ctx context.Context) error {
+				return execute(ctx, one)
+			})
+		}
 	}
 }

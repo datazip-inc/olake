@@ -7,10 +7,10 @@ import (
 
 	"github.com/goccy/go-json"
 
-	"github.com/datazip-inc/olake/jsonschema"
-	"github.com/datazip-inc/olake/logger"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/jsonschema"
+	"github.com/datazip-inc/olake/utils/logger"
 
 	"github.com/spf13/cobra"
 )
@@ -60,7 +60,7 @@ var specCmd = &cobra.Command{
 		} else {
 			logger.Info("Reading cached Spec")
 
-			err := utils.UnmarshalFile(specfile, &spec)
+			err := utils.UnmarshalFile(specfile, &spec, false)
 			if err != nil {
 				return err
 			}

@@ -3,14 +3,15 @@ package olake
 import (
 	"os"
 
-	"github.com/datazip-inc/olake/logger"
+	_ "github.com/datazip-inc/olake/destination/iceberg" // registering iceberg destination
+	_ "github.com/datazip-inc/olake/destination/parquet" // registering parquet destination
+	"github.com/datazip-inc/olake/drivers/abstract"
 	protocol "github.com/datazip-inc/olake/protocol"
-	"github.com/datazip-inc/olake/safego"
-	_ "github.com/datazip-inc/olake/writers/iceberg" // registering local parquet writer
-	_ "github.com/datazip-inc/olake/writers/parquet" // registering local parquet writer
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/safego"
 )
 
-func RegisterDriver(driver protocol.Driver) {
+func RegisterDriver(driver abstract.DriverInterface) {
 	defer safego.Recovery(true)
 
 	// Execute the root command
