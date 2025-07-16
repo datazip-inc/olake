@@ -86,8 +86,14 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if binlog is configured
-	//TODO : check for mysql binlog permisssions
-	m.CDCSupport = true
+	cdcSupported, err := m.IsCDCSupported(ctx)
+	if err != nil {
+		logger.Warnf("failed to check CDC readiness: %s", err)
+	}
+	if !cdcSupported {
+		logger.Warnf("CDC is not supported")
+	}
+	m.CDCSupport = cdcSupported
 	return nil
 }
 
@@ -189,4 +195,55 @@ func (m *MySQL) Close() error {
 		return m.client.Close()
 	}
 	return nil
+}
+func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
+	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
+	if err != nil {
+		return false, fmt.Errorf("failed to get MySQL version: %s", err)
+	}
+
+	// Use the appropriate query based on the MySQL version
+	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+	rows, err := m.client.QueryContext(ctx, query)
+	if err != nil {
+		return false, fmt.Errorf("failed to get master status: %s", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return false, fmt.Errorf("no binlog position available")
+	}
+
+	var position uint32
+	var file, binlogDoDB, binlogIgnoreDB, executeGtidSet string
+	if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
+		return false, fmt.Errorf("failed to scan binlog position: %s", err)
+	}
+
+	// Binlog configuration checks
+	var name, value string
+	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLLogBinQuery()).Scan(&name, &value); err != nil {
+		return false, fmt.Errorf("failed to check log_bin: %s", err)
+	}
+	if strings.ToUpper(value) != "ON" {
+		logger.Warnf("log_bin is not enabled")
+		return false, nil
+	}
+	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLBinlogFormatQuery()).Scan(&name, &value); err != nil {
+		return false, fmt.Errorf("failed to check binlog_format: %s", err)
+	}
+	if strings.ToUpper(value) != "ROW" {
+		logger.Warnf("binlog_format is not set to ROW")
+		return false, nil
+	}
+	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLBinlogRowMetadataQuery()).Scan(&name, &value); err != nil {
+		return false, fmt.Errorf("failed to check binlog_row_metadata: %s", err)
+	}
+	if strings.ToUpper(value) != "FULL" {
+		logger.Warnf("binlog_row_metadata is not set to FULL")
+		return false, nil
+	}
+
+	return true, nil
 }
