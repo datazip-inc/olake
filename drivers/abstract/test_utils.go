@@ -261,7 +261,6 @@ func IsRPSAboveBenchmark(driver string, isBackfill bool) (bool, error) {
 		return false, err
 	}
 
-	// compare with benchmark stats
 	var benchmarkStats map[string]interface{}
 	if err := utils.UnmarshalFile(filepath.Join(GetHostRoot(), fmt.Sprintf("drivers/%s/internal/testconfig/%s", driver, benchmarkFile)), &benchmarkStats, false); err != nil {
 		return false, err
@@ -272,6 +271,9 @@ func IsRPSAboveBenchmark(driver string, isBackfill bool) (bool, error) {
 		return false, err
 	}
 
+	fmt.Printf("CurrentRPS: %.2f, BenchmarkRPS: %.2f\n", rps, benchmarkRps)
+
+	// TODO: make changes to accept RPS with a delta of 10%
 	if rps < 0*benchmarkRps {
 		return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
 	}
@@ -279,8 +281,29 @@ func IsRPSAboveBenchmark(driver string, isBackfill bool) (bool, error) {
 	return true, nil
 }
 
-func EnableNormalizationCmd(tableName string, config TestConfig) string {
-	return fmt.Sprintf(`jq '.selected_streams["performance"] |= map(if .stream_name == "%s" then .normalization = true | . else . end)' %s > /tmp/streams.json && mv /tmp/streams.json %s`, tableName, config.CatalogPath, config.CatalogPath)
+// to include the specified streams, and sets normalization = true for them
+func UpdateStreamsCmd(config TestConfig, namespace string, streams ...string) string {
+	if len(streams) == 0 {
+		return ""
+	}
+
+	var conditions string
+	for i, stream := range streams {
+		if i > 0 {
+			conditions += " or "
+		}
+		conditions += fmt.Sprintf(`.stream_name == "%s"`, stream)
+	}
+
+	jqExpr := fmt.Sprintf(
+		`jq '.selected_streams["%s"] |= map(select(%s) | .normalization = true)' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
+		namespace,
+		conditions,
+		config.CatalogPath,
+		config.CatalogPath,
+	)
+
+	return jqExpr
 }
 
 func GetRPSFromStats(stats map[string]interface{}) (float64, error) {
@@ -309,4 +332,12 @@ func GetHostRoot() string {
 		return ""
 	}
 	return filepath.Join(pwd, "../../..")
+}
+
+func GetEnv(key string, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }

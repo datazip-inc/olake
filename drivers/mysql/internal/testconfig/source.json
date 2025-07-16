@@ -1,8 +1,8 @@
 {
-    "hosts": "host.docker.internal",
+    "hosts": "localhost",
     "username": "mysql",
     "password": "secret1234",
-    "database": "performance",
+    "database": "mysql",
     "port": 3306,
     "tls_skip_verify": true,
     "update_method": {

@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  oracle:
+    image: gvenzl/oracle-free:23
+    container_name: oracle-local
+    ports:
+      - "1521:1521"
+    environment:
+      - ORACLE_PASSWORD=secret1234
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'SELECT 1 FROM DUAL;' | sqlplus -s system/secret1234@localhost/FREE"]
+      interval: 20s
+      timeout: 10s
+      retries: 10

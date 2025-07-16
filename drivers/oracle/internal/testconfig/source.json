@@ -1,0 +1,14 @@
+{
+    "host": "localhost",
+    "username": "system",
+    "password": "secret1234",
+    "service": "FREE",
+    "port": 1521,
+    "ssl": {
+        "mode": "disable"
+    },
+    "jdbc_url_params": {
+        "TIMEOUT": "86400"
+    },
+    "max_threads": 6
+}

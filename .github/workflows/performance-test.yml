@@ -1,0 +1,286 @@
+name: Performance Test (Development)
+on:
+  workflow_dispatch:
+    inputs:
+      driver:
+        description: 'Driver to test'
+        required: true
+        default: 'mysql'
+        type: choice
+        options:
+        - mysql
+        - postgres
+        - oracle
+        - mongodb
+        - all
+      # skip_infrastructure:
+      #   description: 'Skip shared infrastructure setup'
+      #   required: false
+      #   default: false
+      #   type: boolean
+
+env:
+  # MySQL Configuration
+  MYSQL_ROOT_PASSWORD: root1234
+  MYSQL_PASSWORD: secret1234
+  MYSQL_DATABASE: mysql
+  MYSQL_USER: mysql
+  MYSQL_HOST: localhost
+  MYSQL_PORT: 3306
+
+  # PostgreSQL Configuration
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: secret1234
+  POSTGRES_DATABASE: postgres
+  POSTGRES_HOST: localhost
+  POSTGRES_PORT: 5433
+
+  # Oracle Configuration
+  ORACLE_PASSWORD: secret1234
+  ORACLE_HOST: localhost
+  ORACLE_PORT: 1521
+
+  # MongoDB Configuration
+  MONGODB_HOST: localhost
+  MONGODB_PORT: 27017
+
+jobs:
+  # Shared infrastructure setup
+  # setup-infrastructure:
+  #   if: ${{ github.event.inputs.skip_infrastructure != 'true' }}
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   outputs:
+  #     infrastructure-ready: ${{ steps.setup.outputs.ready }}
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+
+  #   - name: Start Shared Infrastructure
+  #     id: setup
+  #     run: |
+  #       # Start the shared iceberg infrastructure
+  #       docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+
+  #       # Wait for shared services to be ready
+  #       echo "Waiting for MinIO to be ready..."
+  #       timeout 120 bash -c 'until curl -s http://localhost:9001 > /dev/null; do sleep 2; done'
+
+  #       echo "Waiting for PostgreSQL to be ready..."
+  #       timeout 120 bash -c 'until pg_isready -h localhost -p 5432 -U iceberg; do sleep 2; done'
+
+  #       echo "Waiting for Spark to be ready..."
+  #       timeout 120 bash -c 'until curl -s http://localhost:15002 > /dev/null; do sleep 5; done'
+
+  #       echo "Infrastructure is ready!"
+  #       echo "ready=true" >> $GITHUB_OUTPUT
+
+  # MySQL Performance Test
+  mysql-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.2'
+
+    - name: Set up Java for Maven
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Start MySQL Infrastructure
+      run: |
+        docker compose -f ./drivers/mysql/docker-compose.yml up -d
+
+    - name: Wait for MySQL
+      uses: nick-fields/retry@v2
+      with:
+        timeout_minutes: 5
+        max_attempts: 30
+        retry_wait_seconds: 5
+        command: |
+          docker exec olake_mysql-test mysql -h localhost -u root -p${{ env.MYSQL_ROOT_PASSWORD }} -e "SELECT 1"
+
+    - name: Install Go Dependencies
+      run: go mod download
+
+    - name: Build Project
+      run: go build -v ./...
+
+    - name: Build Iceberg Sink
+      working-directory: ./destination/iceberg/olake-iceberg-java-writer
+      run: mvn clean package -DskipTests
+
+    - name: Run MySQL Performance Test
+      run: go test -v ./drivers/mysql/internal/performance_test.go -tags=performance --timeout 0 || exit 1
+
+    - name: Cleanup MySQL
+      if: always()
+      run: docker compose -f ./drivers/mysql/docker-compose.yml down
+
+  # PostgreSQL Performance Test
+  # postgres-performance:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+
+  #   - name: Set up Go
+  #     uses: actions/setup-go@v4
+  #     with:
+  #       go-version: '1.23.2'
+
+  #   - name: Set up Java for Maven
+  #     uses: actions/setup-java@v3
+  #     with:
+  #       distribution: 'temurin'
+  #       java-version: '17'
+
+  #   - name: Start PostgreSQL Infrastructure
+  #     run: |
+  #       docker compose -f ./drivers/postgres/docker-compose.yml up -d
+
+  #   - name: Wait for PostgreSQL
+  #     uses: nick-fields/retry@v2
+  #     with:
+  #       timeout_minutes: 5
+  #       max_attempts: 30
+  #       retry_wait_seconds: 5
+  #       command: |
+  #         docker exec olake_postgres-test pg_isready -U postgres -h localhost -p 5432
+
+  #   - name: Install Go Dependencies
+  #     run: go mod download
+
+  #   - name: Build Project
+  #     run: go build -v ./...
+
+  #   - name: Build Iceberg Sink
+  #     working-directory: ./destination/iceberg/olake-iceberg-java-writer
+  #     run: mvn clean package -DskipTests
+
+  #   - name: Run PostgreSQL Performance Test
+  #     run: go test -v ./drivers/postgres/internal/performance_test.go -tags=performance --timeout 0 || exit 1
+
+  #   - name: Cleanup PostgreSQL
+  #     if: always()
+  #     run: docker compose -f ./drivers/postgres/docker-compose.yml down
+
+  # Oracle Performance Test
+  # oracle-performance:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 45
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+
+  #   - name: Set up Go
+  #     uses: actions/setup-go@v4
+  #     with:
+  #       go-version: '1.23.2'
+
+  #   - name: Set up Java for Maven
+  #     uses: actions/setup-java@v3
+  #     with:
+  #       distribution: 'temurin'
+  #       java-version: '17'
+
+  #   - name: Start Oracle Infrastructure
+  #     run: |
+  #       docker compose -f ./drivers/oracle/docker-compose.yml up -d
+
+  #   - name: Wait for Oracle
+  #     uses: nick-fields/retry@v2
+  #     with:
+  #       timeout_minutes: 10
+  #       max_attempts: 60
+  #       retry_wait_seconds: 10
+  #       command: |
+  #         docker exec oracle-local sqlplus -s system/${{ env.ORACLE_PASSWORD }}@localhost/FREE <<< "SELECT 1 FROM DUAL;"
+
+  #   - name: Install Go Dependencies
+  #     run: go mod download
+
+  #   - name: Build Project
+  #     run: go build -v ./...
+
+  #   - name: Build Iceberg Sink
+  #     working-directory: ./destination/iceberg/olake-iceberg-java-writer
+  #     run: mvn clean package -DskipTests
+
+  #   - name: Run Oracle Performance Test
+  #     run: go test -v ./drivers/oracle/internal/performance_test.go -tags=performance --timeout 0 || exit 1
+
+  #   - name: Cleanup Oracle
+  #     if: always()
+  #     run: docker compose -f ./drivers/oracle/docker-compose.yml down
+
+  # MongoDB Performance Test
+  # mongodb-performance:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+
+  #   - name: Set up Go
+  #     uses: actions/setup-go@v4
+  #     with:
+  #       go-version: '1.23.2'
+
+  #   - name: Set up Java for Maven
+  #     uses: actions/setup-java@v3
+  #     with:
+  #       distribution: 'temurin'
+  #       java-version: '17'
+
+  #   - name: Start MongoDB Infrastructure
+  #     run: |
+  #       docker compose -f ./drivers/mongodb/docker-compose.yml up -d
+
+  #   - name: Wait for MongoDB
+  #     uses: nick-fields/retry@v2
+  #     with:
+  #       timeout_minutes: 5
+  #       max_attempts: 30
+  #       retry_wait_seconds: 5
+  #       command: |
+  #         docker exec olake_mongodb-test mongosh --eval "rs.status()"
+
+  #   - name: Install Go Dependencies
+  #     run: go mod download
+
+  #   - name: Build Project
+  #     run: go build -v ./...
+
+  #   - name: Build Iceberg Sink
+  #     working-directory: ./destination/iceberg/olake-iceberg-java-writer
+  #     run: mvn clean package -DskipTests
+
+  #   - name: Run MongoDB Performance Test
+  #     run: go test -v ./drivers/mongodb/internal/performance_test.go -tags=performance --timeout 0 || exit 1
+
+  #   - name: Cleanup MongoDB
+  #     if: always()
+  #     run: docker compose -f ./drivers/mongodb/docker-compose.yml down
+
+  # Final cleanup
+  cleanup:
+    needs: [ mysql-performance ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Cleanup Shared Infrastructure
+      run: |
+        docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
+        docker system prune -f

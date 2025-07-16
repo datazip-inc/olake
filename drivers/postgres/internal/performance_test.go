@@ -9,21 +9,23 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/docker/docker/api/types/container"
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 )
 
-func TestMySQLPerformance(t *testing.T) {
+func TestPostgresPerformance(t *testing.T) {
 	ctx := context.Background()
-	config := abstract.GetTestConfig("mysql")
-	namespace := "mysql"
-	connString := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s",
-		abstract.GetEnv("MYSQL_USER", "mysql"),
-		abstract.GetEnv("MYSQL_PASSWORD", "secret1234"),
-		abstract.GetEnv("MYSQL_HOST", "localhost"),
-		abstract.GetEnv("MYSQL_PORT", "3306"),
-		abstract.GetEnv("MYSQL_DATABASE", "mysql"))
+	config := abstract.GetTestConfig("postgres")
+	namespace := "public"
+	connStr := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		abstract.GetEnv("POSTGRES_USER", "postgres"),
+		abstract.GetEnv("POSTGRES_PASSWORD", "secret1234"),
+		abstract.GetEnv("POSTGRES_HOST", "localhost"),
+		abstract.GetEnv("POSTGRES_PORT", "5433"),
+		abstract.GetEnv("POSTGRES_DATABASE", "postgres"),
+	)
 
 	t.Run("performance", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -41,73 +43,69 @@ func TestMySQLPerformance(t *testing.T) {
 				{
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							//install dependencies
 							t.Run("install-dependencies", func(t *testing.T) {
-								fmt.Printf("Installing dependencies in container")
-								_, output, err := utils.ExecContainerCmd(ctx, c, abstract.InstallCmd())
-								require.NoError(t, err, fmt.Sprintf("Failed to install dependencies:\n%s", string(output)))
+								_, _, err := utils.ExecContainerCmd(ctx, c, abstract.InstallCmd())
+								require.NoError(t, err, "Failed to install dependencies")
 							})
 
-							//connect to mysql
-							db, err := sqlx.Open("mysql", connString)
-							require.NoError(t, err, "Failed to connect to MySQL")
+							db, err := sqlx.Open("postgres", connStr)
+							require.NoError(t, err, "Failed to connect to postgres")
 							defer db.Close()
 
-							//setup database for sync
 							t.Run("backfill", func(t *testing.T) {
-								err := setupDatabaseForBackfill(ctx, db)
+								err = setupDatabaseForBackfill(ctx, db)
 								require.NoError(t, err, "Failed to setup database for backfill")
 
-								discoverCmd := abstract.DiscoverCommand("mysql", *config)
-								_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
-								t.Log(string(output))
+								discoverCmd := abstract.DiscoverCommand("postgres", *config)
+								_, out, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(out)))
+								t.Log(string(out))
 
 								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "users")
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 
-								syncCmd := abstract.SyncCommand("mysql", true, *config)
-								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
-								t.Log(string(output))
+								syncCmd := abstract.SyncCommand("postgres", true, *config)
+								_, out, err = utils.ExecContainerCmd(ctx, c, syncCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(out)))
+								t.Log(string(out))
 
-								success, err := abstract.IsRPSAboveBenchmark("mysql", true)
+								success, err := abstract.IsRPSAboveBenchmark("postgres", true)
 								require.NoError(t, err, "Failed to check RPS", err)
-								require.True(t, success, "MySQL backfill performance below benchmark")
-								t.Log("✅ SUCCESS: mysql backfill")
+								require.True(t, success, "Postgres backfill performance below benchmark")
+								t.Log("✅ SUCCESS: postgres backfill")
 							})
 
 							t.Run("cdc", func(t *testing.T) {
 								err := setupDatabaseForCDC(ctx, db)
-								require.NoError(t, err, "Failed to setup database for CDC")
+								require.NoError(t, err, "Failed to setup database for cdc")
 
-								discoverCmd := abstract.DiscoverCommand("mysql", *config)
-								_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
-								t.Log(string(output))
+								discoverCmd := abstract.DiscoverCommand("postgres", *config)
+								_, out, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(out)))
+								t.Log(string(out))
 
 								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "users_cdc")
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
-								require.NoError(t, err, "Failed to update streams")
+								require.NoError(t, err, "Failed to enable normalization")
 
-								syncCmd := abstract.SyncCommand("mysql", true, *config)
-								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
-								t.Log(string(output))
+								syncCmd := abstract.SyncCommand("postgres", true, *config)
+								_, out, err = utils.ExecContainerCmd(ctx, c, syncCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform initial sync:\n%s", string(out)))
+								t.Log(string(out))
 
 								_, err = db.ExecContext(ctx, "INSERT INTO users_cdc (id, name) VALUES (1, 'olake_user_cdc')")
-								require.NoError(t, err, string(output))
-								t.Log(string(output))
-								syncCmd = abstract.SyncCommand("mysql", false, *config)
-								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
-								t.Log(string(output))
+								require.NoError(t, err, "Failed to insert data into users_cdc")
 
-								success, err := abstract.IsRPSAboveBenchmark("mysql", false)
+								syncCmd = abstract.SyncCommand("postgres", false, *config)
+								_, out, err = utils.ExecContainerCmd(ctx, c, syncCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform CDC sync:\n%s", string(out)))
+								t.Log(string(out))
+
+								success, err := abstract.IsRPSAboveBenchmark("postgres", false)
 								require.NoError(t, err, "Failed to check RPS", err)
-								require.True(t, success, "CDC RPS is less than benchmark RPS")
-								t.Log("✅ SUCCESS: mysql cdc")
+								require.True(t, success, "Postgres CDC performance below benchmark")
+								t.Log("✅ SUCCESS: postgres cdc")
 							})
 
 							return nil
@@ -125,7 +123,6 @@ func TestMySQLPerformance(t *testing.T) {
 		require.NoError(t, err, "Failed to start container")
 		defer container.Terminate(ctx)
 	})
-
 }
 
 func setupDatabaseForBackfill(ctx context.Context, db *sqlx.DB) error {
@@ -138,7 +135,6 @@ func setupDatabaseForBackfill(ctx context.Context, db *sqlx.DB) error {
 	if _, err := db.ExecContext(ctx, "INSERT INTO users (id, name) VALUES (1, 'olake_user')"); err != nil {
 		return err
 	}
-
 	return nil
 }
 
