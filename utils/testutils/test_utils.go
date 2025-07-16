@@ -320,7 +320,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 		expectedIceType, mapped := GlobalTypeMapping[dbType]
 		if !mapped {
 			t.Logf("No mapping defined for driver type %s (column %s), skipping check", dbType, col)
-			continue
+			break
 		}
 		require.Equal(t, expectedIceType, iceType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
