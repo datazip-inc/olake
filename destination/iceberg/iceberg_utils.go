@@ -22,28 +22,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// determineMaxBatchSize returns appropriate batch size based on system memory
-// This is assuming that each core might create 2 threads, which might eventually need 4 writer threads
-func determineMaxBatchSize() int64 {
-	ramGB := utils.DetermineSystemMemoryGB()
-
-	var batchSize int64
-
-	switch {
-	case ramGB <= 8:
-		batchSize = 100 * 1024 * 1024 // 100MB
-	case ramGB <= 16:
-		batchSize = 200 * 1024 * 1024 // 200MB
-	case ramGB <= 32:
-		batchSize = 400 * 1024 * 1024 // 400MB
-	default:
-		batchSize = 800 * 1024 * 1024 // 800MB
-	}
-
-	logger.Infof("System has %dGB RAM, setting iceberg writer batch size to %d bytes", ramGB, batchSize)
-	return batchSize
-}
-
 // portMap tracks which ports are in use
 var portMap sync.Map
 
@@ -75,9 +53,6 @@ func getGoroutineID() string {
 	id := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
 	return id
 }
-
-// Maximum batch size before flushing (dynamically set based on system memory)
-var maxBatchSize = determineMaxBatchSize()
 
 // serverRegistry manages active server instances with proper concurrency control
 var (
@@ -491,22 +466,6 @@ func (i *Iceberg) CloseIcebergClient() error {
 	}
 
 	logger.Infof("thread id %s: decreased reference count for Iceberg server on port %d, refCount %d", i.threadID, i.port, server.refCount)
-
-	return nil
-}
-
-// flushLocalBuffer flushes a local buffer directly to the server
-func (i *Iceberg) flushLocalBuffer(ctx context.Context, buffer *LocalBuffer) error {
-	// Send records directly to server
-	if len(buffer.records) > 0 {
-		err := i.sendRecords(ctx, buffer.records)
-		if err != nil {
-			return err
-		}
-	}
-
-	buffer.records = make([]string, 0, 100)
-	buffer.size = 0
 
 	return nil
 }

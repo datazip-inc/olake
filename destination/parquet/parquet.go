@@ -131,38 +131,38 @@ func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Optio
 }
 
 // Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
-	partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
+func (p *Parquet) Write(_ context.Context, _ []types.RawRecord) error {
+	// 	partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
 
-	partitionFolder, exists := p.partitionedFiles[partitionedPath]
-	if !exists {
-		err := p.createNewPartitionFile(partitionedPath)
-		if err != nil {
-			return fmt.Errorf("failed to create parititon file: %s", err)
-		}
-		partitionFolder = p.partitionedFiles[partitionedPath]
-	}
+	// 	partitionFolder, exists := p.partitionedFiles[partitionedPath]
+	// 	if !exists {
+	// 		err := p.createNewPartitionFile(partitionedPath)
+	// 		if err != nil {
+	// 			return fmt.Errorf("failed to create parititon file: %s", err)
+	// 		}
+	// 		partitionFolder = p.partitionedFiles[partitionedPath]
+	// 	}
 
-	if len(partitionFolder) == 0 {
-		return fmt.Errorf("failed to get partitioned files")
-	}
+	// 	if len(partitionFolder) == 0 {
+	// 		return fmt.Errorf("failed to get partitioned files")
+	// 	}
 
-	// get last written file
-	fileMetadata := &partitionFolder[len(partitionFolder)-1]
-	var err error
-	if p.stream.NormalizationEnabled() {
-		record.Data[constants.OlakeID] = record.OlakeID
-		record.Data[constants.OlakeTimestamp] = record.OlakeTimestamp
-		record.Data[constants.OpType] = record.OperationType
-		record.Data[constants.CdcTimestamp] = record.CdcTimestamp
-		_, err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
-	} else {
-		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
-	}
-	if err != nil {
-		return fmt.Errorf("failed to write in parquet file: %s", err)
-	}
-	fileMetadata.recordCount++
+	// 	// get last written file
+	// 	fileMetadata := &partitionFolder[len(partitionFolder)-1]
+	// 	var err error
+	// 	if p.stream.NormalizationEnabled() {
+	// 		record.Data[constants.OlakeID] = record.OlakeID
+	// 		record.Data[constants.OlakeTimestamp] = record.OlakeTimestamp
+	// 		record.Data[constants.OpType] = record.OperationType
+	// 		record.Data[constants.CdcTimestamp] = record.CdcTimestamp
+	// 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
+	// 	} else {
+	// 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+	// 	}
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to write in parquet file: %s", err)
+	// 	}
+	// 	fileMetadata.recordCount++
 	return nil
 }
 
@@ -299,6 +299,30 @@ func (p *Parquet) EvolveSchema(change, typeChange bool, _ map[string]*types.Prop
 
 	return nil
 }
+
+// func (p *Parquet) normalizeFunc(rawRecord types.RawRecord) (types.Record, error) {
+// 	flattenedData, err := p.Flattener()(rawRecord.Data) // flatten the record first
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// schema evolution
+// 	change, typeChange, mutations := fields.Process(flattenedData)
+// 	if change || typeChange {
+// 		w.tmu.Lock()
+// 		stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
+// 		w.tmu.Unlock()
+// 		err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData, rawRecord.OlakeTimestamp)
+// 		if err != nil {
+// 			return nil, fmt.Errorf("failed to evolve schema: %s", err)
+// 		}
+// 	}
+// 	err = typeutils.ReformatRecord(fields, flattenedData)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return flattenedData, nil
+// }
 
 // Type returns the type of the writer.
 func (p *Parquet) Type() string {

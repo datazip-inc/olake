@@ -42,12 +42,10 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxCursorValue any // required for incremental
 		cursorField := stream.Cursor()
-		errorChannel := make(chan error, 1)
-		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
+		inserter := pool.NewThread(ctx, stream, destination.WithBackfill(true))
 		defer func() {
-			inserter.Close()
 			// wait for chunk completion
-			if writerErr := <-errorChannel; writerErr != nil {
+			if writerErr := inserter.Close(); writerErr != nil {
 				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
 			}
 
@@ -80,7 +78,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
+				return inserter.Push(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
 			})
 		})
 	}

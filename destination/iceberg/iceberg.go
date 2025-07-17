@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/destination"
@@ -19,7 +18,6 @@ type Iceberg struct {
 	options       *destination.Options
 	config        *Config
 	stream        types.StreamInterface
-	records       atomic.Int64
 	cmd           *exec.Cmd
 	client        proto.RecordIngestServiceClient
 	conn          *grpc.ClientConn
@@ -75,27 +73,23 @@ func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Optio
 	return i.SetupIcebergClient(!options.Backfill)
 }
 
-func (i *Iceberg) Write(ctx context.Context, record types.RawRecord) error {
+func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	// Convert record to Debezium format with thread ID
 	// We are adding the thread ID to process the records from multiple threads in parallel and separately so that we can commit when each thread finishes.
-	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled(), i.threadID)
-	if err != nil {
-		return fmt.Errorf("failed to convert record: %v", err)
-	}
-
-	i.localBuffer.records = append(i.localBuffer.records, debeziumRecord)
-	i.localBuffer.size += int64(len(debeziumRecord))
-
-	// Check if buffer should be flushed
-	if i.localBuffer.size >= maxBatchSize {
-		err := i.flushLocalBuffer(ctx, i.localBuffer)
+	var debeziumRecordArr []string
+	for _, record := range records {
+		debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled(), i.threadID)
 		if err != nil {
-			return fmt.Errorf("thread id %s: failed to flush buffer: %s", i.threadID, err)
+			return fmt.Errorf("failed to convert record: %v", err)
 		}
-		logger.Infof("thread id %s: Batch flushed to Iceberg server for stream %s", i.threadID, i.stream.Name())
+		debeziumRecordArr = append(debeziumRecordArr, debeziumRecord)
 	}
+	err := i.sendRecords(ctx, debeziumRecordArr)
+	if err != nil {
+		return fmt.Errorf("thread id %s: failed to flush buffer: %s", i.threadID, err)
+	}
+	logger.Infof("thread id %s: Batch flushed to Iceberg server for stream %s", i.threadID, i.stream.Name())
 
-	i.records.Add(1)
 	return nil
 }
 
@@ -109,15 +103,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	}()
 	if ctx.Err() != nil {
 		return nil
-	}
-
-	// First flush any remaining data in the current thread's buffer
-	if len(i.localBuffer.records) > 0 {
-		err := i.flushLocalBuffer(ctx, i.localBuffer)
-		if err != nil {
-			logger.Errorf("thread id %s: Error flushing buffer on close: %s", i.threadID, err)
-			return err
-		}
 	}
 
 	// Send commit request for this thread using a special message format

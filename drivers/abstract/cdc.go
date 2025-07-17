@@ -57,11 +57,9 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			if isParallelChangeStream(a.driver.Type()) {
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-					errChan := make(chan error, 1)
-					inserter := pool.NewThread(ctx, streams[index], errChan)
+					inserter := pool.NewThread(ctx, streams[index])
 					defer func() {
-						inserter.Close()
-						if threadErr := <-errChan; threadErr != nil {
+						if threadErr := inserter.Close(); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
 
@@ -79,7 +77,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
 							pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-							return inserter.Insert(types.CreateRawRecord(
+							return inserter.Push(types.CreateRawRecord(
 								utils.GetKeysHash(change.Data, pkFields...),
 								change.Data,
 								opType,
@@ -101,10 +99,8 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream
 		inserters := make(map[types.StreamInterface]*destination.ThreadEvent)
-		errChans := make(map[types.StreamInterface]chan error)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
-			errChan := make(chan error, 1)
-			inserters[stream], errChans[stream] = pool.NewThread(ctx, stream, errChan), errChan
+			inserters[stream] = pool.NewThread(ctx, stream)
 			return nil
 		})
 		if err != nil {
@@ -112,8 +108,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		}
 		defer func() {
 			for stream, insert := range inserters {
-				insert.Close()
-				if threadErr := <-errChans[stream]; threadErr != nil {
+				if threadErr := insert.Close(); threadErr != nil {
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
@@ -132,7 +127,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			return a.driver.StreamChanges(ctx, nil, func(change CDCChange) error {
 				pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 				opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-				return inserters[change.Stream].Insert(types.CreateRawRecord(
+				return inserters[change.Stream].Push(types.CreateRawRecord(
 					utils.GetKeysHash(change.Data, pkFields...),
 					change.Data,
 					opType,

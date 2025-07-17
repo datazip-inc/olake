@@ -61,11 +61,9 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					return fmt.Errorf("failed to reformat value of cursor received from state, col[%s] into type[%s]: %s", cursorField, cursorColType, err)
 				}
 
-				errChan := make(chan error, 1)
-				inserter := pool.NewThread(ctx, stream, errChan)
+				inserter := pool.NewThread(ctx, stream)
 				defer func() {
-					inserter.Close()
-					if threadErr := <-errChan; threadErr != nil {
+					if threadErr := inserter.Close(); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 					}
 
@@ -85,7 +83,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
-						return inserter.Insert(types.CreateRawRecord(id, record, "r", time.Unix(0, 0)))
+						return inserter.Push(types.CreateRawRecord(id, record, "r", time.Unix(0, 0)))
 					})
 				})
 			})
