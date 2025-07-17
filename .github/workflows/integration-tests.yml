@@ -79,41 +79,9 @@ jobs:
 
       - name: Run Integration Tests in Parallel
         run: |
-          # Run tests in parallel using background processes
-          echo "Starting MySQL integration tests..."
-          go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0 > mysql_test_output.log 2>&1 &
-          MYSQL_PID=$!
-          
-          echo "Starting PostgreSQL integration tests..."
-          go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0 > postgres_test_output.log 2>&1 &
-          POSTGRES_PID=$!
-          
-          # Wait for both processes to complete
-          echo "Waiting for tests to complete..."
-          wait $MYSQL_PID
-          MYSQL_EXIT_CODE=$?
-          
-          wait $POSTGRES_PID
-          POSTGRES_EXIT_CODE=$?
-          
-          # Display outputs
-          echo "=== MySQL Test Output ==="
-          cat mysql_test_output.log
-          echo "=== PostgreSQL Test Output ==="
-          cat postgres_test_output.log
-          
-          # Check if any tests failed
-          if [ $MYSQL_EXIT_CODE -ne 0 ]; then
-            echo "MySQL integration tests failed with exit code: $MYSQL_EXIT_CODE"
-            exit $MYSQL_EXIT_CODE
-          fi
-          
-          if [ $POSTGRES_EXIT_CODE -ne 0 ]; then
-            echo "PostgreSQL integration tests failed with exit code: $POSTGRES_EXIT_CODE"
-            exit $POSTGRES_EXIT_CODE
-          fi
-          
-          echo "All integration tests completed successfully!"
+          go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0 &
+          go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0 &
+          wait
 
       - name: Cleanup
         if: always()
