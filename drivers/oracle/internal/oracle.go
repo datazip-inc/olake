@@ -117,7 +117,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 	}
 	schemaName, tableName := parts[0], parts[1]
-	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH)
+	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 
 	// Get column information
 	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)
@@ -133,7 +133,9 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		if err := rows.Scan(&columnName, &dataType, &isNullable, &dataPrecision, &dataScale); err != nil {
 			return nil, fmt.Errorf("failed to scan column: %s", err)
 		}
-
+		if strings.EqualFold("N", isNullable) {
+			stream.WithCursorField(columnName)
+		}
 		datatype := types.Unknown
 		if val, found := reformatOracleDatatype(dataType, dataPrecision, dataScale); found {
 			datatype = val
