@@ -27,6 +27,7 @@ var (
 	catalog               *types.Catalog
 	state                 *types.State
 	destinationConfig     *types.WriterConfig
+	logRetentionDays      int
 
 	commands  = []*cobra.Command{}
 	connector *abstract.AbstractDriver
@@ -44,6 +45,9 @@ var RootCmd = &cobra.Command{
 
 		if encryptionKey != "" {
 			viper.Set(constants.EncryptionKey, encryptionKey)
+		}
+		if logRetentionDays != 0 {
+			viper.Set(constants.LogRetentionDays, logRetentionDays)
 		}
 		// logger uses CONFIG_FOLDER
 		logger.Init()
@@ -80,6 +84,7 @@ func init() {
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
 	RootCmd.PersistentFlags().BoolVarP(&clearDestinationFlag, "clear-destination", "", false, "(Optional) Flag to clear destination and reset sync state for selected streams to force full refresh. Note: Destination is automatically cleared for full refresh streams regardless of this flag.")
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
+	RootCmd.PersistentFlags().IntVarP(&logRetentionDays, "log-retention-days", "", 30, "(Optional) Maximum number of days to keep log files")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
