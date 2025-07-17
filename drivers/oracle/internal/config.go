@@ -13,25 +13,35 @@ type Config struct {
 	Host             string            `json:"host"`
 	Username         string            `json:"username"`
 	Password         string            `json:"password"`
-	ServiceName      string            `json:"service_name"`
-	SID              string            `json:"sid"`
 	Port             int               `json:"port"`
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"backoff_retry_count"`
-	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
+	ConnectionType   interface{}       `json:"connection_type"`
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
+	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 }
 
-func (c *Config) connectionString() string {
+type ConnectionType struct {
+	SID         string `json:"sid"`
+	ServiceName string `json:"service_name"`
+}
+
+func (c *Config) connectionString() (string, error) {
 	urlOptions := make(map[string]string)
 	// Add JDBC-style URL params
 	for k, v := range c.JDBCURLParams {
 		urlOptions[k] = v
 	}
 
-	// Add sid if provided
-	if c.SID != "" {
-		urlOptions["sid"] = c.SID
+	connectionType := &ConnectionType{}
+	if err := utils.Unmarshal(c.ConnectionType, &connectionType); err != nil {
+		return "", fmt.Errorf("failed to unmarshal connection type: %s", err)
+	}
+	serviceName := ""
+	if connectionType.SID != "" {
+		urlOptions["SID"] = connectionType.SID
+	} else {
+		serviceName = connectionType.ServiceName
 	}
 
 	// Add SSL params if provided
@@ -47,7 +57,7 @@ func (c *Config) connectionString() string {
 	// Quote the username to handle case sensitivity
 	quotedUsername := fmt.Sprintf("%q", c.Username)
 
-	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, quotedUsername, c.Password, urlOptions)
+	return go_ora.BuildUrl(c.Host, c.Port, serviceName, quotedUsername, c.Password, urlOptions), nil
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -66,8 +76,13 @@ func (c *Config) Validate() error {
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
 	}
-	if c.ServiceName == "" && c.SID == "" {
-		return fmt.Errorf("service_name or sid is required")
+
+	foundServiceName, _ := utils.IsOfType(c.ConnectionType, "service_name")
+	foundSID, _ := utils.IsOfType(c.ConnectionType, "sid")
+	if !foundServiceName && !foundSID {
+		return fmt.Errorf("service name or sid is required")
+	} else if foundServiceName && foundSID {
+		return fmt.Errorf("only one of service name or sid can be provided")
 	}
 
 	// Set default number of threads if not provided
