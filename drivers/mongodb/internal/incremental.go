@@ -3,9 +3,10 @@ package driver
 import (
 	"context"
 	"fmt"
-	
+
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -15,7 +16,16 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	cursorField := stream.Cursor()
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
-	filter := buildMongoCondition(types.Condition{Column: cursorField, Value: fmt.Sprintf("%v", lastCursorValue), Operator: ">="})
+	incrementalfilter := buildMongoCondition(types.Condition{Column: cursorField, Value: fmt.Sprintf("%v", lastCursorValue), Operator: ">="})
+
+	filter, err := buildFilter(stream)
+	if err != nil {
+		return fmt.Errorf("failed to build filter: %w", err)
+	}
+
+	// Merge cursor filter with stream filter using $and
+	filter = utils.Ternary(len(filter) > 0, bson.D{{Key: "$and", Value: bson.A{incrementalfilter, filter}}}, incrementalfilter).(bson.D)
+
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
