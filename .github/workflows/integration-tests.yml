@@ -77,11 +77,8 @@ jobs:
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
-      - name: Run Integration Tests in Parallel
-        run: |
-          go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0 &
-          go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0 &
-          wait
+      - name: Run Integration Tests
+        run: go test -v -p 2 ./drivers/mysql/internal/... ./drivers/postgres/internal/... -tags=integration --timeout 0
 
       - name: Cleanup
         if: always()
