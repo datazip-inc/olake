@@ -8,6 +8,7 @@ import (
 )
 
 func TestMySQLIntegration(t *testing.T) {
+	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		Driver:             string(constants.MySQL),
 		ExpectedData:       ExpectedMySQLData,

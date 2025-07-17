@@ -9,6 +9,7 @@ import (
 )
 
 func TestPostgresIntegration(t *testing.T) {
+	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		Driver:             string(constants.Postgres),
 		ExpectedData:       ExpectedPostgresData,
