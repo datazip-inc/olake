@@ -151,8 +151,8 @@ var syncCmd = &cobra.Command{
 		}
 
 		// start monitoring stats
-		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
-			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync()
+		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
+			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync(), pool.GetReadRecords()
 		})
 
 		// Setup State for Connector

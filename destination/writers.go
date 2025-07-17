@@ -125,7 +125,7 @@ func (w *WriterPool) NewThread(ctx context.Context, stream types.StreamInterface
 	group, ctx := errgroup.WithContext(ctx)
 	return &ThreadEvent{
 		WriterPool: w,
-		recordChan: make(chan types.RawRecord, w.batchSize),
+		recordChan: make(chan types.RawRecord, 2*w.batchSize),
 		options:    opts,
 		stream:     stream,
 		parentCtx:  ctx,
@@ -199,6 +199,9 @@ func (w *WriterPool) GetRecordsToSync() int64 {
 	return w.totalRecords.Load()
 }
 
+func (w *WriterPool) GetReadRecords() int64 {
+	return w.readCount.Load()
+}
 func (w *WriterPool) Wait() error {
 	return w.group.Wait()
 }
