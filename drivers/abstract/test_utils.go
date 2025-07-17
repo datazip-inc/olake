@@ -232,6 +232,7 @@ func verifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 }
 
 type TestConfig struct {
+	Driver          string
 	ProjectRoot     string
 	SourcePath      string
 	CatalogPath     string
@@ -241,6 +242,7 @@ type TestConfig struct {
 
 func GetTestConfig(driver string) *TestConfig {
 	return &TestConfig{
+		Driver:          driver,
 		ProjectRoot:     GetHostRoot(),
 		SourcePath:      fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/source.json", driver),
 		CatalogPath:     fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/streams.json", driver),
@@ -314,12 +316,12 @@ func GetRPSFromStats(stats map[string]interface{}) (float64, error) {
 	return rps, nil
 }
 
-func DiscoverCommand(driver string, config TestConfig) string {
-	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", driver, config.SourcePath)
+func DiscoverCommand(config TestConfig) string {
+	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
 }
 
-func SyncCommand(driver string, isBackfill bool, config TestConfig) string {
-	return fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s %s", driver, config.SourcePath, config.CatalogPath, config.DestinationPath, utils.Ternary(isBackfill, "", fmt.Sprintf("--state %s", config.StatePath)).(string))
+func SyncCommand(config TestConfig, isBackfill bool) string {
+	return fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath, utils.Ternary(isBackfill, "", fmt.Sprintf("--state %s", config.StatePath)).(string))
 }
 
 func InstallCmd() string {
@@ -332,12 +334,4 @@ func GetHostRoot() string {
 		return ""
 	}
 	return filepath.Join(pwd, "../../..")
-}
-
-func GetEnv(key string, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return value
 }

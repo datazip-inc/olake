@@ -18,15 +18,6 @@ func TestPostgresPerformance(t *testing.T) {
 	ctx := context.Background()
 	config := abstract.GetTestConfig("postgres")
 	namespace := "public"
-	connStr := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		abstract.GetEnv("POSTGRES_USER", "postgres"),
-		abstract.GetEnv("POSTGRES_PASSWORD", "secret1234"),
-		abstract.GetEnv("POSTGRES_HOST", "localhost"),
-		abstract.GetEnv("POSTGRES_PORT", "5433"),
-		abstract.GetEnv("POSTGRES_DATABASE", "postgres"),
-	)
-
 	t.Run("performance", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
 			Image: "golang:1.23.2",
@@ -48,24 +39,21 @@ func TestPostgresPerformance(t *testing.T) {
 								require.NoError(t, err, "Failed to install dependencies")
 							})
 
-							db, err := sqlx.Open("postgres", connStr)
+							db, err := connectDatabase(ctx)
 							require.NoError(t, err, "Failed to connect to postgres")
 							defer db.Close()
 
 							t.Run("backfill", func(t *testing.T) {
-								err = setupDatabaseForBackfill(ctx, db)
-								require.NoError(t, err, "Failed to setup database for backfill")
-
-								discoverCmd := abstract.DiscoverCommand("postgres", *config)
+								discoverCmd := abstract.DiscoverCommand(*config)
 								_, out, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(out)))
 								t.Log(string(out))
 
-								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "users")
+								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "test")
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 
-								syncCmd := abstract.SyncCommand("postgres", true, *config)
+								syncCmd := abstract.SyncCommand(*config, true)
 								_, out, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(out)))
 								t.Log(string(out))
@@ -78,26 +66,26 @@ func TestPostgresPerformance(t *testing.T) {
 
 							t.Run("cdc", func(t *testing.T) {
 								err := setupDatabaseForCDC(ctx, db)
-								require.NoError(t, err, "Failed to setup database for cdc")
+								require.NoError(t, err, "Failed to setup database for cdc", err)
 
-								discoverCmd := abstract.DiscoverCommand("postgres", *config)
+								discoverCmd := abstract.DiscoverCommand(*config)
 								_, out, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(out)))
 								t.Log(string(out))
 
-								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "users_cdc")
+								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "test_cdc")
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
-								require.NoError(t, err, "Failed to enable normalization")
+								require.NoError(t, err, "Failed to update streams", err)
 
-								syncCmd := abstract.SyncCommand("postgres", true, *config)
+								syncCmd := abstract.SyncCommand(*config, true)
 								_, out, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform initial sync:\n%s", string(out)))
 								t.Log(string(out))
 
-								_, err = db.ExecContext(ctx, "INSERT INTO users_cdc (id, name) VALUES (1, 'olake_user_cdc')")
+								_, err = db.ExecContext(ctx, "INSERT INTO test_cdc SELECT * FROM test")
 								require.NoError(t, err, "Failed to insert data into users_cdc")
 
-								syncCmd = abstract.SyncCommand("postgres", false, *config)
+								syncCmd = abstract.SyncCommand(*config, false)
 								_, out, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform CDC sync:\n%s", string(out)))
 								t.Log(string(out))
@@ -125,17 +113,13 @@ func TestPostgresPerformance(t *testing.T) {
 	})
 }
 
-func setupDatabaseForBackfill(ctx context.Context, db *sqlx.DB) error {
-	if _, err := db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, name VARCHAR(255))"); err != nil {
-		return err
+func connectDatabase(ctx context.Context) (*sqlx.DB, error) {
+	var cfg Postgres
+	if err := utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false); err != nil {
+		return nil, err
 	}
-	if _, err := db.ExecContext(ctx, "TRUNCATE TABLE users"); err != nil {
-		return err
-	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO users (id, name) VALUES (1, 'olake_user')"); err != nil {
-		return err
-	}
-	return nil
+	cfg.Setup(ctx)
+	return cfg.client, nil
 }
 
 func setupDatabaseForCDC(ctx context.Context, db *sqlx.DB) error {
@@ -143,11 +127,6 @@ func setupDatabaseForCDC(ctx context.Context, db *sqlx.DB) error {
 		return err
 	}
 	if _, err := db.ExecContext(ctx, "TRUNCATE TABLE users_cdc"); err != nil {
-		return err
-	}
-
-	// TODO: transfer data from users to users_cdc before dropping
-	if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS users"); err != nil {
 		return err
 	}
 	return nil

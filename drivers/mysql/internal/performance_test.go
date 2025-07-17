@@ -17,13 +17,6 @@ func TestMySQLPerformance(t *testing.T) {
 	ctx := context.Background()
 	config := abstract.GetTestConfig("mysql")
 	namespace := "mysql"
-	connString := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s",
-		abstract.GetEnv("MYSQL_USER", "mysql"),
-		abstract.GetEnv("MYSQL_PASSWORD", "secret1234"),
-		abstract.GetEnv("MYSQL_HOST", "localhost"),
-		abstract.GetEnv("MYSQL_PORT", "3306"),
-		abstract.GetEnv("MYSQL_DATABASE", "mysql"))
 
 	t.Run("performance", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -41,24 +34,18 @@ func TestMySQLPerformance(t *testing.T) {
 				{
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							//install dependencies
 							t.Run("install-dependencies", func(t *testing.T) {
 								fmt.Printf("Installing dependencies in container")
 								_, output, err := utils.ExecContainerCmd(ctx, c, abstract.InstallCmd())
 								require.NoError(t, err, fmt.Sprintf("Failed to install dependencies:\n%s", string(output)))
 							})
 
-							//connect to mysql
-							db, err := sqlx.Open("mysql", connString)
+							db, err := connectDatabase(ctx)
 							require.NoError(t, err, "Failed to connect to MySQL")
 							defer db.Close()
 
-							//setup database for sync
 							t.Run("backfill", func(t *testing.T) {
-								err := setupDatabaseForBackfill(ctx, db)
-								require.NoError(t, err, "Failed to setup database for backfill")
-
-								discoverCmd := abstract.DiscoverCommand("mysql", *config)
+								discoverCmd := abstract.DiscoverCommand(*config)
 								_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
 								t.Log(string(output))
@@ -67,12 +54,12 @@ func TestMySQLPerformance(t *testing.T) {
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 
-								syncCmd := abstract.SyncCommand("mysql", true, *config)
+								syncCmd := abstract.SyncCommand(*config, true)
 								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
 								t.Log(string(output))
 
-								success, err := abstract.IsRPSAboveBenchmark("mysql", true)
+								success, err := abstract.IsRPSAboveBenchmark(config.Driver, true)
 								require.NoError(t, err, "Failed to check RPS", err)
 								require.True(t, success, "MySQL backfill performance below benchmark")
 								t.Log("✅ SUCCESS: mysql backfill")
@@ -82,29 +69,30 @@ func TestMySQLPerformance(t *testing.T) {
 								err := setupDatabaseForCDC(ctx, db)
 								require.NoError(t, err, "Failed to setup database for CDC")
 
-								discoverCmd := abstract.DiscoverCommand("mysql", *config)
+								discoverCmd := abstract.DiscoverCommand(*config)
 								_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
 								t.Log(string(output))
 
-								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "users_cdc")
+								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "test_cdc")
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 
-								syncCmd := abstract.SyncCommand("mysql", true, *config)
+								syncCmd := abstract.SyncCommand(*config, true)
 								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
 								t.Log(string(output))
 
-								_, err = db.ExecContext(ctx, "INSERT INTO users_cdc (id, name) VALUES (1, 'olake_user_cdc')")
+								_, err = db.ExecContext(ctx, "INSERT INTO test_cdc SELECT * FROM test")
 								require.NoError(t, err, string(output))
 								t.Log(string(output))
-								syncCmd = abstract.SyncCommand("mysql", false, *config)
+
+								syncCmd = abstract.SyncCommand(*config, false)
 								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
 								t.Log(string(output))
 
-								success, err := abstract.IsRPSAboveBenchmark("mysql", false)
+								success, err := abstract.IsRPSAboveBenchmark(config.Driver, false)
 								require.NoError(t, err, "Failed to check RPS", err)
 								require.True(t, success, "CDC RPS is less than benchmark RPS")
 								t.Log("✅ SUCCESS: mysql cdc")
@@ -128,18 +116,13 @@ func TestMySQLPerformance(t *testing.T) {
 
 }
 
-func setupDatabaseForBackfill(ctx context.Context, db *sqlx.DB) error {
-	if _, err := db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, name VARCHAR(255))"); err != nil {
-		return err
+func connectDatabase(ctx context.Context) (*sqlx.DB, error) {
+	var cfg MySQL
+	if err := utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false); err != nil {
+		return nil, err
 	}
-	if _, err := db.ExecContext(ctx, "TRUNCATE TABLE users"); err != nil {
-		return err
-	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO users (id, name) VALUES (1, 'olake_user')"); err != nil {
-		return err
-	}
-
-	return nil
+	cfg.Setup(ctx)
+	return cfg.client, nil
 }
 
 func setupDatabaseForCDC(ctx context.Context, db *sqlx.DB) error {

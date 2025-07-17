@@ -18,13 +18,6 @@ func TestOraclePerformance(t *testing.T) {
 	ctx := context.Background()
 	config := abstract.GetTestConfig("oracle")
 	namespace := "ADMIN"
-	connString := fmt.Sprintf("oracle://%s:%s@%s:%s/%s",
-		abstract.GetEnv("ORACLE_USER", "system"),
-		abstract.GetEnv("ORACLE_PASSWORD", "secret1234"),
-		abstract.GetEnv("ORACLE_HOST", "localhost"),
-		abstract.GetEnv("ORACLE_PORT", "1521"),
-		abstract.GetEnv("ORACLE_SERVICE", "FREE"),
-	)
 
 	t.Run("performance", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -47,16 +40,12 @@ func TestOraclePerformance(t *testing.T) {
 								require.NoError(t, err, "Failed to install dependencies")
 							})
 
-							db, err := sqlx.Open("oracle", connString)
-
+							db, err := connectDatabase(ctx)
 							require.NoError(t, err, "Failed to connect to oracle")
 							defer db.Close()
 
 							t.Run("backfill", func(t *testing.T) {
-								err := setupOracleDatabaseForBackfill(ctx, db)
-								require.NoError(t, err, "Failed to setup Oracle DB for backfill", err)
-
-								discoverCmd := abstract.DiscoverCommand("oracle", *config)
+								discoverCmd := abstract.DiscoverCommand(*config)
 								_, out, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Discover failed:\n%s", string(out)))
 								t.Log(string(out))
@@ -65,7 +54,7 @@ func TestOraclePerformance(t *testing.T) {
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 
-								syncCmd := abstract.SyncCommand("oracle", true, *config)
+								syncCmd := abstract.SyncCommand(*config, true)
 								_, out, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Sync failed:\n%s", string(out)))
 								t.Log(string(out))
@@ -93,26 +82,11 @@ func TestOraclePerformance(t *testing.T) {
 	})
 }
 
-func setupOracleDatabaseForBackfill(ctx context.Context, db *sqlx.DB) error {
-	_, err := db.ExecContext(ctx, `BEGIN
-		EXECUTE IMMEDIATE 'DROP TABLE USERS';
-	EXCEPTION
-		WHEN OTHERS THEN
-			IF SQLCODE != -942 THEN
-				RAISE;
-			END IF;
-	END;`)
-	if err != nil {
-		return err
+func connectDatabase(ctx context.Context) (*sqlx.DB, error) {
+	var cfg Oracle
+	if err := utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false); err != nil {
+		return nil, err
 	}
-
-	if _, err := db.ExecContext(ctx, "CREATE TABLE USERS (ID NUMBER PRIMARY KEY, NAME VARCHAR2(255))"); err != nil {
-		return err
-	}
-
-	if _, err := db.ExecContext(ctx, "INSERT INTO USERS (ID, NAME) VALUES (1, 'olake_user')"); err != nil {
-		return err
-	}
-
-	return nil
+	cfg.Setup(ctx)
+	return cfg.client, nil
 }

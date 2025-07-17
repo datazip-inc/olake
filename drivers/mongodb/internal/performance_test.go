@@ -12,19 +12,13 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func TestMongodbPerformance(t *testing.T) {
 	ctx := context.Background()
 	config := abstract.GetTestConfig("mongodb")
 	namespace := "mongodb"
-	mongoURI := fmt.Sprintf(
-		"mongodb://%s:%s/?replicaSet=%s",
-		abstract.GetEnv("MONGODB_HOST", "localhost"),
-		abstract.GetEnv("MONGODB_PORT", "27017"),
-		abstract.GetEnv("MONGODB_REPLICA_SET", "rs0"),
-	)
+
 	t.Run("performance", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
 			Image: "golang:1.23.2",
@@ -46,30 +40,27 @@ func TestMongodbPerformance(t *testing.T) {
 								require.NoError(t, err, fmt.Sprintf("Failed to install dependencies:\n%s", string(output)))
 							})
 
-							client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+							db, err := connectDatabase(ctx)
 							require.NoError(t, err, "Failed to connect to MongoDB")
-							defer client.Disconnect(ctx)
-							db := client.Database("mongodb")
+							defer db.Client().Disconnect(ctx)
 
 							t.Run("backfill", func(t *testing.T) {
-								err := setupMongoDBForBackfill(ctx, db)
-								require.NoError(t, err, "Failed to setup database for backfill")
-
-								discoverCmd := abstract.DiscoverCommand("mongodb", *config)
+								discoverCmd := abstract.DiscoverCommand(*config)
 								_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Discover failed:\n%s", string(output)))
 								t.Log(string(output))
 
-								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "users")
+								// TODO: change stream name
+								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "test")
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams:\n%s")
 
-								syncCmd := abstract.SyncCommand("mongodb", true, *config)
+								syncCmd := abstract.SyncCommand(*config, true)
 								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Backfill sync failed:\n%s", string(output)))
 								t.Log(string(output))
 
-								success, err := abstract.IsRPSAboveBenchmark("mongodb", true)
+								success, err := abstract.IsRPSAboveBenchmark(config.Driver, true)
 								require.NoError(t, err, "Failed to check RPS", err)
 								require.True(t, success, "MongoDB backfill performance below benchmark")
 								t.Log("✅ SUCCESS: mongodb backfill")
@@ -79,29 +70,31 @@ func TestMongodbPerformance(t *testing.T) {
 								err := setupMongoDBForCDC(ctx, db)
 								require.NoError(t, err, "Failed to setup database for CDC")
 
-								discoverCmd := abstract.DiscoverCommand("mongodb", *config)
+								discoverCmd := abstract.DiscoverCommand(*config)
 								_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Discover failed:\n%s", string(output)))
 								t.Log(string(output))
 
-								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "users_cdc")
+								// TODO: change stream name
+								updateStreamsCmd := abstract.UpdateStreamsCmd(*config, namespace, "test_cdc")
 								_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 
-								syncCmd := abstract.SyncCommand("mongodb", true, *config)
+								syncCmd := abstract.SyncCommand(*config, true)
 								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Initial sync failed:\n%s", string(output)))
 								t.Log(string(output))
 
-								_, err = db.Collection("users_cdc").InsertOne(ctx, bson.M{"id": 1, "name": "olake_user_cdc"})
+								// TODO: Change implementation to insert multiple documents
+								_, err = db.Collection("test_cdc").InsertOne(ctx, bson.M{"id": 1, "name": "olake_user_cdc"})
 								require.NoError(t, err, "Failed to insert test doc")
 
-								syncCmd = abstract.SyncCommand("mongodb", false, *config)
+								syncCmd = abstract.SyncCommand(*config, false)
 								_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("CDC sync failed:\n%s", string(output)))
 								t.Log(string(output))
 
-								success, err := abstract.IsRPSAboveBenchmark("mongodb", false)
+								success, err := abstract.IsRPSAboveBenchmark(config.Driver, false)
 								require.NoError(t, err, "Failed to check RPS", err)
 								require.True(t, success, "Mongodb CDC performance below benchmark")
 								t.Log("✅ SUCCESS: mongodb cdc")
@@ -124,14 +117,13 @@ func TestMongodbPerformance(t *testing.T) {
 	})
 }
 
-func setupMongoDBForBackfill(ctx context.Context, db *mongo.Database) error {
-	users := db.Collection("users")
-	_, err := users.DeleteMany(ctx, bson.M{})
-	if err != nil {
-		return err
+func connectDatabase(ctx context.Context) (*mongo.Database, error) {
+	var cfg Mongo
+	if err := utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false); err != nil {
+		return nil, err
 	}
-	_, err = users.InsertOne(ctx, bson.M{"id": 1, "name": "olake_user"})
-	return err
+	cfg.Setup(ctx)
+	return cfg.client.Database("mongodb"), nil
 }
 
 func setupMongoDBForCDC(ctx context.Context, db *mongo.Database) error {
