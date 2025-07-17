@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Input/Processed object for Stream
@@ -99,8 +100,22 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	// no cursor validation in cdc and backfill sync
-	if s.Stream.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.Cursor()) {
-		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.Cursor(), source.AvailableCursorFields)
+	if s.Stream.SyncMode == INCREMENTAL {
+		cursorFields := strings.Split(s.Cursor(), ":")
+		var datatype, prevDatatype DataType
+		for idx, cursorField := range cursorFields {
+			datatype, _ = source.Schema.GetType(strings.ToLower(cursorFields[idx]))
+			if !source.AvailableCursorFields.Exists(cursorFields[idx]) {
+				return fmt.Errorf("invalid cursor field [%s]; valid are %v", cursorFields[idx], source.AvailableCursorFields)
+			}
+			if idx != 0 && datatype != prevDatatype {
+				return fmt.Errorf("cursor field [%s] have different types: %v", cursorField, datatype)
+			}
+			if idx > 1 {
+				return fmt.Errorf("atmost 2 cursor fields are allowed")
+			}
+			prevDatatype = datatype
+		}
 	}
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {

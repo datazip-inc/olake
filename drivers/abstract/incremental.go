@@ -50,6 +50,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 				stream := streams[index]
 				cursorField := stream.Cursor()
+				cursorFields := strings.Split(cursorField, ":")
 				// TODO: make inremental state consistent save it as string and typecast while reading
 				// get cursor column from state and typecast it to cursor column type for comparisons
 				maxCursorValue, err := a.getIncrementCursor(stream)
@@ -71,12 +72,15 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+						a.state.SetCursor(stream.Self(), cursorFields[0], maxCursorValue)
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
-						cursorValue := record[cursorField]
+						cursorValue := record[cursorFields[0]]
+						if len(cursorFields) > 1 {
+							cursorValue = utils.Ternary(typeutils.Compare(record[cursorFields[1]], cursorValue) == 1, record[cursorFields[1]], cursorValue)
+						}
 						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
@@ -91,12 +95,13 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 func (a *AbstractDriver) getIncrementCursor(stream types.StreamInterface) (any, error) {
 	cursorField := stream.Cursor()
-	stateCursorValue := a.state.GetCursor(stream.Self(), cursorField)
+	cursorFields := strings.Split(cursorField, ":")
+	stateCursorValue := a.state.GetCursor(stream.Self(), cursorFields[0])
 	if stateCursorValue == nil {
 		return stateCursorValue, nil
 	}
 	// typecast in case state was read from file
-	cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorField))
+	cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorFields[0]))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -42,6 +43,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxCursorValue any // required for incremental
 		cursorField := stream.Cursor()
+		cursorFields := strings.Split(cursorField, ":")
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
@@ -71,7 +73,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 						return
 					}
 					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
-						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+						a.state.SetCursor(stream.Self(), cursorFields[0], maxCursorValue)
 					}
 				}
 			}
@@ -80,7 +82,10 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
-					cursorValue := data[cursorField]
+					cursorValue := data[cursorFields[0]]
+					if len(cursorFields) > 1 {
+						cursorValue = utils.Ternary(typeutils.Compare(data[cursorFields[1]], cursorValue) == 1, data[cursorFields[1]], cursorValue)
+					}
 					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
