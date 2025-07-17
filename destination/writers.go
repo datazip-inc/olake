@@ -108,12 +108,12 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, dropStreams []st
 
 type ThreadEvent struct {
 	*WriterPool
-	stream     types.StreamInterface
-	recordChan chan types.RawRecord
-	parentCtx  context.Context // make it child context
-	options    *Options
-	errGroup   *errgroup.Group
-	groupCtx   context.Context
+	stream    types.StreamInterface
+	buffer    []types.RawRecord
+	parentCtx context.Context // make it child context
+	options   *Options
+	errGroup  *errgroup.Group
+	groupCtx  context.Context
 }
 
 // Initialize new adapter thread for writing into destination
@@ -125,7 +125,7 @@ func (w *WriterPool) NewThread(ctx context.Context, stream types.StreamInterface
 	group, ctx := errgroup.WithContext(ctx)
 	return &ThreadEvent{
 		WriterPool: w,
-		recordChan: make(chan types.RawRecord, 2*w.batchSize),
+		buffer:     []types.RawRecord{},
 		options:    opts,
 		stream:     stream,
 		parentCtx:  ctx,
@@ -135,34 +135,28 @@ func (w *WriterPool) NewThread(ctx context.Context, stream types.StreamInterface
 }
 
 func (t *ThreadEvent) Push(record types.RawRecord) error {
-	select {
-	case t.recordChan <- record:
-		if len(t.recordChan) > t.batchSize {
-			t.errGroup.Go(t.flush)
-		}
-		t.readCount.Add(1)
-		return nil
-	case <-t.parentCtx.Done():
-		return nil
+	if len(t.buffer) > t.batchSize {
+		newBuffer := make([]types.RawRecord, len(t.buffer))
+		_ = copy(newBuffer, t.buffer)
+		t.buffer = make([]types.RawRecord, 0)
+		t.group.Go(func() error {
+			return t.flush(newBuffer)
+		})
 	}
+	t.buffer = append(t.buffer, record)
+	t.readCount.Add(1)
+	return nil
 }
 
 func (t *ThreadEvent) Close() error {
-	t.errGroup.Go(t.flush)
-	close(t.recordChan)
 	return t.errGroup.Wait()
 }
 
-func (t *ThreadEvent) flush() error {
+func (t *ThreadEvent) flush(buf []types.RawRecord) error {
+	t.ThreadCounter.Add(1)
+	defer t.ThreadCounter.Add(-1)
 	// just get records equal to batch size
-	fetchSize := len(t.recordChan)
-	var recordArr []types.RawRecord
-	for len(recordArr) < fetchSize {
-		val, ok := <-t.recordChan
-		if ok {
-			recordArr = append(recordArr, val)
-		}
-	}
+
 	// init the writer and flush records
 	var thread Writer
 	err := func() error {
@@ -179,10 +173,10 @@ func (t *ThreadEvent) flush() error {
 	}
 
 	// insert record
-	if err := thread.Write(t.parentCtx, recordArr); err != nil {
+	if err := thread.Write(t.parentCtx, buf); err != nil {
 		return fmt.Errorf("failed to write record: %s", err)
 	}
-	t.recordCount.Add(int64(len(recordArr)))
+	t.recordCount.Add(int64(len(buf)))
 	return nil
 }
 
