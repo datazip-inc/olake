@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/datazip-inc/olake/utils"
 )
@@ -116,8 +117,16 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		if newStream.SupportedSyncModes().Exists(oldStream.Stream.SyncMode) {
 			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
 		}
-		if newStream.Stream.AvailableCursorFields.Exists(oldStream.Stream.CursorField) {
-			newStream.Stream.CursorField = oldStream.Stream.CursorField
+
+		oldCursorField := oldStream.Stream.CursorField
+		if newStream.Stream.AvailableCursorFields.Exists(oldCursorField) {
+			newStream.Stream.CursorField = oldCursorField
+		}
+
+		// check for multi cursor field
+		multiCursors := strings.Split(oldCursorField, ":")
+		if len(multiCursors) == 2 && newStream.Stream.AvailableCursorFields.Exists(multiCursors[0]) && newStream.Stream.AvailableCursorFields.Exists(multiCursors[1]) {
+			newStream.Stream.CursorField = oldCursorField
 		}
 		return nil
 	})
