@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -32,7 +31,6 @@ func connectDatabase(ctx context.Context) (interface{}, error) {
 		return nil, err
 	}
 	cfg.Setup(ctx)
-	fmt.Println("🟡 connectDatabase", cfg.client)
 	return cfg.client, nil
 }
 

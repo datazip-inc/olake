@@ -27,7 +27,6 @@ func TestMySQLPerformance(t *testing.T) {
 }
 
 func connectDatabase(ctx context.Context) (interface{}, error) {
-	fmt.Println("🟡 connectDatabase")
 	var cfg MySQL
 	if err := utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false); err != nil {
 		return nil, err
@@ -44,7 +43,6 @@ func closeDatabase(conn interface{}) error {
 }
 
 func setupDatabaseForCDC(ctx context.Context, conn interface{}) error {
-	fmt.Println("🟡 setupDatabaseForCDC")
 	db, ok := conn.(*sqlx.DB)
 	if !ok {
 		return fmt.Errorf("invalid connection type")
@@ -59,7 +57,6 @@ func setupDatabaseForCDC(ctx context.Context, conn interface{}) error {
 }
 
 func triggerMySQLCDC(ctx context.Context, conn interface{}) error {
-	fmt.Println("🟡 triggerMySQLCDC")
 	db, ok := conn.(*sqlx.DB)
 	if !ok {
 		return fmt.Errorf("invalid connection type")
