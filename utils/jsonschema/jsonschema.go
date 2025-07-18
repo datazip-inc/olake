@@ -108,5 +108,7 @@ func LoadUISchema(schemaType string) (json.RawMessage, error) {
 	if !ok {
 		return nil, fmt.Errorf("schema not found")
 	}
+
+	//nolint:gosec,G115
 	return json.RawMessage(raw), nil
 }
