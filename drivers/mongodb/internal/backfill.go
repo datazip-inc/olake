@@ -145,7 +145,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 	bucketAutoStrategy := func() ([]types.Chunk, error) {
-		logger.Info("using bucket auto strategy for stream: %s", stream.ID())
+		logger.Infof("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		pipeline := mongo.Pipeline{}
 		if len(filter) > 0 {
