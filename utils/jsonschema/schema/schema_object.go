@@ -1,6 +1,8 @@
 package schema
 
-import "github.com/goccy/go-json"
+import (
+	"github.com/goccy/go-json"
+)
 
 // BoolOrSchema holds a bool or a JSONSchema for values that can take either.
 // This is used for things like additionalProperties
@@ -148,7 +150,6 @@ func (s *defaultObjectSchema) UnmarshalJSON(b []byte) error {
 	}
 
 	return err
-
 }
 
 func (s *defaultObjectSchema) Clone() JSONSchema {

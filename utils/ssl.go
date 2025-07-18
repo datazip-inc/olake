@@ -17,27 +17,13 @@ type SSLConfig struct {
 	//
 	// @jsonschema(
 	// required=true,
-	// enum=["require","disable","verify-ca","verify-full"]
+	// enum=["require","disable","verify-ca","verify-full"],
+	// default="disable"
 	// )
-	Mode string `mapstructure:"mode,omitempty" json:"mode,omitempty" yaml:"mode,omitempty"`
-	// CA Certificate
-	//
-	// @jsonschema(
-	// title="CA Certificate"
-	// )
-	ServerCA string `mapstructure:"server_ca,omitempty" json:"server_ca,omitempty" yaml:"server_ca,omitempty"`
-	// Client Certificate
-	//
-	// @jsonschema(
-	// title="Client Certificate"
-	// )
+	Mode       string `mapstructure:"mode,omitempty" json:"mode,omitempty" yaml:"mode,omitempty"`
+	ServerCA   string `mapstructure:"server_ca,omitempty" json:"server_ca,omitempty" yaml:"server_ca,omitempty"`
 	ClientCert string `mapstructure:"client_cert,omitempty" json:"client_cert,omitempty" yaml:"client_cert,omitempty"`
-	// Client Certificate Key
-	//
-	// @jsonschema(
-	// title="Client Certificate Key"
-	// )
-	ClientKey string `mapstructure:"client_key,omitempty" json:"client_key,omitempty" yaml:"client_key,omitempty"`
+	ClientKey  string `mapstructure:"client_key,omitempty" json:"client_key,omitempty" yaml:"client_key,omitempty"`
 }
 
 // Validate returns err if the ssl configuration is invalid
