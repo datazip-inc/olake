@@ -83,7 +83,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Update Method",
 	//   description="Method to use for updates (CDC - Change Data Capture or Full Refresh)",
-	//   oneOf=["CDC","FullRefresh"]
+	//   oneOf=["CDC","Standalone"]
 	// )
 	UpdateMethod interface{} `json:"update_method"`
 
@@ -92,8 +92,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Reader Batch Size",
 	//   description="Max batch size for read operations",
-	//   type="integer",
-	//   default=100000
+	//   type="integer"
 	// )
 	BatchSize int `json:"reader_batch_size"`
 
@@ -145,21 +144,20 @@ type CDC struct {
 	//   title="Initial Wait Time",
 	//   description="Idle timeout for WAL log reading",
 	//   type="integer",
-	//   default=120,
 	//   required=true
 	// )
 	InitialWaitTime int `json:"initial_wait_time"`
 }
 
-// FullRefresh represents the full refresh configuration
+// Standalone represents the standalone configuration
 //
 // @jsonSchema(
 //
-//	title="Full Refresh",
+//	title="Standalone",
 //	additionalProperties=false
 //
 // )
-type FullRefresh struct{}
+type Standalone struct{}
 
 func (c *Config) Validate() error {
 	if c.Host == "" {

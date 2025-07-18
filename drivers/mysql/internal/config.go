@@ -118,21 +118,20 @@ type CDC struct {
 	//   title="Initial Wait Time",
 	//   description="Idle timeout for Bin log reading",
 	//   type="integer",
-	//   default=120,
 	//   required=true
 	// )
 	InitialWaitTime int `json:"initial_wait_time"`
 }
 
-// FullRefresh represents the full refresh configuration
+// Standalone represents the standalone configuration
 //
 // @jsonSchema(
 //
-//	title="Full Refresh",
+//	title="Standalone",
 //	additionalProperties=false
 //
 // )
-type FullRefresh struct{}
+type Standalone struct{}
 
 // URI generates the connection URI for the MySQL database
 func (c *Config) URI() string {

@@ -67,8 +67,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="Replica Set",
 	//   description="MongoDB replica set name (if applicable)",
-	//   type="string",
-	//   default="rs0"
+	//   type="string"
 	// )
 	ReplicaSet string `json:"replica_set"`
 

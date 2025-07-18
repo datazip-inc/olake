@@ -316,8 +316,7 @@ type S3Config struct {
 	//   title="AWS Access Key",
 	//   description="The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string",
 	//   type="string",
-	//   format="password",
-	//   required=true
+	//   format="password"
 	// )
 	AccessKey string `json:"aws_access_key,omitempty"`
 
@@ -327,8 +326,7 @@ type S3Config struct {
 	//   title="AWS Secret Key",
 	//   description="The AWS secret key for S3 authentication—typically 40+ characters long",
 	//   type="string",
-	//   format="password",
-	//   required=true
+	//   format="password"
 	// )
 	SecretKey string `json:"aws_secret_key,omitempty"`
 
