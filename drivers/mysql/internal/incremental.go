@@ -13,7 +13,11 @@ import (
 func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	cursorField := stream.Cursor()
 	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
-	query := jdbc.MySQLIncrementalQuery(stream)
+	filter, err := jdbc.SQLFilter(stream, m.Type())
+	if err != nil {
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+	}
+	query := jdbc.MySQLIncrementalQuery(stream, filter)
 
 	logger.Infof("Starting incremental sync for stream[%s]", stream.ID())
 

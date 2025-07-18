@@ -272,8 +272,8 @@ func MySQLTableColumnsQuery() string {
 }
 
 // MySQLIncrementalQuery returns the query for incremental sync in MySQL
-func MySQLIncrementalQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT * FROM %s.%s WHERE %s >= ? ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor(), stream.Cursor())
+func MySQLIncrementalQuery(stream types.StreamInterface, filter string) string {
+	return fmt.Sprintf(`SELECT * FROM %s.%s WHERE %s >= ? AND %s ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor(), filter, stream.Cursor())
 }
 
 // MySQLVersion returns the version of the MySQL server
