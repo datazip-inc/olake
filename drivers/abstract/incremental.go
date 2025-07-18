@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -51,16 +52,10 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				cursorField := stream.Cursor()
 				// TODO: make inremental state consistent save it as string and typecast while reading
 				// get cursor column from state and typecast it to cursor column type for comparisons
-				stateCursorValue := a.state.GetCursor(stream.Self(), cursorField)
-				cursorColType, err := stream.Schema().GetType(cursorField)
+				maxCursorValue, err := a.getIncrementCursor(stream)
 				if err != nil {
-					return fmt.Errorf("failed to get cursor column type: %s", err)
+					return fmt.Errorf("failed to get increment cursor: %s", err)
 				}
-				maxCursorValue, err := typeutils.ReformatValue(cursorColType, stateCursorValue)
-				if err != nil {
-					return fmt.Errorf("failed to reformat value of cursor received from state, col[%s] into type[%s]: %s", cursorField, cursorColType, err)
-				}
-
 				errChan := make(chan error, 1)
 				inserter := pool.NewThread(ctx, stream, errChan)
 				defer func() {
@@ -85,11 +80,25 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
-						return inserter.Insert(types.CreateRawRecord(id, record, "r", time.Unix(0, 0)))
+						return inserter.Insert(types.CreateRawRecord(id, record, "u", time.Unix(0, 0)))
 					})
 				})
 			})
 		}
 	}
 	return nil
+}
+
+func (a *AbstractDriver) getIncrementCursor(stream types.StreamInterface) (any, error) {
+	cursorField := stream.Cursor()
+	stateCursorValue := a.state.GetCursor(stream.Self(), cursorField)
+	if stateCursorValue == nil {
+		return stateCursorValue, nil
+	}
+	// typecast in case state was read from file
+	cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorField))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
+	}
+	return typeutils.ReformatValue(cursorColType, stateCursorValue)
 }
