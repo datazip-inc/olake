@@ -72,7 +72,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 						func(ctx context.Context, c testcontainers.Container) error {
 							// 1. Install required tools
 							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
+								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
 							}
 
 							// 2. Query on test table
@@ -83,18 +83,18 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 3. Run discover command
 							discoverCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", cfg.Driver, sourceConfigPath)
 							if code, out, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
-								return fmt.Errorf("discover failed (%d): %w\n%s", code, err, string(out))
+								return fmt.Errorf("discover failed (%d): %s\n%s", code, err, string(out))
 							}
 
 							// 4. Verify streams.json file
 							streamsJSON, err := os.ReadFile(dummyStreamFilePath)
 							if err != nil {
-								return fmt.Errorf("failed to read expected streams JSON: %w", err)
+								return fmt.Errorf("failed to read expected streams JSON: %s", err)
 							}
 							testStreamsCmd := fmt.Sprintf("cat %s", streamsPath)
 							_, testStreamJSON, err := utils.ExecCommand(ctx, c, testStreamsCmd)
 							if err != nil {
-								return fmt.Errorf("failed to read actual streams JSON: %w", err)
+								return fmt.Errorf("failed to read actual streams JSON: %s", err)
 							}
 							if !utils.NormalizedEqual(string(streamsJSON), string(testStreamJSON)) {
 								return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", string(streamsJSON), string(testStreamJSON))
@@ -146,7 +146,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 						func(ctx context.Context, c testcontainers.Container) error {
 							// 1. Install required tools
 							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-								return fmt.Errorf("install failed (%d): %w\n%s", code, err, out)
+								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
 							}
 
 							// 2. Query on test table
@@ -159,7 +159,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								streamsPath, streamsPath,
 							)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
-								return fmt.Errorf("failed to enable normalization in streams.json (%d): %w\n%s",
+								return fmt.Errorf("failed to enable normalization in streams.json (%d): %s\n%s",
 									code, err, out,
 								)
 							}
@@ -214,7 +214,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								}
 
 								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
-									return fmt.Errorf("sync failed (%d): %w\n%s", code, err, out)
+									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
 								t.Logf("Sync successful for %s driver", cfg.Driver)
 								VerifyIcebergSync(t, currentTestTable, cfg.DataTypeSchema, schema, opSymbol, cfg.Driver)
