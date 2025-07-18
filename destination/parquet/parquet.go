@@ -37,8 +37,8 @@ type Parquet struct {
 	options          *destination.Options
 	config           *Config
 	stream           types.StreamInterface
-	basePath         string                    // construct with streamNamespace/streamName
-	partitionedFiles map[string][]FileMetadata // mapping of basePath/{regex} -> pqFiles
+	basePath         string                  // construct with streamNamespace/streamName
+	partitionedFiles map[string]FileMetadata // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
 }
 
@@ -74,7 +74,42 @@ func (p *Parquet) initS3Writer() error {
 	return nil
 }
 
+// closePartitionFile closes the writer and file for a given partition
+func (p *Parquet) closePartitionFile(basePath string, fileMetadata *FileMetadata) error {
+	if fileMetadata == nil {
+		return nil
+	}
+
+	// Close writer
+	var err error
+	if p.stream.NormalizationEnabled() {
+		err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Close()
+	} else {
+		err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to close writer: %s", err)
+	}
+	// Close file
+	if err := fileMetadata.parquetFile.Close(); err != nil {
+		return fmt.Errorf("failed to close file: %s", err)
+	}
+
+	filePath := filepath.Join(p.config.Path, basePath, fileMetadata.fileName)
+	logger.Infof("Closed file [%s] with %d records.", filePath, fileMetadata.recordCount)
+
+	return nil
+}
+
 func (p *Parquet) createNewPartitionFile(basePath string) error {
+	// Close existing file in this partition if it exists
+	if files, exists := p.partitionedFiles[basePath]; exists {
+		lastFile := &files
+		if err := p.closePartitionFile(basePath, lastFile); err != nil {
+			return err
+		}
+	}
+
 	// construct directory path
 	directoryPath := filepath.Join(p.config.Path, basePath)
 
@@ -97,11 +132,11 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
 
-	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], FileMetadata{
+	p.partitionedFiles[basePath] = FileMetadata{
 		fileName:    fileName,
 		parquetFile: pqFile,
 		writer:      writer,
-	})
+	}
 
 	return nil
 }
@@ -110,7 +145,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Options) error {
 	p.options = options
 	p.stream = stream
-	p.partitionedFiles = make(map[string][]FileMetadata)
+	p.partitionedFiles = make(map[string]FileMetadata)
 
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
@@ -143,12 +178,12 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 		partitionFolder = p.partitionedFiles[partitionedPath]
 	}
 
-	if len(partitionFolder) == 0 {
+	if partitionFolder.recordCount == 0 {
 		return fmt.Errorf("failed to get partitioned files")
 	}
 
 	// get last written file
-	fileMetadata := &partitionFolder[len(partitionFolder)-1]
+	fileMetadata := &partitionFolder
 	var err error
 	if p.stream.NormalizationEnabled() {
 		record.Data[constants.OlakeID] = record.OlakeID
@@ -220,67 +255,49 @@ func (p *Parquet) Close(ctx context.Context) error {
 		logger.Debugf("Deleted file [%s] with %d records (%s).", filePath, recordCount, reason)
 	}
 
-	for basePath, parquetFiles := range p.partitionedFiles {
-		err := utils.Concurrent(ctx, parquetFiles, len(parquetFiles), func(_ context.Context, fileMetadata FileMetadata, _ int) error {
-			// construct full file path
-			filePath := filepath.Join(p.config.Path, basePath, fileMetadata.fileName)
+	for basePath, fileMetadata := range p.partitionedFiles {
+		filePath := filepath.Join(p.config.Path, basePath, fileMetadata.fileName)
 
-			// Remove empty files
-			if fileMetadata.recordCount == 0 {
-				removeLocalFile(filePath, "no records written", fileMetadata.recordCount)
-				return nil
-			}
-
-			// Close writers
-			var err error
-			if p.stream.NormalizationEnabled() {
-				err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Close()
-			} else {
-				err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
-			}
-			if err != nil {
-				return fmt.Errorf("failed to close writer: %s", err)
-			}
-			// Close file
-			if err := fileMetadata.parquetFile.Close(); err != nil {
-				return fmt.Errorf("failed to close file: %s", err)
-			}
-
-			logger.Infof("Finished writing file [%s] with %d records.", filePath, fileMetadata.recordCount)
-
-			if p.s3Client != nil {
-				// Open file for S3 upload
-				file, err := os.Open(filePath)
-				if err != nil {
-					return fmt.Errorf("failed to open local file for S3 upload: %s", err)
-				}
-				defer file.Close()
-
-				// Construct S3 key path
-				s3KeyPath := basePath
-				if p.config.Prefix != "" {
-					s3KeyPath = filepath.Join(p.config.Prefix, s3KeyPath)
-				}
-				s3KeyPath = filepath.Join(s3KeyPath, fileMetadata.fileName)
-
-				// Upload to S3
-				_, err = p.s3Client.PutObject(&s3.PutObjectInput{
-					Bucket: aws.String(p.config.Bucket),
-					Key:    aws.String(s3KeyPath),
-					Body:   file,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to upload file to S3 (bucket: %s, path: %s): %s", p.config.Bucket, s3KeyPath, err)
-				}
-
-				// Remove local file after successful upload
-				removeLocalFile(filePath, "uploaded to S3", fileMetadata.recordCount)
-				logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, s3KeyPath)
-			}
+		if fileMetadata.recordCount == 0 {
+			removeLocalFile(filePath, "no records written", fileMetadata.recordCount)
 			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("failed to close writers and files: %s", err)
+		}
+
+		// Close writers
+		if err := p.closePartitionFile(basePath, &fileMetadata); err != nil {
+			return err
+		}
+
+		logger.Infof("Finished writing file [%s] with %d records.", filePath, fileMetadata.recordCount)
+
+		if p.s3Client != nil {
+			// Open file for S3 upload
+			file, err := os.Open(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to open local file for S3 upload: %s", err)
+			}
+			defer file.Close()
+
+			// Construct S3 key path
+			s3KeyPath := basePath
+			if p.config.Prefix != "" {
+				s3KeyPath = filepath.Join(p.config.Prefix, s3KeyPath)
+			}
+			s3KeyPath = filepath.Join(s3KeyPath, fileMetadata.fileName)
+
+			// Upload to S3
+			_, err = p.s3Client.PutObject(&s3.PutObjectInput{
+				Bucket: aws.String(p.config.Bucket),
+				Key:    aws.String(s3KeyPath),
+				Body:   file,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to upload file to S3 (bucket: %s, path: %s): %s", p.config.Bucket, s3KeyPath, err)
+			}
+
+			// Remove local file after successful upload
+			removeLocalFile(filePath, "uploaded to S3", fileMetadata.recordCount)
+			logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, s3KeyPath)
 		}
 	}
 	return nil
