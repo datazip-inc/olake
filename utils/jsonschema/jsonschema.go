@@ -103,10 +103,10 @@ func ToYamlSchema(obj interface{}) (string, error) {
 	return string(yamlData), nil
 }
 
-func LoadUISchema(schemaType string) (map[string]interface{}, error) {
-	var uischema map[string]interface{}
-	if err := json.Unmarshal([]byte(constants.UISchemaMap[strings.ToLower(schemaType)]), &uischema); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ui schema: %v", err)
+func LoadUISchema(schemaType string) (json.RawMessage, error) {
+	raw, ok := constants.UISchemaMap[strings.ToLower(schemaType)]
+	if !ok {
+		return nil, fmt.Errorf("schema not found")
 	}
-	return uischema, nil
+	return json.RawMessage(raw), nil
 }
