@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -41,7 +42,12 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxCursorValue any // required for incremental
-		cursorField := stream.Cursor()
+		cursorFields := strings.Split(stream.Cursor(), ":")
+		cursorField := cursorFields[0]
+		fallbackCursorField := ""
+		if len(cursorFields) > 1 {
+			fallbackCursorField = cursorFields[1]
+		}
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
@@ -81,6 +87,9 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
 					cursorValue := data[cursorField]
+					if len(cursorFields) > 1 {
+						cursorValue = utils.Ternary(typeutils.Compare(data[fallbackCursorField], cursorValue) == 1, data[fallbackCursorField], cursorValue)
+					}
 					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
