@@ -18,9 +18,13 @@ const oracleSQLTimestampLayout = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\""
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	cursorField := stream.Cursor()
-	cursorFields := strings.Split(cursorField, ":")
-	lastCursorValue := o.state.GetCursor(stream.Self(), cursorFields[0])
+	cursorFields := strings.Split(stream.Cursor(), ":")
+	cursorField := cursorFields[0]
+	fallbackCursorField := ""
+	if len(cursorFields) > 1 {
+		fallbackCursorField = cursorFields[1]
+	}
+	lastCursorValue := o.state.GetCursor(stream.Self(), cursorField)
 
 	filter, err := jdbc.SQLFilter(stream, o.Type())
 	if err != nil {
@@ -32,11 +36,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		return fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
 	}
 
-	incrementalCondition, err := formatCursorCondition(cursorFields, datatype, lastCursorValue)
-	if err != nil {
-		return fmt.Errorf("failed to format cursor condition: %s", err)
-	}
-
+	incrementalCondition := formatCursorCondition(cursorField, fallbackCursorField, datatype, lastCursorValue)
 	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)
 
 	query := fmt.Sprintf("SELECT * FROM %q.%q WHERE %s",
@@ -65,7 +65,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 }
 
 // formatCursorCondition generates the incremental condition SQL based on datatype and cursor value.
-func formatCursorCondition(cursorFields []string, datatype types.DataType, lastCursorValue any) (string, error) {
+func formatCursorCondition(cursorField string, fallbackCursorField string, datatype types.DataType, lastCursorValue any) string {
 	var formattedValue string
 	isTimestamp := strings.Contains(string(datatype), "timestamp")
 
@@ -80,11 +80,10 @@ func formatCursorCondition(cursorFields []string, datatype types.DataType, lastC
 		formattedValue = fmt.Sprintf("'%v'", lastCursorValue)
 	}
 
-	incrementalCondition := ""
-	if len(cursorFields) > 1 {
-		incrementalCondition = fmt.Sprintf("(%q IS NULL AND %q >= %s) OR ", cursorFields[0], cursorFields[1], formattedValue)
+	incrementalCondition := fmt.Sprintf("(%q >= %s)", cursorField, formattedValue)
+	if fallbackCursorField != "" {
+		incrementalCondition = fmt.Sprintf("(COALESCE(%q, %q) >= %s)", cursorField, fallbackCursorField, formattedValue)
 	}
-	incrementalCondition = fmt.Sprintf("%s(%q >= %s)", incrementalCondition, cursorFields[0], formattedValue)
 
-	return incrementalCondition, nil
+	return incrementalCondition
 }

@@ -42,8 +42,12 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxCursorValue any // required for incremental
-		cursorField := stream.Cursor()
-		cursorFields := strings.Split(cursorField, ":")
+		cursorFields := strings.Split(stream.Cursor(), ":")
+		cursorField := cursorFields[0]
+		fallbackCursorField := ""
+		if len(cursorFields) > 1 {
+			fallbackCursorField = cursorFields[1]
+		}
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
@@ -73,7 +77,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 						return
 					}
 					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
-						a.state.SetCursor(stream.Self(), cursorFields[0], maxCursorValue)
+						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
 					}
 				}
 			}
@@ -82,9 +86,9 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
-					cursorValue := data[cursorFields[0]]
+					cursorValue := data[cursorField]
 					if len(cursorFields) > 1 {
-						cursorValue = utils.Ternary(typeutils.Compare(data[cursorFields[1]], cursorValue) == 1, data[cursorFields[1]], cursorValue)
+						cursorValue = utils.Ternary(typeutils.Compare(data[fallbackCursorField], cursorValue) == 1, data[fallbackCursorField], cursorValue)
 					}
 					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}

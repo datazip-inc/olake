@@ -19,7 +19,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	defer close(backfillWaitChannel)
 
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		prevCursor := a.state.GetCursor(stream.Self(), stream.Cursor())
+		cursorField := strings.Split(stream.Cursor(), ":")[0]
+		prevCursor := a.state.GetCursor(stream.Self(), cursorField)
 		if a.state.HasCompletedBackfill(stream.Self()) && prevCursor != nil {
 			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
 			backfillWaitChannel <- stream.ID()

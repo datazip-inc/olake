@@ -104,12 +104,12 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		cursorFields := strings.Split(s.Cursor(), ":")
 		var datatype, prevDatatype DataType
 		for idx, cursorField := range cursorFields {
-			datatype, _ = source.Schema.GetType(strings.ToLower(cursorFields[idx]))
-			if !source.AvailableCursorFields.Exists(cursorFields[idx]) {
-				return fmt.Errorf("invalid cursor field [%s]; valid are %v", cursorFields[idx], source.AvailableCursorFields)
+			datatype, _ = source.Schema.GetType(strings.ToLower(cursorField))
+			if !source.AvailableCursorFields.Exists(cursorField) {
+				return fmt.Errorf("invalid cursor field [%s]; valid are %v", cursorField, source.AvailableCursorFields)
 			}
 			if idx != 0 && datatype != prevDatatype {
-				return fmt.Errorf("cursor field [%s] have different types: %v", cursorField, datatype)
+				return fmt.Errorf("cursor fields [%s] have different datatypes", s.Cursor())
 			}
 			if idx > 1 {
 				return fmt.Errorf("atmost 2 cursor fields are allowed")
