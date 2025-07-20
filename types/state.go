@@ -257,7 +257,7 @@ func (s *State) LogWithLock() {
 func (s *State) LogState() {
 	// function need to be called after state lock
 	if s.isZero() {
-		logger.Info("state is empty")
+		logger.Debug("state is empty")
 		return
 	}
 
