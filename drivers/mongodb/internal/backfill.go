@@ -145,7 +145,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 	bucketAutoStrategy := func() ([]types.Chunk, error) {
-		logger.Info("using bucket auto strategy for stream: %s", stream.ID())
+		logger.Infof("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		pipeline := mongo.Pipeline{}
 		if len(filter) > 0 {
@@ -366,6 +366,46 @@ func generateMinObjectID(t time.Time) string {
 	return objectID.Hex()
 }
 
+func buildMongoCondition(cond types.Condition) bson.D {
+	opMap := map[string]string{
+		">":  "$gt",
+		">=": "$gte",
+		"<":  "$lt",
+		"<=": "$lte",
+		"=":  "$eq",
+		"!=": "$ne",
+	}
+	value := func(field, val string) interface{} {
+		// Handle unquoted null
+		if val == "null" {
+			return nil
+		}
+
+		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
+			val = val[1 : len(val)-1]
+		}
+		if field == "_id" && len(val) == 24 {
+			if oid, err := primitive.ObjectIDFromHex(val); err == nil {
+				return oid
+			}
+		}
+		if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
+			return strings.ToLower(val) == "true"
+		}
+		if timeVal, err := typeutils.ReformatDate(val); err == nil {
+			return timeVal
+		}
+		if intVal, err := typeutils.ReformatInt64(val); err == nil {
+			return intVal
+		}
+		if floatVal, err := typeutils.ReformatFloat64(val); err == nil {
+			return floatVal
+		}
+		return val
+	}(cond.Column, cond.Value)
+	return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
+}
+
 // buildFilter generates a BSON document for MongoDB
 func buildFilter(stream types.StreamInterface) (bson.D, error) {
 	filter, err := stream.GetFilter()
@@ -375,46 +415,6 @@ func buildFilter(stream types.StreamInterface) (bson.D, error) {
 
 	if len(filter.Conditions) == 0 {
 		return bson.D{}, nil
-	}
-
-	buildMongoCondition := func(cond types.Condition) bson.D {
-		opMap := map[string]string{
-			">":  "$gt",
-			">=": "$gte",
-			"<":  "$lt",
-			"<=": "$lte",
-			"=":  "$eq",
-			"!=": "$ne",
-		}
-		value := func(field, val string) interface{} {
-			// Handle unquoted null
-			if val == "null" {
-				return nil
-			}
-
-			if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-				val = val[1 : len(val)-1]
-			}
-			if field == "_id" && len(val) == 24 {
-				if oid, err := primitive.ObjectIDFromHex(val); err == nil {
-					return oid
-				}
-			}
-			if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
-				return strings.ToLower(val) == "true"
-			}
-			if timeVal, err := typeutils.ReformatDate(val); err == nil {
-				return timeVal
-			}
-			if intVal, err := typeutils.ReformatInt64(val); err == nil {
-				return intVal
-			}
-			if floatVal, err := typeutils.ReformatFloat64(val); err == nil {
-				return floatVal
-			}
-			return val
-		}(cond.Column, cond.Value)
-		return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
 	}
 
 	switch {
