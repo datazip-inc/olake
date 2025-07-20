@@ -3,10 +3,6 @@ package abstract
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,10 +11,8 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
 )
 
 const (
@@ -28,28 +22,6 @@ const (
 	cdcInitializationWait = 2 * time.Second
 	cdcProcessingWait     = 60 * time.Second
 )
-
-type TestConfig struct {
-	Driver          string
-	HostRoot        string
-	SourcePath      string
-	CatalogPath     string
-	DestinationPath string
-	StatePath       string
-	StatsPath       string
-}
-
-type PerformanceTestConfig struct {
-	TestConfig      *TestConfig
-	Namespace       string
-	BackfillStreams []string
-	CDCStreams      []string
-	ConnectDB       func(ctx context.Context) (interface{}, error)
-	CloseDB         func(conn interface{}) error
-	SetupCDC        func(ctx context.Context, conn interface{}) error
-	TriggerCDC      func(ctx context.Context, conn interface{}) error
-	SupportsCDC     bool
-}
 
 // TODO: redesign integration tests according to new structure
 var currentTestTable = fmt.Sprintf("%s_%d", testTablePrefix, time.Now().Unix())
@@ -254,216 +226,3 @@ func verifyIcebergSync(t *testing.T, tableName string, expectedCount string) {
 	t.Logf("Verified %s unique olake_id records in Iceberg table %s",
 		actualCount, tableName)
 }
-
-func GetTestConfig(driver string) *TestConfig {
-	return &TestConfig{
-		Driver:          driver,
-		HostRoot:        GetHostRoot(),
-		SourcePath:      fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/source.json", driver),
-		CatalogPath:     fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/streams.json", driver),
-		DestinationPath: fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/destination.json", driver),
-		StatePath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/state.json", driver),
-		StatsPath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/stats.json", driver),
-	}
-}
-
-func IsRPSAboveBenchmark(config TestConfig, isBackfill bool) (bool, error) {
-	benchmarkFile := utils.Ternary(isBackfill, "benchmark.json", "benchmark_cdc.json").(string)
-	var stats map[string]interface{}
-	if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, "stats.json")), &stats, false); err != nil {
-		return false, err
-	}
-
-	rps, err := GetRPSFromStats(stats)
-	if err != nil {
-		return false, err
-	}
-
-	var benchmarkStats map[string]interface{}
-	if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, benchmarkFile)), &benchmarkStats, false); err != nil {
-		return false, err
-	}
-
-	benchmarkRps, err := GetRPSFromStats(benchmarkStats)
-	if err != nil {
-		return false, err
-	}
-
-	fmt.Printf("CurrentRPS: %.2f, BenchmarkRPS: %.2f\n", rps, benchmarkRps)
-
-	if rps < 0*benchmarkRps {
-		return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
-	}
-
-	return true, nil
-}
-
-// to include the specified streams, and sets normalization = true for them
-func UpdateStreamsCmd(config TestConfig, namespace string, streams ...string) string {
-	if len(streams) == 0 {
-		return ""
-	}
-
-	var conditions string
-	for i, stream := range streams {
-		if i > 0 {
-			conditions += " or "
-		}
-		conditions += fmt.Sprintf(`.stream_name == "%s"`, stream)
-	}
-
-	jqExpr := fmt.Sprintf(
-		`jq '.selected_streams["%s"] |= map(select(%s) | .normalization = true)' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
-		namespace,
-		conditions,
-		config.CatalogPath,
-		config.CatalogPath,
-	)
-
-	return jqExpr
-}
-
-func GetRPSFromStats(stats map[string]interface{}) (float64, error) {
-	rps, err := strconv.ParseFloat(strings.Split(stats["Speed"].(string), " ")[0], 64)
-	if err != nil {
-		return 0, err
-	}
-	return rps, nil
-}
-
-func DiscoverCommand(config TestConfig) string {
-	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
-}
-
-func SyncCommand(config TestConfig, isBackfill bool) string {
-	return fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath, utils.Ternary(isBackfill, "", fmt.Sprintf("--state %s", config.StatePath)).(string))
-}
-
-func InstallCmd() string {
-	return "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
-}
-
-func GetHostRoot() string {
-	pwd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(pwd, "../../..")
-}
-
-func RunPerformanceTest(t *testing.T, config PerformanceTestConfig) {
-	ctx := context.Background()
-
-	t.Run("performance", func(t *testing.T) {
-		req := testcontainers.ContainerRequest{
-			Image: "golang:1.23.2",
-			HostConfigModifier: func(hc *container.HostConfig) {
-				hc.Binds = []string{
-					fmt.Sprintf("%s:/test-olake:rw", config.TestConfig.HostRoot),
-				}
-				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
-			},
-			ConfigModifier: func(c *container.Config) {
-				c.WorkingDir = "/test-olake"
-			},
-			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
-				{
-					PostReadies: []testcontainers.ContainerHook{
-						func(ctx context.Context, c testcontainers.Container) error {
-							return runPerformanceTestFlow(ctx, t, c, config)
-						},
-					},
-				},
-			},
-			Cmd: []string{"tail", "-f", "/dev/null"},
-		}
-
-		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: req,
-			Started:          true,
-		})
-		require.NoError(t, err, "Failed to start container")
-		defer container.Terminate(ctx)
-	})
-}
-
-func runPerformanceTestFlow(ctx context.Context, t *testing.T, c testcontainers.Container, config PerformanceTestConfig) error {
-	t.Helper()
-
-	_, output, err := utils.ExecContainerCmd(ctx, c, InstallCmd())
-	require.NoError(t, err, fmt.Sprintf("Failed to install dependencies:\n%s", string(output)))
-
-	conn, err := config.ConnectDB(ctx)
-	require.NoError(t, err, "Failed to connect to database")
-	defer config.CloseDB(conn)
-
-	t.Run("backfill", func(t *testing.T) {
-		runBackfillForPerformanceTest(ctx, t, c, config)
-	})
-
-	if config.SupportsCDC {
-		t.Run("cdc", func(t *testing.T) {
-			runCDCForPerformanceTest(ctx, t, c, config, conn)
-		})
-	}
-
-	return nil
-}
-
-func runBackfillForPerformanceTest(ctx context.Context, t *testing.T, c testcontainers.Container, config PerformanceTestConfig) {
-	t.Helper()
-
-	discoverCmd := DiscoverCommand(*config.TestConfig)
-	_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
-	require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
-	t.Log(string(output))
-
-	updateStreamsCmd := UpdateStreamsCmd(*config.TestConfig, config.Namespace, config.BackfillStreams...)
-	_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
-	require.NoError(t, err, "Failed to update streams")
-
-	syncCmd := SyncCommand(*config.TestConfig, true)
-	_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
-	require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
-	t.Log(string(output))
-
-	success, err := IsRPSAboveBenchmark(*config.TestConfig, true)
-	require.NoError(t, err, "Failed to check RPS", err)
-	require.True(t, success, fmt.Sprintf("%s backfill performance below benchmark", config.TestConfig.Driver))
-	t.Logf("✅ SUCCESS: %s backfill", config.TestConfig.Driver)
-}
-
-func runCDCForPerformanceTest(ctx context.Context, t *testing.T, c testcontainers.Container, config PerformanceTestConfig, conn interface{}) {
-	t.Helper()
-
-	err := config.SetupCDC(ctx, conn)
-	require.NoError(t, err, "Failed to setup database for CDC")
-
-	discoverCmd := DiscoverCommand(*config.TestConfig)
-	_, output, err := utils.ExecContainerCmd(ctx, c, discoverCmd)
-	require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
-	t.Log(string(output))
-
-	updateStreamsCmd := UpdateStreamsCmd(*config.TestConfig, config.Namespace, config.CDCStreams...)
-	_, _, err = utils.ExecContainerCmd(ctx, c, updateStreamsCmd)
-	require.NoError(t, err, "Failed to update streams")
-
-	syncCmd := SyncCommand(*config.TestConfig, true)
-	_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
-	require.NoError(t, err, fmt.Sprintf("Failed to perform initial sync:\n%s", string(output)))
-	t.Log(string(output))
-
-	err = config.TriggerCDC(ctx, conn)
-	require.NoError(t, err, "Failed to trigger CDC change")
-
-	syncCmd = SyncCommand(*config.TestConfig, false)
-	_, output, err = utils.ExecContainerCmd(ctx, c, syncCmd)
-	require.NoError(t, err, fmt.Sprintf("Failed to perform CDC sync:\n%s", string(output)))
-	t.Log(string(output))
-
-	success, err := IsRPSAboveBenchmark(*config.TestConfig, false)
-	require.NoError(t, err, "Failed to check RPS", err)
-	require.True(t, success, fmt.Sprintf("%s CDC performance below benchmark", config.TestConfig.Driver))
-	t.Logf("✅ SUCCESS: %s cdc", config.TestConfig.Driver)
-}
-

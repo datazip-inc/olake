@@ -2,17 +2,16 @@ package driver
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
-	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/jmoiron/sqlx"
 )
 
 func TestOraclePerformance(t *testing.T) {
-	config := abstract.PerformanceTestConfig{
-		TestConfig:      abstract.GetTestConfig("oracle"),
+	config := testutils.PerformanceTestConfig{
+		TestConfig:      testutils.GetTestConfig("oracle"),
 		Namespace:       "ADMIN",
 		BackfillStreams: []string{"USERS"},
 		CDCStreams:      nil,
@@ -23,7 +22,7 @@ func TestOraclePerformance(t *testing.T) {
 		SupportsCDC:     false,
 	}
 
-	abstract.RunPerformanceTest(t, config)
+	testutils.RunPerformanceTest(t, config)
 }
 
 func connectDatabase(ctx context.Context) (interface{}, error) {
@@ -32,7 +31,6 @@ func connectDatabase(ctx context.Context) (interface{}, error) {
 		return nil, err
 	}
 	cfg.Setup(ctx)
-	fmt.Println("🟡 connectDatabase", cfg.client)
 	return cfg.client, nil
 }
 

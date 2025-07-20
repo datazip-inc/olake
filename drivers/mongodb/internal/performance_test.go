@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func TestMongodbPerformance(t *testing.T) {
-	config := abstract.PerformanceTestConfig{
-		TestConfig:      abstract.GetTestConfig("mongodb"),
+	config := testutils.PerformanceTestConfig{
+		TestConfig:      testutils.GetTestConfig("mongodb"),
 		Namespace:       "test",
 		BackfillStreams: []string{"users"},
 		CDCStreams:      []string{"users_cdc"},
@@ -24,7 +24,7 @@ func TestMongodbPerformance(t *testing.T) {
 		SupportsCDC:     true,
 	}
 
-	abstract.RunPerformanceTest(t, config)
+	testutils.RunPerformanceTest(t, config)
 }
 
 func connectDatabase(ctx context.Context) (interface{}, error) {
