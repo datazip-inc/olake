@@ -72,11 +72,11 @@ jobs:
 
     - name: Set up Data Directories
       run: |
-        sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
-        sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
-        sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
-        sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
-        sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+        sudo mkdir -p /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data/postgres-data
+        sudo mkdir -p /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data/minio-data
+        sudo mkdir -p /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data/ivy-cache
+        sudo chown -R 999:999 /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data
+        sudo chmod -R 777 /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data
 
     - name: Install Go Dependencies
       run: go mod download
