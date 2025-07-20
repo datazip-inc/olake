@@ -93,7 +93,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return nil
 }
 
-func (i *Iceberg) Close(ctx context.Context) error {
+func (i *Iceberg) Close(ctx context.Context, finalFlush bool) error {
 	// skip flushing on error
 	defer func() {
 		err := i.CloseIcebergClient()
@@ -104,25 +104,26 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return nil
 	}
+	if finalFlush {
+		// Send commit request for this thread using a special message format
+		ctx, cancel := context.WithTimeout(ctx, 1000*time.Second)
+		defer cancel()
 
-	// Send commit request for this thread using a special message format
-	ctx, cancel := context.WithTimeout(ctx, 1000*time.Second)
-	defer cancel()
+		// Create a special commit message
+		commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, i.threadID)
 
-	// Create a special commit message
-	commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, i.threadID)
+		req := &proto.RecordIngestRequest{
+			Messages: []string{commitMessage},
+		}
 
-	req := &proto.RecordIngestRequest{
-		Messages: []string{commitMessage},
+		res, err := i.client.SendRecords(ctx, req)
+		if err != nil {
+			logger.Errorf("thread id %s: Error sending commit message on close: %s", i.threadID, err)
+			return fmt.Errorf("thread id %s: failed to send commit message: %s", i.threadID, err)
+		}
+
+		logger.Infof("thread id %s: Sent commit message: %s", i.threadID, res.GetResult())
 	}
-
-	res, err := i.client.SendRecords(ctx, req)
-	if err != nil {
-		logger.Errorf("thread id %s: Error sending commit message on close: %s", i.threadID, err)
-		return fmt.Errorf("thread id %s: failed to send commit message: %s", i.threadID, err)
-	}
-
-	logger.Infof("thread id %s: Sent commit message: %s", i.threadID, res.GetResult())
 
 	return nil
 }
@@ -144,7 +145,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	}
 
 	defer func() {
-		i.Close(ctx)
+		i.Close(ctx, true)
 		// Restore original stream and partition info
 		i.stream = originalStream
 		i.partitionInfo = originalPartitionInfo

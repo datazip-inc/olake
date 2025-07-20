@@ -210,7 +210,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context) error {
+func (p *Parquet) Close(ctx context.Context, _ bool) error {
 	removeLocalFile := func(filePath, reason string, recordCount int) {
 		err := os.Remove(filePath)
 		if err != nil {

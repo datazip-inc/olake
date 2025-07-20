@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -27,23 +28,16 @@ type (
 
 	ThreadOptions func(opt *Options)
 
-	// ThreadEvent struct {
-	// 	Close  CloseFunction
-	// 	Insert InsertFunction
-	// }
-
 	WriterPool struct {
 		maxThreads    int
-		batchSize     int
+		batchSize     int64
 		totalRecords  atomic.Int64
 		recordCount   atomic.Int64
 		readCount     atomic.Int64
 		ThreadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
 		config        any          // respective writer config
 		init          NewFunc      // To initialize exclusive destination threads
-		group         *errgroup.Group
-		groupCtx      context.Context
-		tmu           sync.Mutex // Mutex between threads
+		tmu           sync.Mutex   // Mutex between threads
 	}
 )
 
@@ -91,29 +85,27 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, dropStreams []st
 		}
 	}
 
-	group, ctx := errgroup.WithContext(ctx)
 	return &WriterPool{
 		maxThreads:    config.MaxThreads,
-		batchSize:     config.BatchSize,
+		batchSize:     determineMaxBatchSize(),
 		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
 		ThreadCounter: atomic.Int64{},
 		config:        config.WriterConfig,
 		init:          newfunc,
-		group:         group,
-		groupCtx:      ctx,
 		tmu:           sync.Mutex{},
 	}, nil
 }
 
 type ThreadEvent struct {
 	*WriterPool
-	stream    types.StreamInterface
-	buffer    []types.RawRecord
-	parentCtx context.Context // make it child context
-	options   *Options
-	errGroup  *errgroup.Group
-	groupCtx  context.Context
+	recordSize int64
+	stream     types.StreamInterface
+	buffer     []types.RawRecord
+	parentCtx  context.Context // make it child context
+	options    *Options
+	errGroup   *errgroup.Group
+	groupCtx   context.Context
 }
 
 // Initialize new adapter thread for writing into destination
@@ -123,6 +115,9 @@ func (w *WriterPool) NewThread(ctx context.Context, stream types.StreamInterface
 		one(opts)
 	}
 	group, ctx := errgroup.WithContext(ctx)
+	if w.maxThreads > 0 {
+		group.SetLimit(w.maxThreads)
+	}
 	return &ThreadEvent{
 		WriterPool: w,
 		buffer:     []types.RawRecord{},
@@ -135,24 +130,29 @@ func (w *WriterPool) NewThread(ctx context.Context, stream types.StreamInterface
 }
 
 func (t *ThreadEvent) Push(record types.RawRecord) error {
-	if len(t.buffer) > t.batchSize {
+	t.buffer = append(t.buffer, record)
+	t.recordSize += int64(len(fmt.Sprintf("%v", record)))
+	t.readCount.Add(1)
+	if t.recordSize > t.batchSize {
+		t.recordSize = 0
 		newBuffer := make([]types.RawRecord, len(t.buffer))
 		_ = copy(newBuffer, t.buffer)
 		t.buffer = make([]types.RawRecord, 0)
-		t.group.Go(func() error {
-			return t.flush(newBuffer)
+		t.errGroup.Go(func() error {
+			return t.flush(newBuffer, false)
 		})
 	}
-	t.buffer = append(t.buffer, record)
-	t.readCount.Add(1)
 	return nil
 }
 
 func (t *ThreadEvent) Close() error {
+	t.errGroup.Go(func() error {
+		return t.flush(t.buffer, true)
+	})
 	return t.errGroup.Wait()
 }
 
-func (t *ThreadEvent) flush(buf []types.RawRecord) error {
+func (t *ThreadEvent) flush(buf []types.RawRecord, finalFlush bool) error {
 	t.ThreadCounter.Add(1)
 	defer t.ThreadCounter.Add(-1)
 	// just get records equal to batch size
@@ -177,7 +177,8 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) error {
 		return fmt.Errorf("failed to write record: %s", err)
 	}
 	t.recordCount.Add(int64(len(buf)))
-	return nil
+
+	return thread.Close(t.parentCtx, finalFlush)
 }
 
 // Returns total records fetched at runtime
@@ -196,6 +197,23 @@ func (w *WriterPool) GetRecordsToSync() int64 {
 func (w *WriterPool) GetReadRecords() int64 {
 	return w.readCount.Load()
 }
-func (w *WriterPool) Wait() error {
-	return w.group.Wait()
+
+func determineMaxBatchSize() int64 {
+	ramGB := utils.DetermineSystemMemoryGB()
+
+	var batchSize int64
+
+	switch {
+	case ramGB <= 8:
+		batchSize = 100 * 1024 * 1024 // 100MB
+	case ramGB <= 16:
+		batchSize = 200 * 1024 * 1024 // 200MB
+	case ramGB <= 32:
+		batchSize = 400 * 1024 * 1024 // 400MB
+	default:
+		batchSize = 800 * 1024 * 1024 // 800MB
+	}
+
+	logger.Infof("System has %dGB RAM, setting iceberg writer batch size to %d bytes", ramGB, batchSize)
+	return batchSize
 }
