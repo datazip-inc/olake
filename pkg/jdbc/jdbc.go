@@ -94,27 +94,38 @@ func PostgresWalLSNQuery() string {
 	return `SELECT pg_current_wal_lsn()::text::pg_lsn`
 }
 
+// Safe handle text value for PostgreSQL via quotes
+func PostgresTextValue(v interface{}) string {
+	switch s := v.(type) {
+	case string:
+		esc := strings.ReplaceAll(s, `'`, `''`)
+		return fmt.Sprintf("'%s'", esc)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
 func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int, extraFilter string) string {
-	baseCond := fmt.Sprintf(`%s > %v`, filterColumn, filterValue)
+	baseCond := fmt.Sprintf(`%s > %v`, filterColumn, PostgresTextValue(filterValue))
 	baseCond = utils.Ternary(extraFilter == "", baseCond, fmt.Sprintf(`(%s) AND (%s)`, baseCond, extraFilter)).(string)
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), baseCond, filterColumn, batchSize)
 }
 
 // PostgresMinQuery returns the query to fetch the minimum value of a column in PostgreSQL
 func PostgresMinQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
-	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue)
+	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, PostgresTextValue(filterValue))
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
 func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk, filter string) string {
 	chunkCond := ""
 	if chunk.Min != nil && chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, PostgresTextValue(chunk.Min), filterColumn, PostgresTextValue(chunk.Max))
 	} else if chunk.Min != nil {
-		chunkCond = fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
+		chunkCond = fmt.Sprintf("%s >= %v", filterColumn, PostgresTextValue(chunk.Min))
 	} else if chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s < %v", filterColumn, PostgresTextValue(chunk.Max))
 	}
 
 	chunkCond = utils.Ternary(filter != "" && chunkCond != "", fmt.Sprintf("(%s) AND (%s)", chunkCond, filter), chunkCond).(string)

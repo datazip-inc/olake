@@ -24,7 +24,14 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	defer tx.Rollback()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
-	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
+	newChunkColumn := chunkColumn
+	if chunkColumn != "ctid" {
+		chunkColType, _ := stream.Schema().GetType(chunkColumn)
+		if chunkColType == types.String {
+			newChunkColumn = fmt.Sprintf("CAST(%s AS TEXT)", chunkColumn)
+		}
+	}
+	stmt := jdbc.PostgresChunkScanQuery(stream, newChunkColumn, chunk, filter)
 	setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 		return tx.Query(query, args...)
 	})
@@ -123,7 +130,12 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 		}
-		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, chunkColumn)
+		chunkColType, _ := stream.Schema().GetType(chunkColumn)
+		newChunkColumn := chunkColumn
+		if chunkColType == types.String {
+			newChunkColumn = fmt.Sprintf("CAST(%s AS TEXT)", chunkColumn)
+		}
+		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, newChunkColumn)
 		minMaxRowCountQuery = utils.Ternary(filter == "", minMaxRowCountQuery, fmt.Sprintf("%s WHERE %s", minMaxRowCountQuery, filter)).(string)
 		// TODO: Fails on UUID type (Good First Issue)
 		err = p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
@@ -140,13 +152,11 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 		if !contains {
 			return nil, fmt.Errorf("provided split column is not a primary key")
 		}
-
-		chunkColType, _ := stream.Schema().GetType(chunkColumn)
 		// evenly distirbution only available for float and int types
 		if chunkColType == types.Int64 || chunkColType == types.Float64 {
 			return splitViaBatchSize(minValue, maxValue, p.config.BatchSize)
 		}
-		return splitViaNextQuery(minValue, stream, chunkColumn, filter)
+		return splitViaNextQuery(minValue, stream, newChunkColumn, filter)
 	} else {
 		return generateCTIDRanges(stream)
 	}
