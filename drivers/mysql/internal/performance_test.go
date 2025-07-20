@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/jmoiron/sqlx"
 )
 
 func TestMySQLPerformance(t *testing.T) {
-	config := abstract.PerformanceTestConfig{
-		TestConfig:      abstract.GetTestConfig("mysql"),
+	config := testutils.PerformanceTestConfig{
+		TestConfig:      testutils.GetTestConfig("mysql"),
 		Namespace:       "mysql",
 		BackfillStreams: []string{"test"},
 		CDCStreams:      []string{"test_cdc"},
@@ -23,7 +23,7 @@ func TestMySQLPerformance(t *testing.T) {
 		SupportsCDC:     true,
 	}
 
-	abstract.RunPerformanceTest(t, config)
+	testutils.RunPerformanceTest(t, config)
 }
 
 func connectDatabase(ctx context.Context) (interface{}, error) {
