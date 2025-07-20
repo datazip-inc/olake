@@ -61,7 +61,8 @@ After executing the Discover command, a formatted response will look like this:
                {
                   "partition_regex": "",
                   "stream_name": "table_1",
-                  "normalization": false
+                  "normalization": false,
+                  "filter": "ID > 1"
                }
          ]
       },
@@ -91,6 +92,19 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "sync_mode": "full_refresh",
       ```
+   - The `filter` mode under selected_streams allows you to define precise criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "table_1",
+                     "normalization": false,
+                     "filter": "ID > 1 and UPDATED_AT > \"01-MAR-24 03.00.00.123456 PM\""
+                  }
+            ]
+         },
+      ```
 
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
@@ -113,7 +127,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                "name": "table_1",
                "namespace": "public",
                ...
-               "sync_mode": "cdc"
+               "sync_mode": "full_refresh"
             }
          }
       ]
