@@ -2,21 +2,19 @@ package driver
 
 import (
 	"testing"
+
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-// Test functions using base utilities
-func TestMySQLSetup(t *testing.T) {
-	_, abstractDriver := testAndBuildAbstractDriver(t)
-	abstractDriver.TestSetup(t)
-}
-
-func TestMySQLDiscover(t *testing.T) {
-	conn, abstractDriver := testAndBuildAbstractDriver(t)
-	abstractDriver.TestDiscover(t, conn, ExecuteQuery)
-	// TODO : Add MySQL-specific schema verification if needed
-}
-
-func TestMySQLRead(t *testing.T) {
-	conn, abstractDriver := testAndBuildAbstractDriver(t)
-	abstractDriver.TestRead(t, conn, ExecuteQuery)
+func TestMySQLIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		Driver:             string(constants.MySQL),
+		ExpectedData:       ExpectedMySQLData,
+		ExpectedUpdateData: ExpectedUpdatedMySQLData,
+		DataTypeSchema:     MySQLToIcebergSchema,
+		ExecuteQuery:       ExecuteQuery,
+	}
+	testConfig.TestIntegration(t)
 }
