@@ -18,25 +18,20 @@ const oracleSQLTimestampLayout = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\""
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	cursorFields := strings.Split(stream.Cursor(), ":")
-	cursorField := cursorFields[0]
-	fallbackCursorField := ""
-	if len(cursorFields) > 1 {
-		fallbackCursorField = cursorFields[1]
-	}
-	lastCursorValue := o.state.GetCursor(stream.Self(), cursorField)
+	primaryCursor, secondaryCursor := stream.Cursor()
+	lastCursorValue := o.state.GetCursor(stream.Self(), primaryCursor)
 
 	filter, err := jdbc.SQLFilter(stream, o.Type())
 	if err != nil {
 		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
 	}
 
-	datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorFields[0]))
+	datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(primaryCursor))
 	if err != nil {
-		return fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
+		return fmt.Errorf("cursor field %s not found in schema: %s", primaryCursor, err)
 	}
 
-	incrementalCondition := formatCursorCondition(cursorField, fallbackCursorField, datatype, lastCursorValue)
+	incrementalCondition := formatCursorCondition(primaryCursor, secondaryCursor, datatype, lastCursorValue)
 	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)
 
 	query := fmt.Sprintf("SELECT * FROM %q.%q WHERE %s",

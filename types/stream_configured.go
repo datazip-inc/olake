@@ -57,8 +57,15 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
-func (s *ConfiguredStream) Cursor() string {
-	return s.Stream.CursorField
+// returns primary and secondary cursor
+func (s *ConfiguredStream) Cursor() (string, string) {
+	cursorFields := strings.Split(s.Stream.CursorField, ":")
+	primaryCursor := cursorFields[0]
+	secondaryCursor := ""
+	if len(cursorFields) > 1 {
+		secondaryCursor = cursorFields[1]
+	}
+	return primaryCursor, secondaryCursor
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
@@ -101,20 +108,19 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 	// no cursor validation in cdc and backfill sync
 	if s.Stream.SyncMode == INCREMENTAL {
-		cursorFields := strings.Split(s.Cursor(), ":")
-		var datatype, prevDatatype DataType
-		for idx, cursorField := range cursorFields {
-			datatype, _ = source.Schema.GetType(strings.ToLower(cursorField))
-			if !source.AvailableCursorFields.Exists(cursorField) {
-				return fmt.Errorf("invalid cursor field [%s]; valid are %v", cursorField, source.AvailableCursorFields)
+		primaryCursor, secondaryCursor := s.Cursor()
+		if !source.AvailableCursorFields.Exists(primaryCursor) {
+			return fmt.Errorf("invalid cursor field [%s]; valid are %v", primaryCursor, source.AvailableCursorFields)
+		}
+		if secondaryCursor != "" {
+			if !source.AvailableCursorFields.Exists(secondaryCursor) {
+				return fmt.Errorf("invalid secondary cursor field [%s]; valid are %v", secondaryCursor, source.AvailableCursorFields)
 			}
-			if idx != 0 && datatype != prevDatatype {
-				return fmt.Errorf("cursor fields [%s] have different datatypes", s.Cursor())
+			primaryCursorDtype, _ := source.Schema.GetType(strings.ToLower(primaryCursor))
+			secondaryCursorDtype, _ := source.Schema.GetType(strings.ToLower(secondaryCursor))
+			if primaryCursorDtype != secondaryCursorDtype {
+				return fmt.Errorf("primary %s[%s] and secondary %s[%s] cursor must be of same type", primaryCursor, primaryCursorDtype, secondaryCursor, secondaryCursorDtype)
 			}
-			if idx > 1 {
-				return fmt.Errorf("atmost 2 cursor fields are allowed")
-			}
-			prevDatatype = datatype
 		}
 	}
 

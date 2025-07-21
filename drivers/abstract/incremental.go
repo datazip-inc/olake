@@ -19,8 +19,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	defer close(backfillWaitChannel)
 
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		cursorField := strings.Split(stream.Cursor(), ":")[0]
-		prevCursor := a.state.GetCursor(stream.Self(), cursorField)
+		primaryCursor, _ := stream.Cursor()
+		prevCursor := a.state.GetCursor(stream.Self(), primaryCursor)
 		if a.state.HasCompletedBackfill(stream.Self()) && prevCursor != nil {
 			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
 			backfillWaitChannel <- stream.ID()
@@ -50,11 +50,10 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 				stream := streams[index]
-				cursorField := stream.Cursor()
-				cursorFields := strings.Split(cursorField, ":")
+				primaryCursor, secondaryCursor := stream.Cursor()
 				// TODO: make inremental state consistent save it as string and typecast while reading
 				// get cursor column from state and typecast it to cursor column type for comparisons
-				maxCursorValue, err := a.getIncrementCursor(stream)
+				maxCursorValue, err := a.getIncrementCursorFromState(primaryCursor, stream)
 				if err != nil {
 					return fmt.Errorf("failed to get increment cursor: %s", err)
 				}
@@ -73,15 +72,12 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), cursorFields[0], maxCursorValue)
+						a.state.SetCursor(stream.Self(), primaryCursor, maxCursorValue)
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
-						cursorValue := record[cursorFields[0]]
-						if len(cursorFields) > 1 {
-							cursorValue = utils.Ternary(typeutils.Compare(record[cursorFields[1]], cursorValue) == 1, record[cursorFields[1]], cursorValue)
-						}
+						cursorValue := a.getIncrementCursorFromData(primaryCursor, secondaryCursor, record)
 						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
@@ -94,17 +90,24 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	return nil
 }
 
-func (a *AbstractDriver) getIncrementCursor(stream types.StreamInterface) (any, error) {
-	cursorField := stream.Cursor()
-	cursorFields := strings.Split(cursorField, ":")
-	stateCursorValue := a.state.GetCursor(stream.Self(), cursorFields[0])
+// returns typecasted increment cursor
+func (a *AbstractDriver) getIncrementCursorFromState(cursorField string, stream types.StreamInterface) (any, error) {
+	stateCursorValue := a.state.GetCursor(stream.Self(), cursorField)
 	if stateCursorValue == nil {
 		return stateCursorValue, nil
 	}
 	// typecast in case state was read from file
-	cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorFields[0]))
+	cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorField))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
 	}
 	return typeutils.ReformatValue(cursorColType, stateCursorValue)
+}
+
+func (a *AbstractDriver) getIncrementCursorFromData(primaryCursor, secondaryCursor string, data map[string]any) any {
+	cursorValue := data[primaryCursor]
+	if secondaryCursor != "" {
+		cursorValue = utils.Ternary(typeutils.Compare(data[secondaryCursor], cursorValue) == 1, data[secondaryCursor], cursorValue)
+	}
+	return cursorValue
 }

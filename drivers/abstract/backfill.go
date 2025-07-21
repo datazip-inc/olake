@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -42,12 +41,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxCursorValue any // required for incremental
-		cursorFields := strings.Split(stream.Cursor(), ":")
-		cursorField := cursorFields[0]
-		fallbackCursorField := ""
-		if len(cursorFields) > 1 {
-			fallbackCursorField = cursorFields[1]
-		}
+		primaryCursor, secondaryCursor := stream.Cursor()
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
@@ -71,13 +65,13 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 
 				// if it is incremental update the max cursor value received in chunk
 				if stream.GetSyncMode() == types.INCREMENTAL && maxCursorValue != nil {
-					prevCursor, cursorErr := a.getIncrementCursor(stream)
+					prevCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, stream)
 					if err != nil {
 						err = cursorErr
 						return
 					}
 					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
-						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+						a.state.SetCursor(stream.Self(), primaryCursor, maxCursorValue)
 					}
 				}
 			}
@@ -86,10 +80,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
-					cursorValue := data[cursorField]
-					if len(cursorFields) > 1 {
-						cursorValue = utils.Ternary(typeutils.Compare(data[fallbackCursorField], cursorValue) == 1, data[fallbackCursorField], cursorValue)
-					}
+					cursorValue := a.getIncrementCursorFromData(primaryCursor, secondaryCursor, data)
 					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
