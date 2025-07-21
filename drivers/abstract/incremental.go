@@ -19,9 +19,13 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	defer close(backfillWaitChannel)
 
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		primaryCursor, _ := stream.Cursor()
-		prevCursor := a.state.GetCursor(stream.Self(), primaryCursor)
-		if a.state.HasCompletedBackfill(stream.Self()) && prevCursor != nil {
+		primaryCursor, secondaryCursor := stream.Cursor()
+		prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
+		var prevSecondaryCursor any
+		if secondaryCursor != "" {
+			prevSecondaryCursor = a.state.GetCursor(stream.Self(), secondaryCursor)
+		}
+		if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil || prevSecondaryCursor != nil) {
 			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
 			backfillWaitChannel <- stream.ID()
 			return nil
@@ -53,9 +57,13 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				primaryCursor, secondaryCursor := stream.Cursor()
 				// TODO: make inremental state consistent save it as string and typecast while reading
 				// get cursor column from state and typecast it to cursor column type for comparisons
-				maxCursorValue, err := a.getIncrementCursorFromState(primaryCursor, stream)
-				if err != nil {
-					return fmt.Errorf("failed to get increment cursor: %s", err)
+				maxPrimaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, stream)
+				var maxSecondaryCursorValue any
+				if secondaryCursor != "" {
+					maxSecondaryCursorValue, err = a.getIncrementCursorFromState(secondaryCursor, stream)
+					if err != nil {
+						return fmt.Errorf("failed to get increment cursor: %s", err)
+					}
 				}
 				errChan := make(chan error, 1)
 				inserter := pool.NewThread(ctx, stream, errChan)
@@ -72,13 +80,17 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, maxCursorValue)
+						a.state.SetCursor(stream.Self(), primaryCursor, maxPrimaryCursorValue)
+						if secondaryCursor != "" {
+							a.state.SetCursor(stream.Self(), secondaryCursor, maxSecondaryCursorValue)
+						}
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
-						cursorValue := a.getIncrementCursorFromData(primaryCursor, secondaryCursor, record)
-						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
+						primaryCursorValue, secondaryCursorValue := a.getIncrementCursorFromData(primaryCursor, secondaryCursor, record)
+						maxPrimaryCursorValue = utils.Ternary(typeutils.Compare(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
+						maxSecondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
 						return inserter.Insert(types.CreateRawRecord(id, record, "u", time.Unix(0, 0)))
@@ -104,10 +116,11 @@ func (a *AbstractDriver) getIncrementCursorFromState(cursorField string, stream 
 	return typeutils.ReformatValue(cursorColType, stateCursorValue)
 }
 
-func (a *AbstractDriver) getIncrementCursorFromData(primaryCursor, secondaryCursor string, data map[string]any) any {
-	cursorValue := data[primaryCursor]
+func (a *AbstractDriver) getIncrementCursorFromData(primaryCursor, secondaryCursor string, data map[string]any) (any, any) {
+	primaryCursorValue := data[primaryCursor]
+	var secondaryCursorValue any
 	if secondaryCursor != "" {
-		cursorValue = utils.Ternary(typeutils.Compare(data[secondaryCursor], cursorValue) == 1, data[secondaryCursor], cursorValue)
+		secondaryCursorValue = data[secondaryCursor]
 	}
-	return cursorValue
+	return primaryCursorValue, secondaryCursorValue
 }

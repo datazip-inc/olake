@@ -40,7 +40,8 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
-		var maxCursorValue any // required for incremental
+		var maxPrimaryCursorValue any
+		var maxSecondaryCursorValue any
 		primaryCursor, secondaryCursor := stream.Cursor()
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
@@ -64,14 +65,25 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				}
 
 				// if it is incremental update the max cursor value received in chunk
-				if stream.GetSyncMode() == types.INCREMENTAL && maxCursorValue != nil {
-					prevCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, stream)
+				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
+					prevPrimaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, stream)
 					if err != nil {
 						err = cursorErr
 						return
 					}
-					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
-						a.state.SetCursor(stream.Self(), primaryCursor, maxCursorValue)
+					var prevSecondaryCursor any
+					if secondaryCursor != "" {
+						prevSecondaryCursor, cursorErr = a.getIncrementCursorFromState(secondaryCursor, stream)
+						if err != nil {
+							err = cursorErr
+							return
+						}
+					}
+					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), primaryCursor, maxPrimaryCursorValue)
+					}
+					if secondaryCursor != "" && typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), secondaryCursor, maxSecondaryCursorValue)
 					}
 				}
 			}
@@ -80,8 +92,11 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
-					cursorValue := a.getIncrementCursorFromData(primaryCursor, secondaryCursor, data)
-					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
+					primaryCursorValue, secondaryCursorValue := a.getIncrementCursorFromData(primaryCursor, secondaryCursor, data)
+					maxPrimaryCursorValue = utils.Ternary(typeutils.Compare(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
+					if secondaryCursor != "" {
+						maxSecondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
+					}
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))

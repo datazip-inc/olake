@@ -112,15 +112,8 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		if !source.AvailableCursorFields.Exists(primaryCursor) {
 			return fmt.Errorf("invalid cursor field [%s]; valid are %v", primaryCursor, source.AvailableCursorFields)
 		}
-		if secondaryCursor != "" {
-			if !source.AvailableCursorFields.Exists(secondaryCursor) {
-				return fmt.Errorf("invalid secondary cursor field [%s]; valid are %v", secondaryCursor, source.AvailableCursorFields)
-			}
-			primaryCursorDtype, _ := source.Schema.GetType(strings.ToLower(primaryCursor))
-			secondaryCursorDtype, _ := source.Schema.GetType(strings.ToLower(secondaryCursor))
-			if primaryCursorDtype != secondaryCursorDtype {
-				return fmt.Errorf("primary %s[%s] and secondary %s[%s] cursor must be of same type", primaryCursor, primaryCursorDtype, secondaryCursor, secondaryCursorDtype)
-			}
+		if secondaryCursor != "" && !source.AvailableCursorFields.Exists(secondaryCursor) {
+			return fmt.Errorf("invalid secondary cursor field [%s]; valid are %v", secondaryCursor, source.AvailableCursorFields)
 		}
 	}
 
