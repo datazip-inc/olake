@@ -8,6 +8,7 @@ type StreamInterface interface {
 	Schema() *TypeSchema
 	GetStream() *Stream
 	GetSyncMode() SyncMode
+	GetFilter() (Filter, error)
 	SupportedSyncModes() *Set[SyncMode]
 	Cursor() string
 	Validate(source *Stream) error

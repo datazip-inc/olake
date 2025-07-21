@@ -44,7 +44,10 @@ func (c *Config) connectionString() string {
 		// TODO: Add support for more SSL params
 	}
 
-	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, c.Username, c.Password, urlOptions)
+	// Quote the username to handle case sensitivity
+	quotedUsername := fmt.Sprintf("%q", c.Username)
+
+	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, quotedUsername, c.Password, urlOptions)
 }
 
 // Validate checks the configuration for any missing or invalid fields

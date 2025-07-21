@@ -206,6 +206,20 @@ func (i *Iceberg) EvolveSchema(_ bool, _ bool, _ map[string]*types.Property, _ t
 	return nil
 }
 
+func (i *Iceberg) DropStreams(_ context.Context, _ []string) error {
+	logger.Info("iceberg destination not support clear destination, skipping clear operation")
+
+	// logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+
+	// TODO: Implement Iceberg table clearing logic
+	// 1. Connect to the Iceberg catalog
+	// 2. Use Iceberg's delete API or drop/recreate the table
+	// 3. Handle any Iceberg-specific cleanup
+
+	// logger.Info("Successfully cleared Iceberg destination for selected streams")
+	return nil
+}
+
 func init() {
 	destination.RegisteredWriters[types.Iceberg] = func() destination.Writer {
 		return new(Iceberg)
