@@ -1,8 +1,8 @@
 package utils
 
 import (
-	//nolint:gosec,G115
 	"context"
+	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"

@@ -155,7 +155,11 @@ func RunPerformanceTest(t *testing.T, config PerformanceTestConfig) {
 
 							conn, err := config.ConnectDB(ctx)
 							require.NoError(t, err, "Failed to connect to database")
-							defer config.CloseDB(conn)
+							defer func() {
+								if err := config.CloseDB(conn); err != nil {
+									t.Logf("warning: failed to close database connection: %v", err)
+								}
+							}()
 
 							t.Run("backfill", func(t *testing.T) {
 								discoverCmd := discoverCommand(*config.TestConfig)
@@ -211,9 +215,7 @@ func RunPerformanceTest(t *testing.T, config PerformanceTestConfig) {
 									t.Logf("✅ SUCCESS: %s cdc", config.TestConfig.Driver)
 								})
 							}
-
 							return nil
-
 						},
 					},
 				},
@@ -226,6 +228,10 @@ func RunPerformanceTest(t *testing.T, config PerformanceTestConfig) {
 			Started:          true,
 		})
 		require.NoError(t, err, "Failed to start container")
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("warning: failed to terminate container: %v", err)
+			}
+		}()
 	})
 }

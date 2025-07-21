@@ -2,13 +2,7 @@ name: Performance Tests
 on:
   push:
     branches:
-    - "master"
-    paths:
-    - '**/*.go'
-    - '**/*.java'
-  pull_request:
-    branches:
-    - "*"
+    - "staging"
     paths:
     - '**/*.go'
     - '**/*.java'
@@ -20,14 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        driver: [ mongodb ]
+        driver: [ mysql, postgres, oracle, mongodb ]
         include:
-        # - driver: mysql
-        #   test_name: TestMySQLPerformance
-        # - driver: postgres
-        #   test_name: TestPostgresPerformance
-        # - driver: oracle
-        #   test_name: TestOraclePerformance
+        - driver: mysql
+          test_name: TestMySQLPerformance
+        - driver: postgres
+          test_name: TestPostgresPerformance
+        - driver: oracle
+          test_name: TestOraclePerformance
         - driver: mongodb
           test_name: TestMongodbPerformance
 
@@ -46,29 +40,17 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
+    - name: Install Go Dependencies
+      run: go mod download
+
+    - name: Build Project
+      run: |
+        packages=$(go list ./... | grep -v '/destination/iceberg/local-test')
+        go build -v $packages
+
     - name: Start Test Infrastructure
       run: |
-        docker compose -f ./drivers/mysql/docker-compose.yml up -d
-        docker compose -f ./drivers/postgres/docker-compose.yml up -d
-        docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
-
-    # - name: Wait for MySQL
-    #   uses: nick-fields/retry@v2
-    #   with:
-    #     timeout_minutes: 5
-    #     max_attempts: 30
-    #     retry_wait_seconds: 5
-    #     command: |
-    #       docker exec olake_mysql-test mysql -h localhost -u root -p${{ env.MYSQL_ROOT_PASSWORD }} -e "SELECT 1"
-
-    # - name: Wait for PostgreSQL
-    #   uses: nick-fields/retry@v2
-    #   with:
-    #     timeout_minutes: 5
-    #     max_attempts: 30
-    #     retry_wait_seconds: 5
-    #     command: |
-    #       docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
+        docker compose -f ./destination/iceberg/local-test/docker-compose.yml up -d
 
     - name: Set up Data Directories
       run: |
@@ -77,12 +59,6 @@ jobs:
         sudo mkdir -p /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data/ivy-cache
         sudo chown -R 999:999 /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data
         sudo chmod -R 777 /home/runner/work/olake-vishal/olake-vishal/destination/iceberg/local-test/data
-
-    - name: Install Go Dependencies
-      run: go mod download
-
-    - name: Build Project
-      run: go build -v ./...
 
     - name: Build Iceberg Sink
       working-directory: ./destination/iceberg/olake-iceberg-java-writer
@@ -94,10 +70,10 @@ jobs:
 
     - name: Create source.json from secrets
       run: |
+        echo '${{ secrets.MONGODB_SOURCE_JSON }}' > ./drivers/mongodb/internal/testconfig/source.json
         echo '${{ secrets.MYSQL_SOURCE_JSON }}' > ./drivers/mysql/internal/testconfig/source.json
         echo '${{ secrets.POSTGRES_SOURCE_JSON }}' > ./drivers/postgres/internal/testconfig/source.json
         echo '${{ secrets.ORACLE_SOURCE_JSON }}' > ./drivers/oracle/internal/testconfig/source.json
-        echo '${{ secrets.MONGODB_SOURCE_JSON }}' > ./drivers/mongodb/internal/testconfig/source.json
 
     - name: Create destination.json from secrets
       run: |
@@ -105,8 +81,14 @@ jobs:
 
     - name: Create benchmark files
       run: |
-        echo '${{ secrets.BENCHMARK_JSON }}' > ./drivers/${{ matrix.driver }}/internal/testconfig/benchmark.json
-        echo '${{ secrets.BENCHMARK_CDC_JSON }}' > ./drivers/${{ matrix.driver }}/internal/testconfig/benchmark_cdc.json
+        echo '${{ secrets.MYSQL_BENCHMARK_JSON }}' > ./drivers/mysql/internal/testconfig/benchmark.json
+        echo '${{ secrets.MYSQL_BENCHMARK_CDC_JSON }}' > ./drivers/mysql/internal/testconfig/benchmark_cdc.json
+        echo '${{ secrets.POSTGRES_BENCHMARK_JSON }}' > ./drivers/postgres/internal/testconfig/benchmark.json
+        echo '${{ secrets.POSTGRES_BENCHMARK_CDC_JSON }}' > ./drivers/postgres/internal/testconfig/benchmark_cdc.json
+        echo '${{ secrets.ORACLE_BENCHMARK_JSON }}' > ./drivers/oracle/internal/testconfig/benchmark.json
+        echo '${{ secrets.ORACLE_BENCHMARK_CDC_JSON }}' > ./drivers/oracle/internal/testconfig/benchmark_cdc.json
+        echo '${{ secrets.MONGODB_BENCHMARK_JSON }}' > ./drivers/mongodb/internal/testconfig/benchmark.json
+        echo '${{ secrets.MONGODB_BENCHMARK_CDC_JSON }}' > ./drivers/mongodb/internal/testconfig/benchmark_cdc.json
 
     - name: Run Performance Test for ${{ matrix.driver }}
       run: |
