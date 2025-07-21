@@ -30,7 +30,9 @@ func connectDatabase(ctx context.Context) (interface{}, error) {
 	if err := utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false); err != nil {
 		return nil, err
 	}
-	cfg.Setup(ctx)
+	if err := cfg.Setup(ctx); err != nil {
+		return nil, err
+	}
 	return cfg.client, nil
 }
 
