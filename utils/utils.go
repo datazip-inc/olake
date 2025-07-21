@@ -1,12 +1,14 @@
 package utils
 
 import (
+	"context"
 	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -18,6 +20,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -423,4 +426,53 @@ func ComputeConfigHash(srcPath, destPath string) string {
 	}
 	sum := sha256.Sum256(append(a, b...))
 	return hex.EncodeToString(sum[:])
+}
+
+// Helper function to execute container commands
+func ExecCommand(
+	ctx context.Context,
+	c testcontainers.Container,
+	cmd string,
+) (int, []byte, error) {
+	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", cmd})
+	if err != nil {
+		return code, nil, err
+	}
+	output, _ := io.ReadAll(reader)
+	return code, output, nil
+}
+
+func NormalizedEqual(strune1, strune2 string) bool {
+	normalize := func(s string) (string, error) {
+		// Slice out exactly from the first '{' to the last '}'
+		start := strings.IndexRune(s, '{')
+		end := strings.LastIndex(s, "}")
+		if start < 0 || end < 0 || start > end {
+			return "", fmt.Errorf("no valid JSON object found")
+		}
+		core := s[start : end+1]
+		// remove whitespace
+		core = strings.ReplaceAll(core, " ", "")
+		core = strings.ReplaceAll(core, "\n", "")
+		core = strings.ReplaceAll(core, "\t", "")
+		return core, nil
+	}
+
+	c1, err := normalize(strune1)
+	if err != nil {
+		return false
+	}
+	c2, err := normalize(strune2)
+	if err != nil {
+		return false
+	}
+
+	rune1 := []rune(c1)
+	rune2 := []rune(c2)
+	if len(rune1) != len(rune2) {
+		return false
+	}
+	sort.Slice(rune1, func(i, j int) bool { return rune1[i] < rune1[j] })
+	sort.Slice(rune2, func(i, j int) bool { return rune2[i] < rune2[j] })
+	return string(rune1) == string(rune2)
 }
