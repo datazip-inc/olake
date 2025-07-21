@@ -14,7 +14,7 @@ func TestPostgresIntegration(t *testing.T) {
 		Driver:             string(constants.Postgres),
 		ExpectedData:       ExpectedPostgresData,
 		ExpectedUpdateData: ExpectedUpdatedPostgresData,
-		DataTypeSchema:     PostgresSchema,
+		DataTypeSchema:     PostgresToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
 	}
 	testConfig.TestIntegration(t)

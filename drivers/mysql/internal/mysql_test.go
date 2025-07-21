@@ -13,7 +13,7 @@ func TestMySQLIntegration(t *testing.T) {
 		Driver:             string(constants.MySQL),
 		ExpectedData:       ExpectedMySQLData,
 		ExpectedUpdateData: ExpectedUpdatedMySQLData,
-		DataTypeSchema:     MySQLSchema,
+		DataTypeSchema:     MySQLToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
 	}
 	testConfig.TestIntegration(t)

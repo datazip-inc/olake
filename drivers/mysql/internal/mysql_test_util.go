@@ -221,7 +221,7 @@ var ExpectedUpdatedMySQLData = map[string]interface{}{
 	"name_bool":              int32(0),
 }
 
-var MySQLSchema = map[string]string{
+var MySQLToIcebergSchema = map[string]string{
 	"id":                     "unsigned int",
 	"id_bigint":              "bigint",
 	"id_int":                 "int",

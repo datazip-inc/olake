@@ -208,7 +208,7 @@ var ExpectedUpdatedPostgresData = map[string]interface{}{
 	"col_xml":               "<updated>value</updated>",
 }
 
-var PostgresSchema = map[string]string{
+var PostgresToIcebergSchema = map[string]string{
 	"col_bigint":            "bigint",
 	"col_bigserial":         "bigserial",
 	"col_bool":              "boolean",

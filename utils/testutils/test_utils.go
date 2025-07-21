@@ -42,6 +42,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	testdataDir := filepath.Join(projectRoot, "drivers", cfg.Driver, "internal", "testdata")
 	t.Logf("Test data directory: %s", testdataDir)
 	dummyStreamFilePath := filepath.Join(testdataDir, "test_streams.json")
+	testStreamFilePath := filepath.Join(testdataDir, "streams.json")
 	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.Driver)
 	var (
 		sourceConfigPath      = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/source.json", cfg.Driver)
@@ -91,13 +92,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("failed to read expected streams JSON: %s", err)
 							}
-							testStreamsCmd := fmt.Sprintf("cat %s", streamsPath)
-							_, testStreamJSON, err := utils.ExecCommand(ctx, c, testStreamsCmd)
+							testStreamsJSON, err := os.ReadFile(testStreamFilePath)
 							if err != nil {
 								return fmt.Errorf("failed to read actual streams JSON: %s", err)
 							}
-							if !utils.NormalizedEqual(string(streamsJSON), string(testStreamJSON)) {
-								return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", string(streamsJSON), string(testStreamJSON))
+							if !utils.NormalizedEqual(string(streamsJSON), string(testStreamsJSON)) {
+								return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", string(streamsJSON), string(testStreamsJSON))
 							}
 							t.Logf("Generated streams validated with test streams")
 
