@@ -308,12 +308,67 @@ func CompareInterfaceValue(a, b interface{}) int {
 	}
 
 	switch aVal := a.(type) {
-	case uint, uint32, uint64, int, int32, int64, float32, float64:
-		af := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
-		bf := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
-		if af < bf {
+	case int:
+		bVal := b.(int)
+		if aVal < bVal {
 			return -1
-		} else if af > bf {
+		} else if aVal > bVal {
+			return 1
+		}
+		return 0
+	case int32:
+		bVal := b.(int32)
+		if aVal < bVal {
+			return -1
+		} else if aVal > bVal {
+			return 1
+		}
+		return 0
+	case int64:
+		bVal := b.(int64)
+		if aVal < bVal {
+			return -1
+		} else if aVal > bVal {
+			return 1
+		}
+		return 0
+	case uint:
+		bVal := b.(uint)
+		if aVal < bVal {
+			return -1
+		} else if aVal > bVal {
+			return 1
+		}
+		return 0
+	case uint32:
+		bVal := b.(uint32)
+		if aVal < bVal {
+			return -1
+		} else if aVal > bVal {
+			return 1
+		}
+		return 0
+	case uint64:
+		bVal := b.(uint64)
+		if aVal < bVal {
+			return -1
+		} else if aVal > bVal {
+			return 1
+		}
+		return 0
+	case float32:
+		bVal := b.(float32)
+		if aVal < bVal {
+			return -1
+		} else if aVal > bVal {
+			return 1
+		}
+		return 0
+	case float64:
+		bVal := b.(float64)
+		if aVal < bVal {
+			return -1
+		} else if aVal > bVal {
 			return 1
 		}
 		return 0
