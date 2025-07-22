@@ -65,13 +65,15 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 
 				// if it is incremental update the max cursor value received in chunk
 				if stream.GetSyncMode() == types.INCREMENTAL && maxCursorValue != nil {
-					prevCursor, cursorErr := a.getIncrementCursor(stream)
-					if err != nil {
-						err = cursorErr
-						return
-					}
-					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
-						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+					if a.driver.Type() != string(constants.Kafka) {
+						prevCursor, cursorErr := a.getIncrementCursor(stream)
+						if err != nil {
+							err = cursorErr
+							return
+						}
+						if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
+							a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+						}
 					}
 				}
 			}

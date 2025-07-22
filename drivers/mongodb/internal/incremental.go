@@ -3,7 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
-	
+
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -39,4 +39,8 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 
 	return cursor.Err()
+}
+
+func (m *Mongo) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for Mongo")
 }

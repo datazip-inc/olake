@@ -19,11 +19,15 @@ import (
 )
 
 type Kafka struct {
-	config      *Config
-	dialer      *kafka.Dialer
-	adminClient *kafka.Client
-	mutex       sync.Mutex
-	state       *types.State
+	config         *Config
+	dialer         *kafka.Dialer
+	adminClient    *kafka.Client
+	mutex          sync.Mutex
+	state          *types.State
+	consumerGroups map[string]*kafka.ConsumerGroup
+	consumerGen    *kafka.Generation
+	offsetMap      map[string]map[int]int64
+	syncedTopics   map[string]bool
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -81,6 +85,9 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	k.mutex.Lock()
 	k.dialer = dialer
 	k.adminClient = adminClient
+	k.consumerGroups = make(map[string]*kafka.ConsumerGroup)
+	k.syncedTopics = make(map[string]bool)
+	k.offsetMap = make(map[string]map[int]int64)
 	k.mutex.Unlock()
 
 	return nil
@@ -89,6 +96,13 @@ func (k *Kafka) Setup(ctx context.Context) error {
 func (k *Kafka) Close(_ context.Context) error {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
+	for topic, cg := range k.consumerGroups {
+		if err := cg.Close(); err != nil {
+			logger.Warnf("Failed to close consumer group for topic %s: %v", topic, err)
+		}
+	}
+	k.consumerGroups = nil
+	k.syncedTopics = nil
 	k.adminClient = nil
 	k.dialer = nil
 	return nil

@@ -19,9 +19,21 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	defer close(backfillWaitChannel)
 
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		prevCursor := a.state.GetCursor(stream.Self(), stream.Cursor())
-		if a.state.HasCompletedBackfill(stream.Self()) && prevCursor != nil {
-			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
+		skipBackfill := false
+		if a.driver.Type() == string(constants.Kafka) {
+			kafkaCursor := a.state.GetCursor(stream.Self(), "partitions")
+			if a.state.HasCompletedBackfill(stream.Self()) && kafkaCursor != nil {
+				logger.Infof("Skipping backfill for stream[%s] due to Kafka state in 'paritions' cursor", stream.ID())
+				skipBackfill = true
+			}
+		} else {
+			prevCursor := a.state.GetCursor(stream.Self(), stream.Cursor())
+			if a.state.HasCompletedBackfill(stream.Self()) && prevCursor != nil {
+				logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
+				skipBackfill = true
+			}
+		}
+		if skipBackfill {
 			backfillWaitChannel <- stream.ID()
 			return nil
 		}
@@ -71,7 +83,14 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+						if a.driver.Type() == string(constants.Kafka) {
+							postIncrementalErr := a.driver.PostIncremental(ctx, stream, err == nil)
+							if postIncrementalErr != nil {
+								err = fmt.Errorf("post incremental error: %s, incremental insert thread error: %s", postIncrementalErr, err)
+							}
+						} else {
+							a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+						}
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {

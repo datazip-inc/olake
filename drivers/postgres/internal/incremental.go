@@ -12,3 +12,7 @@ import (
 func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
 	return fmt.Errorf("incremental sync is not supported for PostgreSQL driver")
 }
+
+func (p *Postgres) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for Postgres")
+}

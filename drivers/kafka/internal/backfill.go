@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -22,10 +21,6 @@ type KafkaOffset struct {
 }
 
 func (k *Kafka) GetOrSplitChunks(ctx context.Context, _ *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-	if stream.GetSyncMode() != types.FULLREFRESH {
-		return nil, fmt.Errorf("GetOrSplitChunks is only for full_refresh mode")
-	}
-
 	topic := stream.Name()
 	// Fetch topic metadata
 	metadataReq := &kafka.MetadataRequest{
@@ -133,11 +128,7 @@ func (k *Kafka) GetOrSplitChunks(ctx context.Context, _ *destination.WriterPool,
 	return chunks, nil
 }
 
-func (k *Kafka) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn abstract.BackfillMsgFn) error {
-	if stream.GetSyncMode() != types.FULLREFRESH {
-		return fmt.Errorf("ChunkIterator is only for full_refresh mode")
-	}
-
+func (k *Kafka) ChunkIterator(ctx context.Context, _ types.StreamInterface, chunk types.Chunk, processFn abstract.BackfillMsgFn) error {
 	minOffset := chunk.Min.(KafkaOffset)
 	maxOffset := chunk.Max.(KafkaOffset)
 	topic := minOffset.Topic
@@ -173,10 +164,7 @@ func (k *Kafka) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	// Track the last processed offset
 	var lastProcessed int64 = -1
 	for {
-		fetchCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		msg, err := reader.ReadMessage(fetchCtx)
-		cancel()
-
+		msg, err := reader.ReadMessage(ctx)
 		if err != nil {
 			if err == context.DeadlineExceeded {
 				// If we've already processed up to max, we're done
@@ -215,6 +203,7 @@ func (k *Kafka) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			return err
 		}
 		logger.Infof("Processed message at offset %d for topic %s, partition %d", msg.Offset, topic, partition)
+		lastProcessed = msg.Offset
 
 		// Stop after processing the last message in the chunk
 		if lastProcessed >= maxOffsetValue {

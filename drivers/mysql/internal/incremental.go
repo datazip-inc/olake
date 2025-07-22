@@ -12,3 +12,7 @@ import (
 func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
 	return fmt.Errorf("incremental sync is not supported for MySQL driver")
 }
+
+func (m *MySQL) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for MySQL")
+}
