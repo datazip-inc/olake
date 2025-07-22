@@ -59,7 +59,7 @@ jobs:
       with:
         role-session-name: performance_test_gh
         role-to-assume: ${{ secrets.AWS_GITHUB_ROLE }}
-        aws-region: ap-south-1
+        aws-region: ${{ secrets.AWS_REGION }}
 
     - name: Install Go Dependencies
       run: go mod download
