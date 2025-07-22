@@ -6,7 +6,6 @@ It assumes:
 1.  The main Olake Docker Compose stack (from the parent directory's `docker-compose.yml`) is already up and running.
 2.  Services like the Iceberg REST Catalog (`rest`) and MinIO (`minio`) are active on the `app-network`.
 3.  You have populated Iceberg tables using Olake.
-4.  The necessary Trino configuration files are present in the `./etc/` subdirectory (relative to this `trino` directory).
 
 ## Steps to Run Trino
 
@@ -15,7 +14,7 @@ It assumes:
    cd trino
    ```
 
-2. **Run the Trino Docker Container:**
+2. **Run the Trino Docker Conainer:**
    ```bash
    docker run -d --name olake-trino-coordinator \
      --network app-network \
@@ -28,9 +27,7 @@ It assumes:
 
    1. **Access the Trino UI:**
       - Open your browser and go to `http://localhost:80`.
-
-   2. **Navigate to the SQL Client:**
-      - Click on **SQL CLIENT** located at the top right of the UI.
+      - If prompted for credentials, use 'admin' as the username.
 
    3. **Select the Catalog and Schema:**
       - Choose **Catalog: iceberg** and **Schema: weather** from the dropdown menus.
