@@ -77,13 +77,13 @@ func Init() {
 		}
 
 		if ip != ipNotFoundPlaceholder {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			loc, err := getLocationFromIP(ctx, ip)
 			if err == nil {
 				telemetry.locationInfo = &loc
 			} else {
-				logger.Warnf("Failed to fetch location for IP %s: %v", ip, err)
+				logger.Debugf("Failed to fetch location for IP %s: %v", ip, err)
 				telemetry.locationInfo = &LocationInfo{
 					Country: "NA",
 					Region:  "NA",
@@ -105,7 +105,7 @@ func TrackDiscover(streamCount int, sourceType string) {
 			"source_type":  sourceType,
 		}
 		if err := telemetry.sendEvent("Discover - CLI", props); err != nil {
-			logger.Errorf("Failed to send Discover event: %v", err)
+			logger.Debugf("Failed to send Discover event: %v", err)
 		}
 	}()
 }
@@ -133,7 +133,7 @@ func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []
 		}
 
 		if err := telemetry.sendEvent("Sync Started - CLI", props); err != nil {
-			logger.Errorf("Failed to send SyncStarted event: %v", err)
+			logger.Debugf("Failed to send SyncStarted event: %v", err)
 		}
 	}()
 }
@@ -151,14 +151,13 @@ func TrackSyncCompleted(status bool, records int64) {
 		}
 
 		if err := telemetry.sendEvent("Sync Completed - CLI", props); err != nil {
-			logger.Errorf("Failed to send SyncCompleted event: %v", err)
+			logger.Debugf("Failed to send SyncCompleted event: %v", err)
 		}
 	}()
 }
 
 func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{}) error {
 	if t.client == nil {
-		logger.Warn("Telemetry client is nil, not sending event:", eventName)
 		return fmt.Errorf("telemetry client is nil")
 	}
 

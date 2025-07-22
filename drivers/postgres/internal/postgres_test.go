@@ -2,20 +2,20 @@ package driver
 
 import (
 	"testing"
+
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/testutils"
+	_ "github.com/lib/pq"
 )
 
-// Test functions using base utilities
-func TestPostgresSetup(t *testing.T) {
-	_, absDriver := testPostgresClient(t)
-	absDriver.TestSetup(t)
-}
-
-func TestPostgresDiscover(t *testing.T) {
-	client, absDriver := testPostgresClient(t)
-	absDriver.TestDiscover(t, client, ExecuteQuery)
-}
-
-func TestPostgresRead(t *testing.T) {
-	client, absDriver := testPostgresClient(t)
-	absDriver.TestRead(t, client, ExecuteQuery)
+func TestPostgresIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		Driver:             string(constants.Postgres),
+		ExpectedData:       ExpectedPostgresData,
+		ExpectedUpdateData: ExpectedUpdatedPostgresData,
+		DataTypeSchema:     PostgresToIcebergSchema,
+		ExecuteQuery:       ExecuteQuery,
+	}
+	testConfig.TestIntegration(t)
 }
