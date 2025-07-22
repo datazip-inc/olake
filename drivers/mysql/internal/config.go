@@ -10,21 +10,128 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// Config represents the configuration for connecting to a MySQL database
 type Config struct {
-	Host          string      `json:"hosts"`
-	Username      string      `json:"username"`
-	Password      string      `json:"password"`
-	Database      string      `json:"database"`
-	Port          int         `json:"port"`
-	TLSSkipVerify bool        `json:"tls_skip_verify"` // Add this field
-	UpdateMethod  interface{} `json:"update_method"`
-	MaxThreads    int         `json:"max_threads"`
-	RetryCount    int         `json:"backoff_retry_count"`
+	// Host
+	//
+	// @jsonSchema(
+	//   title="MySQL Host",
+	//   description="Database host addresses for connection",
+	//   type="string",
+	//   required=true
+	// )
+	Host string `json:"hosts"`
+
+	// Username
+	//
+	// @jsonSchema(
+	//   title="Username",
+	//   description="Username used to authenticate with the database",
+	//   type="string",
+	//   required=true
+	// )
+	Username string `json:"username"`
+
+	// Password
+	//
+	// @jsonSchema(
+	//   title="Password",
+	//   description="Password for database authentication",
+	//   type="string",
+	//   format="password",
+	//   required=true
+	// )
+	Password string `json:"password"`
+
+	// Database
+	//
+	// @jsonSchema(
+	//   title="Database",
+	//   description="Name of the database to use for connection",
+	//   type="string",
+	//   required=true
+	// )
+	Database string `json:"database"`
+
+	// Port
+	//
+	// @jsonSchema(
+	//   title="Port",
+	//   description="Database server listening port",
+	//   type="integer",
+	//   required=true
+	// )
+	Port int `json:"port"`
+
+	// TLSSkipVerify
+	//
+	// @jsonSchema(
+	//   title="Skip TLS Verification",
+	//   description="Determines if TLS certificate verification should be skipped for secure connections",
+	//   type="boolean",
+	//   default=true
+	// )
+	TLSSkipVerify bool `json:"tls_skip_verify"`
+
+	// UpdateMethod
+	//
+	// @jsonSchema(
+	//   title="Update Method",
+	//   description="Method to use for updates",
+	//   oneOf=["CDC","FullRefresh"]
+	// )
+	UpdateMethod interface{} `json:"update_method"`
+
+	// MaxThreads
+	//s
+	// @jsonSchema(
+	//   title="Max Threads",
+	//   description="Maximum concurrent threads for data sync",
+	//   type="integer",
+	//   default=3
+	// )
+	MaxThreads int `json:"max_threads"`
+
+	// RetryCount
+	//
+	// @jsonSchema(
+	//   title="Backoff Retry Count",
+	//   description="Number of sync retries (exponential backoff on failure)",
+	//   type="integer",
+	//   default=3
+	// )
+	RetryCount int `json:"backoff_retry_count"`
 }
+
+// CDC represents the Change Data Capture configuration
+//
+// @jsonSchema(
+//
+//	title="CDC",
+//	description="Change Data Capture configuration",
+//	additionalProperties=false
+//
+// )
 type CDC struct {
-	InitialWaitTime int `json:"intial_wait_time"`
+	// InitialWaitTime
+	//
+	// @jsonSchema(
+	//   title="Initial Wait Time",
+	//   description="Idle timeout for Bin log reading",
+	//   type="integer",
+	//   required=true
+	// )
+	InitialWaitTime int `json:"initial_wait_time"`
 }
+
+// Standalone represents the standalone configuration
+//
+// @jsonSchema(
+//
+//	title="Standalone",
+//	additionalProperties=false
+//
+// )
+type Standalone struct{}
 
 // URI generates the connection URI for the MySQL database
 func (c *Config) URI() string {

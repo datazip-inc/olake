@@ -2,11 +2,9 @@ package protocol
 
 import (
 	"fmt"
-	"os"
-	"path"
+	"strings"
 
-	"github.com/goccy/go-json"
-
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/jsonschema"
@@ -15,80 +13,71 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	generate bool
-	airbyte  bool
-)
-
-// specCmd represents the read command
 var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
 	RunE: func(_ *cobra.Command, _ []string) error {
-		wd, _ := os.Getwd()
-		specfile := path.Join(wd, "generated.json")
-		spec := make(map[string]interface{})
-		if generate {
-			logger.Info("Generating Spec")
-
-			config := connector.Spec()
-			schema, err := jsonschema.Reflect(config)
-			if err != nil {
-				return err
-			}
-
-			err = utils.Unmarshal(schema, &spec)
-			if err != nil {
-				return fmt.Errorf("failed to generate json schema for config: %s", err)
-			}
-
-			file, err := os.OpenFile(specfile, os.O_CREATE|os.O_RDWR, os.ModePerm)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			bytes, err := json.MarshalIndent(spec, "", "\t")
-			if err != nil {
-				return err
-			}
-
-			_, err = file.Write(bytes)
-			if err != nil {
-				return err
-			}
-		} else {
-			logger.Info("Reading cached Spec")
-
-			err := utils.UnmarshalFile(specfile, &spec, false)
-			if err != nil {
-				return err
-			}
-		}
-
-		if airbyte {
-			spec = map[string]any{
-				"connectionSpecification": spec,
-			}
-		}
-
-		// log spec
-		message := types.Message{
-			Spec: spec,
-			Type: types.SpecMessage,
-		}
-		logger.Info(message)
-		err := logger.FileLogger(message.Spec, "config", ".json")
+		config, fileName, err := resolveSpecConfig(destinationConfigPath)
 		if err != nil {
-			logger.Fatalf("failed to create spec file: %s", err)
+			return err
 		}
 
+		// check if spec already exists
+		var specData map[string]interface{}
+		if err := utils.UnmarshalFile(fmt.Sprintf("%s.json", fileName), &specData, false); err == nil {
+			logger.Info(specData)
+			return nil
+		}
+
+		// generate jsonschema
+		schemaVal, err := jsonschema.Reflect(config)
+		if err != nil {
+			return fmt.Errorf("failed to reflect config: %v", err)
+		}
+
+		// load uischema
+		schemaType := utils.Ternary(destinationConfigPath == "not-set", connector.Type(), destinationConfigPath).(string)
+		uiSchema, err := jsonschema.LoadUISchema(schemaType)
+		if err != nil {
+			return fmt.Errorf("failed to get ui schema: %v", err)
+		}
+
+		specSchema := map[string]interface{}{
+			"spec":     schemaVal,
+			"uischema": uiSchema,
+		}
+
+		if err := logger.FileLogger(specSchema, fileName, ".json"); err != nil {
+			return fmt.Errorf("failed to log spec: %v", err)
+		}
+
+		logger.Info(specSchema)
 		return nil
 	},
 }
 
-func init() {
-	// TODO: Set false
-	RootCmd.PersistentFlags().BoolVarP(&generate, "generate", "", false, "(Optional) Generate Config")
-	RootCmd.PersistentFlags().BoolVarP(&airbyte, "airbyte", "", true, "(Optional) Print Config wrapped like airbyte")
+// resolveSpecConfig returns the config and file name, using destinationConfigPath if provided
+// destinationConfigPath is the destination type (iceberg, parquet)
+func resolveSpecConfig(destinationConfigPath string) (any, string, error) {
+	var config any
+	var fileName string
+	if destinationConfigPath == "not-set" {
+		config = connector.Spec()
+		fileName = "spec"
+	} else {
+		writerConfig := types.WriterConfig{
+			Type: types.AdapterType(strings.ToUpper(destinationConfigPath)),
+		}
+
+		newFunc, found := destination.RegisteredWriters[writerConfig.Type]
+		if !found {
+			return nil, "", fmt.Errorf("invalid destination type has been passed [%s]", writerConfig.Type)
+		}
+
+		writer := newFunc()
+		config = writer.Spec()
+		fileName = fmt.Sprintf("%s-spec", strings.ToLower(destinationConfigPath))
+	}
+
+	return config, fileName, nil
 }

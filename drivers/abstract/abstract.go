@@ -46,16 +46,16 @@ func (a *AbstractDriver) SetupState(state *types.State) {
 	a.driver.SetupState(state)
 }
 
+func (a *AbstractDriver) Type() string {
+	return a.driver.Type()
+}
+
 func (a *AbstractDriver) GetConfigRef() Config {
 	return a.driver.GetConfigRef()
 }
 
 func (a *AbstractDriver) Spec() any {
 	return a.driver.Spec()
-}
-
-func (a *AbstractDriver) Type() string {
-	return a.driver.Type()
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {

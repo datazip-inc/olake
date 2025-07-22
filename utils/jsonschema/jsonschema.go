@@ -1,11 +1,14 @@
 package jsonschema
 
 import (
+	"fmt"
 	"log"
 	"reflect"
+	"strings"
 
 	"github.com/goccy/go-json"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/jsonschema/generator"
 	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"sigs.k8s.io/yaml"
@@ -28,15 +31,19 @@ func Reflect(v interface{}) (schema.JSONSchema, error) {
 		typeOf = typeOf.Elem()
 	}
 
+	// TODO: Remove hardcoded values
+	// opts.AutoCreateDefs = !r.inlineDefs
+	// opts.IncludeTests = r.includeTests
+	// opts.SupressXAttrs = r.suppressXAttrs
+
 	opts := generator.NewOptions()
-	opts.AutoCreateDefs = !r.inlineDefs
-	opts.IncludeTests = r.includeTests
-	opts.SupressXAttrs = r.suppressXAttrs
+	opts.AutoCreateDefs = false
+	opts.IncludeTests = false
+	opts.SupressXAttrs = true
 	opts.LogLevel = generator.VerboseLevel
 
 	r.opts = opts
 	r.gen = generator.NewJSONSchemaGenerator(basePackage, typeOf.Name(), opts)
-
 	return r.gen.Generate()
 }
 
@@ -94,4 +101,14 @@ func ToYamlSchema(obj interface{}) (string, error) {
 	}
 
 	return string(yamlData), nil
+}
+
+func LoadUISchema(schemaType string) (json.RawMessage, error) {
+	raw, ok := constants.UISchemaMap[strings.ToLower(schemaType)]
+	if !ok {
+		return nil, fmt.Errorf("schema not found")
+	}
+
+	//nolint:gosec,G115
+	return json.RawMessage(raw), nil
 }

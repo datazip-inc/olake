@@ -234,12 +234,6 @@ func (g *JSONSchemaGenerator) addCommonAttrs(schema schema.JSONSchema, anno *sch
 		schema.SetDescription(anno.description)
 	}
 
-	if len(anno.enum) > 0 {
-		if len(anno.anyOf) > 0 || len(anno.allOf) > 0 || len(anno.oneOf) > 0 {
-			return fmt.Errorf("error setting 'enum', one of these present['anyOf', 'allOf', 'oneOf']")
-		}
-	}
-
 	if len(anno.allOf) > 0 {
 		schemas, err := g.generateSchemasFromTypePaths(anno.allOf, parentKey)
 		if err != nil {
