@@ -204,7 +204,8 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		parsed = parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
 	}
 
-	return parsed, nil
+	// Convert to UTC to ensure consistent timezone handling
+	return parsed.UTC(), nil
 }
 
 func parseStringTimestamp(value string) (time.Time, error) {
@@ -213,9 +214,11 @@ func parseStringTimestamp(value string) (time.Time, error) {
 	for _, layout := range DateTimeFormats {
 		tv, err = time.Parse(layout, value)
 		if err == nil {
-			return time.Date(
+			parsedTime := time.Date(
 				tv.Year(), tv.Month(), tv.Day(), tv.Hour(), tv.Minute(), tv.Second(), tv.Nanosecond(), tv.Location(),
-			), nil
+			)
+			// Convert to UTC to ensure consistent timezone handling
+			return parsedTime.UTC(), nil
 		}
 	}
 

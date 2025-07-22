@@ -96,9 +96,16 @@ func (a *AbstractDriver) getIncrementCursor(stream types.StreamInterface) (any, 
 		return stateCursorValue, nil
 	}
 	// typecast in case state was read from file
-	cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorField))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
+	// Get the most adaptable/common ancestor type for the cursor field
+	found, property := stream.Schema().GetProperty(strings.ToLower(cursorField))
+	if !found || property == nil {
+		return nil, fmt.Errorf("failed to get cursor column property for field: %s", cursorField)
 	}
-	return typeutils.ReformatValue(cursorColType, stateCursorValue)
+	fields := property.Type.Array()
+	commonType := fields[0]
+	for i := 1; i < len(fields); i++ {
+		commonType = typeutils.GetCommonAncestorType(commonType, fields[i]) //needed for mongodb where field can have multiple types
+	}
+
+	return typeutils.ReformatValue(commonType, stateCursorValue)
 }
