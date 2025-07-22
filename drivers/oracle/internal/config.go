@@ -132,16 +132,27 @@ type ServiceName struct {
 	ServiceName string `json:"service_name"`
 }
 
-func (c *Config) connectionString() string {
+func (c *Config) connectionString() (string, error) {
 	urlOptions := make(map[string]string)
 	// Add JDBC-style URL params
 	for k, v := range c.JDBCURLParams {
 		urlOptions[k] = v
 	}
 
-	// Add sid if provided
-	if c.ConnectionType == "SID" {
-		urlOptions["sid"] = c.ConnectionType.(SID).SID
+	serviceName := ""
+	found, _ := utils.IsOfType(c.ConnectionType, "sid")
+	if found {
+		unmarshalledSID := &SID{}
+		if err := utils.Unmarshal(c.ConnectionType, unmarshalledSID); err != nil {
+			return "", fmt.Errorf("failed to unmarshal sid: %s", err)
+		}
+		urlOptions["SID"] = unmarshalledSID.SID
+	} else {
+		unmarshalledServiceName := &ServiceName{}
+		if err := utils.Unmarshal(c.ConnectionType, unmarshalledServiceName); err != nil {
+			return "", fmt.Errorf("failed to unmarshal service name: %s", err)
+		}
+		serviceName = unmarshalledServiceName.ServiceName
 	}
 
 	// Add SSL params if provided
@@ -157,7 +168,7 @@ func (c *Config) connectionString() string {
 	// Quote the username to handle case sensitivity
 	quotedUsername := fmt.Sprintf("%q", c.Username)
 
-	return go_ora.BuildUrl(c.Host, c.Port, c.ConnectionType.(ServiceName).ServiceName, quotedUsername, c.Password, urlOptions)
+	return go_ora.BuildUrl(c.Host, c.Port, serviceName, quotedUsername, c.Password, urlOptions), nil
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -176,8 +187,13 @@ func (c *Config) Validate() error {
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
 	}
-	if c.ConnectionType.(SID).SID == "" && c.ConnectionType.(ServiceName).ServiceName == "" {
-		return fmt.Errorf("service_name or sid is required")
+
+	foundServiceName, _ := utils.IsOfType(c.ConnectionType, "service_name")
+	foundSID, _ := utils.IsOfType(c.ConnectionType, "sid")
+	if !foundServiceName && !foundSID {
+		return fmt.Errorf("service name or sid is required")
+	} else if foundServiceName && foundSID {
+		return fmt.Errorf("only one of service name or sid can be provided")
 	}
 
 	// Set default number of threads if not provided
