@@ -13,7 +13,7 @@
     },
     "reader_batch_size": 1,
     "default_mode": "cdc",
-    "max_threads": 30,
+    "max_threads": 35,
     "split_column": "",
     "aws_region": "us-east-1"
 }
