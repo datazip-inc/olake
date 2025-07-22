@@ -217,7 +217,6 @@ func parseStringTimestamp(value string) (time.Time, error) {
 			parsedTime := time.Date(
 				tv.Year(), tv.Month(), tv.Day(), tv.Hour(), tv.Minute(), tv.Second(), tv.Nanosecond(), tv.Location(),
 			)
-			// Convert to UTC to ensure consistent timezone handling
 			return parsedTime.UTC(), nil
 		}
 	}
