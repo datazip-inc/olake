@@ -86,8 +86,14 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if binlog is configured
-	//TODO : check for mysql binlog permisssions
-	m.CDCSupport = true
+	cdcSupported, err := m.IsCDCSupported(ctx)
+	if err != nil {
+		logger.Warnf("failed to check CDC support: %s", err)
+	}
+	if !cdcSupported {
+		logger.Warnf("CDC is not supported")
+	}
+	m.CDCSupport = cdcSupported
 	return nil
 }
 
@@ -137,7 +143,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 		}
 		schemaName, tableName := parts[0], parts[1]
-		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC)
+		stream := types.NewStream(tableName, schemaName)
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -192,4 +198,44 @@ func (m *MySQL) Close() error {
 		return m.client.Close()
 	}
 	return nil
+}
+
+func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
+	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
+	if _, err := m.getCurrentBinlogPosition(); err != nil {
+		return false, fmt.Errorf("failed to get binlog position: %s", err)
+	}
+	// checkMySQLConfig checks a MySQL configuration value against an expected value
+	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
+		var name, value string
+		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
+			return false, fmt.Errorf("failed to check %s: %s", name, err)
+		}
+
+		if strings.ToUpper(value) != expectedValue {
+			logger.Warnf(warnMessage)
+			return false, nil
+		}
+
+		return true, nil
+	}
+
+	// Check binlog configurations
+	configChecks := []struct {
+		query         string
+		expectedValue string
+		errMessage    string
+	}{
+		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
+		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
+		{jdbc.MySQLBinlogRowMetadataQuery(), "FULL", "binlog_row_metadata is not set to FULL"},
+	}
+
+	for _, check := range configChecks {
+		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
+			return ok, err
+		}
+	}
+
+	return true, nil
 }
