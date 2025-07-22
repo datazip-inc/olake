@@ -51,7 +51,7 @@ jobs:
           [ $i -eq 30 ] && { echo "❌ VPN timeout"; sudo cat /var/log/openvpn-client.log; exit 1; }
           sleep 2
         done
-        sudo resolvectl dns tun0 10.8.0.1
+        sudo resolvectl dns tun0 ${{ secrets.VPN_DNS_SERVER }}
         sudo resolvectl domain tun0 ~private.postgres.database.azure.com
 
     - name: Configure AWS Credentials
