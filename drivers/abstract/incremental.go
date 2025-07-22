@@ -57,13 +57,9 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				primaryCursor, secondaryCursor := stream.Cursor()
 				// TODO: make inremental state consistent save it as string and typecast while reading
 				// get cursor column from state and typecast it to cursor column type for comparisons
-				maxPrimaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, stream)
-				var maxSecondaryCursorValue any
-				if secondaryCursor != "" {
-					maxSecondaryCursorValue, err = a.getIncrementCursorFromState(secondaryCursor, stream)
-					if err != nil {
-						return fmt.Errorf("failed to get increment cursor: %s", err)
-					}
+				maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
+				if err != nil {
+					return fmt.Errorf("failed to get incremental cursor value: %s", err)
 				}
 				errChan := make(chan error, 1)
 				inserter := pool.NewThread(ctx, stream, errChan)
@@ -103,17 +99,36 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 }
 
 // returns typecasted increment cursor
-func (a *AbstractDriver) getIncrementCursorFromState(cursorField string, stream types.StreamInterface) (any, error) {
-	stateCursorValue := a.state.GetCursor(stream.Self(), cursorField)
-	if stateCursorValue == nil {
-		return stateCursorValue, nil
+func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface) (any, any, error) {
+	primaryStateCursorValue := a.state.GetCursor(stream.Self(), primaryCursorField)
+	var secondaryStateCursorValue any
+	if secondaryCursorField != "" {
+		secondaryStateCursorValue = a.state.GetCursor(stream.Self(), secondaryCursorField)
+	}
+	if primaryStateCursorValue == nil && secondaryStateCursorValue == nil {
+		return primaryStateCursorValue, secondaryStateCursorValue, nil
 	}
 	// typecast in case state was read from file
-	cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorField))
+	cursorColType, err := stream.Schema().GetType(strings.ToLower(primaryCursorField))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
+		return nil, nil, fmt.Errorf("failed to get cursor column type: %s", err)
 	}
-	return typeutils.ReformatValue(cursorColType, stateCursorValue)
+	primaryCursorValue, err := typeutils.ReformatValue(cursorColType, primaryStateCursorValue)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to typecast cursor value: %s", err)
+	}
+	if secondaryCursorField != "" {
+		cursorColType, err := stream.Schema().GetType(strings.ToLower(secondaryCursorField))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get cursor column type: %s", err)
+		}
+		secondaryCursorValue, err := typeutils.ReformatValue(cursorColType, secondaryStateCursorValue)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to typecast cursor value: %s", err)
+		}
+		return primaryCursorValue, secondaryCursorValue, nil
+	}
+	return primaryCursorValue, nil, nil
 }
 
 func (a *AbstractDriver) getIncrementCursorFromData(primaryCursor, secondaryCursor string, data map[string]any) (any, any) {
