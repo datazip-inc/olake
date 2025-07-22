@@ -103,12 +103,11 @@ func ToYamlSchema(obj interface{}) (string, error) {
 	return string(yamlData), nil
 }
 
-func LoadUISchema(schemaType string) (json.RawMessage, error) {
-	raw, ok := constants.UISchemaMap[strings.ToLower(schemaType)]
+func LoadUISchema(schemaType string) (string, error) {
+	jsonStr, ok := constants.UISchemaMap[strings.ToLower(schemaType)]
 	if !ok {
-		return nil, fmt.Errorf("schema not found")
+		return "", fmt.Errorf("schema not found")
 	}
 
-	//nolint:gosec,G115
-	return json.RawMessage(raw), nil
+	return jsonStr, nil
 }
