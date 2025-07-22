@@ -21,8 +21,11 @@ type Config struct {
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 }
 
-type ConnectionType struct {
-	SID         string `json:"sid"`
+type SID struct {
+	SID string `json:"sid"`
+}
+
+type ServiceName struct {
 	ServiceName string `json:"service_name"`
 }
 
@@ -33,15 +36,20 @@ func (c *Config) connectionString() (string, error) {
 		urlOptions[k] = v
 	}
 
-	connectionType := &ConnectionType{}
-	if err := utils.Unmarshal(c.ConnectionType, &connectionType); err != nil {
-		return "", fmt.Errorf("failed to unmarshal connection type: %s", err)
-	}
 	serviceName := ""
-	if connectionType.SID != "" {
-		urlOptions["SID"] = connectionType.SID
+	found, _ := utils.IsOfType(c.ConnectionType, "sid")
+	if found {
+		unmarshalledSID := &SID{}
+		if err := utils.Unmarshal(c.ConnectionType, unmarshalledSID); err != nil {
+			return "", fmt.Errorf("failed to unmarshal sid: %s", err)
+		}
+		urlOptions["SID"] = unmarshalledSID.SID
 	} else {
-		serviceName = connectionType.ServiceName
+		unmarshalledServiceName := &ServiceName{}
+		if err := utils.Unmarshal(c.ConnectionType, unmarshalledServiceName); err != nil {
+			return "", fmt.Errorf("failed to unmarshal service name: %s", err)
+		}
+		serviceName = unmarshalledServiceName.ServiceName
 	}
 
 	// Add SSL params if provided
