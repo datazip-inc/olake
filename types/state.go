@@ -134,6 +134,9 @@ func (s *State) SetGlobal(state any, streams ...string) {
 func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
 	s.RLock()
 	defer s.RUnlock()
+	if key == "" {
+		return nil
+	}
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
@@ -147,6 +150,9 @@ func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
 func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
 	s.Lock()
 	defer s.Unlock()
+	if key == "" {
+		return
+	}
 
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()

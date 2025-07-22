@@ -20,10 +20,7 @@ const oracleSQLTimestampLayout = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\""
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	primaryCursor, secondaryCursor := stream.Cursor()
 	lastPrimaryCursorValue := o.state.GetCursor(stream.Self(), primaryCursor)
-	var lastSecondaryCursorValue any
-	if secondaryCursor != "" {
-		lastSecondaryCursorValue = o.state.GetCursor(stream.Self(), secondaryCursor)
-	}
+	lastSecondaryCursorValue := o.state.GetCursor(stream.Self(), secondaryCursor)
 
 	filter, err := jdbc.SQLFilter(stream, o.Type())
 	if err != nil {
@@ -57,7 +54,6 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 			return fmt.Errorf("process error: %s", err)
 		}
 	}
-
 	return rows.Err()
 }
 
@@ -83,7 +79,6 @@ func formatCursorCondition(primaryCursorField string, secondaryCursorField strin
 		} else {
 			formattedValue = fmt.Sprintf("'%v'", lastCursorValue)
 		}
-
 		return formattedValue, nil
 	}
 
@@ -100,6 +95,5 @@ func formatCursorCondition(primaryCursorField string, secondaryCursorField strin
 		}
 		incrementalCondition = fmt.Sprintf("((%q IS NULL AND %q >= %s) OR %s)", primaryCursorField, secondaryCursorField, secondaryFormattedValue, incrementalCondition)
 	}
-
 	return incrementalCondition, nil
 }
