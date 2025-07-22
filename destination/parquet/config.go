@@ -32,8 +32,7 @@ type Config struct {
 	// @jsonSchema(
 	//   title="S3 Access Key",
 	//   description="The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string",
-	//   type="string",
-	//   required=true
+	//   type="string"
 	// )
 	AccessKey string `json:"s3_access_key,omitempty"`
 
@@ -43,8 +42,7 @@ type Config struct {
 	//   title="AWS Secret Key",
 	//   description="The AWS secret key for S3 authentication—typically 40+ characters long",
 	//   type="string",
-	//   format="password",
-	//   required=true
+	//   format="password"
 	// )
 	SecretKey string `json:"s3_secret_key,omitempty"`
 
