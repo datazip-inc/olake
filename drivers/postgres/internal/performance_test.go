@@ -11,12 +11,18 @@ import (
 	_ "github.com/lib/pq"
 )
 
+const (
+	backfillStream = "test"
+	cdcStream      = "test_cdc"
+	namespace      = "public"
+)
+
 func TestPostgresPerformance(t *testing.T) {
 	config := testutils.PerformanceTestConfig{
 		TestConfig:      testutils.GetTestConfig("postgres"),
-		Namespace:       "public",
-		BackfillStreams: []string{"test"},
-		CDCStreams:      []string{"test_cdc"},
+		Namespace:       namespace,
+		BackfillStreams: []string{backfillStream},
+		CDCStreams:      []string{cdcStream},
 		ConnectDB:       connectDatabase,
 		CloseDB:         closeDatabase,
 		SetupCDC:        setupDatabaseForCDC,
@@ -50,10 +56,10 @@ func setupDatabaseForCDC(ctx context.Context, conn interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid connection type")
 	}
-	if _, err := db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS test_cdc (id INT PRIMARY KEY, name VARCHAR(255))"); err != nil {
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, name VARCHAR(255))", cdcStream)); err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, "TRUNCATE TABLE test_cdc"); err != nil {
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream)); err != nil {
 		return err
 	}
 	return nil
@@ -64,6 +70,6 @@ func triggerPostgresCDC(ctx context.Context, conn interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid connection type")
 	}
-	_, err := db.ExecContext(ctx, "INSERT INTO test_cdc SELECT * FROM test")
+	_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s", cdcStream, backfillStream))
 	return err
 }

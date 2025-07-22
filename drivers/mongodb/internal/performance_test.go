@@ -11,12 +11,19 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+const (
+	database       = "mongodb"
+	backfillStream = "users"
+	cdcStream      = "users_cdc"
+	namespace      = "test"
+)
+
 func TestMongodbPerformance(t *testing.T) {
 	config := testutils.PerformanceTestConfig{
 		TestConfig:      testutils.GetTestConfig("mongodb"),
-		Namespace:       "test",
-		BackfillStreams: []string{"users"},
-		CDCStreams:      []string{"users_cdc"},
+		Namespace:       namespace,
+		BackfillStreams: []string{backfillStream},
+		CDCStreams:      []string{cdcStream},
 		ConnectDB:       connectDatabase,
 		CloseDB:         closeDatabase,
 		SetupCDC:        setupDatabaseForCDC,
@@ -50,7 +57,7 @@ func setupDatabaseForCDC(ctx context.Context, conn interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid connection type")
 	}
-	db.Database("mongodb").Collection("users_cdc").Drop(ctx)
+	db.Database(database).Collection(cdcStream).Drop(ctx)
 	return nil
 }
 
@@ -59,6 +66,8 @@ func triggerMongodbCDC(ctx context.Context, conn interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid connection type")
 	}
-	db.Database("mongodb").Collection("users_cdc").InsertOne(ctx, bson.M{"name": "test"})
+
+	// TODO: Insert data from backfill collection to cdc collection
+	db.Database(database).Collection(cdcStream).InsertOne(ctx, bson.M{"name": "test"})
 	return nil
 }

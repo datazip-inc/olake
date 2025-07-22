@@ -9,11 +9,16 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+const (
+	backfillStream = "USERS"
+	namespace      = "ADMIN"
+)
+
 func TestOraclePerformance(t *testing.T) {
 	config := testutils.PerformanceTestConfig{
 		TestConfig:      testutils.GetTestConfig("oracle"),
-		Namespace:       "ADMIN",
-		BackfillStreams: []string{"USERS"},
+		Namespace:       namespace,
+		BackfillStreams: []string{backfillStream},
 		CDCStreams:      nil,
 		ConnectDB:       connectDatabase,
 		CloseDB:         closeDatabase,
