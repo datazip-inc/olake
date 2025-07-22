@@ -125,7 +125,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.INCREMENTAL, types.CDC)
+		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.INCREMENTAL)
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
