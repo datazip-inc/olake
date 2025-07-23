@@ -206,12 +206,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 					}
 					record.Data = normalizedData
 				}
-				fmt.Println("Inserting record:", record.OlakeID)
 				// insert record
 				if err := thread.Write(child, record); err != nil {
 					return fmt.Errorf("failed to write record: %s", err)
 				}
-				fmt.Println("finalized record:", record.OlakeID)
 				w.recordCount.Add(1) // increase the record count
 			}
 		}
