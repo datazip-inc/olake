@@ -1,0 +1,19 @@
+{
+    "host": "host.docker.internal",
+    "port": 5433,
+    "database": "postgres",
+    "username": "postgres",
+    "password": "secret1234",
+    "ssl": {
+        "mode": "disable"
+    },
+    "update_method": {
+        "replication_slot": "olake_slot",
+        "initial_wait_time": 120
+    },
+    "reader_batch_size": 1,
+    "default_mode": "cdc",
+    "max_threads": 30,
+    "split_column": "",
+    "aws_region": "us-east-1"
+}
