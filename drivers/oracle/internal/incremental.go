@@ -14,7 +14,7 @@ import (
 )
 
 // oracleTimestampFormat defines the specific format required for Oracle's TO_TIMESTAMP_TZ function.
-const oracleSQLTimestampLayout = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\""
+const oracleColumnDatatypeQuery = "SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'"
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
@@ -27,7 +27,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
 	}
 
-	incrementalCondition, err := formatCursorCondition(primaryCursor, secondaryCursor, stream, lastPrimaryCursorValue, lastSecondaryCursorValue)
+	incrementalCondition, err := o.formatCursorCondition(primaryCursor, secondaryCursor, stream, lastPrimaryCursorValue, lastSecondaryCursorValue)
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
@@ -58,8 +58,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 }
 
 // formatCursorCondition generates the incremental condition SQL based on datatype and cursor value.
-func formatCursorCondition(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (string, error) {
-
+func (o *Oracle) formatCursorCondition(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (string, error) {
 	formattedValue := func(cursorField string, lastCursorValue any) (string, error) {
 		datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
 		if err != nil {
@@ -70,11 +69,24 @@ func formatCursorCondition(primaryCursorField string, secondaryCursorField strin
 		var formattedValue string
 
 		if isTimestamp {
+			query := fmt.Sprintf(oracleColumnDatatypeQuery, stream.Namespace(), stream.Name(), cursorField)
+			err := o.client.QueryRow(query).Scan(&datatype)
+			if err != nil {
+				return "", fmt.Errorf("failed to get column datatype: %s", err)
+			}
+
+			timestampFormat := ""
+			if strings.Contains(string(datatype), "TIME ZONE") {
+				timestampFormat = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9TZR"
+			} else {
+				timestampFormat = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\""
+			}
+
 			switch val := lastCursorValue.(type) {
 			case time.Time:
-				formattedValue = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','%s')", val.UTC().Format(time.RFC3339Nano), oracleSQLTimestampLayout)
+				formattedValue = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','%s')", val.UTC().Format("2006-01-02T15:04:05.000000000Z"), timestampFormat)
 			default:
-				formattedValue = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','%s')", val, oracleSQLTimestampLayout)
+				formattedValue = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','%s')", val, timestampFormat)
 			}
 		} else {
 			formattedValue = fmt.Sprintf("'%v'", lastCursorValue)

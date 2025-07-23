@@ -73,8 +73,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, maxPrimaryCursorValue)
-						a.state.SetCursor(stream.Self(), secondaryCursor, maxSecondaryCursorValue)
+						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
@@ -134,4 +134,11 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 		secondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 	}
 	return primaryCursorValue, secondaryCursorValue
+}
+
+func (a *AbstractDriver) reformatCursorValue(cursorValue any) any {
+	if _, ok := cursorValue.(time.Time); ok {
+		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
+	}
+	return cursorValue
 }

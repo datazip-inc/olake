@@ -71,10 +71,10 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 						return
 					}
 					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
-						a.state.SetCursor(stream.Self(), primaryCursor, maxPrimaryCursorValue)
+						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 					}
 					if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
-						a.state.SetCursor(stream.Self(), secondaryCursor, maxSecondaryCursorValue)
+						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 					}
 				}
 			}
