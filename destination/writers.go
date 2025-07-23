@@ -174,6 +174,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 			w.tmu.Lock()
 			defer w.tmu.Unlock()
 
+			if recErr := recover(); err == nil && recErr != nil {
+				err = fmt.Errorf("panic recovered in writer thread: %s", recErr)
+			}
+
 			// capture error on thread close
 			if err == nil {
 				if threadCloseErr := thread.Close(child); threadCloseErr != nil {
@@ -202,10 +206,12 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 					}
 					record.Data = normalizedData
 				}
+				fmt.Println("Inserting record:", record.OlakeID)
 				// insert record
 				if err := thread.Write(child, record); err != nil {
 					return fmt.Errorf("failed to write record: %s", err)
 				}
+				fmt.Println("finalized record:", record.OlakeID)
 				w.recordCount.Add(1) // increase the record count
 			}
 		}
