@@ -5,10 +5,38 @@ import (
 	"fmt"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// IncrementalChanges is not supported for MySQL
-func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
-	return fmt.Errorf("incremental sync is not supported for MySQL driver")
+func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
+	cursorField := stream.Cursor()
+	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
+	filter, err := jdbc.SQLFilter(stream, m.Type())
+	if err != nil {
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+	}
+	query := jdbc.MySQLIncrementalQuery(stream, filter)
+
+	logger.Infof("Starting incremental sync for stream[%s]", stream.ID())
+
+	rows, err := m.client.QueryContext(ctx, query, []any{lastCursorValue}...)
+	if err != nil {
+		return fmt.Errorf("failed to execute incremental query: %s", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		record := make(types.Record)
+		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
+			return fmt.Errorf("failed to scan record: %s", err)
+		}
+
+		if err := processFn(record); err != nil {
+			return fmt.Errorf("process error: %s", err)
+		}
+	}
+
+	return rows.Err()
 }
