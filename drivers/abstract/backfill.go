@@ -40,8 +40,8 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
-		var maxCursorValue any // required for incremental
-		cursorField := stream.Cursor()
+		var maxPrimaryCursorValue, maxSecondaryCursorValue any
+		primaryCursor, secondaryCursor := stream.Cursor()
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
@@ -64,14 +64,17 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				}
 
 				// if it is incremental update the max cursor value received in chunk
-				if stream.GetSyncMode() == types.INCREMENTAL && maxCursorValue != nil {
-					prevCursor, cursorErr := a.getIncrementCursor(stream)
+				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
+					prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
 					if err != nil {
 						err = cursorErr
 						return
 					}
-					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
-						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
+					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+					}
+					if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 					}
 				}
 			}
@@ -80,8 +83,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			return a.driver.ChunkIterator(ctx, stream, chunk, dataTypeConverter, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
-					cursorValue := data[cursorField]
-					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
+					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))

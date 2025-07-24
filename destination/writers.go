@@ -174,6 +174,10 @@ func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterf
 			w.tmu.Lock()
 			defer w.tmu.Unlock()
 
+			if recErr := recover(); err == nil && recErr != nil {
+				err = fmt.Errorf("panic recovered in writer thread: %s", recErr)
+			}
+
 			// capture error on thread close
 			if err == nil {
 				if threadCloseErr := thread.Close(child); threadCloseErr != nil {
