@@ -148,8 +148,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
 			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 		}
-
-		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+		err = utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
 			cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 			if err != nil {
 				return err
@@ -170,6 +169,11 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 			return cursor.Err()
 		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch documents from collection %s: %s", streamName, err)
+		}
+
+		return stream, err
 	}
 	database := m.client.Database(m.config.Database)
 	// Either wait for covering 100k records from both sides for all streams
