@@ -134,6 +134,7 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 	return primaryCursorValue, secondaryCursorValue
 }
 
+// reformatCursorValue is used to make time format consistent in state (Removing timezone info)
 func (a *AbstractDriver) reformatCursorValue(cursorValue any) any {
 	if _, ok := cursorValue.(time.Time); ok {
 		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")

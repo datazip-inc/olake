@@ -149,11 +149,11 @@ func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
 }
 
 func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
-	s.Lock()
-	defer s.Unlock()
 	if key == "" {
 		return
 	}
+	s.Lock()
+	defer s.Unlock()
 
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
