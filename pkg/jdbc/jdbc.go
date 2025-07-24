@@ -68,17 +68,6 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 
 // PostgreSQL-Specific Queries
 // TODO: Rewrite queries for taking vars as arguments while execution.
-
-// PostgresWithoutState returns the query for a simple SELECT without state
-func PostgresWithoutState(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT * FROM "%s"."%s" ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor())
-}
-
-// PostgresWithState returns the query for a SELECT with state
-func PostgresWithState(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT * FROM "%s"."%s" where "%s">$1 ORDER BY "%s" ASC NULLS FIRST`, stream.Namespace(), stream.Name(), stream.Cursor(), stream.Cursor())
-}
-
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
 func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
@@ -259,6 +248,21 @@ func MySQLMasterStatusQuery() string {
 // MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.4 and above
 func MySQLMasterStatusQueryNew() string {
 	return "SHOW BINARY LOG STATUS"
+}
+
+// MySQLLogBinQuery returns the query to fetch the log_bin variable in MySQL
+func MySQLLogBinQuery() string {
+	return "SHOW VARIABLES LIKE 'log_bin'"
+}
+
+// MySQLBinlogFormatQuery returns the query to fetch the binlog_format variable in MySQL
+func MySQLBinlogFormatQuery() string {
+	return "SHOW VARIABLES LIKE 'binlog_format'"
+}
+
+// MySQLBinlogRowMetadataQuery returns the query to fetch the binlog_row_metadata variable in MySQL
+func MySQLBinlogRowMetadataQuery() string {
+	return "SHOW VARIABLES LIKE 'binlog_row_metadata'"
 }
 
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL

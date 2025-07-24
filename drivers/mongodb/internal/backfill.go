@@ -257,7 +257,7 @@ func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Co
 	if err != nil {
 		return 0, fmt.Errorf("failed to get total count: %s", err)
 	}
-	return int64(countResult["count"].(int32)), nil
+	return typeutils.ReformatInt64(countResult["count"])
 }
 
 func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection, filter bson.D) (time.Time, time.Time, error) {
@@ -323,7 +323,7 @@ func generatePipeline(start, end any, filter bson.D) mongo.Pipeline {
 	}
 
 	if end != nil {
-		// Changed from $lt to $lte to include boundary documents
+		// Changed from $lte to $lt to remove collision between boundaries
 		andOperation = append(andOperation, bson.D{{
 			Key: "_id",
 			Value: bson.D{{
