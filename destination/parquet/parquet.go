@@ -62,6 +62,11 @@ func (p *Parquet) initS3Writer() error {
 	s3Config := aws.Config{
 		Region: aws.String(p.config.Region),
 	}
+	if p.config.S3Endpoint != "" {
+		s3Config.Endpoint = aws.String(p.config.S3Endpoint)
+		// Force path-style URLs (e.g., http://minio:9000/bucket/key) to support MinIO and avoid bucket-based DNS resolution
+		s3Config.S3ForcePathStyle = aws.Bool(true)
+	}
 	if p.config.AccessKey != "" && p.config.SecretKey != "" {
 		s3Config.Credentials = credentials.NewStaticCredentials(p.config.AccessKey, p.config.SecretKey, "")
 	}
