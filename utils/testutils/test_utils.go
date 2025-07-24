@@ -10,6 +10,7 @@ import (
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/docker/docker/api/types/container"
 
 	// load pq driver for SQL tests
@@ -30,6 +31,26 @@ type IntegrationTest struct {
 	ExpectedUpdateData map[string]interface{}
 	DataTypeSchema     map[string]string
 	ExecuteQuery       func(ctx context.Context, t *testing.T, tableName, operation string)
+}
+
+// TestConfig is used for performance test
+type TestConfig struct {
+	Driver          string
+	HostRoot        string
+	SourcePath      string
+	CatalogPath     string
+	DestinationPath string
+	StatePath       string
+	StatsPath       string
+}
+
+type PerformanceTest struct {
+	TestConfig     *TestConfig
+	Namespace      string
+	BackfillStream string
+	CDCStream      string
+	ExecuteQuery   func(ctx context.Context, t *testing.T, operation string)
+	SupportsCDC    bool
 }
 
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
@@ -326,4 +347,184 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
+}
+
+func GetTestConfig(driver string) *TestConfig {
+	pwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	hostRoot := filepath.Join(pwd, "../../..")
+
+	return &TestConfig{
+		Driver:          driver,
+		HostRoot:        hostRoot,
+		SourcePath:      fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/source.json", driver),
+		CatalogPath:     fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/streams.json", driver),
+		DestinationPath: fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/destination.json", driver),
+		StatePath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/state.json", driver),
+		StatsPath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/stats.json", driver),
+	}
+}
+
+func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
+	ctx := context.Background()
+
+	isRPSAboveBenchmark := func(config TestConfig, isBackfill bool) (bool, error) {
+		benchmarkFile := utils.Ternary(isBackfill, "benchmark.json", "benchmark_cdc.json").(string)
+
+		var stats map[string]interface{}
+		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, "stats.json")), &stats, false); err != nil {
+			return false, err
+		}
+
+		getRPSFromStats := func(stats map[string]interface{}) (float64, error) {
+			rps, err := typeutils.ReformatFloat64(strings.Split(stats["Speed"].(string), " ")[0])
+			if err != nil {
+				return 0, err
+			}
+			return rps.(float64), nil
+		}
+
+		rps, err := getRPSFromStats(stats)
+		if err != nil {
+			return false, err
+		}
+
+		var benchmarkStats map[string]interface{}
+		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, benchmarkFile)), &benchmarkStats, false); err != nil {
+			return false, err
+		}
+
+		benchmarkRps, err := getRPSFromStats(benchmarkStats)
+		if err != nil {
+			return false, err
+		}
+
+		fmt.Printf("CurrentRPS: %.2f, BenchmarkRPS: %.2f\n", rps, benchmarkRps)
+
+		if rps < 0.9*benchmarkRps {
+			return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
+		}
+
+		return true, nil
+	}
+
+	discoverCommand := func(config TestConfig) string {
+		return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+	}
+
+	syncCommand := func(config TestConfig, isBackfill bool) string {
+		return fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath, utils.Ternary(isBackfill, "", fmt.Sprintf("--state %s", config.StatePath)).(string))
+	}
+
+	updateStreamsCommand := func(config TestConfig, namespace string, stream string) string {
+		if len(stream) == 0 {
+			return ""
+		}
+
+		condition := fmt.Sprintf(`.stream_name == "%s"`, stream)
+
+		jqExpr := fmt.Sprintf(
+			`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
+			namespace,
+			namespace,
+			condition,
+			config.CatalogPath,
+			config.CatalogPath,
+		)
+
+		return jqExpr
+	}
+
+	t.Run("performance", func(t *testing.T) {
+		req := testcontainers.ContainerRequest{
+			Image: "golang:1.23.2",
+			HostConfigModifier: func(hc *container.HostConfig) {
+				hc.Binds = []string{
+					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRoot),
+				}
+				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
+				hc.NetworkMode = "host"
+			},
+			ConfigModifier: func(c *container.Config) {
+				c.WorkingDir = "/test-olake"
+			},
+			Env: map[string]string{
+				"TELEMETRY_DISABLED": "true",
+			},
+			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
+				{
+					PostReadies: []testcontainers.ContainerHook{
+						func(ctx context.Context, c testcontainers.Container) error {
+							_, output, err := utils.ExecCommand(ctx, c, installCmd)
+							require.NoError(t, err, fmt.Sprintf("Failed to install dependencies:\n%s", string(output)))
+
+							discoverCmd := discoverCommand(*cfg.TestConfig)
+							_, output, err = utils.ExecCommand(ctx, c, discoverCmd)
+							require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
+							t.Log(string(output))
+
+							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStream)
+							_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
+							require.NoError(t, err, "Failed to update streams")
+
+							syncCmd := syncCommand(*cfg.TestConfig, true)
+							_, output, err = utils.ExecCommand(ctx, c, syncCmd)
+							require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
+							t.Log(string(output))
+
+							checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, true)
+							require.NoError(t, err, "Failed to check RPS", err)
+							require.True(t, checkRPS, fmt.Sprintf("%s backfill performance below benchmark", cfg.TestConfig.Driver))
+							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
+
+							if cfg.SupportsCDC {
+								cfg.ExecuteQuery(ctx, t, "setup_cdc")
+
+								discoverCmd := discoverCommand(*cfg.TestConfig)
+								_, output, err := utils.ExecCommand(ctx, c, discoverCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
+								t.Log(string(output))
+
+								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStream)
+								_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
+								require.NoError(t, err, "Failed to update streams")
+
+								syncCmd := syncCommand(*cfg.TestConfig, true)
+								_, output, err = utils.ExecCommand(ctx, c, syncCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform initial sync:\n%s", string(output)))
+								t.Log(string(output))
+
+								cfg.ExecuteQuery(ctx, t, "trigger_cdc")
+
+								syncCmd = syncCommand(*cfg.TestConfig, false)
+								_, output, err = utils.ExecCommand(ctx, c, syncCmd)
+								require.NoError(t, err, fmt.Sprintf("Failed to perform CDC sync:\n%s", string(output)))
+								t.Log(string(output))
+
+								checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, false)
+								require.NoError(t, err, "Failed to check RPS", err)
+								require.True(t, checkRPS, fmt.Sprintf("%s CDC performance below benchmark", cfg.TestConfig.Driver))
+								t.Logf("✅ SUCCESS: %s cdc", cfg.TestConfig.Driver)
+							}
+							return nil
+						},
+					},
+				},
+			},
+			Cmd: []string{"tail", "-f", "/dev/null"},
+		}
+
+		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+		require.NoError(t, err, "Failed to start container")
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("warning: failed to terminate container: %v", err)
+			}
+		}()
+	})
 }
