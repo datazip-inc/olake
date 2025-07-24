@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -81,6 +82,16 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
 					cursorValue := data[cursorField]
+					// Get the most adaptable/common ancestor type for the cursor field
+					found, property := stream.Schema().GetProperty(strings.ToLower(cursorField))
+					if !found || property == nil {
+						return fmt.Errorf("failed to get cursor column property for field: %s", cursorField)
+					}
+					fields := property.Type.Array()
+					commonType := fields[0]
+					for i := 1; i < len(fields); i++ {
+						commonType = typeutils.GetCommonAncestorType(commonType, fields[i]) //needed for mongodb where field can have multiple types
+					}
 					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)

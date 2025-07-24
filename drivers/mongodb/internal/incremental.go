@@ -3,7 +3,8 @@ package driver
 import (
 	"context"
 	"fmt"
-	
+	"time"
+
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -15,7 +16,14 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	cursorField := stream.Cursor()
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
-	filter := buildMongoCondition(types.Condition{Column: cursorField, Value: fmt.Sprintf("%v", lastCursorValue), Operator: ">="})
+	var cursorValue string
+	if timeVal, ok := lastCursorValue.(time.Time); ok {
+		cursorValue = timeVal.UTC().Format("2006-01-02T15:04:05.000Z")
+	} else {
+		cursorValue = fmt.Sprintf("%v", lastCursorValue)
+	}
+
+	filter := buildMongoCondition(types.Condition{Column: cursorField, Value: cursorValue, Operator: ">="})
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
