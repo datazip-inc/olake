@@ -115,7 +115,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 			// Set offset based on state or from beginning
 			if err := reader.SetOffset(startOffset); err != nil {
 				var kerr kafka.Error
-				// If offset is invalid, fallback to configured reset policy
+				// If offset is invalid, fallback to configured offset reset policy
 				if errors.Is(kerr, kafka.OffsetOutOfRange) {
 					logger.Warnf("Offset %d out of range for topic %s, partition %d, resetting to beginning", startOffset, topic, partition)
 					resetOffset, resetOffsetErr := ResolveOffset(k.config.AutoOffsetReset)
@@ -166,7 +166,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 					// Handle message read errors
 					if err != nil {
 						if errors.Is(err, context.DeadlineExceeded) {
-							logger.Debugf("No messages in topic %s, partition %d within remaining time", topic, partition)
+							logger.Infof("No messages in topic %s, partition %d within remaining time", topic, partition)
 							saveOffset()
 							return
 						}
@@ -192,7 +192,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 						result["partition"] = msg.Partition
 						result["offset"] = msg.Offset
 						result["key"] = string(msg.Key)
-						result["timestamp"] = msg.Time.UnixMilli()
+						result["kafka_timestamp"] = msg.Time.UnixMilli()
 						return result
 					}()
 

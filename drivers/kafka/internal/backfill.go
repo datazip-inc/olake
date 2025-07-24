@@ -138,6 +138,7 @@ func (k *Kafka) ChunkIterator(ctx context.Context, _ types.StreamInterface, chun
 
 	logger.Infof("Starting Chunk processing for topic %s, partition %d, min_offset=%d, max_offset=%d", topic, partition, minOffsetValue, maxOffsetValue)
 
+	// reader instance spawned per partition
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   strings.Split(k.config.BootstrapServers, ","),
 		Topic:     topic,
@@ -195,6 +196,8 @@ func (k *Kafka) ChunkIterator(ctx context.Context, _ types.StreamInterface, chun
 			}
 			result["partition"] = msg.Partition
 			result["offset"] = msg.Offset
+			result["key"] = string(msg.Key)
+			result["kafka_timestamp"] = msg.Time.UnixMilli()
 			return result
 		}()
 

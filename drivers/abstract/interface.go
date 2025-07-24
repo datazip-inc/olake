@@ -8,7 +8,6 @@ import (
 )
 
 type BackfillMsgFn func(message map[string]any) error
-type IncrementalMsgFn func(message map[string]any) error
 type CDCMsgFn func(message CDCChange) error
 
 type Config interface {

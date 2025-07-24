@@ -28,9 +28,10 @@ Add Kafka credentials in following format in `source.json` file. To check more a
         "protocol": {
             "security_protocol": "PLAINTEXT"
         },
-        "default_mode": "incremental",
         "consumer_group": "test-consumer",
-        "auto_offset_reset": "earliest"
+        "auto_offset_reset": "earliest",
+        "max_threads": 3,
+        "wait_time": 30
     }
 ```
 - There are 3 security protocols:<br>
@@ -95,7 +96,7 @@ After executing the Discover command, a formatted response will look like this:
           "": [
             {
                 "partition_regex": "",
-                "stream_name": "Temp-Topic-1",
+                "stream_name": "Test-Topic1",
                 "normalization": false
             }
         ]
@@ -103,7 +104,7 @@ After executing the Discover command, a formatted response will look like this:
       "streams": [
         {
             "stream": {
-                "name": "DukePartitionTest",
+                "name": "Test-Topic1",
                 "type_schema": { "properties": {...} },
                 ...
             }
@@ -134,7 +135,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
             "namespace": [
                 {
                     "partition_regex": "",
-                    "stream_name": "topic-1",
+                    "stream_name": "Test-Topic1",
                     "normalization": false,
                     "append_only": false
                 }
@@ -240,7 +241,7 @@ The *Sync* command fetches data from Kafka and ingests it into the destination.
 Currently 2 modes are supported: Full_Refresh and Incremental. 
 - In case of Full_Refresh, all the messages from the selected topic will be synced from start offset till the latest offset. 
 - In case of Incremental :
-   - For this sync, cursor field from the available cursor field needs to be provided.
+   - For this sync, cursor field from the available cursor field needs to be provided. For Kafka, this is typically "offset".
    ```json
    "cursor_field" = "offset"
    ```
@@ -266,11 +267,27 @@ You can save the state in a `state.json` file using the following format:
     "type": "STREAM",
     "streams": [
         {
-            "stream": "Test-Topic",
+            "stream": "Test-Topic1",
             "namespace": "",
             "sync_mode": "",
             "state": {
-                "partition_LastPartitionNumber_offset": 0
+                "chunks": [],
+                "partitions": {
+                    "0": 125,
+                    "1": 109,
+                    "2": 138
+                }
+            }
+        },
+        {
+            "stream": "Test-Topic2",
+            "namespace": "",
+            "sync_mode": "",
+            "state": {
+                "chunks": [],
+                "partitions": {
+                    "0": 152
+                }
             }
         }
     ]

@@ -134,13 +134,8 @@ func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stre
 	schema.AddTypes("timestamp", types.Int64) // Message timestamp
 	stream.WithSchema(schema)
 
-	// Set offset and partition as primary key
-	stream.WithPrimaryKey("offset")
-	stream.WithPrimaryKey("partition")
-
 	// Set offset as available cursor field for incremental sync
 	stream.WithCursorField("offset")
-
 	return stream, nil
 }
 
