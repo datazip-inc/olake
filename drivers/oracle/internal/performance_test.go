@@ -1,49 +1,20 @@
 package driver
 
 import (
-	"context"
 	"testing"
 
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/testutils"
-	"github.com/jmoiron/sqlx"
-)
-
-const (
-	backfillStream = "USERS"
-	namespace      = "ADMIN"
 )
 
 func TestOraclePerformance(t *testing.T) {
-	config := testutils.PerformanceTestConfig{
-		TestConfig:      testutils.GetTestConfig("oracle"),
-		Namespace:       namespace,
-		BackfillStreams: []string{backfillStream},
-		CDCStreams:      nil,
-		ConnectDB:       connectDatabase,
-		CloseDB:         closeDatabase,
-		SetupCDC:        nil,
-		TriggerCDC:      nil,
-		SupportsCDC:     false,
+	config := &testutils.PerformanceTest{
+		TestConfig:     testutils.GetTestConfig("oracle"),
+		Namespace:      "ADMIN",
+		BackfillStream: "USERS",
+		CDCStream:      "",
+		ExecuteQuery:   nil,
+		SupportsCDC:    false,
 	}
 
-	testutils.RunPerformanceTest(t, config)
-}
-
-func connectDatabase(ctx context.Context) (interface{}, error) {
-	var cfg Oracle
-	if err := utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false); err != nil {
-		return nil, err
-	}
-	if err := cfg.Setup(ctx); err != nil {
-		return nil, err
-	}
-	return cfg.client, nil
-}
-
-func closeDatabase(conn interface{}) error {
-	if db, ok := conn.(*sqlx.DB); ok {
-		return db.Close()
-	}
-	return nil
+	config.TestPerformance(t)
 }

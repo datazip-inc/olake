@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
@@ -234,4 +235,27 @@ var PostgresToIcebergSchema = map[string]string{
 	"col_uuid":              "uuid",
 	"col_varbit":            "varbit",
 	"col_xml":               "xml",
+}
+
+func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string) {
+	t.Helper()
+
+	var cfg Postgres
+	require.NoError(t, utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false))
+	require.NoError(t, cfg.Setup(ctx))
+	db := cfg.client
+	defer func() {
+		require.NoError(t, cfg.client.Close())
+	}()
+
+	switch op {
+	case "setup_cdc":
+		_, err := db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS test_cdc (id INT PRIMARY KEY, name VARCHAR(255))")
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op))
+		_, err = db.ExecContext(ctx, "TRUNCATE TABLE test_cdc")
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op))
+	case "trigger_cdc":
+		_, err := db.ExecContext(ctx, "INSERT INTO test_cdc SELECT * FROM test")
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op))
+	}
 }

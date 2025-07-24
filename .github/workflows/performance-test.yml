@@ -6,13 +6,6 @@ on:
     paths:
     - '**/*.go'
     - '**/*.java'
-  pull_request:
-    branches:
-    - "*"
-    paths:
-    - '**/*.go'
-    - '**/*.java'
-  workflow_dispatch:
 permissions:
   id-token: write
   contents: read
@@ -104,6 +97,7 @@ jobs:
         echo '${{ secrets.ORACLE_BENCHMARK_CDC_JSON }}' > ./drivers/oracle/internal/testconfig/benchmark_cdc.json
         echo '${{ secrets.MONGODB_BENCHMARK_CDC_JSON }}' > ./drivers/mongodb/internal/testconfig/benchmark_cdc.json
 
+    # TODO: make all test run in parallel
     - name: Run Performance Tests
       run: |
         go test -v -p 2 ./drivers/mysql/internal/... ./drivers/mongodb/internal/... -timeout 0 -run 'Performance'
