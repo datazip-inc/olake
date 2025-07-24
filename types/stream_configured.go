@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Input/Processed object for Stream
@@ -56,8 +57,15 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
-func (s *ConfiguredStream) Cursor() string {
-	return s.Stream.CursorField
+// returns primary and secondary cursor
+func (s *ConfiguredStream) Cursor() (string, string) {
+	cursorFields := strings.Split(s.Stream.CursorField, ":")
+	primaryCursor := cursorFields[0]
+	secondaryCursor := ""
+	if len(cursorFields) > 1 {
+		secondaryCursor = cursorFields[1]
+	}
+	return primaryCursor, secondaryCursor
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
@@ -99,8 +107,14 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	// no cursor validation in cdc and backfill sync
-	if s.Stream.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.Cursor()) {
-		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.Cursor(), source.AvailableCursorFields)
+	if s.Stream.SyncMode == INCREMENTAL {
+		primaryCursor, secondaryCursor := s.Cursor()
+		if !source.AvailableCursorFields.Exists(primaryCursor) {
+			return fmt.Errorf("invalid cursor field [%s]; valid are %v", primaryCursor, source.AvailableCursorFields)
+		}
+		if secondaryCursor != "" && !source.AvailableCursorFields.Exists(secondaryCursor) {
+			return fmt.Errorf("invalid secondary cursor field [%s]; valid are %v", secondaryCursor, source.AvailableCursorFields)
+		}
 	}
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
