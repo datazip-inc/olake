@@ -113,12 +113,9 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		if !exists {
 			return nil
 		}
-		if newStream.SupportedSyncModes().Exists(oldStream.Stream.SyncMode) {
-			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
-		}
-		if newStream.Stream.AvailableCursorFields.Exists(oldStream.Stream.CursorField) {
-			newStream.Stream.CursorField = oldStream.Stream.CursorField
-		}
+		// not adding checks, let validation handle it
+		newStream.Stream.SyncMode = oldStream.Stream.SyncMode
+		newStream.Stream.CursorField = oldStream.Stream.CursorField
 		return nil
 	})
 
