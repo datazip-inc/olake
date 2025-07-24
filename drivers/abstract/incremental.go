@@ -56,7 +56,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				// get cursor column from state and typecast it to cursor column type for comparisons
 				maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
 				if err != nil {
-					return fmt.Errorf("failed to get incremental cursor value: %s", err)
+					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 				}
 				errChan := make(chan error, 1)
 				inserter := pool.NewThread(ctx, stream, errChan)
@@ -124,13 +124,11 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 
 func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryCursor string, maxPrimaryCursorValue, maxSecondaryCursorValue any, data map[string]any) (any, any) {
 	primaryCursorValue := data[primaryCursor]
+	primaryCursorValue = utils.Ternary(typeutils.Compare(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
+
 	var secondaryCursorValue any
 	if secondaryCursor != "" {
 		secondaryCursorValue = data[secondaryCursor]
-	}
-
-	primaryCursorValue = utils.Ternary(typeutils.Compare(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
-	if secondaryCursor != "" {
 		secondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 	}
 	return primaryCursorValue, secondaryCursorValue

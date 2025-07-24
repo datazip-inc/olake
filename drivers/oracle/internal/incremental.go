@@ -14,7 +14,11 @@ import (
 )
 
 // oracleTimestampFormat defines the specific format required for Oracle's TO_TIMESTAMP_TZ function.
-const oracleColumnDatatypeQuery = "SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'"
+const (
+	timestampFormatTimezone   = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9TZR"
+	timestampFormatLiteral    = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\""
+	oracleColumnDatatypeQuery = "SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'"
+)
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
@@ -27,7 +31,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
 	}
 
-	incrementalCondition, err := o.formatCursorCondition(primaryCursor, secondaryCursor, stream, lastPrimaryCursorValue, lastSecondaryCursorValue)
+	incrementalCondition, err := o.buildIncrementalCondition(primaryCursor, secondaryCursor, stream, lastPrimaryCursorValue, lastSecondaryCursorValue)
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
@@ -57,39 +61,34 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	return rows.Err()
 }
 
-// formatCursorCondition generates the incremental condition SQL based on datatype and cursor value.
-func (o *Oracle) formatCursorCondition(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (string, error) {
+// buildIncrementalCondition generates the incremental condition SQL based on datatype and cursor value.
+func (o *Oracle) buildIncrementalCondition(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (string, error) {
 	formattedValue := func(cursorField string, lastCursorValue any) (string, error) {
+		// Get the datatype of the cursor field from streams
 		datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
 		if err != nil {
 			return "", fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
 		}
 
 		isTimestamp := strings.Contains(string(datatype), "timestamp")
-		var formattedValue string
+		formattedValue := fmt.Sprintf("'%v'", lastCursorValue)
 
 		if isTimestamp {
+			// Query database to determine if timestamp column is timezone-aware
 			query := fmt.Sprintf(oracleColumnDatatypeQuery, stream.Namespace(), stream.Name(), cursorField)
 			err := o.client.QueryRow(query).Scan(&datatype)
 			if err != nil {
 				return "", fmt.Errorf("failed to get column datatype: %s", err)
 			}
 
-			timestampFormat := ""
-			if strings.Contains(string(datatype), "TIME ZONE") {
-				timestampFormat = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9TZR"
-			} else {
-				timestampFormat = "YYYY-MM-DD\"T\"HH24:MI:SS.FF9\"Z\""
-			}
+			timestampFormat := utils.Ternary(strings.Contains(string(datatype), "TIME ZONE"), timestampFormatTimezone, timestampFormatLiteral).(string)
 
 			switch val := lastCursorValue.(type) {
-			case time.Time:
+			case time.Time: // Handle time.Time values from in-memory cursor state
 				formattedValue = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','%s')", val.UTC().Format("2006-01-02T15:04:05.000000000Z"), timestampFormat)
-			default:
+			default: // Handle timestamp values stored as strings in state file (UTC format)
 				formattedValue = fmt.Sprintf("TO_TIMESTAMP_TZ('%s','%s')", val, timestampFormat)
 			}
-		} else {
-			formattedValue = fmt.Sprintf("'%v'", lastCursorValue)
 		}
 		return formattedValue, nil
 	}
@@ -103,7 +102,7 @@ func (o *Oracle) formatCursorCondition(primaryCursorField string, secondaryCurso
 	if secondaryCursorField != "" {
 		secondaryFormattedValue, err := formattedValue(secondaryCursorField, lastSecondaryCursorValue)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to format secondary cursor value: %s", err)
 		}
 		incrementalCondition = fmt.Sprintf("((%q IS NULL AND %q >= %s) OR %s)", primaryCursorField, secondaryCursorField, secondaryFormattedValue, incrementalCondition)
 	}

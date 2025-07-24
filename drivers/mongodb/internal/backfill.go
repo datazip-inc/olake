@@ -323,7 +323,7 @@ func generatePipeline(start, end any, filter bson.D) mongo.Pipeline {
 	}
 
 	if end != nil {
-		// Changed from $lt to $lte to include boundary documents
+		// Changed from $lte to $lt to remove collision between boundaries
 		andOperation = append(andOperation, bson.D{{
 			Key: "_id",
 			Value: bson.D{{

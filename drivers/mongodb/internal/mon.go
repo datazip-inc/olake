@@ -183,8 +183,8 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
 		// add cursor fields which are not null and having only single type
 		if fieldName, ok := key.(string); ok {
-			exist, property := stream.Schema.GetProperty(fieldName)
-			if exist && property.Type.Len() == 1 {
+			exist, _ := stream.Schema.GetProperty(fieldName)
+			if exist {
 				stream.WithCursorField(fieldName)
 			}
 		}
