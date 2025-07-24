@@ -1,4 +1,5 @@
 name: Performance Tests
+
 on:
   push:
     branches:
@@ -6,12 +7,35 @@ on:
     paths:
     - '**/*.go'
     - '**/*.java'
+  pull_request:
+    branches:
+    - "*"
+    paths:
+    - '**/*.go'
+    - '**/*.java'
+  workflow_dispatch:
+
+
 permissions:
   id-token: write
   contents: read
+
 jobs:
   performance-tests:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - driver: mysql
+          driver_upper: MYSQL
+        - driver: mongodb
+          driver_upper: MONGODB
+        - driver: oracle
+          driver_upper: ORACLE
+        - driver: postgres
+          driver_upper: POSTGRES
+      fail-fast: false
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -28,12 +52,11 @@ jobs:
         java-version: '17'
 
     - name: Setup VPN Client
+      if: matrix.driver != 'oracle'
       run: |
-        # Install, configure, and connect in one step
-        set -eo pipefail
         sudo apt-get update -qq && sudo apt-get install -y openvpn iproute2 iputils-ping netcat-openbsd telnet
         sudo mkdir -p /etc/openvpn/client && sudo chmod 700 /etc/openvpn/client
-        echo "${{ secrets.OPENVPN_CONFIG }}" | base64 --decode | sudo tee /etc/openvpn/client/client.ovpn > /dev/null
+        echo "${{ secrets[format('{0}_OPENVPN_CONFIG', matrix.driver_upper)] }}" | base64 --decode | sudo tee /etc/openvpn/client/client.ovpn > /dev/null
         echo "${{ secrets.OPENVPN_USERNAME }}" | sudo tee /etc/openvpn/client/auth.txt > /dev/null
         sudo chmod 600 /etc/openvpn/client/client.ovpn /etc/openvpn/client/auth.txt
         sudo chown root:root /etc/openvpn/client/client.ovpn /etc/openvpn/client/auth.txt
@@ -58,62 +81,39 @@ jobs:
       run: go mod download
 
     - name: Build Project
-      run: |
-        go build -v ./...
+      run: go build -v ./...
 
     - name: Build Iceberg Sink
       working-directory: ./destination/iceberg/olake-iceberg-java-writer
       run: mvn clean package -DskipTests
 
-    - name: Create testconfig directories
-      run: |
-        mkdir -p ./drivers/postgres/internal/testconfig
-        mkdir -p ./drivers/mysql/internal/testconfig
-        mkdir -p ./drivers/oracle/internal/testconfig
-        mkdir -p ./drivers/mongodb/internal/testconfig
+    - name: Create testconfig directory
+      run: mkdir -p ./drivers/${{ matrix.driver }}/internal/testconfig
 
     - name: Create source
       run: |
-        echo '${{ secrets.POSTGRES_SOURCE_JSON }}' | base64 --decode > ./drivers/postgres/internal/testconfig/source.json
-        echo '${{ secrets.MYSQL_SOURCE_JSON }}' | base64 --decode > ./drivers/mysql/internal/testconfig/source.json
-        echo '${{ secrets.ORACLE_SOURCE_JSON }}' | base64 --decode > ./drivers/oracle/internal/testconfig/source.json
-        echo '${{ secrets.MONGODB_SOURCE_JSON }}' | base64 --decode > ./drivers/mongodb/internal/testconfig/source.json
+        echo '${{ secrets[format('{0}_SOURCE_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testconfig/source.json
 
-    - name: Create destinations
+    - name: Create destination
       run: |
-        echo '${{ secrets.POSTGRES_DESTINATION_JSON }}' | base64 --decode > ./drivers/postgres/internal/testconfig/destination.json
-        echo '${{ secrets.MYSQL_DESTINATION_JSON }}' | base64 --decode > ./drivers/mysql/internal/testconfig/destination.json
-        echo '${{ secrets.ORACLE_DESTINATION_JSON }}' | base64 --decode > ./drivers/oracle/internal/testconfig/destination.json
-        echo '${{ secrets.MONGODB_DESTINATION_JSON }}' | base64 --decode > ./drivers/mongodb/internal/testconfig/destination.json
+        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testconfig/destination.json
 
     - name: Create benchmark files
       run: |
-        echo '${{ secrets.POSTGRES_BENCHMARK_JSON }}' > ./drivers/postgres/internal/testconfig/benchmark.json
-        echo '${{ secrets.MYSQL_BENCHMARK_JSON }}' > ./drivers/mysql/internal/testconfig/benchmark.json
-        echo '${{ secrets.ORACLE_BENCHMARK_JSON }}' > ./drivers/oracle/internal/testconfig/benchmark.json
-        echo '${{ secrets.MONGODB_BENCHMARK_JSON }}' > ./drivers/mongodb/internal/testconfig/benchmark.json
-        echo '${{ secrets.POSTGRES_BENCHMARK_CDC_JSON }}' > ./drivers/postgres/internal/testconfig/benchmark_cdc.json
-        echo '${{ secrets.MYSQL_BENCHMARK_CDC_JSON }}' > ./drivers/mysql/internal/testconfig/benchmark_cdc.json
-        echo '${{ secrets.ORACLE_BENCHMARK_CDC_JSON }}' > ./drivers/oracle/internal/testconfig/benchmark_cdc.json
-        echo '${{ secrets.MONGODB_BENCHMARK_CDC_JSON }}' > ./drivers/mongodb/internal/testconfig/benchmark_cdc.json
+        echo '${{ secrets[format('{0}_BENCHMARK_JSON', matrix.driver_upper)] }}' > ./drivers/${{ matrix.driver }}/internal/testconfig/benchmark.json
+        echo '${{ secrets[format('{0}_BENCHMARK_CDC_JSON', matrix.driver_upper)] }}' > ./drivers/${{ matrix.driver }}/internal/testconfig/benchmark_cdc.json
 
-    # TODO: make all test run in parallel
     - name: Run Performance Tests
-      run: |
-        go test -v -p 2 ./drivers/mysql/internal/... ./drivers/mongodb/internal/... -timeout 0 -run 'Performance'
-        go test -v -p 2 ./drivers/oracle/internal/... ./drivers/postgres/internal/... -timeout 0 -run 'Performance'
+      run: go test -v ./drivers/${{ matrix.driver }}/internal/... -timeout 0 -run 'Performance'
 
     - name: Cleanup
       if: always()
       run: |
-        # Drop database from catalog
-        aws glue delete-database --name performance_mysql || echo "failed to delete mysql database"
-        aws glue delete-database --name performance_postgres || echo "failed to delete postgres database"
-        aws glue delete-database --name performance_oracle || echo "failed to delete oracle database"
-        aws glue delete-database --name performance_mongodb || echo "failed to delete mongodb database"
+        aws glue delete-database --name performance_${{ matrix.driver }} || echo "failed to delete ${{ matrix.driver }} database"
         echo "Catalog cleanup completed"
 
-        # VPN Cleanup
-        sudo pkill -f "openvpn.*client.ovpn" || true
-        sudo rm -rf /etc/openvpn/client/ /var/log/openvpn-client.log || true
-        echo "VPN cleanup completed"
+        if [[ "${{ matrix.driver }}" != "oracle" ]]; then
+            sudo pkill -f "openvpn.*client.ovpn" || true
+            sudo rm -rf /etc/openvpn/client/ /var/log/openvpn-client.log || true
+            echo "VPN cleanup completed"
+        fi
