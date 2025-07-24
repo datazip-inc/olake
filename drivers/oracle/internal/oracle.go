@@ -165,10 +165,45 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	return stream, pkRows.Err()
 }
 
-func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
+// reformatOracleDatatype removes extra information from type names for matching and returns in golang type
+func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (types.DataType, bool) {
+	switch {
+	case strings.HasPrefix(dataType, "TIMESTAMP"):
+		return types.TimestampMicro, true
+
+	case strings.HasPrefix(dataType, "INTERVAL"):
+		return types.String, true
+
+	case strings.HasPrefix(dataType, "FLOAT"):
+		if precision.Valid {
+			// up to 24 bits fits in float32, otherwise float64 (binary precision)
+			if precision.Int64 <= 24 {
+				return types.Float32, true
+			}
+		}
+		return types.Float64, true
+
+	case strings.HasPrefix(dataType, "NUMBER"):
+		if scale.Valid {
+			if scale.Int64 == 0 {
+				if precision.Valid && precision.Int64 <= 9 {
+					return types.Int32, true
+				}
+				return types.Int64, true
+			}
+			if precision.Valid && precision.Int64 <= 7 {
+				// float32 has about 6-7 decimal digits of precision
+				return types.Float32, true
+			}
+			return types.Float64, true
+		}
+		return types.Float64, true
+
+	default:
+		if val, found := abstract.DBTypeToDataTypes[strings.ToLower(dataType)]; found {
+			return val, true
+		}
+		// Treat unknown data types as strings
+		return types.Unknown, false
 	}
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, oracleTypeToDataTypes)
-	return typeutils.ReformatValue(olakeType, value)
 }

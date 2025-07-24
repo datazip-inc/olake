@@ -14,7 +14,7 @@ import (
 )
 
 // StreamIncrementalChanges implements incremental sync for Oracle
-func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
+func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, dataTypeConverter abstract.TypeConverterFn, processFn abstract.BackfillMsgFn) error {
 	cursorField := stream.Cursor()
 	lastCursorValue := o.state.GetCursor(stream.Self(), cursorField)
 
@@ -59,7 +59,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
+		if err := jdbc.MapScan(rows, record, dataTypeConverter); err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
 

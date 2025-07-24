@@ -173,7 +173,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				stream.WithCursorField(column.Name)
 			}
 			datatype := types.Unknown
-			if val, found := pgTypeToDataTypes[*column.DataType]; found {
+			if val, found := abstract.DBTypeToDataTypes[*column.DataType]; found {
 				datatype = val
 			} else {
 				logger.Debugf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
@@ -208,12 +208,4 @@ func (p *Postgres) MaxConnections() int {
 
 func (p *Postgres) MaxRetries() int {
 	return p.config.RetryCount
-}
-
-func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
-	}
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, pgTypeToDataTypes)
-	return typeutils.ReformatValue(olakeType, value)
 }

@@ -17,7 +17,7 @@ import (
 
 const chunkSize int64 = 500000 // Default chunk size for MySQL
 
-func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, dataTypeConverter abstract.TypeConverterFn, OnMessage abstract.BackfillMsgFn) (err error) {
 	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
@@ -44,7 +44,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		// Capture and process rows
 		return setter.Capture(func(rows *sql.Rows) error {
 			record := make(types.Record)
-			err := jdbc.MapScan(rows, record, m.dataTypeConverter)
+			err := jdbc.MapScan(rows, record, dataTypeConverter)
 			if err != nil {
 				return fmt.Errorf("failed to scan record data as map: %s", err)
 			}

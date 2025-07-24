@@ -1,0 +1,141 @@
+package abstract
+
+import "github.com/datazip-inc/olake/types"
+
+var DBTypeToDataTypes = map[string]types.DataType{
+	// Int32
+	"int":                types.Int32,
+	"integer":            types.Int32,
+	"smallint":           types.Int32,
+	"int2":               types.Int32,
+	"int4":               types.Int32,
+	"tinyint":            types.Int32,
+	"mediumint":          types.Int32,
+	"unsigned int":       types.Int32,
+	"unsigned smallint":  types.Int32,
+	"unsigned tinyint":   types.Int32,
+	"unsigned mediumint": types.Int32,
+	"bit":                types.Int32,
+	"serial":             types.Int32,
+	"serial2":            types.Int32,
+	"serial4":            types.Int32,
+	"smallserial":        types.Int32,
+	// oracle based int32
+	"int32": types.Int32,
+
+	// Int64
+	"bigint":    types.Int64,
+	"int8":      types.Int64,
+	"serial8":   types.Int64,
+	"bigserial": types.Int64,
+	"year":      types.Int64,
+	// oracle based int64
+	"int64": types.Int64,
+
+	// Float32
+	"float":        types.Float32,
+	"float4":       types.Float32,
+	"real":         types.Float32,
+	"decimal":      types.Float32,
+	"numeric":      types.Float32,
+	"ibfloat":      types.Float32,
+	"binary_float": types.Float32,
+
+	// Float64
+	"ibdouble":         types.Float64,
+	"binary_double":    types.Float64,
+	"double":           types.Float64,
+	"double precision": types.Float64,
+	"number":           types.Float64,
+	"float8":           types.Float64,
+
+	// Boolean types
+	"bool":    types.Bool,
+	"boolean": types.Bool,
+
+	// Date and time types
+	"timestamp":                   types.Timestamp,
+	"datetime":                    types.Timestamp,
+	"timestampz":                  types.Timestamp,
+	"timestamp with time zone":    types.Timestamp,
+	"timestamp without time zone": types.Timestamp,
+	"date":                        types.TimestampMicro,
+	"timestampdty":                types.TimestampMicro,
+	"timestamptz_dty":             types.TimestampMicro,
+	"timestampltz_dty":            types.TimestampMicro,
+	"time":                        types.String,
+	"timez":                       types.String,
+	"interval":                    types.String,
+	"intervalym_dty":              types.String,
+	"intervalds_dty":              types.String,
+
+	// String types
+	"char":              types.String,
+	"nchar":             types.String,
+	"varchar":           types.String,
+	"varchar2":          types.String,
+	"nvarchar2":         types.String,
+	"character":         types.String,
+	"character varying": types.String,
+	"text":              types.String,
+	"tinytext":          types.String,
+	"mediumtext":        types.String,
+	"longtext":          types.String,
+	"long":              types.String,
+	"longvarchar":       types.String,
+	"bytea":             types.String,
+	"varbit":            types.String,
+	"bit varying":       types.String,
+	"bit(n)":            types.String,
+	"varying(n)":        types.String,
+	"json":              types.String,
+	"jsonb":             types.String,
+	"enum":              types.String,
+	"set":               types.String,
+	"uuid":              types.String,
+	"xml":               types.String,
+	"xmltype":           types.String,
+	"hstore":            types.String,
+	"name":              types.String,
+	"cidr":              types.String,
+	"inet":              types.String,
+	"macaddr":           types.String,
+	"macaddr8":          types.String,
+	"money":             types.String,
+	"pg_lsn":            types.String,
+	"tsquery":           types.String,
+	"tsvector":          types.String,
+	"tsrange":           types.String,
+
+	// Geometry / Spatial
+	"geometry":           types.String,
+	"point":              types.String,
+	"linestring":         types.String,
+	"polygon":            types.String,
+	"circle":             types.String,
+	"box":                types.String,
+	"path":               types.String,
+	"line":               types.String,
+	"lseg":               types.String,
+	"multipoint":         types.String,
+	"multilinestring":    types.String,
+	"multipolygon":       types.String,
+	"geometrycollection": types.String,
+
+	// Binary / Blob types
+	"binary":     types.String,
+	"varbinary":  types.String,
+	"tinyblob":   types.String,
+	"blob":       types.String,
+	"mediumblob": types.String,
+	"longblob":   types.String,
+	"raw":        types.String,
+	"longraw":    types.String,
+	"clob":       types.String,
+	"nclob":      types.String,
+	"bfile":      types.String,
+
+	// Arrays
+	"array": types.Array,
+	"ARRAY": types.Array,
+}

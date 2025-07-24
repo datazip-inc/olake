@@ -9,6 +9,6 @@ import (
 )
 
 // IncrementalChanges is not supported for MySQL
-func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
+func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, dataTypeConverter abstract.TypeConverterFn, cb abstract.BackfillMsgFn) error {
 	return fmt.Errorf("incremental sync is not supported for MySQL driver")
 }

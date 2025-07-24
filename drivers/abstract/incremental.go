@@ -75,7 +75,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
+					return a.driver.StreamIncrementalChanges(ctx, stream, dataTypeConverter, func(record map[string]any) error {
 						cursorValue := record[cursorField]
 						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()

@@ -162,7 +162,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			}
 			datatype := types.Unknown
 
-			if val, found := mysqlTypeToDataTypes[dataType]; found {
+			if val, found := abstract.DBTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
@@ -182,14 +182,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
 	return stream, nil
-}
-
-func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
-	}
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
-	return typeutils.ReformatValue(olakeType, value)
 }
 
 // Close ensures proper cleanup

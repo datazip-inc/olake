@@ -77,7 +77,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+			return a.driver.ChunkIterator(ctx, stream, chunk, dataTypeConverter, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
 					cursorValue := data[cursorField]
