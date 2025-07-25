@@ -12,10 +12,10 @@ import (
 )
 
 func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	cursorField := stream.Cursor()
+	primaryCursor, _ := stream.Cursor()
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
-	lastCursorValue := m.state.GetCursor(stream.Self(), cursorField)
-	filter := buildMongoCondition(types.Condition{Column: cursorField, Value: fmt.Sprintf("%v", lastCursorValue), Operator: ">="})
+	lastCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
+	filter := buildMongoCondition(types.Condition{Column: primaryCursor, Value: fmt.Sprintf("%v", lastCursorValue), Operator: ">="})
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
