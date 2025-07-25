@@ -3,6 +3,7 @@ package waljs
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
@@ -54,34 +55,59 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 		}
 		return data, nil
 	}
-	rowsCount := 0
+
+	var (
+		rowsCount int
+		mu        sync.Mutex
+		wg        sync.WaitGroup
+		errCh     = make(chan error, len(changes.Change))
+	)
+
 	for _, ch := range changes.Change {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
 			continue
 		}
-		rowsCount++
-		var changesMap map[string]any
-		var err error
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var changesMap map[string]any
+			var err error
 
-		if ch.Kind == "delete" {
-			changesMap, err = buildChangesMap(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
-		} else {
-			changesMap, err = buildChangesMap(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
-		}
+			if ch.Kind == "delete" {
+				changesMap, err = buildChangesMap(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
+			} else {
+				changesMap, err = buildChangesMap(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
+			}
 
+			if err != nil {
+				errCh <- fmt.Errorf("failed to convert change data: %s", err)
+				return
+			}
+
+			if err := OnFiltered(abstract.CDCChange{
+				Stream:    stream,
+				Kind:      ch.Kind,
+				Timestamp: changes.Timestamp,
+				Data:      changesMap,
+			}); err != nil {
+				errCh <- fmt.Errorf("failed to write filtered change: %s", err)
+				return
+			}
+			mu.Lock()
+			rowsCount++
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
 		if err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to convert change data: %s", err)
-		}
-
-		if err := OnFiltered(abstract.CDCChange{
-			Stream:    stream,
-			Kind:      ch.Kind,
-			Timestamp: changes.Timestamp,
-			Data:      changesMap,
-		}); err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)
+			return nil, rowsCount, err
 		}
 	}
+
 	return &nextLSN, rowsCount, nil
 }
