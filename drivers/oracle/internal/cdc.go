@@ -15,7 +15,7 @@ func (o *Oracle) PostCDC(ctx context.Context, stream types.StreamInterface, succ
 }
 
 // PreCDC is called before CDC operation starts
-func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface, _ abstract.TypeConverterFn) error {
 	return nil
 }
 

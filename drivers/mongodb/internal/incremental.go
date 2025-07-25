@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
+func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, _ abstract.TypeConverterFn, processFn abstract.BackfillMsgFn) error {
 	primaryCursor, _ := stream.Cursor()
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 	lastCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)

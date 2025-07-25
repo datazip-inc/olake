@@ -28,13 +28,13 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 	}, nil
 }
 
-func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface, dataTypeConverter abstract.TypeConverterFn) error {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
 		return fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
-	socket, err := waljs.NewConnection(ctx, p.client, config, p.dataTypeConverter)
+	socket, err := waljs.NewConnection(ctx, p.client, config, dataTypeConverter)
 	if err != nil {
 		return fmt.Errorf("failed to create wal connection: %s", err)
 	}

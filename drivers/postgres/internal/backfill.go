@@ -12,7 +12,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, dataTypeConverter abstract.TypeConverterFn, OnMessage abstract.BackfillMsgFn) error {
 	filter, err := jdbc.SQLFilter(stream, p.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
@@ -34,7 +34,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		record := make(types.Record)
 
 		// Scan the row into the map
-		err := jdbc.MapScan(rows, record, p.dataTypeConverter)
+		err := jdbc.MapScan(rows, record, dataTypeConverter)
 		if err != nil {
 			return fmt.Errorf("failed to scan record data as map: %s", err)
 		}

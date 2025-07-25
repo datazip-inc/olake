@@ -6,6 +6,7 @@ import (
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func RetryOnBackoff(attempts int, sleep time.Duration, f func() error) (err error) {
@@ -24,4 +25,12 @@ func RetryOnBackoff(attempts int, sleep time.Duration, f func() error) (err erro
 	}
 
 	return err
+}
+
+func dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
+	if value == nil {
+		return nil, typeutils.ErrNullValue
+	}
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, DBTypeToDataTypes)
+	return typeutils.ReformatValue(olakeType, value)
 }

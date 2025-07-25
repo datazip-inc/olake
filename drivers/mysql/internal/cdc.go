@@ -13,7 +13,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
-func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalState, streams []types.StreamInterface) (*binlog.Connection, error) {
+func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalState, streams []types.StreamInterface, dataTypeConverter abstract.TypeConverterFn) (*binlog.Connection, error) {
 	if !m.CDCSupport {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
@@ -35,10 +35,10 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 		HeartbeatPeriod: 30 * time.Second,
 		InitialWaitTime: time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
 	}
-	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, dataTypeConverter)
 }
 
-func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface, dataTypeConverter abstract.TypeConverterFn) error {
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
@@ -57,7 +57,7 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("failed to unmarshal global state: %s", err)
 	}
 
-	conn, err := m.prepareBinlogConn(ctx, MySQLGlobalState, streams)
+	conn, err := m.prepareBinlogConn(ctx, MySQLGlobalState, streams, dataTypeConverter)
 	if err != nil {
 		return fmt.Errorf("failed to prepare binlog conn: %s", err)
 	}
