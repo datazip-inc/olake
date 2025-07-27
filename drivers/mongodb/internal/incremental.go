@@ -6,16 +6,32 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// StreamIncrementalChanges implements incremental sync for MongoDB
 func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	primaryCursor, _ := stream.Cursor()
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
-	lastCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
-	filter := buildMongoCondition(types.Condition{Column: primaryCursor, Value: fmt.Sprintf("%v", lastCursorValue), Operator: ">="})
+	primaryCursor, secondaryCursor := stream.Cursor()
+	lastPrimaryCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
+	lastSecondaryCursorValue := m.state.GetCursor(stream.Self(), secondaryCursor)
+
+	filter, err := buildFilter(stream)
+	if err != nil {
+		return fmt.Errorf("failed to build filter: %w", err)
+	}
+
+	incrementalFilter, err := m.buildIncrementalCondition(primaryCursor, secondaryCursor, lastPrimaryCursorValue, lastSecondaryCursorValue)
+	if err != nil {
+		return fmt.Errorf("failed to build incremental condition: %w", err)
+	}
+
+	// Merge cursor filter with stream filter using $and
+	filter = utils.Ternary(len(filter) > 0, bson.D{{Key: "$and", Value: bson.A{incrementalFilter, filter}}}, incrementalFilter).(bson.D)
+
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
@@ -39,4 +55,37 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 
 	return cursor.Err()
+}
+
+// buildIncrementalCondition generates the incremental condition BSON for MongoDB based on datatype and cursor value.
+func (m *Mongo) buildIncrementalCondition(primaryCursorField string, secondaryCursorField string, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (bson.D, error) {
+	
+	primaryCondition := buildMongoCondition(types.Condition{
+		Column:   primaryCursorField,
+		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
+		Operator: ">=",
+	})
+
+	if secondaryCursorField != "" {
+		secondaryCondition := buildMongoCondition(types.Condition{
+			Column:   secondaryCursorField,
+			Value:    fmt.Sprintf("%v", lastSecondaryCursorValue),
+			Operator: ">=",
+		})
+
+		primaryNullCondition := bson.D{
+			{Key: "$or", Value: bson.A{
+				primaryCondition,
+				bson.D{
+					{Key: "$and", Value: bson.A{
+						bson.D{{Key: primaryCursorField, Value: nil}},
+						secondaryCondition,
+					}},
+				},
+			}},
+		}
+		return primaryNullCondition, nil
+	}
+
+	return primaryCondition, nil
 }
