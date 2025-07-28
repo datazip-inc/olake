@@ -97,7 +97,7 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 	secondaryStateCursorValue := a.state.GetCursor(stream.Self(), secondaryCursorField)
 
 	if primaryStateCursorValue == nil || (secondaryCursorField != "" && secondaryStateCursorValue == nil) {
-		return primaryStateCursorValue, secondaryStateCursorValue, nil
+		return nil, nil, nil
 	}
 
 	getCursorValue := func(cursorField string, cursorValue any) (any, error) {
