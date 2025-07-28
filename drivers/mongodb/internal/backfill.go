@@ -326,7 +326,7 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection,
 }
 
 func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipeline {
-	var andCond []bson.D
+	var andOperation []bson.D
 
 	if isObjID {
 		// convert to primitive.ObjectID
@@ -335,24 +335,24 @@ func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipelin
 			end, _ = primitive.ObjectIDFromHex(end.(string))
 		}
 
-		andCond = append(andCond,
+		andOperation = append(andOperation,
 			bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}},
 		)
 	}
 
-	andCond = append(andCond,
+	andOperation = append(andOperation,
 		bson.D{{Key: "_id", Value: bson.D{{Key: "$gte", Value: start}}}},
 	)
 
 	if end != nil {
 		// Changed from $lte to $lt to remove collision between boundaries
-		andCond = append(andCond,
+		andOperation = append(andOperation,
 			bson.D{{Key: "_id", Value: bson.D{{Key: "$lt", Value: end}}}},
 		)
 	}
 
 	if len(filter) > 0 {
-		andCond = append(andCond, filter)
+		andOperation = append(andOperation, filter)
 	}
 
 	// Define the aggregation pipeline
@@ -363,7 +363,7 @@ func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipelin
 				Value: bson.D{
 					{
 						Key:   "$and",
-						Value: andCond,
+						Value: andOperation,
 					},
 				}},
 		},
