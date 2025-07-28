@@ -329,6 +329,7 @@ func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipelin
 	var andCond []bson.D
 
 	if isObjID {
+		// convert to primitive.ObjectID
 		start, _ = primitive.ObjectIDFromHex(start.(string))
 		if end != nil {
 			end, _ = primitive.ObjectIDFromHex(end.(string))
@@ -344,6 +345,7 @@ func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipelin
 	)
 
 	if end != nil {
+		// Changed from $lte to $lt to remove collision between boundaries
 		andCond = append(andCond,
 			bson.D{{Key: "_id", Value: bson.D{{Key: "$lt", Value: end}}}},
 		)
