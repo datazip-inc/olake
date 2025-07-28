@@ -343,7 +343,6 @@ func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipelin
 	andOperation = append(andOperation,
 		bson.D{{Key: "_id", Value: bson.D{{Key: "$gte", Value: start}}}},
 	)
-
 	if end != nil {
 		// Changed from $lte to $lt to remove collision between boundaries
 		andOperation = append(andOperation,
