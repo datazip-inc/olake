@@ -98,6 +98,26 @@ func LogRequest(req *http.Request) {
 	fmt.Println(string(requestDump))
 }
 
+// InterpolateQueryPlaceholders replaces the placeholders in the query with the actual values for logging
+func InterpolateQueryPlaceholders(query string, args []any) string {
+	for _, arg := range args {
+		var replacement string
+		switch v := arg.(type) {
+		case nil:
+			replacement = "NULL"
+		case string:
+			replacement = fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "''"))
+		case time.Time:
+			replacement = fmt.Sprintf("'%s'", v.UTC().Format("2006-01-02 15:04:05.000"))
+		default:
+			replacement = fmt.Sprintf("'%v'", v)
+		}
+		// Replace only the first occurrence of "?"
+		query = strings.Replace(query, "?", replacement, 1)
+	}
+	return query
+}
+
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
 func FileLogger(content any, fileName, fileExtension string) error {
 	// get config folder
