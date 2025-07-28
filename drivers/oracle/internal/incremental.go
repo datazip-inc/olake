@@ -25,6 +25,12 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	primaryCursor, secondaryCursor := stream.Cursor()
 	lastPrimaryCursorValue := o.state.GetCursor(stream.Self(), primaryCursor)
 	lastSecondaryCursorValue := o.state.GetCursor(stream.Self(), secondaryCursor)
+	if lastPrimaryCursorValue == nil {
+		logger.Warnf("Stored primary cursor value is nil for the stream [%s]", stream.ID())
+	}
+	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
+		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
+	}
 
 	filter, err := jdbc.SQLFilter(stream, o.Type())
 	if err != nil {
