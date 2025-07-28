@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
@@ -28,7 +29,13 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter), opts)
+	// check for _id type
+	isObjID, err := isObjectID(ctx, collection)
+	if err != nil {
+		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
+	}
+
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -69,11 +76,17 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
 	}
 
+	// check for _id type
+	isObjID, err := isObjectID(ctx, collection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
+	}
+
 	// Generate and update chunks
 	var retryErr error
 	var chunksArray []types.Chunk
 	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, filter)
+		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, filter, isObjID)
 		return retryErr
 	})
 	if err != nil {
@@ -82,7 +95,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return types.NewSet(chunksArray...), nil
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, filter bson.D) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, filter bson.D, isObjID bool) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
@@ -167,8 +180,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 		var buckets []struct {
 			ID struct {
-				Min primitive.ObjectID `bson:"min"`
-				Max primitive.ObjectID `bson:"max"`
+				Min interface{} `bson:"min"`
+				Max interface{} `bson:"max"`
 			} `bson:"_id"`
 			Count int `bson:"count"`
 		}
@@ -179,14 +192,27 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 		var chunks []types.Chunk
 		for _, bucket := range buckets {
+			// converts value according to _id string repr.
+			min, err := toString(bucket.ID.Min)
+			if err != nil {
+				return nil, err
+			}
+			max, err := toString(bucket.ID.Max)
+			if err != nil {
+				return nil, err
+			}
 			chunks = append(chunks, types.Chunk{
-				Min: bucket.ID.Min.Hex(),
-				Max: bucket.ID.Max.Hex(),
+				Min: min,
+				Max: max,
 			})
 		}
 		if len(buckets) > 0 {
+			max, err := toString(buckets[len(buckets)-1].ID.Max)
+			if err != nil {
+				return nil, err
+			}
 			chunks = append(chunks, types.Chunk{
-				Min: buckets[len(buckets)-1].ID.Max.Hex(),
+				Min: max,
 				Max: nil,
 			})
 		}
@@ -235,14 +261,19 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	case "timestamp":
 		return timestampStrategy()
 	default:
-		chunks, err := splitVectorStrategy()
-		// check if authorization error occurs
-		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
-			strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
-			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
+		if isObjID {
+			chunks, err := splitVectorStrategy()
+			// check if authorization error occurs
+			if err != nil && (strings.Contains(err.Error(), "not authorized") ||
+				strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
+				logger.Warnf("failed to get chunks via split vector strategy: %s", err)
+				return bucketAutoStrategy()
+			}
+			return chunks, err
+		} else {
+			// fall back to bucket auto startegy
 			return bucketAutoStrategy()
 		}
-		return chunks, err
 	}
 }
 
@@ -294,47 +325,32 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection,
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter bson.D) mongo.Pipeline {
-	// convert to primitive.ObjectID
-	start, _ = primitive.ObjectIDFromHex(start.(string))
-	if end != nil {
-		end, _ = primitive.ObjectIDFromHex(end.(string))
-	}
-	andOperation := bson.A{
-		bson.D{
-			{
-				Key: "$and",
-				Value: bson.A{
-					bson.D{{
-						Key: "_id", Value: bson.D{{
-							Key:   "$type",
-							Value: 7,
-						}},
-					}},
-					bson.D{{
-						Key: "_id",
-						Value: bson.D{{
-							Key:   "$gte",
-							Value: start,
-						}},
-					}},
-				}},
-		},
+func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipeline {
+	var andCond []bson.D
+
+	if isObjID {
+		start, _ = primitive.ObjectIDFromHex(start.(string))
+		if end != nil {
+			end, _ = primitive.ObjectIDFromHex(end.(string))
+		}
+
+		andCond = append(andCond,
+			bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}},
+		)
 	}
 
+	andCond = append(andCond,
+		bson.D{{Key: "_id", Value: bson.D{{Key: "$gte", Value: start}}}},
+	)
+
 	if end != nil {
-		// Changed from $lte to $lt to remove collision between boundaries
-		andOperation = append(andOperation, bson.D{{
-			Key: "_id",
-			Value: bson.D{{
-				Key:   "$lt",
-				Value: end,
-			}},
-		}})
+		andCond = append(andCond,
+			bson.D{{Key: "_id", Value: bson.D{{Key: "$lt", Value: end}}}},
+		)
 	}
 
 	if len(filter) > 0 {
-		andOperation = append(andOperation, filter)
+		andCond = append(andCond, filter)
 	}
 
 	// Define the aggregation pipeline
@@ -345,7 +361,7 @@ func generatePipeline(start, end any, filter bson.D) mongo.Pipeline {
 				Value: bson.D{
 					{
 						Key:   "$and",
-						Value: andOperation,
+						Value: andCond,
 					},
 				}},
 		},
@@ -425,4 +441,34 @@ func buildFilter(stream types.StreamInterface) (bson.D, error) {
 	default:
 		return bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}}, nil
 	}
+}
+
+func toString(v interface{}) (string, error) {
+	switch t := v.(type) {
+	case primitive.ObjectID:
+		return t.Hex(), nil
+	case string:
+		return t, nil
+	default:
+		// fallback
+		return utils.ConvertToString(v), nil
+	}
+}
+
+func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error) {
+	var doc bson.M
+	err := collection.FindOne(ctx, bson.D{}).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			// No data
+			return true, nil
+		}
+		return false, err
+	}
+	idVal, ok := doc["_id"]
+	if !ok {
+		return false, fmt.Errorf("no _id field found")
+	}
+	_, isObjID := idVal.(primitive.ObjectID)
+	return isObjID, nil
 }
