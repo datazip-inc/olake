@@ -55,6 +55,8 @@ type Config struct {
 	//   required=true
 	// )
 	Prefix string `json:"s3_path,omitempty"`
+	// S3 endpoint for custom S3-compatible services (like MinIO)
+	S3Endpoint string `json:"s3_endpoint,omitempty"`
 }
 
 func (c *Config) Validate() error {
