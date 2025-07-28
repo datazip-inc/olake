@@ -19,7 +19,7 @@ env:
 jobs:
   integration-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -72,6 +72,16 @@ jobs:
 
       - name: Build Project
         run: go build -v ./...
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ./destination/iceberg/olake-iceberg-java-writer/target
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
 
       - name: Build Iceberg Sink
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
