@@ -78,7 +78,6 @@ jobs:
         with:
           path: |
             ~/.m2/repository
-            ./destination/iceberg/olake-iceberg-java-writer/target
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
