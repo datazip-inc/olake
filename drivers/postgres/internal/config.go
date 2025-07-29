@@ -24,9 +24,11 @@ type Config struct {
 	RetryCount       int               `json:"retry_count"`
 }
 
+// Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
-	InitialWaitTime int    `json:"initial_wait_time"`
+	// initial wait time must be in range [120,2400), default value 1200
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
 func (c *Config) Validate() error {

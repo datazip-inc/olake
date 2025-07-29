@@ -11,17 +11,17 @@ import (
 
 type Config struct {
 	Hosts            []string `json:"hosts"`
-	Database         string   `json:"database"`
-	AuthDB           string   `json:"authdb"`
 	Username         string   `json:"username"`
 	Password         string   `json:"password"`
+	AuthDB           string   `json:"authdb"`
 	ReplicaSet       string   `json:"replica_set"`
 	ReadPreference   string   `json:"read_preference"`
 	Srv              bool     `json:"srv"`
+	ServerRAM        int      `json:"server_ram"`
 	MaxThreads       int      `json:"max_threads"`
+	Database         string   `json:"database"`
 	RetryCount       int      `json:"backoff_retry_count"`
 	ChunkingStrategy string   `json:"chunking_strategy"`
-	ServerRAM        int      `json:"server_ram"`
 }
 
 func (c *Config) URI() string {
@@ -61,6 +61,7 @@ func (c *Config) URI() string {
 	return u.String()
 }
 
+// TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
 	return utils.Validate(c)
 }
