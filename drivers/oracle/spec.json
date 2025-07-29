@@ -1,0 +1,74 @@
+{
+    "type": "object",
+    "properties": {
+      "connection_type": {
+        "type": "string",
+        "title": "Connection Type",
+        "enum": [
+          "sid",
+          "service_name"
+        ],
+        "default": "sid"
+      },
+      "host": {
+        "type": "string",
+        "title": "Host"
+      },
+      "port": {
+        "type": "integer",
+        "title": "Port"
+      },
+      "username": {
+        "type": "string",
+        "title": "Username"
+      },
+      "password": {
+        "type": "string",
+        "title": "Password",
+        "format": "password"
+      }
+    },
+    "required": [
+      "connection_type",
+      "host",
+      "port",
+      "username",
+      "password"
+    ],
+    "dependencies": {
+      "connection_type": {
+        "oneOf": [
+          {
+            "properties": {
+              "connection_type": {
+                "const": "sid"
+              },
+              "sid": {
+                "type": "string",
+                "title": "SID",
+                "description": "Oracle SID to connect to"
+              }
+            },
+            "required": [
+              "sid"
+            ]
+          },
+          {
+            "properties": {
+              "connection_type": {
+                "const": "service_name"
+              },
+              "service_name": {
+                "type": "string",
+                "title": "Service Name",
+                "description": "Oracle Service Name to connect to"
+              }
+            },
+            "required": [
+              "service_name"
+            ]
+          }
+        ]
+      }
+    }
+  }

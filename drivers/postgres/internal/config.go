@@ -10,154 +10,24 @@ import (
 )
 
 type Config struct {
-	Connection *url.URL `json:"-"`
-
-	// Host
-	//
-	// @jsonSchema(
-	//   title="Postgres Host",
-	//   description="Database host address for connection",
-	//   type="string",
-	//   required=true
-	// )
-	Host string `json:"host"`
-
-	// Port
-	//
-	// @jsonSchema(
-	//   title="Postgres Port",
-	//   description="Database server listening port",
-	//   type="integer",
-	//   required=true
-	// )
-	Port int `json:"port"`
-
-	// Database
-	//
-	// @jsonSchema(
-	//   title="Database Name",
-	//   description="Name of the database to use for connection",
-	//   type="string",
-	//   required=true
-	// )
-	Database string `json:"database"`
-
-	// Username
-	//
-	// @jsonSchema(
-	//   title="Username",
-	//   description="Username used to authenticate with the database",
-	//   type="string",
-	//   required=true
-	// )
-	Username string `json:"username"`
-
-	// Password
-	//
-	// @jsonSchema(
-	//   title="Password",
-	//   description="Password for database authentication",
-	//   type="string",
-	//   format="password",
-	//   required=true
-	// )
-	Password string `json:"password"`
-
-	// JDBCURLParams
-	//
-	// @jsonSchema(
-	//   title="JDBC URL Parameters",
-	//   description="Additional JDBC URL parameters for connection tuning (optional)",
-	//   additionalProperties="string"
-	// )
-	JDBCURLParams map[string]string `json:"jdbc_url_params"`
-
-	// SSLConfiguration
-	//
-	// @jsonSchema(
-	//   title="SSL Configuration",
-	//   description="Database connection SSL configuration (e.g., SSL mode)"
-	// )
-	SSLConfiguration *utils.SSLConfig `json:"ssl"`
-
-	// @jsonSchema(
-	//   title="Update Method",
-	//   description="Method to use for updates (CDC - Change Data Capture or Full Refresh)",
-	//   oneOf=["CDC","Standalone"]
-	// )
-	UpdateMethod interface{} `json:"update_method"`
-
-	// BatchSize
-	//
-	// @jsonSchema(
-	//   title="Reader Batch Size",
-	//   description="Max batch size for read operations",
-	//   type="integer"
-	// )
-	BatchSize int `json:"reader_batch_size"`
-
-	// MaxThreads
-	//
-	// @jsonSchema(
-	//   title="Max Threads",
-	//   description="Max parallel threads for chunk snapshotting",
-	//   type="integer",
-	//   default=3
-	// )
-	MaxThreads int `json:"max_threads"`
-
-	// RetryCount
-	//
-	// @jsonSchema(
-	//   title="Retry Count",
-	//   description="Number of sync retry attempts using exponential backoff",
-	//   type="integer",
-	//   default=3
-	// )
-	RetryCount int `json:"retry_count"`
+	Connection       *url.URL          `json:"-"`
+	Host             string            `json:"host"`
+	Port             int               `json:"port"`
+	Database         string            `json:"database"`
+	Username         string            `json:"username"`
+	Password         string            `json:"password"`
+	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
+	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
+	UpdateMethod     interface{}       `json:"update_method"`
+	BatchSize        int               `json:"reader_batch_size"`
+	MaxThreads       int               `json:"max_threads"`
+	RetryCount       int               `json:"retry_count"`
 }
 
-// CDC represents the Change Data Capture configuration
-//
-// @jsonSchema(
-//
-//	title="CDC",
-//	description="Change Data Capture configuration",
-//	additionalProperties=false
-//
-// )
 type CDC struct {
-	// ReplicationSlot
-	//
-	// @jsonSchema(
-	// title="Replication Slot",
-	// description="Slot to retain WAL logs for consistent replication",
-	// type="string",
-	// required=true,
-	// default="postgres_slot"
-	// )
 	ReplicationSlot string `json:"replication_slot"`
-
-	// InitialWaitTime
-	//
-	// @jsonSchema(
-	//   title="Initial Wait Time",
-	//   description="Idle timeout for WAL log reading",
-	//   type="integer",
-	//   required=true
-	// )
-	InitialWaitTime int `json:"initial_wait_time"`
+	InitialWaitTime int    `json:"initial_wait_time"`
 }
-
-// Standalone represents the standalone configuration
-//
-// @jsonSchema(
-//
-//	title="Standalone",
-//	additionalProperties=false
-//
-// )
-type Standalone struct{}
 
 func (c *Config) Validate() error {
 	if c.Host == "" {

@@ -13,13 +13,6 @@ const (
 
 // SSLConfig is a dto for deserialized SSL configuration for Postgres
 type SSLConfig struct {
-	// SSL mode
-	//
-	// @jsonschema(
-	// required=true,
-	// enum=["require","disable","verify-ca","verify-full"],
-	// default="disable"
-	// )
 	Mode       string `mapstructure:"mode,omitempty" json:"mode,omitempty" yaml:"mode,omitempty"`
 	ServerCA   string `mapstructure:"server_ca,omitempty" json:"server_ca,omitempty" yaml:"server_ca,omitempty"`
 	ClientCert string `mapstructure:"client_cert,omitempty" json:"client_cert,omitempty" yaml:"client_cert,omitempty"`

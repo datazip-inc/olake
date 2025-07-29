@@ -1,6 +1,10 @@
 package constants
 
-var UISchemaMap = map[string]string{
+import (
+	"fmt"
+)
+
+var uiSchemaMap = map[string]string{
 	"mongodb":  MongoDBUISchema,
 	"postgres": PostgresUISchema,
 	"mysql":    MySQLUISchema,
@@ -149,3 +153,12 @@ const IcebergUISchema = `{
         }
     }
 }`
+
+func LoadUISchema(schemaType string) (string, error) {
+	jsonStr, ok := uiSchemaMap[schemaType]
+	if !ok {
+		return "", fmt.Errorf("schema not found")
+	}
+
+	return jsonStr, nil
+}
