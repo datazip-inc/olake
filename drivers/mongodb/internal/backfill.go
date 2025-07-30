@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
@@ -150,17 +151,16 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err != nil {
 			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
 		}
+		// Group every 8 splitVector chunks (~1GB each) into a single larger chunk (~8GB) for consistency with other chunking strategies
 		var chunks []types.Chunk
-		for i := 0; i < len(boundaries)-1; i++ {
+		for idx := 0; idx < len(boundaries)-1; idx += 8 {
+			var maxBoundary any
+			if idx < (len(boundaries) - 9) {
+				maxBoundary = boundaries[idx+8].Hex()
+			}
 			chunks = append(chunks, types.Chunk{
-				Min: boundaries[i].Hex(),
-				Max: boundaries[i+1].Hex(),
-			})
-		}
-		if len(boundaries) > 0 {
-			chunks = append(chunks, types.Chunk{
-				Min: boundaries[len(boundaries)-1].Hex(),
-				Max: nil,
+				Min: boundaries[idx].Hex(),
+				Max: maxBoundary,
 			})
 		}
 		return chunks, nil
@@ -172,11 +172,23 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if len(filter) > 0 {
 			pipeline = append(pipeline, bson.D{{Key: "$match", Value: filter}})
 		}
+
+		var stats bson.M
+		err := collection.Database().RunCommand(ctx, bson.D{{Key: "collStats", Value: collection.Name()}}).Decode(&stats)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get collection stats: %s", err)
+		}
+		storageSize, err := typeutils.ReformatFloat64(stats["storageSize"])
+		if err != nil {
+			return nil, fmt.Errorf("failed to get collection stats: %s", err)
+		}
+
+		numberOfChunks := int(math.Ceil(storageSize.(float64) / float64(constants.EffectiveParquetSize)))
 		pipeline = append(pipeline,
 			bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 			bson.D{{Key: "$bucketAuto", Value: bson.D{
 				{Key: "groupBy", Value: "$_id"},
-				{Key: "buckets", Value: m.config.MaxThreads * 4},
+				{Key: "buckets", Value: numberOfChunks},
 			}}},
 		)
 
@@ -199,29 +211,22 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		}
 
 		var chunks []types.Chunk
-		for _, bucket := range buckets {
+		for idx, bucket := range buckets {
 			// converts value according to _id string repr.
 			min, err := reformatID(bucket.ID.Min)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert bucket min value to required type: %s", err)
 			}
-			max, err := reformatID(bucket.ID.Max)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
+			var max interface{}
+			if idx != len(buckets)-1 {
+				max, err = reformatID(bucket.ID.Max)
+				if err != nil {
+					return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
+				}
 			}
 			chunks = append(chunks, types.Chunk{
 				Min: min,
 				Max: max,
-			})
-		}
-		if len(buckets) > 0 {
-			max, err := reformatID(buckets[len(buckets)-1].ID.Max)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert last bucket max value to required type: %s", err)
-			}
-			chunks = append(chunks, types.Chunk{
-				Min: max,
-				Max: nil,
 			})
 		}
 
