@@ -370,6 +370,7 @@ func GetTestConfig(driver string) *TestConfig {
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	ctx := context.Background()
 
+	// checks if the current rps (from stats.json) is at least 90% of the benchmark rps
 	isRPSAboveBenchmark := func(config TestConfig, isBackfill bool) (bool, error) {
 		benchmarkFile := utils.Ternary(isBackfill, "benchmark.json", "benchmark_cdc.json").(string)
 
@@ -401,7 +402,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return false, err
 		}
 
-		fmt.Printf("CurrentRPS: %.2f, BenchmarkRPS: %.2f\n", rps, benchmarkRps)
+		t.Logf("CurrentRPS: %.2f, BenchmarkRPS: %.2f\n", rps, benchmarkRps)
 
 		if rps < 0.9*benchmarkRps {
 			return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
@@ -418,19 +419,22 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		return fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath, utils.Ternary(isBackfill, "", fmt.Sprintf("--state %s", config.StatePath)).(string))
 	}
 
-	updateStreamsCommand := func(config TestConfig, namespace string, stream string) string {
+	updateStreamsCommand := func(config TestConfig, namespace string, stream string, isBackfill bool) string {
 		if len(stream) == 0 {
 			return ""
 		}
 
 		condition := fmt.Sprintf(`.stream_name == "%s"`, stream)
+		tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc"))
 
 		jqExpr := fmt.Sprintf(
-			`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
+			`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > %s && mv %s %s`,
 			namespace,
 			namespace,
 			condition,
 			config.CatalogPath,
+			tmpCatalog,
+			tmpCatalog,
 			config.CatalogPath,
 		)
 
@@ -465,7 +469,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
 							t.Log(string(output))
 
-							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStream)
+							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStream, true)
 							_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
 							require.NoError(t, err, "Failed to update streams")
 
@@ -487,7 +491,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
 								t.Log(string(output))
 
-								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStream)
+								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStream, false)
 								_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 

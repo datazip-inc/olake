@@ -13,8 +13,6 @@ on:
     paths:
     - '**/*.go'
     - '**/*.java'
-  workflow_dispatch:
-
 
 permissions:
   id-token: write
@@ -109,7 +107,7 @@ jobs:
     - name: Cleanup
       if: always()
       run: |
-        aws glue delete-database --name performance_${{ matrix.driver }} || echo "failed to delete ${{ matrix.driver }} database"
+        aws glue delete-database --name performance_${{ matrix.driver }} || { echo "failed to delete glue database: performance_${{ matrix.driver }}"; aws glue get-database --name performance_${{ matrix.driver }} || true; }
         echo "Catalog cleanup completed"
 
         if [[ "${{ matrix.driver }}" != "oracle" ]]; then
