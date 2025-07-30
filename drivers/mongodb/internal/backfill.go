@@ -81,7 +81,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
-	logger.Infof("_id is %s ObjectID", utils.Ternary(isObjID, "", "not").(string))
+	logger.Infof("_id is%sObjectID", utils.Ternary(isObjID, "", " not ").(string))
 
 	// Generate and update chunks
 	var retryErr error
@@ -104,7 +104,14 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			if err == mongo.ErrNoDocuments {
 				return primitive.NilObjectID, nil
 			}
-			return doc["_id"].(primitive.ObjectID), err
+			if err != nil {
+				return primitive.NilObjectID, err
+			}
+			id, ok := doc["_id"].(primitive.ObjectID)
+			if !ok {
+				return primitive.NilObjectID, fmt.Errorf("multiple type _id exist")
+			}
+			return id, nil
 		}
 
 		minID, err := getID(1)
