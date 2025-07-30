@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
@@ -76,15 +77,25 @@ func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Optio
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	// Convert record to Debezium format with thread ID
 	// We are adding the thread ID to process the records from multiple threads in parallel and separately so that we can commit when each thread finishes.
-	var debeziumRecordArr []string
+	var iceRecords []types.IceRecord
 	for _, record := range records {
 		debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled(), i.threadID)
 		if err != nil {
 			return fmt.Errorf("failed to convert record: %v", err)
 		}
-		debeziumRecordArr = append(debeziumRecordArr, debeziumRecord)
+		iceRecords = append(iceRecords, *debeziumRecord)
 	}
-	err := i.sendRecords(ctx, debeziumRecordArr)
+	finalPayload := types.IcebergWriterPayload{
+		Type: "records",
+		Metadata: types.Metadata{
+			DestTableName: i.stream.Name(),
+			ThreadID:      i.threadID,
+			PrimaryKey:    constants.OlakeID,
+		},
+		Records: iceRecords,
+	}
+
+	err := i.sendRecords(ctx, finalPayload)
 	if err != nil {
 		return fmt.Errorf("thread id %s: failed to flush buffer: %s", i.threadID, err)
 	}
@@ -110,12 +121,14 @@ func (i *Iceberg) Close(ctx context.Context, finalFlush bool) error {
 		defer cancel()
 
 		// Create a special commit message
-		commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, i.threadID)
+		// commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, i.threadID)
 
-		req := &proto.RecordIngestRequest{
-			Messages: []string{commitMessage},
+		req := &proto.IcebergPayload{
+			Type: proto.IcebergPayload_COMMIT,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId: i.threadID,
+			},
 		}
-
 		res, err := i.client.SendRecords(ctx, req)
 		if err != nil {
 			logger.Errorf("thread id %s: Error sending commit message on close: %s", i.threadID, err)
@@ -154,18 +167,18 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Try to send a test message
-	req := &proto.RecordIngestRequest{
-		Messages: []string{getTestDebeziumRecord(i.threadID)},
-	}
+	// // Try to send a test message
+	// req := &proto.RecordIngestRequest{
+	// 	Messages: []string{getTestDebeziumRecord(i.threadID)},
+	// }
 
-	// Call the remote procedure
-	res, err := i.client.SendRecords(ctx, req)
-	if err != nil {
-		return fmt.Errorf("error sending record to Iceberg RPC Server: %s", err)
-	}
+	// // Call the remote procedure
+	// res, err := i.client.SendRecords(ctx, req)
+	// if err != nil {
+	// 	return fmt.Errorf("error sending record to Iceberg RPC Server: %s", err)
+	// }
 	// Print the response from the server
-	logger.Infof("thread id %s: Server Response: %s", i.threadID, res.GetResult())
+	// logger.Infof("thread id %s: Server Response: %s", i.threadID, res.GetResult())
 
 	return nil
 }

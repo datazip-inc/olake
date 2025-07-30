@@ -16,10 +16,12 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // portMap tracks which ports are in use
@@ -384,59 +386,59 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	return nil
 }
 
-func getTestDebeziumRecord(threadID string) string {
-	randomID := utils.ULID()
+// func getTestDebeziumRecord(threadID string) string {
+// 	randomID := utils.ULID()
 
-	return `{
-			"destination_table": "olake_test_table",
-			"thread_id": "` + threadID + `",
-			"key": {
-				"schema" : {
-						"type" : "struct",
-						"fields" : [ {
-							"type" : "string",
-							"optional" : true,
-							"field" : "` + constants.OlakeID + `"
-						} ],
-						"optional" : false
-					},
-					"payload" : {
-						"` + constants.OlakeID + `" : "` + randomID + `"
-					}
-				}
-				,
-			"value": {
-				"schema" : {
-					"type" : "struct",
-					"fields" : [ {
-					"type" : "string",
-					"optional" : true,
-					"field" : "` + constants.OlakeID + `"
-					}, {
-					"type" : "string",
-					"optional" : true,
-					"field" : "` + constants.OpType + `"
-					}, {
-					"type" : "string",
-					"optional" : true,
-					"field" : "` + constants.DBName + `"
-					}, {
-					"type" : "timestamptz",
-					"optional" : true,
-					"field" : "` + constants.OlakeTimestamp + `"
-					} ],
-					"optional" : false,
-					"name" : "dbz_.incr.incr1"
-				},
-				"payload" : {
-					"` + constants.OlakeID + `" : "` + randomID + `",
-					"` + constants.OpType + `" : "r",
-					"` + constants.DBName + `" : "incr",
-					"` + constants.OlakeTimestamp + `" : 1738502494009
-				}
-			}
-		}`
-}
+// 	return `{
+// 			"destination_table": "olake_test_table",
+// 			"thread_id": "` + threadID + `",
+// 			"key": {
+// 				"schema" : {
+// 						"type" : "struct",
+// 						"fields" : [ {
+// 							"type" : "string",
+// 							"optional" : true,
+// 							"field" : "` + constants.OlakeID + `"
+// 						} ],
+// 						"optional" : false
+// 					},
+// 					"payload" : {
+// 						"` + constants.OlakeID + `" : "` + randomID + `"
+// 					}
+// 				}
+// 				,
+// 			"value": {
+// 				"schema" : {
+// 					"type" : "struct",
+// 					"fields" : [ {
+// 					"type" : "string",
+// 					"optional" : true,
+// 					"field" : "` + constants.OlakeID + `"
+// 					}, {
+// 					"type" : "string",
+// 					"optional" : true,
+// 					"field" : "` + constants.OpType + `"
+// 					}, {
+// 					"type" : "string",
+// 					"optional" : true,
+// 					"field" : "` + constants.DBName + `"
+// 					}, {
+// 					"type" : "timestamptz",
+// 					"optional" : true,
+// 					"field" : "` + constants.OlakeTimestamp + `"
+// 					} ],
+// 					"optional" : false,
+// 					"name" : "dbz_.incr.incr1"
+// 				},
+// 				"payload" : {
+// 					"` + constants.OlakeID + `" : "` + randomID + `",
+// 					"` + constants.OpType + `" : "r",
+// 					"` + constants.DBName + `" : "incr",
+// 					"` + constants.OlakeTimestamp + `" : 1738502494009
+// 				}
+// 			}
+// 		}`
+// }
 
 // CloseIcebergClient closes the connection to the Iceberg server
 func (i *Iceberg) CloseIcebergClient() error {
@@ -471,29 +473,50 @@ func (i *Iceberg) CloseIcebergClient() error {
 }
 
 // sendRecords sends a slice of records to the Iceberg RPC server
-func (i *Iceberg) sendRecords(ctx context.Context, records []string) error {
+func (i *Iceberg) sendRecords(ctx context.Context, payload types.IcebergWriterPayload) error {
 	// Skip if empty
-	if len(records) == 0 {
+	if len(payload.Records) == 0 {
 		return nil
 	}
 
-	// Filter out any empty strings from records
-	validRecords := make([]string, 0, len(records))
-	for _, record := range records {
-		if record != "" {
-			validRecords = append(validRecords, record)
-		}
-	}
+	// // Filter out any empty strings from records
+	// validRecords := make([]string, 0, len(payload.Records))
+	// for _, record := range payload.Records {
+	// 	if record != "" {
+	// 		validRecords = append(validRecords, record)
+	// 	}
+	// }
 
-	// Skip if all records were empty after filtering
-	if len(validRecords) == 0 {
-		return nil
-	}
+	// // Skip if all records were empty after filtering
+	// if len(validRecords) == 0 {
+	// 	return nil
+	// }
 
-	logger.Infof("thread id %s: Sending batch to Iceberg server: %d records", i.threadID, len(validRecords))
+	// logger.Infof("thread id %s: Sending batch to Iceberg server: %d records", i.threadID, len(validRecords))
 	// Create request with all records
-	req := &proto.RecordIngestRequest{
-		Messages: validRecords,
+	var protoRecords []*proto.IcebergPayload_IceRecord
+	for _, record := range payload.Records {
+		var protoColumns []*proto.IcebergPayload_RecordItem
+		for _, iceColumn := range record.Record {
+			protoColumns = append(protoColumns, &proto.IcebergPayload_RecordItem{
+				Key:   iceColumn.Key,
+				Value: structpb.NewStringValue(fmt.Sprintf("%v", iceColumn.Value)),
+			})
+		}
+		protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
+			Record:     protoColumns,
+			RecordType: record.RecordType,
+		})
+	}
+	protoMetadata := &proto.IcebergPayload_Metadata{
+		DestTableName: payload.Metadata.DestTableName,
+		ThreadId:      payload.Metadata.ThreadID,
+		PrimaryKey:    &payload.Metadata.PrimaryKey,
+	}
+	req := &proto.IcebergPayload{
+		Type:     proto.IcebergPayload_RECORDS,
+		Metadata: protoMetadata,
+		Records:  protoRecords,
 	}
 
 	// Send to gRPC server with timeout
@@ -508,7 +531,7 @@ func (i *Iceberg) sendRecords(ctx context.Context, records []string) error {
 	}
 
 	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
-		len(validRecords),
+		len(payload.Records),
 		res.GetResult())
 
 	return nil

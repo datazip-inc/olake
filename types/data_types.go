@@ -1,8 +1,6 @@
 package types
 
 import (
-	"fmt"
-	"sort"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -74,9 +72,34 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 	}
 }
 
-func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization bool, threadID string) (string, error) {
+type Metadata struct {
+	DestTableName string `json:"dest_table_name"`
+	ThreadID      string `json:"thread_id"`
+	PrimaryKey    string `json:"primary_key,omitempty"` // omitempty because it's not in commit type
+}
+
+type IceColumn struct {
+	IceType string `json:"ice_type"`
+	Key     string `json:"key"`
+	Value   any    `json:"value"`
+}
+
+type IceRecord struct {
+	Record     []IceColumn `json:"record"`
+	RecordType string      `json:"record_type"` // u/c/r
+}
+
+type IcebergWriterPayload struct {
+	Type     string      `json:"type"` // "records" or "commit"
+	Metadata Metadata    `json:"metadata"`
+	Records  []IceRecord `json:"records,omitempty"` // omitempty because it's not in commit type
+}
+
+func (r *RawRecord) ToDebeziumFormat(db string, _ string, normalization bool, _ string) (*IceRecord, error) {
+	var rItem []IceColumn
+
 	// First create the schema and track field types
-	schema := r.createDebeziumSchema(db, stream, normalization)
+	// schema := r.createDebeziumSchema(db, stream, normalization)
 
 	// Create the payload with the actual data
 	payload := make(map[string]interface{})
@@ -87,149 +110,155 @@ func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization boo
 	// Handle data based on normalization flag
 	if normalization {
 		for key, value := range r.Data {
-			payload[key] = value
+			rItem = append(rItem, IceColumn{
+				Key:   key,
+				Value: value,
+			})
 		}
 	} else {
 		dataBytes, err := json.Marshal(r.Data)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		payload["data"] = string(dataBytes)
+		rItem = append(rItem, IceColumn{
+			Key:   "data",
+			Value: dataBytes,
+		})
 	}
-
+	rItem = append(rItem, IceColumn{Key: constants.OpType, Value: r.OperationType})
+	rItem = append(rItem, IceColumn{Key: constants.DBName, Value: db})
+	rItem = append(rItem, IceColumn{Key: constants.CdcTimestamp, Value: r.CdcTimestamp})
+	rItem = append(rItem, IceColumn{Key: constants.OlakeTimestamp, Value: r.OlakeTimestamp})
+	return &IceRecord{
+		Record:     rItem,
+		RecordType: r.OperationType,
+	}, nil
 	// Add the metadata fields
-	payload[constants.OpType] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
-	payload[constants.DBName] = db
-	payload[constants.CdcTimestamp] = r.CdcTimestamp
-	payload[constants.OlakeTimestamp] = r.OlakeTimestamp
+	// payload[constants.OpType] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
+	// payload[constants.DBName] = db
+	// payload[constants.CdcTimestamp] = r.CdcTimestamp
+	// payload[constants.OlakeTimestamp] = r.OlakeTimestamp
 
 	// Create Debezium format
-	debeziumRecord := map[string]interface{}{
-		"destination_table": stream,
-		"key": map[string]interface{}{
-			"schema": map[string]interface{}{
-				"type": "struct",
-				"fields": []map[string]interface{}{
-					{
-						"type":     "string",
-						"optional": true,
-						"field":    constants.OlakeID,
-					},
-				},
-				"optional": false,
-			},
-			"payload": map[string]interface{}{
-				constants.OlakeID: r.OlakeID,
-			},
-		},
-		"value": map[string]interface{}{
-			"schema":  schema,
-			"payload": payload,
-		},
-	}
+	// debeziumRecord := map[string]interface{}{
+	// 	"destination_table": stream,
+	// 	"key": map[string]interface{}{
+	// 		"schema": map[string]interface{}{
+	// 			"type": "struct",
+	// 			"fields": []map[string]interface{}{
+	// 				{
+	// 					"type":     "string",
+	// 					"optional": true,
+	// 					"field":    constants.OlakeID,
+	// 				},
+	// 			},
+	// 			"optional": false,
+	// 		},
+	// 		"payload": map[string]interface{}{
+	// 			constants.OlakeID: r.OlakeID,
+	// 		},
+	// 	},
+	// 	"value": map[string]interface{}{
+	// 		"schema":  schema,
+	// 		"payload": payload,
+	// 	},
+	// }
 
-	// Add thread_id if not empty
-	if threadID != "" {
-		debeziumRecord["thread_id"] = threadID
-	}
-
-	jsonBytes, err := json.Marshal(debeziumRecord)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
+	// // Add thread_id if not empty
+	// if threadID != "" {
+	// 	debeziumRecord["thread_id"] = threadID
+	// }
 }
 
-func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization bool) map[string]interface{} {
-	fields := make([]map[string]interface{}, 0)
+// func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization bool) map[string]interface{} {
+// 	fields := make([]map[string]interface{}, 0)
 
-	// Add olake_id field first
-	fields = append(fields, map[string]interface{}{
-		"type":     "string",
-		"optional": true,
-		"field":    constants.OlakeID,
-	})
+// 	// Add olake_id field first
+// 	fields = append(fields, map[string]interface{}{
+// 		"type":     "string",
+// 		"optional": true,
+// 		"field":    constants.OlakeID,
+// 	})
 
-	if normalization {
-		// Collect data fields for sorting
-		dataFields := make([]map[string]interface{}, 0, len(r.Data))
+// 	if normalization {
+// 		// Collect data fields for sorting
+// 		dataFields := make([]map[string]interface{}, 0, len(r.Data))
 
-		// Add individual data fields
-		for key, value := range r.Data {
-			field := map[string]interface{}{
-				"optional": true,
-				"field":    key,
-			}
+// 		// Add individual data fields
+// 		for key, value := range r.Data {
+// 			field := map[string]interface{}{
+// 				"optional": true,
+// 				"field":    key,
+// 			}
 
-			switch value.(type) {
-			case bool:
-				field["type"] = "boolean"
-			case int, int8, int16, int32:
-				field["type"] = "int32"
-			case int64:
-				field["type"] = "int64"
-			case float32:
-				field["type"] = "float32"
-			case float64:
-				field["type"] = "float64"
-			case time.Time:
-				field["type"] = "timestamptz" // use with timezone as we use default utc
-			default:
-				field["type"] = "string"
-			}
+// 			switch value.(type) {
+// 			case bool:
+// 				field["type"] = "boolean"
+// 			case int, int8, int16, int32:
+// 				field["type"] = "int32"
+// 			case int64:
+// 				field["type"] = "int64"
+// 			case float32:
+// 				field["type"] = "float32"
+// 			case float64:
+// 				field["type"] = "float64"
+// 			case time.Time:
+// 				field["type"] = "timestamptz" // use with timezone as we use default utc
+// 			default:
+// 				field["type"] = "string"
+// 			}
 
-			dataFields = append(dataFields, field)
-		}
+// 			dataFields = append(dataFields, field)
+// 		}
 
-		// Sorting basis on field names is needed because
-		// Iceberg writer detects different schemas for
-		// schema evolution based on order columns passed
-		sort.Slice(dataFields, func(i, j int) bool {
-			return dataFields[i]["field"].(string) < dataFields[j]["field"].(string)
-		})
+// 		// Sorting basis on field names is needed because
+// 		// Iceberg writer detects different schemas for
+// 		// schema evolution based on order columns passed
+// 		sort.Slice(dataFields, func(i, j int) bool {
+// 			return dataFields[i]["field"].(string) < dataFields[j]["field"].(string)
+// 		})
 
-		fields = append(fields, dataFields...)
-	} else {
-		// For non-normalized mode, add a single data field as string
-		fields = append(fields, map[string]interface{}{
-			"type":     "string",
-			"optional": true,
-			"field":    "data",
-		})
-	}
+// 		fields = append(fields, dataFields...)
+// 	} else {
+// 		// For non-normalized mode, add a single data field as string
+// 		fields = append(fields, map[string]interface{}{
+// 			"type":     "string",
+// 			"optional": true,
+// 			"field":    "data",
+// 		})
+// 	}
 
-	// Add metadata fields
-	fields = append(fields, []map[string]interface{}{
-		{
-			"type":     "string",
-			"optional": true,
-			"field":    constants.OpType,
-		},
-		{
-			"type":     "string",
-			"optional": true,
-			"field":    constants.DBName,
-		},
-		{
-			"type":     "timestamptz",
-			"optional": true,
-			"field":    constants.CdcTimestamp,
-		},
-		{
-			"type":     "timestamptz",
-			"optional": true,
-			"field":    constants.OlakeTimestamp,
-		},
-	}...)
+// 	// Add metadata fields
+// 	fields = append(fields, []map[string]interface{}{
+// 		{
+// 			"type":     "string",
+// 			"optional": true,
+// 			"field":    constants.OpType,
+// 		},
+// 		{
+// 			"type":     "string",
+// 			"optional": true,
+// 			"field":    constants.DBName,
+// 		},
+// 		{
+// 			"type":     "timestamptz",
+// 			"optional": true,
+// 			"field":    constants.CdcTimestamp,
+// 		},
+// 		{
+// 			"type":     "timestamptz",
+// 			"optional": true,
+// 			"field":    constants.OlakeTimestamp,
+// 		},
+// 	}...)
 
-	return map[string]interface{}{
-		"type":     "struct",
-		"fields":   fields,
-		"optional": false,
-		"name":     fmt.Sprintf("%s.%s", db, stream),
-	}
-}
+// 	return map[string]interface{}{
+// 		"type":     "struct",
+// 		"fields":   fields,
+// 		"optional": false,
+// 		"name":     fmt.Sprintf("%s.%s", db, stream),
+// 	}
+// }
 
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
