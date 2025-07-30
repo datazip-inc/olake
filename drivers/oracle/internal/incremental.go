@@ -41,7 +41,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
-	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)
+	filter = utils.Ternary(filter != "", fmt.Sprintf("(%s) AND %s", filter, incrementalCondition), incrementalCondition).(string)
 
 	query := fmt.Sprintf("SELECT * FROM %q.%q WHERE %s",
 		stream.Namespace(), stream.Name(), filter)
