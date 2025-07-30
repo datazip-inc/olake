@@ -2,6 +2,10 @@ package io.debezium.server.iceberg.rpc;
 
 import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
+import io.debezium.server.iceberg.MessageParser.CommitMessage;
+import io.debezium.server.iceberg.MessageParser.RecordsMessage;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.PayloadType;
 import io.debezium.server.iceberg.RecordConverter;
 import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.grpc.stub.StreamObserver;
@@ -46,31 +50,31 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     }
 
     @Override
-    public void sendRecords(RecordIngest.RecordIngestRequest request, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
+    public void sendRecords(RecordIngest.IcebergPayload request, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
         String requestId = String.format("[Thread-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
         long startTime = System.currentTimeMillis();
         // Retrieve the array of strings from the request
-        List<String> messages = request.getMessagesList();
+        // List<String> messages 
 
         try {
+            System.out.println("here is the metada : "+request.getMetadata());
             // First, check if this is a commit request
-            if (messages.size() == 1) {
-                String message = messages.get(0);
-                Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
-                if (messageMap.containsKey("commit") && messageMap.get("commit").equals(true) && messageMap.containsKey("thread_id")) {
-                    // This is a commit request
-                    String threadId = (String) messageMap.get("thread_id");
-                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
-                    icebergTableOperator.commitThread(threadId);
-                    
-                    RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
-                            .setResult(requestId + " Successfully committed data for thread " + threadId)
-                            .build();
-                    responseObserver.onNext(response);
-                    responseObserver.onCompleted();
-                    LOGGER.info("{} Successfully committed data for thread: {}", requestId, threadId);
-                    return;
+            if (request.getType() == PayloadType.COMMIT) {
+                RecordIngest.IcebergPayload.Metadata metadata = request.getMetadata();
+                String threadID = metadata.getThreadId();
+                if (threadID == "") {
+                    throw new Exception("thread id not present in metadata");
                 }
+                LOGGER.info("{} Received commit request for thread: {}", requestId, threadID);
+                icebergTableOperator.commitThread(threadID);
+                    
+                RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
+                    .setResult(requestId + " Successfully committed data for thread " + threadID)
+                    .build();
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+                LOGGER.info("{} Successfully committed data for thread: {}", requestId, threadID);
+                return;
             }
             
             // Normal record processing
@@ -118,14 +122,15 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     throw e;
                 }
             }
+
             LOGGER.info("{} Processing tables took: {} ms", requestId, (System.currentTimeMillis() - processingStartTime));
 
-            // Build and send a response
+            // finalize response
             RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
-                    .setResult(requestId + " Received " + messages.size() + " messages")
+                    .setResult(requestId + " Received " + request.getRecordsCount() + " messages")
                     .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
+            // responseObserver.onNext(response);
+            // responseObserver.onCompleted();
             LOGGER.info("{} Total time taken: {} ms", requestId, (System.currentTimeMillis() - startTime));
         } catch (Exception e) {
             String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
