@@ -5,7 +5,7 @@
     <br>OLake
 </h1>
 
-<p align="center">The fastest open-source tool for replicating databases to Apache Iceberg. OLake, an easy-to-use web interface and a CLI for efficient, scalable, & real-time data ingestion. Visit <a href="https://olake.io/" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
+<p align="center">The fastest open-source tool for replicating databases to Apache Iceberg. OLake, an easy-to-use web interface and a CLI for efficient, scalable, & real-time data ingestion. Visit <a href="https://olake.io/docs" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
 
 <p align="center">
     <a href="https://github.com/datazip-inc/olake/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"/></a> <a href="https://olake.io/docs"><img alt="Documentation" height="22" src="https://img.shields.io/badge/view-Documentation-blue?style=for-the-badge"/></a>
