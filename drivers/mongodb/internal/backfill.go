@@ -270,7 +270,6 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return timestampStrategy()
 	default:
 		if !isObjID {
-			// fall back to bucket auto strategy
 			return bucketAutoStrategy()
 		}
 		// Not using splitVector strategy when _id is not an ObjectID:
@@ -474,7 +473,7 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			// No data
-			return true, nil
+			return false, nil
 		}
 		return false, err
 	}
