@@ -3,92 +3,56 @@ package protocol
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
-	"github.com/goccy/go-json"
-
-	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/jsonschema"
 	"github.com/datazip-inc/olake/utils/logger"
-
 	"github.com/spf13/cobra"
 )
 
-var (
-	generate bool
-	airbyte  bool
-)
-
-// specCmd represents the read command
 var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
 	RunE: func(_ *cobra.Command, _ []string) error {
-		wd, _ := os.Getwd()
-		specfile := path.Join(wd, "generated.json")
-		spec := make(map[string]interface{})
-		if generate {
-			logger.Info("Generating Spec")
-
-			config := connector.Spec()
-			schema, err := jsonschema.Reflect(config)
-			if err != nil {
-				return err
-			}
-
-			err = utils.Unmarshal(schema, &spec)
-			if err != nil {
-				return fmt.Errorf("failed to generate json schema for config: %s", err)
-			}
-
-			file, err := os.OpenFile(specfile, os.O_CREATE|os.O_RDWR, os.ModePerm)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			bytes, err := json.MarshalIndent(spec, "", "\t")
-			if err != nil {
-				return err
-			}
-
-			_, err = file.Write(bytes)
-			if err != nil {
-				return err
-			}
-		} else {
-			logger.Info("Reading cached Spec")
-
-			err := utils.UnmarshalFile(specfile, &spec, false)
-			if err != nil {
-				return err
-			}
-		}
-
-		if airbyte {
-			spec = map[string]any{
-				"connectionSpecification": spec,
-			}
-		}
-
-		// log spec
-		message := types.Message{
-			Spec: spec,
-			Type: types.SpecMessage,
-		}
-		logger.Info(message)
-		err := logger.FileLogger(message.Spec, "config", ".json")
+		specPath, err := resolveSpecPath(destinationConfigPath)
 		if err != nil {
-			logger.Fatalf("failed to create spec file: %s", err)
+			return err
 		}
 
+		var specData map[string]interface{}
+		if err := utils.UnmarshalFile(specPath, &specData, false); err != nil {
+			return fmt.Errorf("failed to read spec file %s: %v", specPath, err)
+		}
+
+		schemaType := utils.Ternary(destinationConfigPath == "not-set", connector.Type(), destinationConfigPath).(string)
+		uiSchema, err := constants.LoadUISchema(schemaType)
+		if err != nil {
+			return fmt.Errorf("failed to get ui schema: %v", err)
+		}
+
+		specSchema := map[string]interface{}{
+			"spec":     specData,
+			"uischema": uiSchema,
+		}
+
+		logger.Info(specSchema)
 		return nil
 	},
 }
 
-func init() {
-	// TODO: Set false
-	RootCmd.PersistentFlags().BoolVarP(&generate, "generate", "", false, "(Optional) Generate Config")
-	RootCmd.PersistentFlags().BoolVarP(&airbyte, "airbyte", "", true, "(Optional) Print Config wrapped like airbyte")
+func resolveSpecPath(destinationConfigPath string) (string, error) {
+	pwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	olakeRoot := filepath.Join(pwd, "..", "..")
+	specPath := utils.Ternary(destinationConfigPath == "not-set", filepath.Join(olakeRoot, "drivers", connector.Type(), "spec.json"), filepath.Join(olakeRoot, "destination", destinationConfigPath, "spec.json")).(string)
+
+	// Check if the spec file exists
+	if _, err := os.Stat(specPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("spec file not found at %s", specPath)
+	}
+
+	return specPath, nil
 }
