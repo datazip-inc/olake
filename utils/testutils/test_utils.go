@@ -349,6 +349,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 	t.Logf("Verified datatypes in Iceberg after sync")
 }
 
+// GetTestConfig returns the test config for the given driver for performance tests
 func GetTestConfig(driver string) *TestConfig {
 	pwd, err := os.Getwd()
 	if err != nil {
