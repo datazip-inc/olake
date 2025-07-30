@@ -51,7 +51,8 @@
             },
             "required": [
               "sid"
-            ]
+            ],
+            "additionalProperties": false
           },
           {
             "properties": {
@@ -66,7 +67,8 @@
             },
             "required": [
               "service_name"
-            ]
+            ],
+            "additionalProperties": false
           }
         ]
       }

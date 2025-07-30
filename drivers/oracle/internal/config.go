@@ -18,15 +18,9 @@ type Config struct {
 	RetryCount       int               `json:"backoff_retry_count"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
-	ConnectionType   interface{}       `json:"connection_type"`
-	
-}
-type SID struct {
-	SID string `json:"sid"`
-}
-
-type ServiceName struct {
-	ServiceName string `json:"service_name"`
+	ConnectionType   string            `json:"connection_type"`
+	SID              string            `json:"sid"`
+	ServiceName      string            `json:"service_name"`
 }
 
 func (c *Config) connectionString() (string, error) {
@@ -36,20 +30,9 @@ func (c *Config) connectionString() (string, error) {
 		urlOptions[k] = v
 	}
 
-	serviceName := ""
-	found, _ := utils.IsOfType(c.ConnectionType, "sid")
-	if found {
-		unmarshalledSID := &SID{}
-		if err := utils.Unmarshal(c.ConnectionType, unmarshalledSID); err != nil {
-			return "", fmt.Errorf("failed to unmarshal sid: %s", err)
-		}
-		urlOptions["SID"] = unmarshalledSID.SID
-	} else {
-		unmarshalledServiceName := &ServiceName{}
-		if err := utils.Unmarshal(c.ConnectionType, unmarshalledServiceName); err != nil {
-			return "", fmt.Errorf("failed to unmarshal service name: %s", err)
-		}
-		serviceName = unmarshalledServiceName.ServiceName
+	serviceName := c.ServiceName
+	if c.ConnectionType == "sid" {
+		urlOptions["SID"] = c.SID
 	}
 
 	// Add SSL params if provided
@@ -66,6 +49,7 @@ func (c *Config) connectionString() (string, error) {
 	quotedUsername := fmt.Sprintf("%q", c.Username)
 
 	return go_ora.BuildUrl(c.Host, c.Port, serviceName, quotedUsername, c.Password, urlOptions), nil
+
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -85,12 +69,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("username is required")
 	}
 
-	foundServiceName, _ := utils.IsOfType(c.ConnectionType, "service_name")
-	foundSID, _ := utils.IsOfType(c.ConnectionType, "sid")
-	if !foundServiceName && !foundSID {
-		return fmt.Errorf("service name or sid is required")
-	} else if foundServiceName && foundSID {
-		return fmt.Errorf("only one of service name or sid can be provided")
+	if c.ConnectionType == "sid" && c.SID == "" {
+		return fmt.Errorf("sid is required")
+
+	} else if c.ConnectionType == "service_name" && c.ServiceName == "" {
+		return fmt.Errorf("service name is required")
 	}
 
 	// Set default number of threads if not provided

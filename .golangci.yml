@@ -150,7 +150,6 @@ run:
     - internal/cache
     - internal/renameio
     - internal/robustio
-    - jsonschema
   timeout: 5m
 
 # golangci.com configuration
