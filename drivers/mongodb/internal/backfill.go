@@ -193,13 +193,13 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		var chunks []types.Chunk
 		for _, bucket := range buckets {
 			// converts value according to _id string repr.
-			min, err := toString(bucket.ID.Min)
+			min, err := toIDType(bucket.ID.Min)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert bucket min value to string: %s", err)
+				return nil, fmt.Errorf("failed to convert bucket min value to required type: %s", err)
 			}
-			max, err := toString(bucket.ID.Max)
+			max, err := toIDType(bucket.ID.Max)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert bucket max value to string: %s", err)
+				return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
 			}
 			chunks = append(chunks, types.Chunk{
 				Min: min,
@@ -207,9 +207,9 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			})
 		}
 		if len(buckets) > 0 {
-			max, err := toString(buckets[len(buckets)-1].ID.Max)
+			max, err := toIDType(buckets[len(buckets)-1].ID.Max)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert last bucket max value to string: %s", err)
+				return nil, fmt.Errorf("failed to convert last bucket max value to required type: %s", err)
 			}
 			chunks = append(chunks, types.Chunk{
 				Min: max,
@@ -444,11 +444,11 @@ func buildFilter(stream types.StreamInterface) (bson.D, error) {
 	}
 }
 
-func toString(v interface{}) (string, error) {
+func toIDType(v interface{}) (interface{}, error) {
 	switch t := v.(type) {
 	case primitive.ObjectID:
 		return t.Hex(), nil
-	case string:
+	case int32, int64:
 		return t, nil
 	default:
 		// fallback
