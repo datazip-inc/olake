@@ -81,6 +81,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
+	logger.Infof("_id is %s ObjectID", utils.Ternary(isObjID, "", "not").(string))
 
 	// Generate and update chunks
 	var retryErr error
@@ -193,11 +194,11 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		var chunks []types.Chunk
 		for _, bucket := range buckets {
 			// converts value according to _id string repr.
-			min, err := toIDType(bucket.ID.Min)
+			min, err := reformatID(bucket.ID.Min)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert bucket min value to required type: %s", err)
 			}
-			max, err := toIDType(bucket.ID.Max)
+			max, err := reformatID(bucket.ID.Max)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
 			}
@@ -207,7 +208,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			})
 		}
 		if len(buckets) > 0 {
-			max, err := toIDType(buckets[len(buckets)-1].ID.Max)
+			max, err := reformatID(buckets[len(buckets)-1].ID.Max)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert last bucket max value to required type: %s", err)
 			}
@@ -261,19 +262,23 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	case "timestamp":
 		return timestampStrategy()
 	default:
-		if isObjID {
-			chunks, err := splitVectorStrategy()
-			// check if authorization error occurs
-			if err != nil && (strings.Contains(err.Error(), "not authorized") ||
-				strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
-				logger.Warnf("failed to get chunks via split vector strategy: %s", err)
-				return bucketAutoStrategy()
-			}
-			return chunks, err
-		} else {
+		if !isObjID {
 			// fall back to bucket auto strategy
 			return bucketAutoStrategy()
 		}
+		// Not using splitVector strategy when _id is not an ObjectID:
+		// splitVector is designed to compute chunk boundaries based on the internal format of BSON ObjectIDs
+		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
+		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
+		// leading to uneven splits, overlaps, or gaps.
+		chunks, err := splitVectorStrategy()
+		// check if authorization error occurs
+		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
+			strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
+			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
+			return bucketAutoStrategy()
+		}
+		return chunks, err
 	}
 }
 
@@ -444,7 +449,7 @@ func buildFilter(stream types.StreamInterface) (bson.D, error) {
 	}
 }
 
-func toIDType(v interface{}) (interface{}, error) {
+func reformatID(v interface{}) (interface{}, error) {
 	switch t := v.(type) {
 	case primitive.ObjectID:
 		return t.Hex(), nil
