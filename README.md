@@ -143,7 +143,7 @@ For advanced users and automation, OLake's core logic is exposed via a powerful 
 * `discover`: Returns all available streams (e.g., tables) and their schemas from a source.
 * `sync`: Executes the data replication job, extracting from the source and writing to the destination.
 
-**Find out more about how OLake works [here](https://olake.io/docs).**
+**Find out more about CLI [here](https://olake.io/docs/core/cli).**
 
 ---
 
@@ -172,17 +172,15 @@ Below are other different ways you can run OLake:
 
 ![OLake Architecture](https://olake.io/blog/olake-architecture-deep-dive)
 
-- Stateless Go-based CLI & Temporal workers
-- Iceberg writers integrated directly with Iceberg format spec
-- Connectors modularized for easy plugin-based extension
-
 ---
 
 ### 🌍 Use Cases
 
 - ✅ Migrate from OLTP to Iceberg without Spark or Flink
 - ✅ Enable BI over fresh CDC data using Athena, StarRocks, Trino, Presto, Dremio, Databricks, Snowflake and more!
-- ✅ Build real-time data lakes on cloud object stores
+- ✅ Build near real-time data lake-house on cost-efficient cloud object stores
+- ✅ Move away from vendor-lock-in warehouse or tools with open data lake-house
+- ✅ Single copy for both analytics & machine learning.
 
 ---
 
