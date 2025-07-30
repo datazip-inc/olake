@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
@@ -14,8 +16,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
-
-const chunkSize int64 = 500000 // Default chunk size for MySQL
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
 	filter, err := jdbc.SQLFilter(stream, m.Type())
@@ -62,11 +62,19 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 	pool.AddRecordsToSync(approxRowCount)
 
+	avgRowSizeQuery := jdbc.AvgRowSizeQuery(stream)
+	var avgRowSize int64
+	err = m.client.QueryRow(avgRowSizeQuery).Scan(&avgRowSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows per chunk: %s", err)
+	}
+
 	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql filter during chunk splitting: %s", err)
 	}
 
+	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(avgRowSize)))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
