@@ -81,7 +81,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
-	logger.Infof("_id is%sObjectID", utils.Ternary(isObjID, "", " not ").(string))
+	logger.Infof("_id is %s ObjectID", utils.Ternary(isObjID, "", "not").(string))
 
 	// Generate and update chunks
 	var retryErr error
