@@ -8,6 +8,7 @@ import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.PayloadType;
 import io.debezium.server.iceberg.RecordConverter;
 import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
+import io.grpc.binarylog.v1.GrpcLogEntry.PayloadCase;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
 import org.apache.iceberg.Table;
@@ -57,8 +58,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         // List<String> messages 
 
         try {
-            System.out.println("here is the metada : "+request.getMetadata());
-            // First, check if this is a commit request
+            // for commit request
             if (request.getType() == PayloadType.COMMIT) {
                 RecordIngest.IcebergPayload.Metadata metadata = request.getMetadata();
                 String threadID = metadata.getThreadId();
@@ -77,38 +77,45 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 return;
             }
             
+            // to update schema 
+            if (request.getType() == PayloadType.RECORDS) {// TODO: update type here
+                Table icebergTable = this.loadIcebergTable(TableIdentifier.of(icebergNamespace, tableEvents.getKey()), tableEvents.getValue().get(0));
+                
+                applyFieldAddition(icebergTable, schemaEvents.getValue().get(0).icebergSchema(createIdentifierFields));
+                icebergTableOperator.addToTable(icebergTable, request);
+            }
             // Normal record processing
-            long parsingStartTime = System.currentTimeMillis();
-            Map<String, List<RecordConverter>> result =
-                    messages.parallelStream() // Use parallel stream for concurrent processing
-                            .map(message -> {
-                                try {
-                                    // Read the entire JSON message into a Map<String, Object>:
-                                    Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
+            // long parsingStartTime = System.currentTimeMillis();
+            // Map<String, List<RecordConverter>> result =
+            //         messages.parallelStream() // Use parallel stream for concurrent processing
+            //                 .map(message -> {
+            //                     try {
+            //                         // Read the entire JSON message into a Map<String, Object>:
+            //                         Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
 
-                                    // Get the destination table:
-                                    String destinationTable = (String) messageMap.get("destination_table");
+            //                         // Get the destination table:
+            //                         String destinationTable = (String) messageMap.get("destination_table");
                                     
-                                    // Extract thread_id if present
-                                    String threadId = (String) messageMap.get("thread_id");
+            //                         // Extract thread_id if present
+            //                         String threadId = (String) messageMap.get("thread_id");
 
-                                    // Get key and value objects directly without re-serializing
-                                    Object key = messageMap.get("key");
-                                    Object value = messageMap.get("value");
+            //                         // Get key and value objects directly without re-serializing
+            //                         Object key = messageMap.get("key");
+            //                         Object value = messageMap.get("value");
 
-                                    // Convert to bytes only once
-                                    byte[] keyBytes = key != null ? objectMapper.writeValueAsBytes(key) : null;
-                                    byte[] valueBytes = objectMapper.writeValueAsBytes(value);
+            //                         // Convert to bytes only once
+            //                         byte[] keyBytes = key != null ? objectMapper.writeValueAsBytes(key) : null;
+            //                         byte[] valueBytes = objectMapper.writeValueAsBytes(value);
 
-                                    return new RecordConverter(destinationTable, valueBytes, keyBytes, threadId);
-                                } catch (Exception e) {
-                                    String errorMessage = String.format("%s Failed to parse message: %s", requestId, message);
-                                    LOGGER.error(errorMessage, e);
-                                    throw new RuntimeException(errorMessage, e);
-                                }
-                            })
-                            .collect(Collectors.groupingBy(RecordConverter::destination));
-            LOGGER.info("{} Parsing messages took: {} ms", requestId, (System.currentTimeMillis() - parsingStartTime));
+            //                         return new RecordConverter(destinationTable, valueBytes, keyBytes, threadId);
+            //                     } catch (Exception e) {
+            //                         String errorMessage = String.format("%s Failed to parse message: %s", requestId, message);
+            //                         LOGGER.error(errorMessage, e);
+            //                         throw new RuntimeException(errorMessage, e);
+            //                     }
+            //                 })
+            //                 .collect(Collectors.groupingBy(RecordConverter::destination));
+            // LOGGER.info("{} Parsing messages took: {} ms", requestId, (System.currentTimeMillis() - parsingStartTime));
 
             // consume list of events for each destination table
             long processingStartTime = System.currentTimeMillis();
