@@ -342,7 +342,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
 	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
 
-	filterClause := utils.Ternary(filter == "", "", " AND "+filter).(string)
+	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)

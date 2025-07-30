@@ -25,6 +25,12 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	primaryCursor, secondaryCursor := stream.Cursor()
 	lastPrimaryCursorValue := o.state.GetCursor(stream.Self(), primaryCursor)
 	lastSecondaryCursorValue := o.state.GetCursor(stream.Self(), secondaryCursor)
+	if lastPrimaryCursorValue == nil {
+		logger.Warnf("Stored primary cursor value is nil for the stream [%s]", stream.ID())
+	}
+	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
+		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
+	}
 
 	filter, err := jdbc.SQLFilter(stream, o.Type())
 	if err != nil {
@@ -35,7 +41,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
-	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)
+	filter = utils.Ternary(filter != "", fmt.Sprintf("(%s) AND %s", filter, incrementalCondition), incrementalCondition).(string)
 
 	query := fmt.Sprintf("SELECT * FROM %q.%q WHERE %s",
 		stream.Namespace(), stream.Name(), filter)
