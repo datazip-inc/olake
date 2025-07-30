@@ -76,7 +76,7 @@
 
 | Destination    | Format    | Supported Catalogs                                            |
 |----------------|-----------|---------------------------------------------------------------|
-| Iceberg        | ✅         | Glue, Hive, JDBC, REST (Nessie, Polaris, Unity, Lakekeeper)  |
+| Iceberg        | ✅         | Glue, Hive, JDBC, REST (Nessie, Polaris, Unity, Lakekeeper, AWS S3 tables)  |
 | Parquet        | ✅         | Filesystem                                                   |
 | Other formats  | 🔜         | Planned: Delta Lake, Hudi                                    |
 
