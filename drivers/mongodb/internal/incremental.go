@@ -26,7 +26,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	incrementalFilter, err := m.buildIncrementalCondition(primaryCursor, secondaryCursor, lastPrimaryCursorValue, lastSecondaryCursorValue)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %w", err)
+		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
 	// Merge cursor filter with stream filter using $and
@@ -59,33 +59,35 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 // buildIncrementalCondition generates the incremental condition BSON for MongoDB based on datatype and cursor value.
 func (m *Mongo) buildIncrementalCondition(primaryCursorField string, secondaryCursorField string, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (bson.D, error) {
-	
-	primaryCondition := buildMongoCondition(types.Condition{
-		Column:   primaryCursorField,
-		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
-		Operator: ">=",
-	})
+	var incrementalCondition bson.D
 
 	if secondaryCursorField != "" {
-		secondaryCondition := buildMongoCondition(types.Condition{
-			Column:   secondaryCursorField,
-			Value:    fmt.Sprintf("%v", lastSecondaryCursorValue),
-			Operator: ">=",
-		})
-
-		primaryNullCondition := bson.D{
+		incrementalCondition = bson.D{
 			{Key: "$or", Value: bson.A{
-				primaryCondition,
+				buildMongoCondition(types.Condition{
+					Column:   primaryCursorField,
+					Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
+					Operator: ">=",
+				}),
 				bson.D{
 					{Key: "$and", Value: bson.A{
 						bson.D{{Key: primaryCursorField, Value: nil}},
-						secondaryCondition,
+						buildMongoCondition(types.Condition{
+							Column:   secondaryCursorField,
+							Value:    fmt.Sprintf("%v", lastSecondaryCursorValue),
+							Operator: ">=",
+						}),
 					}},
 				},
 			}},
 		}
-		return primaryNullCondition, nil
+	} else {
+		incrementalCondition = buildMongoCondition(types.Condition{
+			Column:   primaryCursorField,
+			Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
+			Operator: ">=",
+		})
 	}
 
-	return primaryCondition, nil
+	return incrementalCondition, nil
 }
