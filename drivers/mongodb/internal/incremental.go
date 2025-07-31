@@ -40,3 +40,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	return cursor.Err()
 }
+
+func (m *Mongo) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for Mongo")
+}

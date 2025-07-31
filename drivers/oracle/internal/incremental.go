@@ -108,3 +108,7 @@ func (o *Oracle) buildIncrementalCondition(primaryCursorField string, secondaryC
 	}
 	return incrementalCondition, nil
 }
+
+func (o *Oracle) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for oracle")
+}
