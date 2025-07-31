@@ -8,6 +8,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -16,34 +17,34 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	lastPrimaryCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
 	lastSecondaryCursorValue := m.state.GetCursor(stream.Self(), secondaryCursor)
 
-	// Get filter string (fully evaluated with values already inserted)
-	staticFilter, err := jdbc.SQLFilter(stream, m.Type())
+	//TODO:
+	// 1. we need to ensure that state never has nil values for any cursor in all cases
+	if lastPrimaryCursorValue == nil {
+		logger.Warnf("last primary cursor value is nil for stream[%s]", stream.ID())
+	} else if lastSecondaryCursorValue == nil {
+		logger.Warnf("last secondary cursor value is nil for stream[%s]", stream.ID())
+	}
+
+	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
-	incrementalCondition, err := m.buildIncrementalCondition(primaryCursor, secondaryCursor, lastPrimaryCursorValue)
+	incrementalCondition, queryArgs, err := m.buildIncrementalCondition(primaryCursor, secondaryCursor, lastPrimaryCursorValue, lastSecondaryCursorValue)
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
-
-	combinedFilter := incrementalCondition
-	if staticFilter != "" {
-		combinedFilter = fmt.Sprintf("(%s) AND (%s)", staticFilter, incrementalCondition)
-	}
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), combinedFilter)
+	filter = utils.Ternary(filter != "", fmt.Sprintf("(%s) AND (%s)", filter, incrementalCondition), incrementalCondition).(string)
+	query := fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), filter)
 
 	var rows *sql.Rows
-	var args []any
 	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
-		args = []any{lastPrimaryCursorValue, lastPrimaryCursorValue, lastSecondaryCursorValue}
 		rows, err = m.client.QueryContext(ctx, query, lastPrimaryCursorValue, lastSecondaryCursorValue)
 	} else {
-		args = []any{lastPrimaryCursorValue}
 		rows, err = m.client.QueryContext(ctx, query, lastPrimaryCursorValue)
 	}
 
-	logger.Infof("Starting incremental sync for stream[%s] with filter: %s", stream.ID(), logger.InterpolateQueryPlaceholders(query, args))
+	logger.Infof("Starting incremental sync for stream[%s] with filter: %s", stream.ID(), logger.InterpolateQueryPlaceholders(query, queryArgs))
 	if err != nil {
 		return fmt.Errorf("failed to execute incremental query: %s", err)
 	}
@@ -65,12 +66,13 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 }
 
 // buildIncrementalCondition generates the incremental condition SQL for MySQL
-func (m *MySQL) buildIncrementalCondition(primaryCursorField string, secondaryCursorField string, lastSecondaryCursorValue any) (string, error) {
-	primaryCondition := fmt.Sprintf("`%s` >= ?", primaryCursorField)
-
-	if secondaryCursorField != "" && lastSecondaryCursorValue != nil {
+func (m *MySQL) buildIncrementalCondition(primaryCursor string, secondaryCursor string, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (string, []any, error) {
+	primaryCondition := fmt.Sprintf("`%s` >= ?", primaryCursor)
+	queryArgs := []any{lastPrimaryCursorValue}
+	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
+		queryArgs = []any{lastPrimaryCursorValue, lastSecondaryCursorValue}
 		primaryCondition = fmt.Sprintf(" %s OR (`%s` IS NULL AND `%s` >= ?)",
-			primaryCondition, primaryCursorField, secondaryCursorField)
+			primaryCondition, primaryCursor, secondaryCursor)
 	}
-	return primaryCondition, nil
+	return primaryCondition, queryArgs, nil
 }
