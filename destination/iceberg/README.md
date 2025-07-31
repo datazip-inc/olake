@@ -210,6 +210,22 @@ Create a json for writer config (writer.json)
 }
 ```
 
+To use Iceberg with GCP, configure the writer to connect to a Hive Metastore hosted on Dataproc Metastore and write data to Dataproc generated bucket
+```json
+{
+  "type": "ICEBERG",
+  "writer": {
+      "catalog_type": "hive",
+      "hive_uri": "thrift://<hive-dataproc-metastore-ip>:9083",
+      "hive_clients": 10,
+      "hive_sasl_enabled": false,
+      "iceberg_db": "olake_iceberg",
+      "iceberg_s3_path": "gs://gcp-Dataproc-bucket/hive-warehouse",
+      "aws_region": "us-central1"
+  }
+}
+```
+
 Please change the above to real credentials to make it work.
 
 For detailed catalog configs and usage, refer [here.](https://olake.io/docs/category/catalogs)
