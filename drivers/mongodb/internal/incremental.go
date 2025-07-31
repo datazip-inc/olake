@@ -58,35 +58,30 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 }
 
 // buildIncrementalCondition generates the incremental condition BSON for MongoDB based on datatype and cursor value.
-func (m *Mongo) buildIncrementalCondition(primaryCursorField string, secondaryCursorField string, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (bson.D, error) {
-	var incrementalCondition bson.D
+func (m *Mongo) buildIncrementalCondition(primaryCursor string, secondaryCursor string, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (bson.D, error) {
+	incrementalCondition := buildMongoCondition(types.Condition{
+		Column:   primaryCursor,
+		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
+		Operator: ">=",
+	})
 
-	if secondaryCursorField != "" {
-		incrementalCondition = bson.D{
-			{Key: "$or", Value: bson.A{
-				buildMongoCondition(types.Condition{
-					Column:   primaryCursorField,
-					Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
-					Operator: ">=",
-				}),
-				bson.D{
-					{Key: "$and", Value: bson.A{
-						bson.D{{Key: primaryCursorField, Value: nil}},
+	// If secondary is enabled, build an OR condition with fallback
+	if secondaryCursor != "" {
+		incrementalCondition = bson.D{{
+			Key: "$or", Value: bson.A{
+				incrementalCondition,
+				bson.D{{
+					Key: "$and", Value: bson.A{
+						bson.D{{Key: primaryCursor, Value: nil}},
 						buildMongoCondition(types.Condition{
-							Column:   secondaryCursorField,
+							Column:   secondaryCursor,
 							Value:    fmt.Sprintf("%v", lastSecondaryCursorValue),
 							Operator: ">=",
 						}),
-					}},
-				},
-			}},
-		}
-	} else {
-		incrementalCondition = buildMongoCondition(types.Condition{
-			Column:   primaryCursorField,
-			Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
-			Operator: ">=",
-		})
+					},
+				}},
+			},
+		}}
 	}
 
 	return incrementalCondition, nil
