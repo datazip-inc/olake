@@ -169,6 +169,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		}
 
 		for _, column := range columnSchemaOutput {
+			stream.WithCursorField(column.Name)
 			datatype := types.Unknown
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val

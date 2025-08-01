@@ -2,21 +2,27 @@ package types
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 )
 
 // Input/Processed object for Stream
 type ConfiguredStream struct {
-	StreamMetadata          StreamMetadata `json:"-"`
-	InitialCursorStateValue any            `json:"-"` // Cached initial state value
+	StreamMetadata StreamMetadata `json:"-"`
+	Stream         *Stream        `json:"stream,omitempty"`
+}
 
-	Stream *Stream `json:"stream,omitempty"`
+// Condition represents a single condition in a filter
+type Condition struct {
+	Column   string
+	Operator string
+	Value    string
+}
 
-	// Column that's being used as cursor; MUST NOT BE mutated
-	//
-	// Cursor field is used in Incremental and in Mixed type CDC Read where connector uses
-	// this field as recovery column incase of some inconsistencies
-	CursorField    string   `json:"cursor_field,omitempty"`
-	ExcludeColumns []string `json:"exclude_columns,omitempty"` // TODO: Implement excluding columns from fetching
+// Filter represents the parsed filter
+type Filter struct {
+	Conditions      []Condition // a > b, a < b
+	LogicalOperator string      // condition[0] and/or condition[1], single and/or supported
 }
 
 func (s *ConfiguredStream) ID() string {
@@ -51,22 +57,48 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
-func (s *ConfiguredStream) Cursor() string {
-	return s.CursorField
+// returns primary and secondary cursor
+func (s *ConfiguredStream) Cursor() (string, string) {
+	cursorFields := strings.Split(s.Stream.CursorField, ":")
+	primaryCursor := cursorFields[0]
+	secondaryCursor := ""
+	if len(cursorFields) > 1 {
+		secondaryCursor = cursorFields[1]
+	}
+	return primaryCursor, secondaryCursor
 }
 
-// Delete keys from Stream State
-// func (s *ConfiguredStream) DeleteStateKeys(keys ...string) []any {
-// 	values := []any{}
-// 	for _, key := range keys {
-// 		val, _ := s.streamState.State.Load(key)
-// 		values = append(values, val) // cache
+func (s *ConfiguredStream) GetFilter() (Filter, error) {
+	filter := s.StreamMetadata.Filter
+	if filter == "" {
+		return Filter{}, nil
+	}
+	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
+	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
+	matches := FilterRegex.FindStringSubmatch(filter)
+	if len(matches) == 0 {
+		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
+	}
+	var conditions []Condition
+	conditions = append(conditions, Condition{
+		Column:   matches[1],
+		Operator: matches[2],
+		Value:    matches[3],
+	})
 
-// 		s.streamState.State.Delete(key) // delete
-// 	}
+	if matches[4] != "" {
+		conditions = append(conditions, Condition{
+			Column:   matches[5],
+			Operator: matches[6],
+			Value:    matches[7],
+		})
+	}
 
-// 	return values
-// }
+	return Filter{
+		Conditions:      conditions,
+		LogicalOperator: matches[4],
+	}, nil
+}
 
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {
@@ -75,12 +107,23 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	// no cursor validation in cdc and backfill sync
-	if s.Stream.SyncMode == INCREMENTAL && !source.AvailableCursorFields.Exists(s.CursorField) {
-		return fmt.Errorf("invalid cursor field [%s]; valid are %v", s.CursorField, source.AvailableCursorFields)
+	if s.Stream.SyncMode == INCREMENTAL {
+		primaryCursor, secondaryCursor := s.Cursor()
+		if !source.AvailableCursorFields.Exists(primaryCursor) {
+			return fmt.Errorf("invalid cursor field [%s]; valid are %v", primaryCursor, source.AvailableCursorFields)
+		}
+		if secondaryCursor != "" && !source.AvailableCursorFields.Exists(secondaryCursor) {
+			return fmt.Errorf("invalid secondary cursor field [%s]; valid are %v", secondaryCursor, source.AvailableCursorFields)
+		}
 	}
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
+	}
+
+	_, err := s.GetFilter()
+	if err != nil {
+		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
 	}
 
 	return nil
