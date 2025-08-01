@@ -13,7 +13,7 @@ import (
 
 func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	// run pre cdc of drivers
-	if err := a.driver.PreCDC(ctx, streams); err != nil {
+	if err := a.driver.PreCDC(ctx, streams, dataTypeConverter); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
 	}
 

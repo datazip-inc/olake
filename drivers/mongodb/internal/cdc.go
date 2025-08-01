@@ -25,7 +25,7 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
-func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
+func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface, _ abstract.TypeConverterFn) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 		pipeline := mongo.Pipeline{

@@ -16,7 +16,7 @@ import (
 )
 
 // ChunkIterator implements the abstract.DriverInterface
-func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, dataTypeConverter abstract.TypeConverterFn, OnMessage abstract.BackfillMsgFn) error {
 	//TODO: Verify the requirement of Transaction in Oracle Sync and remove if not required
 	// Begin transaction with default isolation
 	filter, err := jdbc.SQLFilter(stream, o.Type())
@@ -39,7 +39,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 	return setter.Capture(func(rows *sql.Rows) error {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
+		if err := jdbc.MapScan(rows, record, dataTypeConverter); err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
 		return OnMessage(record)
