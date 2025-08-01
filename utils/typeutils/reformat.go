@@ -127,7 +127,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		return ReformatInt64(v)
 	case types.Int32:
 		return ReformatInt32(v)
-	case types.Timestamp:
+	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		return ReformatDate(v)
 	case types.String:
 		switch v := v.(type) {
@@ -324,6 +324,9 @@ func ReformatInt32(v any) (int32, error) {
 	case uint8:
 		return int32(v), nil
 	case uint16:
+		return int32(v), nil
+	case uint32:
+		//nolint:gosec,G115
 		return int32(v), nil
 	case uint64:
 		//nolint:gosec,G115

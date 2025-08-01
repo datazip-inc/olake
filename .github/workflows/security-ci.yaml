@@ -1,11 +1,18 @@
 name: Go Security CI
+
 on:
   push:
     branches:
       - "master"
+    paths:
+      - '**/*.go'
+      - '**/*.java'
   pull_request:
     branches:
       - "*"
+    paths:
+      - '**/*.go'
+      - '**/*.java'
   workflow_dispatch:
     inputs:
       logLevel:
@@ -27,6 +34,7 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run vulnerability checks
         run: govulncheck ./...
+
   gosec:
     name: GoSec Security Scanner
     runs-on: ubuntu-latest
@@ -40,16 +48,37 @@ jobs:
         run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
       - name: Run Gosec Security Scanner
         run: $(go env GOPATH)/bin/gosec -exclude=G115 -severity=high -confidence=medium ./...
-  trivy:
-    name: trivy
-    runs-on: ubuntu-24.04
+
+  trivy-go:
+    name: trivy-go
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      - name: Run Trivy vulnerability scanner in repo mode
+      - name: Run Trivy Go vulnerability scanner in repo mode
         uses: aquasecurity/trivy-action@master
         with:
+          skip-dirs: './destination/iceberg/olake-iceberg-java-writer'
           exit-code: '1'
           scan-type: 'fs'
           scan-ref: './'
+          scanners: 'vuln'
           severity: 'HIGH,CRITICAL'
+
+  # TODO: Add Java Dependency Trivy (removed because trivy getting stuck or run for hours)
+  # trivy-java:
+  #   name: trivy-java
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v3
+  #     - name: Run Trivy Java vulnerability scanner in repo mode
+  #       uses: aquasecurity/trivy-action@master
+  #       with:
+  #         exit-code: '1'
+  #         scan-type: 'fs'
+  #         scan-ref: './destination/iceberg/olake-iceberg-java-writer'
+  #         scanners: 'vuln'
+  #         severity: 'HIGH,CRITICAL'

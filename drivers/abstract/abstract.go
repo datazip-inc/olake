@@ -54,6 +54,10 @@ func (a *AbstractDriver) Spec() any {
 	return a.driver.Spec()
 }
 
+func (a *AbstractDriver) Type() string {
+	return a.driver.Type()
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	discoverCtx, cancel := context.WithTimeout(ctx, constants.DefaultDiscoverTimeout)
 	defer cancel()
@@ -108,7 +112,7 @@ func (a *AbstractDriver) Setup(ctx context.Context) error {
 }
 
 // Read handles different sync modes for data retrieval
-func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, standardStreams, cdcStreams []types.StreamInterface) error {
+func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
 	// set max read connections
 	if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
@@ -125,8 +129,15 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		}
 	}
 
-	// start backfill for standard streams
-	for _, stream := range standardStreams {
+	// run incremental sync
+	if len(incrementalStreams) > 0 {
+		if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
+			return fmt.Errorf("failed to run incremental sync: %s", err)
+		}
+	}
+
+	// handle standard streams (full refresh)
+	for _, stream := range backfillStreams {
 		a.GlobalCtxGroup.Add(func(ctx context.Context) error {
 			return a.Backfill(ctx, nil, pool, stream)
 		})
