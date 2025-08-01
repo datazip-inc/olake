@@ -143,7 +143,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 		}
 		schemaName, tableName := parts[0], parts[1]
-		stream := types.NewStream(tableName, schemaName)
+		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.INCREMENTAL)
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -157,9 +157,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
-			stream.WithCursorField(columnName)
 			datatype := types.Unknown
-
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
@@ -179,6 +177,13 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+
+	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+		if fieldName, ok := key.(string); ok {
+			stream.WithCursorField(fieldName)
+		}
+		return true
+	})
 	return stream, nil
 }
 
