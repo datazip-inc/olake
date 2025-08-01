@@ -1,6 +1,8 @@
 package constants
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	DefaultRetryCount      = 3
@@ -16,6 +18,7 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	DBName                 = "_db"
+	NormalizationProperty  = "normalization"
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
 	ConfigFolder           = "CONFIG_FOLDER"
@@ -30,4 +33,12 @@ const (
 	Postgres DriverType = "postgres"
 	MySQL    DriverType = "mysql"
 	Oracle   DriverType = "oracle"
+)
+
+var (
+	// RelationalDrivers contains driver types that are relational databases
+	RelationalDrivers = []DriverType{
+		Postgres,
+		MySQL,
+	}
 )

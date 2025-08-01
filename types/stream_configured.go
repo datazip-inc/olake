@@ -130,5 +130,8 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 }
 
 func (s *ConfiguredStream) NormalizationEnabled() bool {
-	return s.StreamMetadata.Normalization
+	if s.StreamMetadata.Normalization == nil {
+		return false
+	}
+	return *s.StreamMetadata.Normalization
 }
