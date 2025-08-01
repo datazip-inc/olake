@@ -22,12 +22,13 @@ func TestPostgresIntegration(t *testing.T) {
 
 func TestPostgresPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:     testutils.GetTestConfig("postgres"),
-		Namespace:      "public",
-		BackfillStream: "test",
-		CDCStream:      "test_cdc",
-		ExecuteQuery:   ExecuteQueryPerformance,
-		SupportsCDC:    true,
+		TestConfig:          testutils.GetTestConfig("postgres"),
+		Namespace:           "public",
+		BackfillStreams:     []string{"trips", "fhv_trips"},
+		CDCStreams:          []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:        ExecuteQueryPerformance,
+		SupportsCDC:         true,
+		UsesPreChunkedState: false,
 	}
 
 	config.TestPerformance(t)

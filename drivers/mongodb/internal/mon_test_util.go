@@ -10,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string) {
+func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backfillStreams []string) {
 	t.Helper()
 
 	var cfg Mongo
@@ -23,13 +23,19 @@ func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string) {
 
 	switch op {
 	case "setup_cdc":
-		err := db.Database("mongodb").Collection("users_cdc").Drop(ctx)
-		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op))
+		// truncate the cdc tables
+		for _, stream := range backfillStreams {
+			err := db.Database("mongodb").Collection(fmt.Sprintf("%s_cdc", stream)).Drop(ctx)
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
+		}
 	case "trigger_cdc":
-		// TODO: Insert data from backfill collection to cdc collection
-		// Check how many rows we need to transfer
-		_, err := db.Database("mongodb").Collection("users_cdc").InsertOne(ctx, bson.M{"name": "test"})
-		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op))
+		// insert the data into the cdc tables concurrently
+		err := utils.Concurrent(ctx, backfillStreams, 2, func(ctx context.Context, stream string, executionNumber int) error {
+			// TOOD: insert 15M rows from backfill stream to CDC stream
+			_, err := db.Database("mongodb").Collection(fmt.Sprintf("%s_cdc", stream)).InsertOne(ctx, bson.M{"name": "test"})
+			return err
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
 	}
 
 }

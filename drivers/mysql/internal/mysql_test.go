@@ -21,12 +21,13 @@ func TestMySQLIntegration(t *testing.T) {
 
 func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:     testutils.GetTestConfig("mysql"),
-		Namespace:      "performance",
-		BackfillStream: "users",
-		CDCStream:      "users_cdc",
-		ExecuteQuery:   ExecuteQueryPerformance,
-		SupportsCDC:    true,
+		TestConfig:          testutils.GetTestConfig("mysql"),
+		Namespace:           "complex_dummy_db",
+		BackfillStreams:     []string{"trips", "fhv_trips"},
+		CDCStreams:          []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:        ExecuteQueryPerformance,
+		SupportsCDC:         true,
+		UsesPreChunkedState: true,
 	}
 
 	config.TestPerformance(t)

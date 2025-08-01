@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/datazip-inc/olake/utils"
@@ -45,12 +46,13 @@ type TestConfig struct {
 }
 
 type PerformanceTest struct {
-	TestConfig     *TestConfig
-	Namespace      string
-	BackfillStream string
-	CDCStream      string
-	ExecuteQuery   func(ctx context.Context, t *testing.T, operation string)
-	SupportsCDC    bool
+	TestConfig          *TestConfig
+	Namespace           string
+	BackfillStreams     []string
+	CDCStreams          []string
+	ExecuteQuery        func(ctx context.Context, t *testing.T, operation string, backfillStreams []string)
+	SupportsCDC         bool
+	UsesPreChunkedState bool
 }
 
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
@@ -416,16 +418,34 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
 	}
 
-	syncCommand := func(config TestConfig, isBackfill bool) string {
-		return fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath, utils.Ternary(isBackfill, "", fmt.Sprintf("--state %s", config.StatePath)).(string))
+	syncCommand := func(config TestConfig, isBackfill bool, usesPreChunkedState bool) string {
+		baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
+
+		// for cdc, we need state file
+		if !isBackfill {
+			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
+		}
+
+		// if we are using pre-chunked state for backfill
+		if isBackfill && usesPreChunkedState {
+			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
+		}
+
+		return baseCmd
 	}
 
-	updateStreamsCommand := func(config TestConfig, namespace string, stream string, isBackfill bool) string {
+	updateStreamsCommand := func(config TestConfig, namespace string, stream []string, isBackfill bool) string {
 		if len(stream) == 0 {
 			return ""
 		}
 
-		condition := fmt.Sprintf(`.stream_name == "%s"`, stream)
+		// Create a jq condition that checks if stream_name is in the provided array
+		streamConditions := make([]string, len(stream))
+		for i, s := range stream {
+			streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
+		}
+		condition := strings.Join(streamConditions, " or ")
+
 		tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc"))
 
 		jqExpr := fmt.Sprintf(
@@ -440,6 +460,20 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		)
 
 		return jqExpr
+	}
+
+	syncWithTimeout := func(ctx context.Context, c testcontainers.Container, cmd string) ([]byte, error) {
+		timedCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+		_, output, err := utils.ExecCommand(timedCtx, c, cmd)
+		// check if sync was cancelled due to timeout (expected)
+		if timedCtx.Err() == context.DeadlineExceeded {
+			return output, nil
+		}
+		if err != nil {
+			return output, err
+		}
+		return output, nil
 	}
 
 	t.Run("performance", func(t *testing.T) {
@@ -470,12 +504,12 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
 							t.Log(string(output))
 
-							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStream, true)
+							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStreams, true)
 							_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
 							require.NoError(t, err, "Failed to update streams")
 
-							syncCmd := syncCommand(*cfg.TestConfig, true)
-							_, output, err = utils.ExecCommand(ctx, c, syncCmd)
+							syncCmd := syncCommand(*cfg.TestConfig, true, cfg.UsesPreChunkedState)
+							output, err = syncWithTimeout(ctx, c, syncCmd)
 							require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
 							t.Log(string(output))
 
@@ -485,26 +519,26 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
 
 							if cfg.SupportsCDC {
-								cfg.ExecuteQuery(ctx, t, "setup_cdc")
+								cfg.ExecuteQuery(ctx, t, "setup_cdc", cfg.BackfillStreams)
 
 								discoverCmd := discoverCommand(*cfg.TestConfig)
 								_, output, err := utils.ExecCommand(ctx, c, discoverCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
 								t.Log(string(output))
 
-								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStream, false)
+								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStreams, false)
 								_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
 								require.NoError(t, err, "Failed to update streams")
 
-								syncCmd := syncCommand(*cfg.TestConfig, true)
+								syncCmd := syncCommand(*cfg.TestConfig, true, false)
 								_, output, err = utils.ExecCommand(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform initial sync:\n%s", string(output)))
 								t.Log(string(output))
 
-								cfg.ExecuteQuery(ctx, t, "trigger_cdc")
+								cfg.ExecuteQuery(ctx, t, "trigger_cdc", cfg.BackfillStreams)
 
-								syncCmd = syncCommand(*cfg.TestConfig, false)
-								_, output, err = utils.ExecCommand(ctx, c, syncCmd)
+								syncCmd = syncCommand(*cfg.TestConfig, false, false)
+								output, err = syncWithTimeout(ctx, c, syncCmd)
 								require.NoError(t, err, fmt.Sprintf("Failed to perform CDC sync:\n%s", string(output)))
 								t.Log(string(output))
 
