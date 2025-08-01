@@ -495,6 +495,8 @@ func (i *Iceberg) sendRecords(ctx context.Context, payload types.IcebergWriterPa
 	// logger.Infof("thread id %s: Sending batch to Iceberg server: %d records", i.threadID, len(validRecords))
 	// Create request with all records
 	var protoRecords []*proto.IcebergPayload_IceRecord
+
+	schemaFieldsMap := make(map[string]*proto.IcebergPayload_SchemaField)
 	for _, record := range payload.Records {
 		var protoColumns []*proto.IcebergPayload_RecordItem
 		for _, iceColumn := range record.Record {
@@ -502,19 +504,30 @@ func (i *Iceberg) sendRecords(ctx context.Context, payload types.IcebergWriterPa
 				Key:   iceColumn.Key,
 				Value: structpb.NewStringValue(fmt.Sprintf("%v", iceColumn.Value)),
 			})
+			schemaFieldsMap[iceColumn.Key] = &proto.IcebergPayload_SchemaField{
+				IceType: iceColumn.IceType,
+				Key:     iceColumn.Key,
+			}
 		}
 		protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
-			Record:     protoColumns,
+			Fields:     protoColumns,
 			RecordType: record.RecordType,
 		})
 	}
+
+	var protoSchemaFields []*proto.IcebergPayload_SchemaField
+	for _, fields := range schemaFieldsMap {
+		protoSchemaFields = append(protoSchemaFields, fields)
+	}
+
 	protoMetadata := &proto.IcebergPayload_Metadata{
 		DestTableName: payload.Metadata.DestTableName,
 		ThreadId:      payload.Metadata.ThreadID,
 		PrimaryKey:    &payload.Metadata.PrimaryKey,
+		Schema:        protoSchemaFields,
 	}
 	req := &proto.IcebergPayload{
-		Type:     proto.IcebergPayload_RECORDS,
+		Type:     "schema_evolution",
 		Metadata: protoMetadata,
 		Records:  protoRecords,
 	}

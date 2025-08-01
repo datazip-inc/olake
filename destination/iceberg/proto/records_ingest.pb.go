@@ -22,57 +22,11 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type IcebergPayload_PayloadType int32
-
-const (
-	IcebergPayload_RECORDS IcebergPayload_PayloadType = 0
-	IcebergPayload_COMMIT  IcebergPayload_PayloadType = 1
-)
-
-// Enum value maps for IcebergPayload_PayloadType.
-var (
-	IcebergPayload_PayloadType_name = map[int32]string{
-		0: "RECORDS",
-		1: "COMMIT",
-	}
-	IcebergPayload_PayloadType_value = map[string]int32{
-		"RECORDS": 0,
-		"COMMIT":  1,
-	}
-)
-
-func (x IcebergPayload_PayloadType) Enum() *IcebergPayload_PayloadType {
-	p := new(IcebergPayload_PayloadType)
-	*p = x
-	return p
-}
-
-func (x IcebergPayload_PayloadType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (IcebergPayload_PayloadType) Descriptor() protoreflect.EnumDescriptor {
-	return file_records_ingest_proto_enumTypes[0].Descriptor()
-}
-
-func (IcebergPayload_PayloadType) Type() protoreflect.EnumType {
-	return &file_records_ingest_proto_enumTypes[0]
-}
-
-func (x IcebergPayload_PayloadType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use IcebergPayload_PayloadType.Descriptor instead.
-func (IcebergPayload_PayloadType) EnumDescriptor() ([]byte, []int) {
-	return file_records_ingest_proto_rawDescGZIP(), []int{0, 0}
-}
-
 type IcebergPayload struct {
 	state         protoimpl.MessageState      `protogen:"open.v1"`
-	Type          IcebergPayload_PayloadType  `protobuf:"varint,1,opt,name=type,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_PayloadType" json:"type,omitempty"`
+	Type          string                      `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"` // "records", "commit", "evolve_schema", "drop_table", "get_or_create_table"
 	Metadata      *IcebergPayload_Metadata    `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Records       []*IcebergPayload_IceRecord `protobuf:"bytes,3,rep,name=records,proto3" json:"records,omitempty"` // Empty for COMMIT type
+	Records       []*IcebergPayload_IceRecord `protobuf:"bytes,3,rep,name=records,proto3" json:"records,omitempty"` // Only present for "records" type
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -107,11 +61,11 @@ func (*IcebergPayload) Descriptor() ([]byte, []int) {
 	return file_records_ingest_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *IcebergPayload) GetType() IcebergPayload_PayloadType {
+func (x *IcebergPayload) GetType() string {
 	if x != nil {
 		return x.Type
 	}
-	return IcebergPayload_RECORDS
+	return ""
 }
 
 func (x *IcebergPayload) GetMetadata() *IcebergPayload_Metadata {
@@ -181,10 +135,11 @@ func (x *RecordIngestResponse) GetSuccess() bool {
 }
 
 type IcebergPayload_Metadata struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	DestTableName string                 `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
-	ThreadId      string                 `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	PrimaryKey    *string                `protobuf:"bytes,3,opt,name=primary_key,json=primaryKey,proto3,oneof" json:"primary_key,omitempty"` // Optional field
+	state         protoimpl.MessageState        `protogen:"open.v1"`
+	DestTableName string                        `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
+	ThreadId      string                        `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	PrimaryKey    *string                       `protobuf:"bytes,3,opt,name=primary_key,json=primaryKey,proto3,oneof" json:"primary_key,omitempty"` // Only for records/evolve_schema/get_or_create_table
+	Schema        []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`                                 // Only for records/evolve_schema/get_or_create_table
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -240,18 +195,76 @@ func (x *IcebergPayload_Metadata) GetPrimaryKey() string {
 	return ""
 }
 
-type IcebergPayload_RecordItem struct {
+func (x *IcebergPayload_Metadata) GetSchema() []*IcebergPayload_SchemaField {
+	if x != nil {
+		return x.Schema
+	}
+	return nil
+}
+
+type IcebergPayload_SchemaField struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IceType       string                 `protobuf:"bytes,1,opt,name=ice_type,json=iceType,proto3" json:"ice_type,omitempty"`
 	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	Value         *structpb.Value        `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"` // Handles any JSON value
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IcebergPayload_SchemaField) Reset() {
+	*x = IcebergPayload_SchemaField{}
+	mi := &file_records_ingest_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IcebergPayload_SchemaField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IcebergPayload_SchemaField) ProtoMessage() {}
+
+func (x *IcebergPayload_SchemaField) ProtoReflect() protoreflect.Message {
+	mi := &file_records_ingest_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IcebergPayload_SchemaField.ProtoReflect.Descriptor instead.
+func (*IcebergPayload_SchemaField) Descriptor() ([]byte, []int) {
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 1}
+}
+
+func (x *IcebergPayload_SchemaField) GetIceType() string {
+	if x != nil {
+		return x.IceType
+	}
+	return ""
+}
+
+func (x *IcebergPayload_SchemaField) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type IcebergPayload_RecordItem struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         *structpb.Value        `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"` // Handles any JSON value
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *IcebergPayload_RecordItem) Reset() {
 	*x = IcebergPayload_RecordItem{}
-	mi := &file_records_ingest_proto_msgTypes[3]
+	mi := &file_records_ingest_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -263,7 +276,7 @@ func (x *IcebergPayload_RecordItem) String() string {
 func (*IcebergPayload_RecordItem) ProtoMessage() {}
 
 func (x *IcebergPayload_RecordItem) ProtoReflect() protoreflect.Message {
-	mi := &file_records_ingest_proto_msgTypes[3]
+	mi := &file_records_ingest_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -276,14 +289,7 @@ func (x *IcebergPayload_RecordItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IcebergPayload_RecordItem.ProtoReflect.Descriptor instead.
 func (*IcebergPayload_RecordItem) Descriptor() ([]byte, []int) {
-	return file_records_ingest_proto_rawDescGZIP(), []int{0, 1}
-}
-
-func (x *IcebergPayload_RecordItem) GetIceType() string {
-	if x != nil {
-		return x.IceType
-	}
-	return ""
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 2}
 }
 
 func (x *IcebergPayload_RecordItem) GetKey() string {
@@ -302,15 +308,15 @@ func (x *IcebergPayload_RecordItem) GetValue() *structpb.Value {
 
 type IcebergPayload_IceRecord struct {
 	state         protoimpl.MessageState       `protogen:"open.v1"`
-	Record        []*IcebergPayload_RecordItem `protobuf:"bytes,1,rep,name=record,proto3" json:"record,omitempty"`
-	RecordType    string                       `protobuf:"bytes,2,opt,name=record_type,json=recordType,proto3" json:"record_type,omitempty"` // "u", "c", or "r"
+	Fields        []*IcebergPayload_RecordItem `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	RecordType    string                       `protobuf:"bytes,2,opt,name=record_type,json=recordType,proto3" json:"record_type,omitempty"` // "u", "c", "r"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *IcebergPayload_IceRecord) Reset() {
 	*x = IcebergPayload_IceRecord{}
-	mi := &file_records_ingest_proto_msgTypes[4]
+	mi := &file_records_ingest_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -322,7 +328,7 @@ func (x *IcebergPayload_IceRecord) String() string {
 func (*IcebergPayload_IceRecord) ProtoMessage() {}
 
 func (x *IcebergPayload_IceRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_records_ingest_proto_msgTypes[4]
+	mi := &file_records_ingest_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -335,12 +341,12 @@ func (x *IcebergPayload_IceRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IcebergPayload_IceRecord.ProtoReflect.Descriptor instead.
 func (*IcebergPayload_IceRecord) Descriptor() ([]byte, []int) {
-	return file_records_ingest_proto_rawDescGZIP(), []int{0, 2}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 3}
 }
 
-func (x *IcebergPayload_IceRecord) GetRecord() []*IcebergPayload_RecordItem {
+func (x *IcebergPayload_IceRecord) GetFields() []*IcebergPayload_RecordItem {
 	if x != nil {
-		return x.Record
+		return x.Fields
 	}
 	return nil
 }
@@ -356,30 +362,29 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\x1a\x1cgoogle/protobuf/struct.proto\"\xa3\x05\n" +
-	"\x0eIcebergPayload\x12N\n" +
-	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\x1a\x1cgoogle/protobuf/struct.proto\"\xb4\x05\n" +
+	"\x0eIcebergPayload\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
-	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\x85\x01\n" +
+	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xd9\x01\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12$\n" +
 	"\vprimary_key\x18\x03 \x01(\tH\x00R\n" +
-	"primaryKey\x88\x01\x01B\x0e\n" +
-	"\f_primary_key\x1ag\n" +
-	"\n" +
-	"RecordItem\x12\x19\n" +
+	"primaryKey\x88\x01\x01\x12R\n" +
+	"\x06schema\x18\x04 \x03(\v2:.io.debezium.server.iceberg.rpc.IcebergPayload.SchemaFieldR\x06schemaB\x0e\n" +
+	"\f_primary_key\x1a:\n" +
+	"\vSchemaField\x12\x19\n" +
 	"\bice_type\x18\x01 \x01(\tR\aiceType\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\x12,\n" +
-	"\x05value\x18\x03 \x01(\v2\x16.google.protobuf.ValueR\x05value\x1a\x7f\n" +
-	"\tIceRecord\x12Q\n" +
-	"\x06record\x18\x01 \x03(\v29.io.debezium.server.iceberg.rpc.IcebergPayload.RecordItemR\x06record\x12\x1f\n" +
-	"\vrecord_type\x18\x02 \x01(\tR\n" +
-	"recordType\"&\n" +
-	"\vPayloadType\x12\v\n" +
-	"\aRECORDS\x10\x00\x12\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x1aL\n" +
 	"\n" +
-	"\x06COMMIT\x10\x01\"H\n" +
+	"RecordItem\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value\x1a\x7f\n" +
+	"\tIceRecord\x12Q\n" +
+	"\x06fields\x18\x01 \x03(\v29.io.debezium.server.iceberg.rpc.IcebergPayload.RecordItemR\x06fields\x12\x1f\n" +
+	"\vrecord_type\x18\x02 \x01(\tR\n" +
+	"recordType\"H\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess2\x8a\x01\n" +
@@ -398,25 +403,24 @@ func file_records_ingest_proto_rawDescGZIP() []byte {
 	return file_records_ingest_proto_rawDescData
 }
 
-var file_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_records_ingest_proto_goTypes = []any{
-	(IcebergPayload_PayloadType)(0),   // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
-	(*IcebergPayload)(nil),            // 1: io.debezium.server.iceberg.rpc.IcebergPayload
-	(*RecordIngestResponse)(nil),      // 2: io.debezium.server.iceberg.rpc.RecordIngestResponse
-	(*IcebergPayload_Metadata)(nil),   // 3: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
-	(*IcebergPayload_RecordItem)(nil), // 4: io.debezium.server.iceberg.rpc.IcebergPayload.RecordItem
-	(*IcebergPayload_IceRecord)(nil),  // 5: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
-	(*structpb.Value)(nil),            // 6: google.protobuf.Value
+	(*IcebergPayload)(nil),             // 0: io.debezium.server.iceberg.rpc.IcebergPayload
+	(*RecordIngestResponse)(nil),       // 1: io.debezium.server.iceberg.rpc.RecordIngestResponse
+	(*IcebergPayload_Metadata)(nil),    // 2: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
+	(*IcebergPayload_SchemaField)(nil), // 3: io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
+	(*IcebergPayload_RecordItem)(nil),  // 4: io.debezium.server.iceberg.rpc.IcebergPayload.RecordItem
+	(*IcebergPayload_IceRecord)(nil),   // 5: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
+	(*structpb.Value)(nil),             // 6: google.protobuf.Value
 }
 var file_records_ingest_proto_depIdxs = []int32{
-	0, // 0: io.debezium.server.iceberg.rpc.IcebergPayload.type:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
-	3, // 1: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
-	5, // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
+	2, // 0: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
+	5, // 1: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
+	3, // 2: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
 	6, // 3: io.debezium.server.iceberg.rpc.IcebergPayload.RecordItem.value:type_name -> google.protobuf.Value
-	4, // 4: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.record:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.RecordItem
-	1, // 5: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
-	2, // 6: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
+	4, // 4: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.RecordItem
+	0, // 5: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
+	1, // 6: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
 	6, // [6:7] is the sub-list for method output_type
 	5, // [5:6] is the sub-list for method input_type
 	5, // [5:5] is the sub-list for extension type_name
@@ -435,14 +439,13 @@ func file_records_ingest_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_records_ingest_proto_rawDesc), len(file_records_ingest_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   5,
+			NumEnums:      0,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_records_ingest_proto_goTypes,
 		DependencyIndexes: file_records_ingest_proto_depIdxs,
-		EnumInfos:         file_records_ingest_proto_enumTypes,
 		MessageInfos:      file_records_ingest_proto_msgTypes,
 	}.Build()
 	File_records_ingest_proto = out.File

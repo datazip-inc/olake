@@ -111,8 +111,9 @@ func (r *RawRecord) ToDebeziumFormat(db string, _ string, normalization bool, _ 
 	if normalization {
 		for key, value := range r.Data {
 			rItem = append(rItem, IceColumn{
-				Key:   key,
-				Value: value,
+				Key:     key,
+				Value:   value,
+				IceType: toIceServerType(value),
 			})
 		}
 	} else {
@@ -125,10 +126,12 @@ func (r *RawRecord) ToDebeziumFormat(db string, _ string, normalization bool, _ 
 			Value: dataBytes,
 		})
 	}
-	rItem = append(rItem, IceColumn{Key: constants.OpType, Value: r.OperationType})
-	rItem = append(rItem, IceColumn{Key: constants.DBName, Value: db})
-	rItem = append(rItem, IceColumn{Key: constants.CdcTimestamp, Value: r.CdcTimestamp})
-	rItem = append(rItem, IceColumn{Key: constants.OlakeTimestamp, Value: r.OlakeTimestamp})
+	rItem = append(rItem, IceColumn{Key: constants.OpType, Value: r.OperationType, IceType: toIceServerType(r.OperationType)})
+	rItem = append(rItem, IceColumn{Key: constants.DBName, Value: db, IceType: toIceServerType(db)})
+	rItem = append(rItem, IceColumn{Key: constants.CdcTimestamp, Value: r.CdcTimestamp, IceType: toIceServerType(r.CdcTimestamp)})
+	rItem = append(rItem, IceColumn{Key: constants.OlakeTimestamp, Value: r.OlakeTimestamp, IceType: toIceServerType(r.OlakeTimestamp)})
+	rItem = append(rItem, IceColumn{Key: constants.OlakeID, Value: r.OlakeID, IceType: toIceServerType(r.OlakeID)})
+
 	return &IceRecord{
 		Record:     rItem,
 		RecordType: r.OperationType,
@@ -287,4 +290,23 @@ func (d DataType) ToNewParquet() parquet.Node {
 
 	n = parquet.Optional(n) // Ensure the field is nullable
 	return n
+}
+
+func toIceServerType(value any) string {
+	switch value.(type) {
+	case bool:
+		return "boolean"
+	case int, int8, int16, int32:
+		return "int32"
+	case int64:
+		return "int64"
+	case float32:
+		return "float32"
+	case float64:
+		return "float64"
+	case time.Time:
+		return "timestamptz" // use with timezone as we use default utc
+	default:
+		return "string"
+	}
 }

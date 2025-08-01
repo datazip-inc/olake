@@ -5,16 +5,19 @@ import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.MessageParser.CommitMessage;
 import io.debezium.server.iceberg.MessageParser.RecordsMessage;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
-import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.PayloadType;
 import io.debezium.server.iceberg.RecordConverter;
+import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.grpc.binarylog.v1.GrpcLogEntry.PayloadCase;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
+
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.Descriptors;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,10 +59,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         long startTime = System.currentTimeMillis();
         // Retrieve the array of strings from the request
         // List<String> messages 
-
+        System.out.println("here is the type received: "+ request.getType());
         try {
             // for commit request
-            if (request.getType() == PayloadType.COMMIT) {
+            if (request.getType() == "commit") {
                 RecordIngest.IcebergPayload.Metadata metadata = request.getMetadata();
                 String threadID = metadata.getThreadId();
                 if (threadID == "") {
@@ -78,12 +81,17 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             }
             
             // to update schema 
-            if (request.getType() == PayloadType.RECORDS) {// TODO: update type here
-                Table icebergTable = this.loadIcebergTable(TableIdentifier.of(icebergNamespace, tableEvents.getKey()), tableEvents.getValue().get(0));
-                
-                applyFieldAddition(icebergTable, schemaEvents.getValue().get(0).icebergSchema(createIdentifierFields));
-                icebergTableOperator.addToTable(icebergTable, request);
-            }
+            // if (request.getType() == "schema_evolution") {
+                String destTableName = request.getMetadata().getDestTableName();
+                if (destTableName == "") {
+                    throw new Exception("destination table name not present in metadata");
+                }
+                List<RecordIngest.IcebergPayload.SchemaField> schemaMetadata = request.getMetadata().getSchemaList();
+                // TODO: set primary key empty in schema convertor
+                SchemaConvertor icebergSchemaConvertor = new SchemaConvertor(request.getMetadata().getPrimaryKey(),schemaMetadata);
+                Table icebergTable = this.loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName),icebergSchemaConvertor.convertToIcebergSchema());
+                icebergTableOperator.applyFieldAddition(icebergTable, icebergSchemaConvertor.convertToIcebergSchema());
+            // }
             // Normal record processing
             // long parsingStartTime = System.currentTimeMillis();
             // Map<String, List<RecordConverter>> result =
@@ -118,26 +126,26 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             // LOGGER.info("{} Parsing messages took: {} ms", requestId, (System.currentTimeMillis() - parsingStartTime));
 
             // consume list of events for each destination table
-            long processingStartTime = System.currentTimeMillis();
-            for (Map.Entry<String, List<RecordConverter>> tableEvents : result.entrySet()) {
-                try {
-                    Table icebergTable = this.loadIcebergTable(TableIdentifier.of(icebergNamespace, tableEvents.getKey()), tableEvents.getValue().get(0));
-                    icebergTableOperator.addToTable(icebergTable, tableEvents.getValue());
-                } catch (Exception e) {
-                    String errorMessage = String.format("%s Failed to process table events for table: %s", requestId, tableEvents.getKey());
-                    LOGGER.error(errorMessage, e);
-                    throw e;
-                }
-            }
+            // long processingStartTime = System.currentTimeMillis();
+            // for (Map.Entry<String, List<RecordConverter>> tableEvents : result.entrySet()) {
+            //     try {
+            //         Table icebergTable = this.loadIcebergTable(TableIdentifier.of(icebergNamespace, tableEvents.getKey()), tableEvents.getValue().get(0));
+            //         icebergTableOperator.addToTable(icebergTable, tableEvents.getValue());
+            //     } catch (Exception e) {
+            //         String errorMessage = String.format("%s Failed to process table events for table: %s", requestId, tableEvents.getKey());
+            //         LOGGER.error(errorMessage, e);
+            //         throw e;
+            //     }
+            // }
 
-            LOGGER.info("{} Processing tables took: {} ms", requestId, (System.currentTimeMillis() - processingStartTime));
+            // LOGGER.info("{} Processing tables took: {} ms", requestId, (System.currentTimeMillis() - processingStartTime));
 
             // finalize response
             RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
                     .setResult(requestId + " Received " + request.getRecordsCount() + " messages")
                     .build();
-            // responseObserver.onNext(response);
-            // responseObserver.onCompleted();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
             LOGGER.info("{} Total time taken: {} ms", requestId, (System.currentTimeMillis() - startTime));
         } catch (Exception e) {
             String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
@@ -146,12 +154,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         }
     }
 
-    public Table loadIcebergTable(TableIdentifier tableId, RecordConverter sampleEvent) {
+    public Table loadIcebergTable(TableIdentifier tableId, Schema schema) {
         // This is to prevent multiple writer threads from creating the same table at the same time.
         synchronized (tableCreationLock) {
             return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
                 try {
-                    return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(createIdentifierFields), "parquet", partitionTransforms);
+                    return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
                 } catch (Exception e) {
                     String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", tableId, e.getMessage());
                     LOGGER.error(errorMessage, e);

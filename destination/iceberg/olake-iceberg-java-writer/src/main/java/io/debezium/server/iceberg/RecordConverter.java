@@ -11,6 +11,8 @@ package io.debezium.server.iceberg;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.protobuf.Descriptors;
+
 import io.debezium.server.iceberg.tableoperator.Operation;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import org.apache.iceberg.Schema;
@@ -147,14 +149,6 @@ public class RecordConverter {
    * @return The Iceberg schema.
    */
   public Schema icebergSchema(boolean createIdentifierFields) {
-    // Check if the message is a schema change event (DDL statement).
-    // Schema change events are identified by the presence of "ddl", "databaseName", and "tableChanges" fields.
-    // "schema change topic" https://debezium.io/documentation/reference/3.0/connectors/mysql.html#mysql-schema-change-topic
-    if (isSchemaChangeEvent()) {
-      LOGGER.warn("Schema change topic detected. Creating Iceberg schema without identifier fields for append-only mode.");
-      return schemaConverter().icebergSchema(false); // Force no identifier fields for schema changes
-    }
-
     return schemaConverter().icebergSchema(createIdentifierFields);
   }
 
@@ -393,14 +387,11 @@ public class RecordConverter {
     }
 
     private static JsonNode findNodeFieldByName(String fieldName, JsonNode node) {
-
       for (JsonNode field : getNodeFieldsArray(node)) {
-
         if (Objects.equals(field.get("field").textValue(), fieldName)) {
           return field;
         }
       }
-
       return null;
     }
 
@@ -431,26 +422,11 @@ public class RecordConverter {
       if (!createIdentifierFields) {
         LOGGER.warn("Creating identifier fields is disabled, creating table without identifier fields!");
         keySchemaNode = null;
-      } else if (!eventsAreUnwrapped && keySchema != null) {
-        ObjectNode nestedKeySchema = mapper.createObjectNode();
-        nestedKeySchema.put("type", "struct");
-        nestedKeySchema.putArray("fields").add(((ObjectNode) keySchema).put("field", "after"));
-        keySchemaNode = nestedKeySchema;
-      } else {
+      }  else {
         keySchemaNode = keySchema;
       }
 
       icebergSchemaFields(valueSchema, keySchemaNode, schemaData);
-
-      if (!eventsAreUnwrapped && !schemaData.identifierFieldIds().isEmpty()) {
-        // While Iceberg supports nested key fields, they cannot be set with nested events(unwrapped events, Without event flattening)
-        // due to inconsistency in the after and before fields.
-        // For insert events, only the `before` field is NULL, while for delete events after field is NULL.
-        // This inconsistency prevents using either field as a reliable key.
-        throw new RuntimeException("Debezium events are unnested, Identifier fields are not supported for unnested events! " +
-            "Pleas enable event flattening SMT see: https://debezium.io/documentation/reference/stable/transformations/event-flattening.html " +
-            " Or disable identifier field creation `debezium.sink.iceberg.create-identifier-fields=false`");
-      }
 
       if (schemaData.fields().isEmpty()) {
         throw new RuntimeException("Failed to get schema from debezium event, event schema has no fields!");
@@ -505,9 +481,5 @@ public class RecordConverter {
       SchemaConverter that = (SchemaConverter) o;
       return Objects.equals(valueSchema, that.valueSchema) && Objects.equals(keySchema, that.keySchema);
     }
-
-
   }
-
-
 }

@@ -124,7 +124,7 @@ func (i *Iceberg) Close(ctx context.Context, finalFlush bool) error {
 		// commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, i.threadID)
 
 		req := &proto.IcebergPayload{
-			Type: proto.IcebergPayload_COMMIT,
+			Type: "commit",
 			Metadata: &proto.IcebergPayload_Metadata{
 				ThreadId: i.threadID,
 			},

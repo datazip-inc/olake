@@ -11,7 +11,6 @@ package io.debezium.server.iceberg.tableoperator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableMap;
 import io.debezium.server.iceberg.RecordConverter;
-import io.debezium.server.iceberg.rpc.RecordIngest;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 import org.apache.iceberg.AppendFiles;
@@ -181,29 +180,36 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTable(Table icebergTable, RecordIngest.IcebergPayload events) {
+  public void addToTable(Table icebergTable, List<RecordConverter> events) {
 
     // when operation mode is not upsert deduplicate the events to avoid inserting
     // duplicate row
-    // if (upsert && !icebergTable.schema().identifierFieldIds().isEmpty()) {
-    //   events = deduplicateBatch(events);
-    // }
+    if (upsert && !icebergTable.schema().identifierFieldIds().isEmpty()) {
+      events = deduplicateBatch(events);
+    }
 
-    // Map<RecordConverter.SchemaConverter, List<RecordConverter>> eventsGroupedBySchema = events.parallelStream()
-    //     .collect(Collectors.groupingBy(RecordConverter::schemaConverter));
+    if (!allowFieldAddition) {
+      // if field additions not enabled add set of events to table
+      addToTablePerSchema(icebergTable, events);
+    } else {
 
-    // LOGGER.info("Batch got {} records with {} different schema!!", events.size(),
-    //     eventsGroupedBySchema.keySet().size());
+      Map<RecordConverter.SchemaConverter, List<RecordConverter>> eventsGroupedBySchema = events.parallelStream()
+          .collect(Collectors.groupingBy(RecordConverter::schemaConverter));
 
-    for (Map.Entry<RecordConverter.SchemaConverter, List<RecordConverter>> schemaEvents : eventsGroupedBySchema
-        .entrySet()) {
-      // extend table schema if new fields found
-      
-      // add set of events to table
-      addToTablePerSchema(icebergTable, schemaEvents.getValue());
+      LOGGER.info("Batch got {} records with {} different schema!!", events.size(),
+          eventsGroupedBySchema.keySet().size());
+
+      for (Map.Entry<RecordConverter.SchemaConverter, List<RecordConverter>> schemaEvents : eventsGroupedBySchema
+          .entrySet()) {
+        // extend table schema if new fields found
+        applyFieldAddition(icebergTable, schemaEvents.getValue().get(0).icebergSchema(createIdentifierFields));
+        // add set of events to table
+        addToTablePerSchema(icebergTable, schemaEvents.getValue());
+      }
     }
 
   }
+
   /**
    * Commits data files for a specific thread
    * 
