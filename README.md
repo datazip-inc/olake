@@ -168,12 +168,6 @@ Below are other different ways you can run OLake:
 
 ---
 
-### 📦 Architecture
-
-![OLake Architecture](https://olake.io/blog/olake-architecture-deep-dive)
-
----
-
 ### 🌍 Use Cases
 
 - ✅ Migrate from OLTP to Iceberg without Spark or Flink
