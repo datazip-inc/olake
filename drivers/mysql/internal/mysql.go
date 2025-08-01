@@ -143,7 +143,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 		}
 		schemaName, tableName := parts[0], parts[1]
-		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC, types.INCREMENTAL)
+		stream := types.NewStream(tableName, schemaName).WithSyncMode(types.INCREMENTAL)
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -172,7 +172,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			if columnKey == "PRI" {
 				stream.WithPrimaryKey(columnName)
 			}
-			stream.WithCursorField(columnName)
 		}
 		return stream, rows.Err()
 	}
@@ -180,6 +179,14 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+	
+	// Add all discovered fields as potential cursor fields
+	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+		if fieldName, ok := key.(string); ok {
+			stream.WithCursorField(fieldName)
+		}
+		return true
+	})
 	return stream, nil
 }
 
