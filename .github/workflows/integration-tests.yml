@@ -39,7 +39,21 @@ jobs:
         run: |
           docker compose -f ./drivers/mysql/docker-compose.yml up -d
           docker compose -f ./drivers/postgres/docker-compose.yml up -d
+          docker compose -f ./drivers/mongodb/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+          
+      - name: Debug MongoDB Setup
+        run: |
+          echo "=== Waiting for MongoDB to start ==="
+          sleep 30
+          echo "=== MongoDB Container Status ==="
+          docker ps -a | grep mongo
+          echo "=== MongoDB Container Logs ==="
+          docker logs primary_mongo --tail 100
+          echo "=== Testing MongoDB Connection ==="
+          docker exec primary_mongo mongosh --port 27017 --eval "db.adminCommand('ping')" || echo "MongoDB not ready yet"
+          echo "=== Testing Replica Set Status ==="
+          docker exec primary_mongo mongosh --port 27017 --eval "rs.status()" || echo "Replica set not ready yet"
 
       - name: Wait for MySQL
         uses: nick-fields/retry@v2
@@ -58,6 +72,23 @@ jobs:
           retry_wait_seconds: 5
           command: |
             docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
+
+      - name: Wait for MongoDB
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 10
+          max_attempts: 60
+          retry_wait_seconds: 10
+          command: |
+            # First check if MongoDB is running without auth
+            docker exec primary_mongo mongosh --port 27017 --eval "db.adminCommand('ping')" >/dev/null 2>&1 && \
+            # Check replica set is initialized and has primary
+            docker exec primary_mongo mongosh --port 27017 --eval "rs.status().ok" 2>/dev/null | grep -q "1" && \
+            docker exec primary_mongo mongosh --port 27017 --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true" && \
+            # Check admin user authentication
+            docker exec primary_mongo mongosh "mongodb://admin:password@localhost:27017/admin?replicaSet=rs0" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1 && \
+            # Check mongodb user authentication (this is what the tests will use)
+            docker exec primary_mongo mongosh "mongodb://mongodb:secure_password123@localhost:27017/olake_mongodb_test?authSource=admin&replicaSet=rs0" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1
 
       - name: Set up Data Directories
         run: |
@@ -87,7 +118,7 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 2 ./drivers/mysql/internal/... ./drivers/postgres/internal/... -tags=integration --timeout 0
+        run: go test -v -p 3 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... -tags=integration --timeout 0
 
       - name: Cleanup
         if: always()
@@ -95,3 +126,4 @@ jobs:
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
           docker compose -f ./drivers/mysql/docker-compose.yml down
           docker compose -f ./drivers/postgres/docker-compose.yml down
+          docker compose -f ./drivers/mongodb/docker-compose.yml down
