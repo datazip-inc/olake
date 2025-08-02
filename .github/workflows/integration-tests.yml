@@ -39,6 +39,7 @@ jobs:
         run: |
           docker compose -f ./drivers/mysql/docker-compose.yml up -d
           docker compose -f ./drivers/postgres/docker-compose.yml up -d
+          docker compose -f ./drivers/mongodb/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
@@ -58,6 +59,22 @@ jobs:
           retry_wait_seconds: 5
           command: |
             docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
+
+      - name: Wait for MongoDB
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            # Check admin authentication
+            docker exec primary_mongo mongosh --port 27017 --eval "db.adminCommand('ping')" >/dev/null 2>&1 && \
+            # Check user authentication  
+            docker exec primary_mongo mongosh "mongodb://mongodb:secure_password123@localhost:27017/olake_mongodb_test?authSource=admin" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1 && \
+            # Check replica set status
+            docker exec primary_mongo mongosh "mongodb://admin:password@localhost:27017/admin?replicaSet=rs0" --eval "rs.status().members.forEach(function(member){ if(member.stateStr == 'PRIMARY'){ print('PRIMARY_READY'); }})" 2>/dev/null | grep -q "PRIMARY_READY" && \
+            # Check replica set health
+            docker exec primary_mongo mongosh "mongodb://admin:password@localhost:27017/admin?replicaSet=rs0" --eval "rs.status().ok" 2>/dev/null | grep -q "1"
 
       - name: Set up Data Directories
         run: |
@@ -87,7 +104,7 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 2 ./drivers/mysql/internal/... ./drivers/postgres/internal/... -tags=integration --timeout 0
+        run: go test -v -p 3 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... -tags=integration --timeout 0
 
       - name: Cleanup
         if: always()
@@ -95,3 +112,4 @@ jobs:
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
           docker compose -f ./drivers/mysql/docker-compose.yml down
           docker compose -f ./drivers/postgres/docker-compose.yml down
+          docker compose -f ./drivers/mongodb/docker-compose.yml down

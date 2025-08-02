@@ -1,0 +1,147 @@
+# Define the services that will run as containers, the networks they use, and shared volumes.
+services:
+  # Service to initialize the MongoDB keyfile.
+  init-keyfile:
+    image: mongo:8.0                                 # Use MongoDB version 8.0 as the base image.
+    container_name: init_keyfile                     # Explicit container name for easier identification.
+    command: >                                       # Execute a shell command on container startup.
+      sh -c "
+      # Check if the keyfile does not already exist.
+      if [ ! -f /etc/mongodb/pki/keyfile ]; then
+        echo 'Generating keyfile...';
+        # Generate a random keyfile using OpenSSL with base64 encoding and save it to the expected location.
+        # Then set the file permission to read-only (400) for security.
+        openssl rand -base64 756 > /etc/mongodb/pki/keyfile && chmod 400 /etc/mongodb/pki/keyfile;
+      else
+        # If the keyfile already exists, output a message.
+        echo 'Keyfile already exists.';
+      fi
+      "
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume that stores the keyfile.
+    networks:
+      - mongo-cluster                                 # Connect this container to the defined mongo-cluster network.
+    restart: "no"                                     # This container should not restart automatically.
+
+  # Primary MongoDB container that sets up a replica set and creates an admin user.
+  primary_mongo:
+    container_name: primary_mongo                     # Set an explicit name for the primary MongoDB container.
+    image: mongo:8.0                                  # Use MongoDB version 8.0 as the container image.
+    hostname: primary_mongo                           # Set the hostname within the container network.
+    ports:
+      - "27017:27017"                                 # Expose port 27017 for MongoDB connections (host:container mapping).
+    depends_on:
+      - init-keyfile                                  # Ensure the keyfile initialization service runs before this service.
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume to share the generated keyfile.
+    command: |                                        # Execute a series of shell commands using a multi-line script.
+      bash -c '
+      echo "Waiting for keyfile..."
+      # Wait until the keyfile is available before proceeding.
+      while [ ! -f /etc/mongodb/pki/keyfile ]; do sleep 1; done
+      
+      echo "Keyfile found, starting mongod without authentication first..."
+      # Start MongoDB in the background with replication enabled without initially requiring authentication.
+      mongod --replSet rs0 --bind_ip_all --port 27017 &
+      
+      # Store the process ID of the started mongod instance.
+      MONGO_PID=$!
+      echo "MongoDB started with PID: $MONGO_PID"
+      
+      # Wait a moment for the process to start
+      sleep 3
+      
+      echo "Waiting for MongoDB to start..."
+      # Poll the MongoDB process until it is ready to accept connections.
+      until mongosh --port 27017 --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+        sleep 2
+      done
+      
+      echo "Initializing replica set..."
+      # Initialize the replica set with a single member and set its host address.
+      # Note: host.docker.internal provides a host network reference.
+      mongosh --port 27017 --eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"host.docker.internal:27017\"}]})"
+      
+      echo "Waiting for replica set to initialize..."
+      # Allow some time for the replica set configuration to propagate.
+      sleep 5
+      
+      echo "Creating admin user..."
+      # Create an admin user with root privileges in the admin database.
+      mongosh --port 27017 --eval "
+        db = db.getSiblingDB(\"admin\");
+        db.createUser({
+          user: \"admin\",
+          pwd: \"password\",
+          roles: [{ role: \"root\", db: \"admin\" }]
+        });
+
+        // Create the test database first
+        db = db.getSiblingDB(\"olake_mongodb_test\");
+        db.createCollection(\"test_collection\");
+
+        // Switch back to admin database
+        db = db.getSiblingDB(\"admin\");
+        
+        // Drop user if it exists
+        try { db.dropUser(\"mongodb\"); } catch(e) { print(\"User mongodb does not exist, skipping drop\"); }
+
+        db.createUser({
+          user: \"mongodb\",
+          pwd: \"secure_password123\",
+          roles: [
+            { role: \"readWrite\", db: \"olake_mongodb_test\" },
+          ]
+        });
+
+        // Drop role if it exists
+        try { db.dropRole(\"splitVectorRole\"); } catch(e) { print(\"Role splitVectorRole does not exist, skipping drop\"); }
+
+        db.createRole({
+          role: \"splitVectorRole\",
+          privileges: [
+            {
+              resource: { db: \"\", collection: \"\" },
+              actions: [ \"splitVector\" ]
+            }
+          ],
+          roles: []
+        });
+
+        db.grantRolesToUser(\"mongodb\", [
+          { role: \"splitVectorRole\", db: \"admin\" }
+        ]);
+      "
+      echo "Created user and role"
+      echo "Stopping MongoDB to restart with authentication..."
+      # Stop the previously started MongoDB instance by killing its process.
+      if [ ! -z "$MONGO_PID" ] && kill -0 $MONGO_PID 2>/dev/null; then
+        echo "Killing MongoDB process $MONGO_PID"
+        kill $MONGO_PID
+        wait $MONGO_PID
+      else
+        echo "MongoDB process not found, using pkill"
+        pkill mongod
+        sleep 2
+      fi
+      
+      echo "Starting MongoDB with authentication..."
+      # Restart MongoDB ensuring that authentication is enabled by providing the keyfile.
+      exec mongod --replSet rs0 --bind_ip_all --port 27017 --keyFile /etc/mongodb/pki/keyfile
+      '
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]  # Healthcheck command to verify MongoDB is reachable.
+      interval: 10s                                   # Check health status every 10 seconds.
+      timeout: 10s                                    # Timeout if no response is received within 10 seconds.
+      retries: 10                                     # Attempt up to 10 retries before marking the container as unhealthy.
+    networks:
+      - mongo-cluster                                 # Connect this container to the mongo-cluster network.
+
+
+# Define a network named 'mongo-cluster' for the services to communicate.
+networks:
+  mongo-cluster:
+
+# Define a volume to persist the MongoDB keyfile across container restarts and share it among containers.
+volumes:
+  mongo-keyfile-vol:
