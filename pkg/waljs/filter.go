@@ -2,6 +2,7 @@ package waljs
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sync"
 
@@ -43,6 +44,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 	if len(changes.Change) == 0 {
 		return &nextLSN, 0, nil
 	}
+
 	buildChangesMap := func(values []interface{}, types []string, names []string) (map[string]any, error) {
 		data := make(map[string]any)
 		for i, val := range values {
@@ -59,54 +61,57 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 	var (
 		rowsCount int
 		mu        sync.Mutex
-		wg        sync.WaitGroup
-		errCh     = make(chan error, len(changes.Change))
 	)
 
-	for _, ch := range changes.Change {
+	// Use utils.Concurrent to process changes in parallel
+	err = utils.Concurrent(context.Background(), changes.Change, 10, func(ctx context.Context, ch struct {
+		Kind         string        `json:"kind"`
+		Schema       string        `json:"schema"`
+		Table        string        `json:"table"`
+		Columnnames  []string      `json:"columnnames"`
+		Columntypes  []string      `json:"columntypes"`
+		Columnvalues []interface{} `json:"columnvalues"`
+		Oldkeys      struct {
+			Keynames  []string      `json:"keynames"`
+			Keytypes  []string      `json:"keytypes"`
+			Keyvalues []interface{} `json:"keyvalues"`
+		} `json:"oldkeys"`
+	}, _ int) error {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
-			continue
+			return nil
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var changesMap map[string]any
-			var err error
 
-			if ch.Kind == "delete" {
-				changesMap, err = buildChangesMap(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
-			} else {
-				changesMap, err = buildChangesMap(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
-			}
+		var changesMap map[string]any
+		var err error
 
-			if err != nil {
-				errCh <- fmt.Errorf("failed to convert change data: %s", err)
-				return
-			}
+		if ch.Kind == "delete" {
+			changesMap, err = buildChangesMap(ch.Oldkeys.Keyvalues, ch.Oldkeys.Keytypes, ch.Oldkeys.Keynames)
+		} else {
+			changesMap, err = buildChangesMap(ch.Columnvalues, ch.Columntypes, ch.Columnnames)
+		}
 
-			if err := OnFiltered(abstract.CDCChange{
-				Stream:    stream,
-				Kind:      ch.Kind,
-				Timestamp: changes.Timestamp,
-				Data:      changesMap,
-			}); err != nil {
-				errCh <- fmt.Errorf("failed to write filtered change: %s", err)
-				return
-			}
-			mu.Lock()
-			rowsCount++
-			mu.Unlock()
-		}()
-	}
-
-	wg.Wait()
-	close(errCh)
-
-	for err := range errCh {
 		if err != nil {
-			return nil, rowsCount, err
+			return fmt.Errorf("failed to convert change data: %s", err)
 		}
+
+		if err := OnFiltered(abstract.CDCChange{
+			Stream:    stream,
+			Kind:      ch.Kind,
+			Timestamp: changes.Timestamp,
+			Data:      changesMap,
+		}); err != nil {
+			return fmt.Errorf("failed to write filtered change: %s", err)
+		}
+
+		mu.Lock()
+		rowsCount++
+		mu.Unlock()
+		return nil
+	})
+
+	if err != nil {
+		return nil, rowsCount, err
 	}
 
 	return &nextLSN, rowsCount, nil
