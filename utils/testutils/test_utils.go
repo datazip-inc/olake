@@ -473,7 +473,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		timedCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		_, output, err := utils.ExecCommand(timedCtx, c, cmd)
-		// check if sync was cancelled due to timeout (expected)
+		// check if sync was canceled due to timeout (expected)
 		if timedCtx.Err() == context.DeadlineExceeded {
 			return output, nil
 		}
