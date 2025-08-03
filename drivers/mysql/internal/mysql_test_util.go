@@ -277,7 +277,7 @@ func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backf
 	case "trigger_cdc":
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, backfillStreams, 2, func(ctx context.Context, stream string, executionNumber int) error {
-			_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 10000000", stream, stream))
+			_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 15000000", stream, stream))
 			return err
 		})
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)

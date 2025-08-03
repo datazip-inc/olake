@@ -26,12 +26,13 @@ jobs:
         include:
         - driver: mysql
           driver_upper: MYSQL
-        - driver: mongodb
-          driver_upper: MONGODB
-        - driver: oracle
-          driver_upper: ORACLE
         - driver: postgres
           driver_upper: POSTGRES
+        # TODO: add these drivers after benchmarking
+        # - driver: mongodb
+        #   driver_upper: MONGODB
+        # - driver: oracle
+        #   driver_upper: ORACLE
       fail-fast: false
 
     steps:
@@ -99,7 +100,6 @@ jobs:
     - name: Create benchmark files
       run: |
         echo '${{ secrets[format('{0}_BENCHMARK_JSON', matrix.driver_upper)] }}' > ./drivers/${{ matrix.driver }}/internal/testconfig/benchmark.json
-        echo '${{ secrets[format('{0}_BENCHMARK_CDC_JSON', matrix.driver_upper)] }}' > ./drivers/${{ matrix.driver }}/internal/testconfig/benchmark_cdc.json
 
     - name: Run Performance Tests
       run: go test -v ./drivers/${{ matrix.driver }}/internal/... -timeout 0 -run 'Performance'

@@ -375,14 +375,21 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 	// checks if the current rps (from stats.json) is at least 90% of the benchmark rps
 	isRPSAboveBenchmark := func(config TestConfig, isBackfill bool) (bool, error) {
-		benchmarkFile := utils.Ternary(isBackfill, "benchmark.json", "benchmark_cdc.json").(string)
-
 		var stats map[string]interface{}
 		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, "stats.json")), &stats, false); err != nil {
 			return false, err
 		}
 
-		getRPSFromStats := func(stats map[string]interface{}) (float64, error) {
+		getRPSFromStats := func(stats map[string]interface{}, isBenchmark bool) (float64, error) {
+			if isBenchmark {
+				testType := utils.Ternary(isBackfill, "backfill", "cdc").(string)
+				benchmarkRps, err := typeutils.ReformatFloat64(stats[testType])
+				if err != nil {
+					return 0, err
+				}
+				return benchmarkRps.(float64), nil
+			}
+
 			rps, err := typeutils.ReformatFloat64(strings.Split(stats["Speed"].(string), " ")[0])
 			if err != nil {
 				return 0, err
@@ -390,17 +397,17 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return rps.(float64), nil
 		}
 
-		rps, err := getRPSFromStats(stats)
+		rps, err := getRPSFromStats(stats, false)
 		if err != nil {
 			return false, err
 		}
 
 		var benchmarkStats map[string]interface{}
-		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, benchmarkFile)), &benchmarkStats, false); err != nil {
+		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/benchmark.json", config.Driver)), &benchmarkStats, false); err != nil {
 			return false, err
 		}
 
-		benchmarkRps, err := getRPSFromStats(benchmarkStats)
+		benchmarkRps, err := getRPSFromStats(benchmarkStats, true)
 		if err != nil {
 			return false, err
 		}
