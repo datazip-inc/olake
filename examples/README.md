@@ -1,168 +1,181 @@
-# Olake End-to-End Demo Stack with Docker Compose
+Guide to Trino with Olake Integrations
+This guide walks you through how to use Trino to query your Iceberg tables, which are managed by the main Olake Docker stack. We'll cover the basic setup, what you need to know, and some common fixes.
 
-This Docker Compose setup provides a comprehensive environment for demonstrating and exploring Olake's capabilities. It includes a pre-configured MySQL database with the "weather" sample dataset, MinIO for S3-compatible storage, an Iceberg REST catalog, Temporal for workflow management, and the Olake application itself.
+1. Setting up Olake
+Here are some common things you might need to set up for your main Olake project.
 
-## Features
+1.1 Changing the Admin User
 
-* **Olake Application (`olake-app`):** The core application for defining and managing data pipelines.
-* **MySQL (`primary_mysql`):**
-    * Pre-loaded with the "weather" sample database.
-    * Change Data Capture (CDC) enabled via binary logs.
-* **Iceberg REST Catalog (`rest`):** Manages metadata for Iceberg tables, using PostgreSQL as its backend.
-## Prerequisites
+Olake automatically makes an admin user when it starts. The default username is admin. If you want to change the default username and password, you can edit this section in your docker-compose.yml file:
 
-* **Docker:** Latest version installed and running.
-* **Docker Compose:** Latest version installed (usually included with Docker Desktop).
-* **Resources:** This stack runs multiple services and loads a large dataset. Allocate sufficient memory and CPU resources to Docker (e.g., 8GB+ RAM recommended).
-
-## Running the Stack
-1. **Clone the repository:**
-
-   ```bash
-   git clone https://github.com/datazip-inc/olake.git
-   cd olake/examples
-   ```
-
-2.  **Start the Services:**
-    ```bash
-    docker compose up -d
-    ```
-    On the first run, Docker will download all the necessary images, and the `init-mysql-tasks` service will clone the "weather" CSV and load it into MySQL. **This initial setup, especially the docker image download part, can take some amount of time (potentially 5-10 minutes or more depending on internet speed and machine performance).**
-
-## Accessing Services
-
-Once the stack is up and running (especially after `init-mysql-tasks` and `olake-app` are healthy/started):
-
-* **Olake Application UI:** `http://localhost:8000`
-    * Default credentials:
-        * Username: `admin`
-        * Password: `password`
-* **MySQL (`primary_mysql`):**
-    * Verify Source Data:
-      - Access the MySQL CLI:
-        ```bash
-        docker exec -it primary_mysql mysql -u root -ppassword
-        ```
-      - Select the `weather` database and query the table:
-        ```sql
-        USE weather;
-        SELECT * FROM weather LIMIT 10;
-        ```
-        This will display the first 10 rows of the `weather` table.
-
-## Interacting with Olake
-
-1.  Log in to the Olake UI at `http://localhost:8000` using the default credentials.
-2.  **Configure Data Source and Destination:**
-
-    * Set up a **Source** connection to the `primary_mysql` database within Olake:
-        * **Host:** `host.docker.internal`
-        * **Port:** `3306`
-        * **Database:** `weather`
-        * **User:** `root`
-        * **Password:** `password`
-
-    * Set up a **Destination** connection for Apache Iceberg within Olake:
-        * **Iceberg REST Catalog URL:** `http://host.docker.internal:8181`
-        * **Iceberg S3 Path (example):** `s3://warehouse/weather/`
-        * **Iceberg Database (example):** `weather`
-        * **S3 Endpoint (for Iceberg data files written by Olake workers):** `http://host.docker.internal:9090`
-        * **AWS Region:** `us-east-1`
-        * **S3 Access Key:** `minio`
-        * **S3 Secret Key:** `minio123`
-
-3.  **Create and Configure a Job:**
-    Once the Source (MySQL) and Destination (Iceberg) are successfully configured and tested in Olake, create a Job to define and run the data pipeline:
-    * Navigate to the **"Jobs"** tab in the Olake UI.
-    * Click on the **"Create Job"** button.
-
-    * **Set up the Source:**
-        * Use and existing source -> Connector: MySQL -> Select the source from the dropdown list -> Next.
-
-    * **Set up the Destination:**
-        * Use and existing destination -> Conector: Apache Iceberg -> Catalog: REST Catalog -> Select the destination from the dropdown list -> Next.
-    
-    * **Select Streams to sync:**
-        * Select the weather table using checkbox to sync from Source to Destination.
-        * Click on the weather table and set Normalisation to `true` using the toggle button.
-
-    * **Configure Job:**
-        * Set job name and replication frequency.
-
-    * **Save and Run the Job:**
-        * Save the job configuration.
-        * Run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by selecting **Sync now**.
-
-## Querying Iceberg Tables with External Engines
-
-Once Olake has processed data and created Iceberg tables, the tables can be queried using various external SQL query engines leveraging the power of engines like Presto, Trino, DuckDB, DorisDB, and others to analyze the data.
-
-Example configurations and detailed setup instructions for specific query engines are provided in their respective subdirectories within this example:
-
-* **Presto:**
-    * Sample configuration files are located in the `./presto/etc/` directory.
-    * For detailed setup instructions, please refer to the [**Presto Setup Guide (`./presto/README.md`)**](./presto/README.md).
-
-* **(Future) Trino:**
-    * Coming soon...
-
-* **(Future) DuckDB:**
-    * Coming soon...
-
-* **(Future) DorisDB:**
-    * Coming soon...
-
-### Optional Configuration
-
-**Custom Admin User:**
-
-The stack automatically creates an initial admin user on first startup. To change the default credentials, edit the `x-signup-defaults` section in `docker-compose.yml`:
-
-```yaml
 x-signup-defaults:
 username: &defaultUsername "custom-username"
 password: &defaultPassword "secure-password"
 email: &defaultEmail "email@example.com"
-```
 
-**Custom Data Directory:**
 
-The docker-compose.yml uses `${PWD}/olake-data` for the host directory where Olake's persistent configuration, states and metadata will be stored. This could be replaced with any other path on host system before starting the services. Change this by editing the `x-app-defaults` section at the top of `docker-compose.yml`:
-```yaml
+
+
+
+
+1.2 Changing the Data Directory
+
+The docker-compose.yml file usually saves your data to a folder called olake-data. You can change this to a different folder on your computer if you want:
+
 x-app-defaults:
   host_persistence_path: &hostPersistencePath /alternate/host/path
-```
-Make sure the directory exists and is writable by the user running Docker (see how to change [file permissions for Linux/macOS](https://wiki.archlinux.org/title/File_permissions_and_attributes#Changing_permissions)).
 
-## Troubleshooting
 
-### Viewing Logs
 
-- **All services:**
-  ```bash
-  docker compose logs -f
-  ```
 
-- **Specific service:**
-  ```bash
-  docker compose logs -f <service_name>
-  ```
 
-### Checking Service Status
 
-- **Service status:**
-  ```bash
-  docker compose ps
-  ```
+Quick Tip: Make sure the folder you choose actually exists and that you have permission to write to it. If you're on Linux or macOS, you might need to change file permissions.
 
-### Common Commands
+2. Using Trino to Query Your Iceberg Tables
+This is the main part. It tells you how to get Trino running and connected so you can see your data.
 
-- **Restart a service:**
-  ```bash
-  docker compose restart <service_name>
-  ```
+2.1 What You Need First
 
-- **Stop all services and remove volumes:**
-  ```bash
-  docker compose down -v
-  ```
+Just make sure these things are ready before you start:
+
+Your main Olake Docker stack is already up and running.
+
+The Iceberg REST Catalog (iceberg-rest-catalog) and MinIO (minio) services are active in your Docker app-network.
+
+You've already put some data into your Iceberg tables using Olake.
+
+2.2 The Super Important iceberg.properties File
+
+This file is the key to connecting Trino to your data. If something is wrong here, it won't work. To make sure Trino can find your Iceberg catalog and get data from MinIO, your examples/trino/etc/catalog/iceberg.properties file must look like this:
+
+connector.name=iceberg
+iceberg.catalog.type=rest
+iceberg.rest-catalog.uri=http://iceberg-rest-catalog:8181
+iceberg.s3.endpoint=http://minio:9000
+iceberg.s3.access-key=minioadmin
+iceberg.s3.secret-key=minioadmin
+iceberg.s3.path-style-access=true
+iceberg.s3.region=us-east-1
+
+
+
+
+
+
+iceberg.rest-catalog.uri: This is the address for your Iceberg Catalog. http://iceberg-rest-catalog:8181 is usually the right one.
+
+iceberg.s3.endpoint: This is the address for MinIO, which is where your actual data is stored.
+
+iceberg.s3.access-key and iceberg.s3.secret-key: These are the login details for MinIO.
+
+2.3 How to Run Trino and See Your Data
+
+Just follow these steps from the main olake folder:
+
+Go into the Trino folder:
+
+cd examples/trino
+
+
+
+
+
+
+Start the Trino container:
+This command starts Trino, connects it to your other services, and uses the iceberg.properties file you just set up.
+
+docker run -d --name olake-trino-coordinator \
+  --network app-network \
+  -p 80:8080 \
+  -v "$(pwd)/etc:/opt/trino-server/etc" \
+  trinodb/trino:latest
+
+
+
+
+
+
+Use the Trino website to run a query:
+
+Open the Trino UI:
+
+Go to http://localhost:80 in your web browser.
+
+The username is admin.
+
+Pick your Catalog and Schema:
+
+In the dropdown menus, choose Catalog: iceberg and Schema: weather.
+
+Quick Tip: If you don't see the dropdown menus, it likely means there is a connectivity issue. In that case, you can use a tool like DBeaver to connect directly to Trino and run your queries.
+
+Run a query:
+
+Type your query in the editor. For example, to check your data:
+
+SELECT * FROM iceberg.weather.weather LIMIT 10;
+
+
+
+
+
+
+Click Run.
+
+If it all works, you'll see your data right there!
+
+3. General Help and Troubleshooting
+3.1 Looking at the Logs
+
+For all services:
+
+docker compose logs -f
+
+
+
+
+
+
+For just one service (like Trino):
+
+docker compose logs -f <service_name>
+
+
+
+
+
+
+(To see the Trino logs specifically, you can also use docker logs -f olake-trino-coordinator)
+
+3.2 Checking if Services are Running
+
+To see the status of all your services:
+
+docker compose ps
+
+
+
+
+
+
+3.3 Useful Docker Commands
+
+To restart a service:
+
+docker compose restart <service_name>
+
+
+
+
+
+
+To stop everything and delete your data (be careful!):
+
+docker compose down -v
+
+
+
+
+
+

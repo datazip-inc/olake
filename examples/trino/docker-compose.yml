@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  trino-coordinator:
+    image: trinodb/trino:latest
+    container_name: olake-trino-coordinator
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./etc:/etc/trino
+      - ./catalog:/etc/trino/catalog
+    environment:
+      TRINO_CONFIG_DIR: /etc/trino
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/v1/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  app-network:
+    external: true
+    name: app-network
