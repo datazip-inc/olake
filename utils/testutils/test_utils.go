@@ -428,12 +428,10 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	syncCommand := func(config TestConfig, isBackfill bool, usesPreChunkedState bool) string {
 		baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
 
-		// for cdc, we need state file
 		if !isBackfill {
 			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
 		}
-
-		// if we are using pre-chunked state for backfill
+		// use state file for backfill if pre-chunked state is used
 		if isBackfill && usesPreChunkedState {
 			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
 		}
@@ -446,7 +444,6 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return ""
 		}
 
-		// Create a jq condition that checks if stream_name is in the provided array
 		streamConditions := make([]string, len(stream))
 		for i, s := range stream {
 			streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
@@ -478,7 +475,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return output, nil
 		}
 		if err != nil {
-			return output, err
+			return output, fmt.Errorf("sync failed: %s", err)
 		}
 		return output, nil
 	}
