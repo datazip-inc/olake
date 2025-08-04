@@ -21,7 +21,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	filter, err := buildFilter(stream)
 	if err != nil {
-		return fmt.Errorf("failed to build filter: %w", err)
+		return fmt.Errorf("failed to build filter: %s", err)
 	}
 
 	incrementalFilter, err := m.buildIncrementalCondition(primaryCursor, secondaryCursor, lastPrimaryCursorValue, lastSecondaryCursorValue)
@@ -35,22 +35,22 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
-	logger.Infof("Starting incremental sync for stream[%s] with filter: %v", stream.ID(), filter)
+	logger.Infof("Starting incremental sync for stream[%s] with filter: %s", stream.ID(), filter)
 
 	cursor, err := collection.Find(ctx, filter, findOpts)
 	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %w", err)
+		return fmt.Errorf("failed to execute incremental query: %s", err)
 	}
 	defer cursor.Close(ctx)
 
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if err := cursor.Decode(&doc); err != nil {
-			return fmt.Errorf("decode error: %w", err)
+			return fmt.Errorf("decode error: %s", err)
 		}
 		filterMongoObject(doc)
 		if err := processFn(doc); err != nil {
-			return fmt.Errorf("process error: %w", err)
+			return fmt.Errorf("process error: %s", err)
 		}
 	}
 
@@ -58,7 +58,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 }
 
 // buildIncrementalCondition generates the incremental condition BSON for MongoDB based on datatype and cursor value.
-func (m *Mongo) buildIncrementalCondition(primaryCursor string, secondaryCursor string, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (bson.D, error) {
+func (m *Mongo) buildIncrementalCondition(primaryCursor, secondaryCursor string, lastPrimaryCursorValue, lastSecondaryCursorValue any) (bson.D, error) {
 	incrementalCondition := buildMongoCondition(types.Condition{
 		Column:   primaryCursor,
 		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
