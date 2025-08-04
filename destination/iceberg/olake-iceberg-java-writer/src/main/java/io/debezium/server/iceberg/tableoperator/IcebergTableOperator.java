@@ -160,8 +160,18 @@ public class IcebergTableOperator {
     // @NOTE avoid committing when there is no schema change. commit creates new
     // commit even when there is no change!
     if (!icebergTable.schema().sameSchema(newSchemaCombined)) {
-      LOGGER.warn("Extending schema of {}", icebergTable.name());
-      us.commit();
+      synchronized (commitLock) {
+        icebergTable.refresh();
+        UpdateSchema usFinal = icebergTable.updateSchema().unionByNameWith(newSchema);
+        if (createIdentifierFields) {
+          usFinal.setIdentifierFields(newSchema.identifierFieldNames());
+        }
+        // Schema newSchemaCombinedFinal = usFinal.apply();
+        if (!icebergTable.schema().sameSchema(newSchemaCombined)) {
+          LOGGER.warn("Extending schema of {}", icebergTable.name());
+          usFinal.commit();
+        }
+      }
     }
   }
 
