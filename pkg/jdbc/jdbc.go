@@ -116,9 +116,14 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 }
 
 // MySQL-Specific Queries
+// AnalyzeTableQuery returns the query to analyze a table in MySQL
+func AnalyzeTableQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf("ANALYZE TABLE %s.%s", stream.Namespace(), stream.Name())
+}
+
 // getAvgRowSizeQuery returns the query to fetch the average row size of a table in MySQL
 func AvgRowSizeQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf("SELECT  CEIL(data_length / NULLIF(table_rows, 0)) AS `avg_row_bytes` FROM information_schema.tables WHERE table_schema = %q AND table_name = %q", stream.Namespace(), stream.Name())
+	return fmt.Sprintf("SELECT  CEIL(data_length / NULLIF(table_rows, 0)) AS `avg_row_bytes` FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s'", stream.Namespace(), stream.Name())
 }
 
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL

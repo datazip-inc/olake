@@ -54,9 +54,16 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 }
 
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+	// This query is used to update the stats table of mysql, which might return null values if not populated
+	analyzeTableQuery := jdbc.AnalyzeTableQuery(stream)
+	_, err := m.client.Exec(analyzeTableQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run analyze table query on table %s: %s", stream.ID(), err)
+	}
+
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
-	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
+	err = m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}

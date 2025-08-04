@@ -183,12 +183,12 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			return nil, fmt.Errorf("failed to get collection stats: %s", err)
 		}
 
-		numberOfChunks := int(math.Ceil(storageSize.(float64) / float64(constants.EffectiveParquetSize)))
+		numberOfBuckets := int(math.Ceil(storageSize.(float64) / float64(constants.EffectiveParquetSize)))
 		pipeline = append(pipeline,
 			bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 			bson.D{{Key: "$bucketAuto", Value: bson.D{
 				{Key: "groupBy", Value: "$_id"},
-				{Key: "buckets", Value: numberOfChunks},
+				{Key: "buckets", Value: numberOfBuckets},
 			}}},
 		)
 
