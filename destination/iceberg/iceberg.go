@@ -3,7 +3,6 @@ package iceberg
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -19,14 +18,11 @@ type Iceberg struct {
 	options       *destination.Options
 	config        *Config
 	stream        types.StreamInterface
-	cmd           *exec.Cmd
 	client        proto.RecordIngestServiceClient
 	conn          *grpc.ClientConn
 	port          int
-	backfill      bool
 	configHash    string
 	partitionInfo []PartitionInfo // ordered slice to preserve partition column order
-	localBuffer   *LocalBuffer    // Buffer for this thread
 	threadID      string
 }
 
@@ -48,15 +44,8 @@ func (i *Iceberg) Spec() any {
 func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Options) error {
 	i.options = options
 	i.stream = stream
-	i.backfill = options.Backfill
 	i.partitionInfo = make([]PartitionInfo, 0)
 	i.threadID = getGoroutineID()
-
-	// Initialize the local buffer
-	i.localBuffer = &LocalBuffer{
-		records: make([]string, 0, 100),
-		size:    0,
-	}
 
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -124,7 +113,7 @@ func (i *Iceberg) Close(ctx context.Context, finalFlush bool) error {
 		// commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, i.threadID)
 
 		req := &proto.IcebergPayload{
-			Type: "commit",
+			Type: proto.IcebergPayload_COMMIT,
 			Metadata: &proto.IcebergPayload_Metadata{
 				ThreadId: i.threadID,
 			},

@@ -289,10 +289,11 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	configHash := getConfigHash(namespace, streamID, upsert)
 	i.configHash = configHash
 
+	var serverCmd *exec.Cmd
 	// Check if a server with matching config already exists
 	if server, exists := serverRegistry[configHash]; exists {
 		// Reuse existing server
-		i.port, i.client, i.conn, i.cmd = server.port, server.client, server.conn, server.cmd
+		i.port, i.client, i.conn, serverCmd = server.port, server.client, server.conn, server.cmd
 		server.refCount++
 		logger.Infof("thread id %s: reusing existing Iceberg server on port %d for stream %s, refCount %d", i.threadID, i.port, streamID, server.refCount)
 		return nil
@@ -315,14 +316,14 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	// Start the Java server process
 	// If debug mode is enabled and stream is available (stream is nil for check operations), start the server with debug options
 	if os.Getenv("OLAKE_DEBUG_MODE") != "" && i.stream != nil {
-		i.cmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", i.config.JarPath, string(configJSON))
+		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", i.config.JarPath, string(configJSON))
 	} else {
-		i.cmd = exec.Command("java", "-XX:+UseG1GC", "-jar", i.config.JarPath, string(configJSON))
+		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", i.config.JarPath, string(configJSON))
 	}
 
 	// Set environment variables for AWS credentials and region when using Glue catalog
 	// Get current environment
-	env := i.cmd.Env
+	env := serverCmd.Env
 	if env == nil {
 		env = []string{}
 	}
@@ -345,11 +346,11 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	}
 
 	// Update the command's environment
-	i.cmd.Env = env
+	serverCmd.Env = env
 
 	// Set up and start the process with logging
 	processName := fmt.Sprintf("Java-Iceberg:%d", port)
-	if err := logger.SetupAndStartProcess(processName, i.cmd); err != nil {
+	if err := logger.SetupAndStartProcess(processName, serverCmd); err != nil {
 		return fmt.Errorf("failed to start Iceberg server: %s", err)
 	}
 
@@ -360,8 +361,8 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 
 	if err != nil {
 		// If connection fails, clean up the process
-		if i.cmd != nil && i.cmd.Process != nil {
-			if killErr := i.cmd.Process.Kill(); killErr != nil {
+		if serverCmd != nil && serverCmd.Process != nil {
+			if killErr := serverCmd.Process.Kill(); killErr != nil {
 				logger.Errorf("thread id %s: Failed to kill process: %s", i.threadID, killErr)
 			}
 		}
@@ -373,7 +374,7 @@ func (i *Iceberg) SetupIcebergClient(upsert bool) error {
 	// Register the new server instance
 	serverRegistry[configHash] = &serverInstance{
 		port:       i.port,
-		cmd:        i.cmd,
+		cmd:        serverCmd,
 		client:     i.client,
 		conn:       i.conn,
 		refCount:   1,
@@ -498,21 +499,31 @@ func (i *Iceberg) sendRecords(ctx context.Context, payload types.IcebergWriterPa
 
 	schemaFieldsMap := make(map[string]*proto.IcebergPayload_SchemaField)
 	for _, record := range payload.Records {
-		var protoColumns []*proto.IcebergPayload_RecordItem
+		protoColumns := make(map[string]*structpb.Value)
 		for _, iceColumn := range record.Record {
-			protoColumns = append(protoColumns, &proto.IcebergPayload_RecordItem{
-				Key:   iceColumn.Key,
-				Value: structpb.NewStringValue(fmt.Sprintf("%v", iceColumn.Value)),
-			})
+			if iceColumn.Value == nil {
+				continue
+			}
+			// marshal value
+			bytesData, err := json.Marshal(iceColumn.Value)
+			if err != nil {
+				return fmt.Errorf("failed to marshal the value[%v], error: %s", err)
+			}
+			if iceColumn.Value != nil {
+				protoColumns[iceColumn.Key] = structpb.NewStringValue(string(bytesData))
+			}
 			schemaFieldsMap[iceColumn.Key] = &proto.IcebergPayload_SchemaField{
 				IceType: iceColumn.IceType,
 				Key:     iceColumn.Key,
 			}
 		}
-		protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
-			Fields:     protoColumns,
-			RecordType: record.RecordType,
-		})
+		if len(protoColumns) > 0 {
+			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
+				Fields:     protoColumns,
+				RecordType: record.RecordType,
+			})
+		}
+
 	}
 
 	var protoSchemaFields []*proto.IcebergPayload_SchemaField
@@ -527,7 +538,7 @@ func (i *Iceberg) sendRecords(ctx context.Context, payload types.IcebergWriterPa
 		Schema:        protoSchemaFields,
 	}
 	req := &proto.IcebergPayload{
-		Type:     "schema_evolution",
+		Type:     proto.IcebergPayload_RECORDS,
 		Metadata: protoMetadata,
 		Records:  protoRecords,
 	}

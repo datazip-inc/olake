@@ -11,8 +11,16 @@ service RecordIngestService {
 }
 
 message IcebergPayload {
-  string type = 1;  // "records", "commit", "evolve_schema", "drop_table", "get_or_create_table"
+  enum PayloadType {
+    RECORDS = 0;
+    COMMIT = 1;
+    EVOLVE_SCHEMA = 2;
+    DROP_TABLE = 3;
+    GET_OR_CREATE_TABLE = 4;
+  }
   
+  PayloadType type = 1;
+
   message Metadata {
     string dest_table_name = 1;
     string thread_id = 2;
@@ -25,13 +33,8 @@ message IcebergPayload {
     string key = 2;
   }
 
-  message RecordItem {
-    string key = 1;
-    google.protobuf.Value value = 2;  // Handles any JSON value
-  }
-
   message IceRecord {
-    repeated RecordItem fields = 1;
+    map<string, google.protobuf.Value> fields = 1;
     string record_type = 2;  // "u", "c", "r"
   }
 

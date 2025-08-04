@@ -110,6 +110,9 @@ func (r *RawRecord) ToDebeziumFormat(db string, _ string, normalization bool, _ 
 	// Handle data based on normalization flag
 	if normalization {
 		for key, value := range r.Data {
+			if value == nil {
+				continue
+			}
 			rItem = append(rItem, IceColumn{
 				Key:     key,
 				Value:   value,
@@ -126,9 +129,10 @@ func (r *RawRecord) ToDebeziumFormat(db string, _ string, normalization bool, _ 
 			Value: dataBytes,
 		})
 	}
+	r.OlakeTimestamp = time.Now().UTC()
 	rItem = append(rItem, IceColumn{Key: constants.OpType, Value: r.OperationType, IceType: toIceServerType(r.OperationType)})
 	rItem = append(rItem, IceColumn{Key: constants.DBName, Value: db, IceType: toIceServerType(db)})
-	rItem = append(rItem, IceColumn{Key: constants.CdcTimestamp, Value: r.CdcTimestamp, IceType: toIceServerType(r.CdcTimestamp)})
+	rItem = append(rItem, IceColumn{Key: constants.CdcTimestamp, Value: r.CdcTimestamp.UTC(), IceType: toIceServerType(r.CdcTimestamp)})
 	rItem = append(rItem, IceColumn{Key: constants.OlakeTimestamp, Value: r.OlakeTimestamp, IceType: toIceServerType(r.OlakeTimestamp)})
 	rItem = append(rItem, IceColumn{Key: constants.OlakeID, Value: r.OlakeID, IceType: toIceServerType(r.OlakeID)})
 

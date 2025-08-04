@@ -3,6 +3,7 @@ package destination
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -84,10 +85,16 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, dropStreams []st
 			return nil, fmt.Errorf("failed to clear destination: %s", err)
 		}
 	}
+	maxBatchSize := determineMaxBatchSize()
+	if config.MaxThreads <= 0 {
+		// get from machine
+		config.MaxThreads = runtime.NumCPU()
+	}
+	logger.Info("writer max batch size set to: %d bytes and max threads to: %d", maxBatchSize, config.MaxThreads)
 
 	return &WriterPool{
 		maxThreads:    config.MaxThreads,
-		batchSize:     determineMaxBatchSize(),
+		batchSize:     maxBatchSize,
 		totalRecords:  atomic.Int64{},
 		recordCount:   atomic.Int64{},
 		ThreadCounter: atomic.Int64{},
@@ -114,10 +121,10 @@ func (w *WriterPool) NewThread(ctx context.Context, stream types.StreamInterface
 	for _, one := range options {
 		one(opts)
 	}
+
 	group, ctx := errgroup.WithContext(ctx)
-	if w.maxThreads > 0 {
-		group.SetLimit(w.maxThreads)
-	}
+	group.SetLimit(w.maxThreads)
+
 	return &ThreadEvent{
 		WriterPool: w,
 		buffer:     []types.RawRecord{},
@@ -137,7 +144,7 @@ func (t *ThreadEvent) Push(record types.RawRecord) error {
 		t.recordSize = 0
 		newBuffer := make([]types.RawRecord, len(t.buffer))
 		_ = copy(newBuffer, t.buffer)
-		t.buffer = make([]types.RawRecord, 0)
+		t.buffer = t.buffer[:0]
 		t.errGroup.Go(func() error {
 			return t.flush(newBuffer, false)
 		})
@@ -155,7 +162,6 @@ func (t *ThreadEvent) Close() error {
 func (t *ThreadEvent) flush(buf []types.RawRecord, finalFlush bool) error {
 	t.ThreadCounter.Add(1)
 	defer t.ThreadCounter.Add(-1)
-	// just get records equal to batch size
 
 	// init the writer and flush records
 	var thread Writer
@@ -168,6 +174,9 @@ func (t *ThreadEvent) flush(buf []types.RawRecord, finalFlush bool) error {
 		}
 		return thread.Setup(t.stream, t.options)
 	}()
+
+	// check for schema evolution
+
 	if err != nil {
 		return fmt.Errorf("failed to init thread[%d]: %s", t.options.Number, err)
 	}
@@ -176,8 +185,8 @@ func (t *ThreadEvent) flush(buf []types.RawRecord, finalFlush bool) error {
 	if err := thread.Write(t.parentCtx, buf); err != nil {
 		return fmt.Errorf("failed to write record: %s", err)
 	}
-	t.recordCount.Add(int64(len(buf)))
 
+	t.recordCount.Add(int64(len(buf)))
 	return thread.Close(t.parentCtx, finalFlush)
 }
 
@@ -200,20 +209,14 @@ func (w *WriterPool) GetReadRecords() int64 {
 
 func determineMaxBatchSize() int64 {
 	ramGB := utils.DetermineSystemMemoryGB()
-
-	var batchSize int64
-
 	switch {
-	case ramGB <= 8:
-		batchSize = 100 * 1024 * 1024 // 100MB
-	case ramGB <= 16:
-		batchSize = 200 * 1024 * 1024 // 200MB
-	case ramGB <= 32:
-		batchSize = 400 * 1024 * 1024 // 400MB
+	case ramGB >= 32:
+		return 800 * 1024 * 1024 // 100MB
+	case ramGB >= 16:
+		return 400 * 1024 * 1024 // 200MB
+	case ramGB >= 8:
+		return 200 * 1024 * 1024 // 400MB
 	default:
-		batchSize = 800 * 1024 * 1024 // 800MB
+		return 100 * 1024 * 1024 // 800MB
 	}
-
-	logger.Infof("System has %dGB RAM, setting iceberg writer batch size to %d bytes", ramGB, batchSize)
-	return batchSize
 }
