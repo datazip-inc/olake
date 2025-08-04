@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -18,13 +19,18 @@ import (
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	//TODO: Verify the requirement of Transaction in Oracle Sync and remove if not required
 	// Begin transaction with default isolation
+	filter, err := jdbc.SQLFilter(stream, o.Type())
+	if err != nil {
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+	}
+
 	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer tx.Rollback()
 
-	stmt := jdbc.OracleChunkScanQuery(stream, chunk)
+	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
 	// Use transaction for queries
 	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
@@ -49,6 +55,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			return nil, fmt.Errorf("failed to get current SCN: %s", err)
 		}
 
+		// TODO: Add implementation of AddRecordsToSync function which expects total number of records to be synced
 		query = jdbc.OracleEmptyCheckQuery(stream)
 		err = o.client.QueryRow(query).Scan(new(interface{}))
 		if err != nil {
@@ -59,59 +66,71 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			return nil, fmt.Errorf("failed to check for rows: %s", err)
 		}
 
-		var minRowId, maxRowId string
-		var totalRows int64
-		query = jdbc.OracleMinMaxCountQuery(stream, currentSCN)
-		err = o.client.QueryRow(query).Scan(&minRowId, &maxRowId, &totalRows)
+		query = jdbc.OracleBlockSizeQuery()
+		var blockSize int64
+		err = o.client.QueryRow(query).Scan(&blockSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get min-max row id and total rows: %s", err)
+			return nil, fmt.Errorf("failed to get block size: %s", err)
+		}
+		blocksPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
+
+		taskName := fmt.Sprintf("chunk_%s_%s_%s", stream.Namespace(), stream.Name(), time.Now().Format("20060102150405.000000"))
+		query = jdbc.OracleTaskCreationQuery(taskName)
+		_, err = o.client.ExecContext(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create task: %s", err)
+		}
+		defer func(taskName string) {
+			stmt := jdbc.OracleChunkTaskCleanerQuery(taskName)
+			_, err := o.client.ExecContext(ctx, stmt)
+			if err != nil {
+				logger.Warnf("failed to clean up chunk task: %s", err)
+			}
+		}(taskName)
+
+		// TODO: Research about filteration during chunk creation and CREATE_CHUNKS_BY_SQL strategy
+		query = jdbc.OracleChunkCreationQuery(stream, blocksPerChunk, taskName)
+		_, err = o.client.ExecContext(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chunks: %s", err)
 		}
 
 		chunks := types.NewSet[types.Chunk]()
-		currRowId := minRowId
-		rowsPerChunk, err := o.getChunkSize(stream, totalRows)
+		chunkQuery := jdbc.OracleChunkRetrievalQuery(taskName)
+		rows, err := o.client.QueryContext(ctx, chunkQuery)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get chunk size: %s", err)
+			return nil, fmt.Errorf("failed to retrieve chunks: %s", err)
+		}
+		defer rows.Close()
+
+		// Collect all start rowids first
+		var startRowIDs []string
+		for rows.Next() {
+			var chunkID int
+			var startRowID, endRowID string
+			err := rows.Scan(&chunkID, &startRowID, &endRowID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan chunk %d: %s", chunkID, err)
+			}
+			startRowIDs = append(startRowIDs, startRowID)
 		}
 
-		for {
-			// TODO: Remove use of count of all rows in chunk
-			nextRowIdQuery := jdbc.NextRowIDQuery(stream, currentSCN, currRowId, rowsPerChunk)
-			var nextRowId string
-			var rowCount int64
-			err = o.client.QueryRow(nextRowIdQuery).Scan(&nextRowId, &rowCount)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get next row id: %s", err)
+		for idx, startRowID := range startRowIDs {
+			var maxRowID interface{}
+
+			if idx < len(startRowIDs)-1 {
+				maxRowID = startRowIDs[idx+1]
+			} else {
+				maxRowID = nil
 			}
-			// Appending the SCN to chunk boundaries, this will be used during chunk itearation
-			if (rowCount < rowsPerChunk) || (nextRowId == maxRowId) {
-				chunks.Insert(types.Chunk{
-					Min: currentSCN + "," + currRowId,
-					Max: nil,
-				})
-				break
-			}
+
 			chunks.Insert(types.Chunk{
-				Min: currentSCN + "," + currRowId,
-				Max: currentSCN + "," + nextRowId,
+				Min: fmt.Sprintf("%s,%s", currentSCN, startRowID),
+				Max: maxRowID,
 			})
-			currRowId = nextRowId
 		}
-		return chunks, nil
+
+		return chunks, rows.Err()
 	}
 	return splitViaRowId(stream)
-}
-
-func (o *Oracle) getChunkSize(stream types.StreamInterface, totalRows int64) (int64, error) {
-	query := jdbc.OracleTableSizeQuery(stream)
-	var totalTableSize int64
-	err := o.client.QueryRow(query).Scan(&totalTableSize)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get total size of table: %s", err)
-	}
-
-	avgRowSize := math.Ceil(float64(totalTableSize) / float64(totalRows))
-	rowsPerParquet := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(avgRowSize)))
-
-	return rowsPerParquet, nil
 }

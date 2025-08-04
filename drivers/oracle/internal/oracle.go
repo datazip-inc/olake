@@ -19,14 +19,11 @@ import (
 )
 
 type Oracle struct {
-	config *Config
-	client *sqlx.DB
-	state  *types.State
+	config     *Config
+	client     *sqlx.DB
+	state      *types.State
 	CDCSupport bool
 }
-const(
-	userTablesQuery = `SELECT USER AS owner, table_name FROM user_tables`
-)
 
 func (o *Oracle) Setup(ctx context.Context) error {
 	err := o.config.Validate()
@@ -90,7 +87,8 @@ func (o *Oracle) MaxRetries() int {
 func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Oracle database")
 	// TODO: Add support for custom schema names
-	rows, err := o.client.QueryContext(ctx, userTablesQuery)
+	query := jdbc.OracleTableDiscoveryQuery()
+	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %s", err)
 	}
@@ -119,7 +117,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 	}
 	schemaName, tableName := parts[0], parts[1]
-	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH)
+	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.INCREMENTAL)
 
 	// Get column information
 	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)
@@ -135,7 +133,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		if err := rows.Scan(&columnName, &dataType, &isNullable, &dataPrecision, &dataScale); err != nil {
 			return nil, fmt.Errorf("failed to scan column: %s", err)
 		}
-
+		stream.WithCursorField(columnName)
 		datatype := types.Unknown
 		if val, found := reformatOracleDatatype(dataType, dataPrecision, dataScale); found {
 			datatype = val
