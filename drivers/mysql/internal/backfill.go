@@ -62,11 +62,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 	pool.AddRecordsToSync(approxRowCount)
 
-	// filter, err := jdbc.SQLFilter(stream, m.Type())
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to create sql filter during chunk splitting: %s", err)
-	// }
-
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
