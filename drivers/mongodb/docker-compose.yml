@@ -30,6 +30,8 @@ services:
     hostname: primary_mongo                           # Set the hostname within the container network.
     ports:
       - "27017:27017"                                 # Expose port 27017 for MongoDB connections (host:container mapping).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - init-keyfile                                  # Ensure the keyfile initialization service runs before this service.
     volumes:

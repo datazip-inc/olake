@@ -54,6 +54,7 @@ jobs:
           docker exec primary_mongo mongosh --port 27017 --eval "db.adminCommand('ping')" || echo "MongoDB not ready yet"
           echo "=== Testing Replica Set Status ==="
           docker exec primary_mongo mongosh --port 27017 --eval "rs.status()" || echo "Replica set not ready yet"
+  
 
       - name: Wait for MySQL
         uses: nick-fields/retry@v2
@@ -85,10 +86,10 @@ jobs:
             # Check replica set is initialized and has primary
             docker exec primary_mongo mongosh --port 27017 --eval "rs.status().ok" 2>/dev/null | grep -q "1" && \
             docker exec primary_mongo mongosh --port 27017 --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true" && \
-            # Check admin user authentication
-            docker exec primary_mongo mongosh "mongodb://admin:password@localhost:27017/admin?replicaSet=rs0" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1 && \
-            # Check mongodb user authentication (this is what the tests will use)
-            docker exec primary_mongo mongosh "mongodb://mongodb:secure_password123@localhost:27017/olake_mongodb_test?authSource=admin&replicaSet=rs0" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1
+            # Check admin user authentication - use container name instead of localhost
+            docker exec primary_mongo mongosh "mongodb://admin:password@primary_mongo:27017/admin?replicaSet=rs0" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1 && \
+            # Check mongodb user authentication - use container name instead of localhost
+            docker exec primary_mongo mongosh "mongodb://mongodb:secure_password123@primary_mongo:27017/olake_mongodb_test?authSource=admin&replicaSet=rs0" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1
 
       - name: Set up Data Directories
         run: |
