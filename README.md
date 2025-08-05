@@ -196,7 +196,7 @@ We ❤️ contributions, big or small!
 
 Check out our [Bounty Program](https://olake.io/docs/community/issues-and-prs#goodies). A huge thanks to all our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors)
 
-* To contribute to the **OLake core**, see [CONTRIBUTING.md](https://olake.io/docs/community/contributing).
+* To contribute to the **OLake core**, see [Contributing to OLake](https://olake.io/docs/community/contributing).
 * To contribute to the **UI**, visit the [OLake UI Repository](https://github.com/datazip-inc/olake-ui).
 * To contribute to our **website and documentation**, visit the [Olake Docs Repository](https://github.com/datazip-inc/olake-docs/).
 
