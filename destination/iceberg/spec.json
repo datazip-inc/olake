@@ -1,6 +1,5 @@
 {
     "type": "object",
-    "title": "Iceberg Catalog Configuration",
     "properties": {
       "catalog_type": {
         "type": "string",

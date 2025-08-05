@@ -68,7 +68,6 @@
                 {
                     "type": "object",
                     "title": "CDC",
-                    "description": "Change Data Capture configuration",
                     "properties": {
                         "initial_wait_time": {
                             "type": "integer",
