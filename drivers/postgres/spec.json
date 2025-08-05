@@ -34,11 +34,6 @@
             "title": "Postgres Port",
             "description": "Database server listening port"
         },
-        "reader_batch_size": {
-            "type": "integer",
-            "title": "Reader Batch Size",
-            "description": "Max batch size for read operations"
-        },
         "retry_count": {
             "type": "integer",
             "title": "Retry Count",
