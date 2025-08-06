@@ -255,7 +255,7 @@ func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
 func countNormalizedStreams(catalog *types.Catalog) int {
 	var count int
 	_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
-		if s.StreamMetadata.Normalization != nil && *s.StreamMetadata.Normalization {
+		if s.StreamMetadata.Normalization {
 			count++
 		}
 		return nil

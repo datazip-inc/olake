@@ -43,7 +43,7 @@ type StreamMetadata struct {
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode,omitempty"`
-	Normalization  *bool  `json:"normalization"`
+	Normalization  bool   `json:"normalization"`
 	Filter         string `json:"filter,omitempty"`
 }
 
@@ -53,7 +53,11 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-func GetWrappedCatalog(streams []*Stream) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
+	// Whether the source is a relational driver ot not
+	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
+		return src == constants.DriverType(driver)
+	})
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -68,6 +72,7 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			AppendMode:     false,
+			Normalization:  isRelational,
 		})
 	}
 
@@ -121,24 +126,4 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	})
 
 	return newCatalog
-}
-
-// SetDefaultNormalization sets default normalization values for relational drivers
-// when normalization is not explicitly configured
-func SetDefaultNormalization(catalog *Catalog, driverType string) {
-	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(elem constants.DriverType) bool {
-		return elem == constants.DriverType(driverType)
-	})
-	if !isRelational {
-		return
-	}
-	defaultNormalization := true
-	for _, streamsMetadata := range catalog.SelectedStreams {
-		for i := range streamsMetadata {
-			// If normalization is not set (nil), set it to true for relational drivers
-			if streamsMetadata[i].Normalization == nil {
-				streamsMetadata[i].Normalization = &defaultNormalization
-			}
-		}
-	}
 }
