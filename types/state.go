@@ -87,6 +87,28 @@ func (s *State) ResetStreams() {
 	s.LogState()
 }
 
+func (s *State) ResetCursor(stream *ConfiguredStream) {
+	s.Lock()
+	defer s.Unlock()
+
+	primaryCursor, secondaryCursor := stream.Cursor()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Range(func(key, _ interface{}) bool {
+			if strKey, ok := key.(string); ok {
+				if strKey == primaryCursor || strKey == secondaryCursor {
+					s.Streams[index].State.Delete(key)
+				}
+			}
+			return true
+		})
+	}
+	s.LogState()
+}
+
 func (s *State) HasCompletedBackfill(stream *ConfiguredStream) bool {
 	if s.Type == GlobalType {
 		s.RLock()

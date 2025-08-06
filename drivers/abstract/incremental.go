@@ -27,6 +27,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			backfillWaitChannel <- stream.ID()
 			return nil
 		}
+		// Reset only mentioned cursor state while preserving other state values
+		a.state.ResetCursor(stream.Self())
 		return a.Backfill(ctx, backfillWaitChannel, pool, stream)
 	})
 	if err != nil {
@@ -95,11 +97,6 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface) (any, any, error) {
 	primaryStateCursorValue := a.state.GetCursor(stream.Self(), primaryCursorField)
 	secondaryStateCursorValue := a.state.GetCursor(stream.Self(), secondaryCursorField)
-
-	if primaryStateCursorValue == nil || (secondaryCursorField != "" && secondaryStateCursorValue == nil) {
-		// returning nil,nil,nil as there might be cases when primary state has some value but the secondary cursor value is nil, which might cause issue in while syncing in incremental mode
-		return nil, nil, nil
-	}
 
 	getCursorValue := func(cursorField string, cursorValue any) (any, error) {
 		if cursorField == "" {
