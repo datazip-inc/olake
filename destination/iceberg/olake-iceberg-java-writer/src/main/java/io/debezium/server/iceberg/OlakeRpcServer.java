@@ -132,6 +132,4 @@ public class OlakeRpcServer {
                     port, (maxMessageSize / (1024 * 1024)));
         server.awaitTermination();
     }
-
-
 }

@@ -224,19 +224,19 @@ func (t *ThreadEvent) Close() error {
 	buffer := make([]types.RawRecord, len(t.buffer))
 	copy(buffer, t.buffer)
 	t.buffer = t.buffer[:0]
-	t.errGroup.Go(func() error {
-		if len(buffer) > 0 {
-			if err := t.flush(buffer); err != nil {
-				return fmt.Errorf("failed to flush while closing thread: %s", err)
-			}
-		}
+	if len(buffer) > 0 {
+		t.errGroup.Go(func() error {
+			return t.flush(buffer)
+		})
+	}
+	err := t.errGroup.Wait()
+	if err != nil {
+		return fmt.Errorf("failed to flush batches: %s", err)
+	}
 
-		t.streamArtifact.mutex.Lock()
-		defer t.streamArtifact.mutex.Unlock()
-		return t.writer.Close(t.groupCtx)
-	})
-
-	return t.errGroup.Wait()
+	t.streamArtifact.mutex.Lock()
+	defer t.streamArtifact.mutex.Unlock()
+	return t.writer.Close(t.groupCtx)
 }
 
 func (t *ThreadEvent) flush(buf []types.RawRecord) error {
