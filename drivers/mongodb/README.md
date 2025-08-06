@@ -10,7 +10,7 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
    Tracks and syncs incremental changes from MongoDB in real time.
 3. **Strict CDC (Change Data Capture)**
    Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
-2. **Incremental**
+4. **Incremental**
    Syncs only new or modified records which have cursor value greater than or equal to the saved position.
 
 ---
