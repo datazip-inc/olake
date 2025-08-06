@@ -97,6 +97,7 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 	secondaryStateCursorValue := a.state.GetCursor(stream.Self(), secondaryCursorField)
 
 	if primaryStateCursorValue == nil || (secondaryCursorField != "" && secondaryStateCursorValue == nil) {
+		// returning nil,nil,nil as there might be cases when primary state has some value but the secondary cursor value is nil, which might cause issue in while syncing in incremental mode
 		return nil, nil, nil
 	}
 
