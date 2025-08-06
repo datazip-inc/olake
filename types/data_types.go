@@ -296,6 +296,25 @@ func (d DataType) ToNewParquet() parquet.Node {
 	return n
 }
 
+func (d DataType) ToIceberg() string {
+	switch d {
+	case Bool:
+		return "boolean"
+	case Int32:
+		return "int32"
+	case Int64:
+		return "int64"
+	case Float32:
+		return "float32"
+	case Float64:
+		return "float64"
+	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
+		return "timestamptz" // use with timezone as we use default utc
+	default:
+		return "string"
+	}
+}
+
 func toIceServerType(value any) string {
 	switch value.(type) {
 	case bool:

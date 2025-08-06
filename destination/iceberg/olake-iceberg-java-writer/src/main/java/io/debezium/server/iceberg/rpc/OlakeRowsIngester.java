@@ -82,7 +82,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     SchemaConvertor schemaConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
                     Table table = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
                                                 schemaConvertor.convertToIcebergSchema());
-                    sendResponse(responseObserver, table.toString());
+                    sendResponse(responseObserver, table.schema().toString());
                     LOGGER.info("{} Successfully returned iceberg table {}", requestId, destTableName);
                     break;
                     
@@ -90,7 +90,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     SchemaConvertor recordsConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
                     Table recordsTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
                                                          recordsConvertor.convertToIcebergSchema());
-                    icebergTableOperator.applyFieldAddition(recordsTable, recordsConvertor.convertToIcebergSchema());
+                    // icebergTableOperator.applyFieldAddition(recordsTable, recordsConvertor.convertToIcebergSchema());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(upsertRecords,recordsTable.schema(), request.getRecordsList());
                     icebergTableOperator.addToTablePerSchema(threadId, recordsTable, finalRecords);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());

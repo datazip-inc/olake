@@ -107,7 +107,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Options) error {
+func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, _ bool, options *destination.Options) (any, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]FileMetadata)
@@ -120,14 +120,14 @@ func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Optio
 	p.basePath = filepath.Join(p.stream.Namespace(), p.stream.Name())
 	err := p.createNewPartitionFile(p.basePath)
 	if err != nil {
-		return fmt.Errorf("failed to create new partition file: %s", err)
+		return nil, fmt.Errorf("failed to create new partition file: %s", err)
 	}
 
 	err = p.initS3Writer()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return nil, nil
 }
 
 // Write writes a record to the Parquet file.
@@ -210,7 +210,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context, _ bool) error {
+func (p *Parquet) Close(ctx context.Context) error {
 	removeLocalFile := func(filePath, reason string, recordCount int) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -286,17 +286,18 @@ func (p *Parquet) Close(ctx context.Context, _ bool) error {
 	return nil
 }
 
-// EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
-func (p *Parquet) EvolveSchema(change, typeChange bool, _ map[string]*types.Property, data types.Record, olakeTimestamp time.Time) error {
-	if change || typeChange {
-		// create new file and append at end
-		partitionedPath := p.getPartitionedFilePath(data, olakeTimestamp)
-		err := p.createNewPartitionFile(partitionedPath)
-		if err != nil {
-			return err
-		}
-	}
+func (p *Parquet) ValidateSchema(pastSchema any, records []types.RawRecord) (bool, any, error) {
+	return false, nil, nil
+}
 
+// EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
+func (p *Parquet) EvolveSchema(_ context.Context, _ any, data []types.RawRecord, olakeTimestamp time.Time) error {
+	// create new file and append at end
+	// partitionedPath := p.getPartitionedFilePath(data, olakeTimestamp)
+	// err := p.createNewPartitionFile(partitionedPath)
+	// if err != nil {
+	// 	return err
+	// }
 	return nil
 }
 

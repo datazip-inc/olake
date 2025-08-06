@@ -149,7 +149,7 @@ func setupWriterPool(ctx context.Context, t *testing.T) *destination.WriterPool 
 		return &iceberg.Iceberg{}
 	}
 
-	pool, err := destination.NewWriter(ctx, &types.WriterConfig{
+	pool, err := destination.NewWriterPool(ctx, &types.WriterConfig{
 		Type: "ICEBERG",
 		WriterConfig: map[string]any{
 			"catalog_type":    "jdbc",
@@ -166,7 +166,7 @@ func setupWriterPool(ctx context.Context, t *testing.T) *destination.WriterPool 
 			"aws_secret_key":  "password",
 			"iceberg_db":      icebergDatabase,
 		},
-	}, nil)
+	}, nil, nil)
 	require.NoError(t, err, "Failed to create writer pool")
 
 	return pool

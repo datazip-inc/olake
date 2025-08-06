@@ -42,7 +42,10 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxCursorValue any // required for incremental
 		cursorField := stream.Cursor()
-		inserter := pool.NewThread(ctx, stream, destination.WithBackfill(true))
+		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true))
+		if err != nil {
+			return fmt.Errorf("failed to create new thread in pool: %s", err)
+		}
 		defer func() {
 			// wait for chunk completion
 			if writerErr := inserter.Close(); writerErr != nil {

@@ -57,7 +57,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			if isParallelChangeStream(a.driver.Type()) {
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-					inserter := pool.NewThread(ctx, streams[index])
+					inserter, err := pool.NewWriter(ctx, streams[index])
+					if err != nil {
+						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
+					}
 					defer func() {
 						if threadErr := inserter.Close(); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
@@ -100,8 +103,8 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		// Set up inserters for each stream
 		inserters := make(map[types.StreamInterface]*destination.ThreadEvent)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
-			inserters[stream] = pool.NewThread(ctx, stream)
-			return nil
+			inserters[stream], err = pool.NewWriter(ctx, stream)
+			return err
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)

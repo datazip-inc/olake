@@ -24,17 +24,20 @@ type Writer interface {
 	Check(ctx context.Context) error
 	// Setup sets up an Adapter for dedicated use for a stream
 	// avoiding the headover for different streams
-	Setup(stream types.StreamInterface, opts *Options) error
+	Setup(ctx context.Context, stream types.StreamInterface, createOrLoadSchema bool, opts *Options) (any, error)
 	// Write function being used by drivers
 	Write(ctx context.Context, record []types.RawRecord) error
 	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
 	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
 	// schema update with an Alter Query
 	Flattener() FlattenFunction
+	// validate past schema and current schema through records
+	// returns true if change detected with new schema
+	ValidateSchema(pastSchema any, records []types.RawRecord) (bool, any, error)
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
-	EvolveSchema(bool, bool, map[string]*types.Property, types.Record, time.Time) error
+	EvolveSchema(ctx context.Context, newSchema any, record []types.RawRecord, insertTime time.Time) error
 	// DropStreams is used to clear the destination before re-writing the stream
 	DropStreams(ctx context.Context, selectedStream []string) error
-	Close(ctx context.Context, finalFlush bool) error
+	Close(ctx context.Context) error
 }

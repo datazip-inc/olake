@@ -61,7 +61,10 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					return fmt.Errorf("failed to reformat value of cursor received from state, col[%s] into type[%s]: %s", cursorField, cursorColType, err)
 				}
 
-				inserter := pool.NewThread(ctx, stream)
+				inserter, err := pool.NewWriter(ctx, stream)
+				if err != nil {
+					return fmt.Errorf("failed to create new writer thread in pool: %s", err)
+				}
 				defer func() {
 					if threadErr := inserter.Close(); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
