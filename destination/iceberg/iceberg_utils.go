@@ -11,13 +11,11 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/types/known/structpb"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // getGoroutineID returns a unique ID for the current goroutine
@@ -236,68 +234,6 @@ func (i *Iceberg) sendRecords(ctx context.Context, payload types.IcebergWriterPa
 
 	// logger.Infof("thread id %s: Sending batch to Iceberg server: %d records", i.threadID, len(validRecords))
 	// Create request with all records
-	var protoRecords []*proto.IcebergPayload_IceRecord
-
-	schemaFieldsMap := make(map[string]*proto.IcebergPayload_SchemaField)
-	for _, record := range payload.Records {
-		protoColumns := make(map[string]*structpb.Value)
-		for _, iceColumn := range record.Record {
-			if iceColumn.Value == nil {
-				continue
-			}
-			// marshal value
-			bytesData, err := json.Marshal(iceColumn.Value)
-			if err != nil {
-				return fmt.Errorf("failed to marshal the value[%v], error: %s", err)
-			}
-			if iceColumn.Value != nil {
-				protoColumns[iceColumn.Key] = structpb.NewStringValue(string(bytesData))
-			}
-			schemaFieldsMap[iceColumn.Key] = &proto.IcebergPayload_SchemaField{
-				IceType: iceColumn.IceType,
-				Key:     iceColumn.Key,
-			}
-		}
-		if len(protoColumns) > 0 {
-			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
-				Fields:     protoColumns,
-				RecordType: record.RecordType,
-			})
-		}
-
-	}
-
-	var protoSchemaFields []*proto.IcebergPayload_SchemaField
-	for _, fields := range schemaFieldsMap {
-		protoSchemaFields = append(protoSchemaFields, fields)
-	}
-
-	protoMetadata := &proto.IcebergPayload_Metadata{
-		DestTableName: payload.Metadata.DestTableName,
-		ThreadId:      payload.Metadata.ThreadID,
-		PrimaryKey:    &payload.Metadata.PrimaryKey,
-		Schema:        protoSchemaFields,
-	}
-	req := &proto.IcebergPayload{
-		Type:     proto.IcebergPayload_RECORDS,
-		Metadata: protoMetadata,
-		Records:  protoRecords,
-	}
-
-	// Send to gRPC server with timeout
-	ctx, cancel := context.WithTimeout(ctx, 1000*time.Second)
-	defer cancel()
-
-	// Send the batch to the server
-	res, err := i.server.client.SendRecords(ctx, req)
-	if err != nil {
-		logger.Errorf("failed to send batch: %s", err)
-		return err
-	}
-
-	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
-		len(payload.Records),
-		res.GetResult())
 
 	return nil
 }

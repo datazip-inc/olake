@@ -2,6 +2,7 @@ package iceberg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type serverInstance struct {
@@ -93,7 +95,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
-		fmt.Println("recieved schema here: ", resp.Result)
 		return parseSchema(resp.Result)
 	}
 
@@ -103,30 +104,55 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	// Convert record to Debezium format with thread ID
 	// We are adding the thread ID to process the records from multiple threads in parallel and separately so that we can commit when each thread finishes.
-	var iceRecords []types.IceRecord
+	var protoRecords []*proto.IcebergPayload_IceRecord
 	for _, record := range records {
-		debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled(), i.threadID)
-		if err != nil {
-			return fmt.Errorf("failed to convert record: %v", err)
+		protoColumns := make(map[string]*structpb.Value)
+		record.Data[constants.OlakeID] = record.OlakeID
+		record.Data[constants.CdcTimestamp] = record.CdcTimestamp
+		record.Data[constants.OlakeTimestamp] = time.Now().UTC()
+		record.Data[constants.OpType] = record.OperationType
+		for key, value := range record.Data {
+			if value != nil {
+				continue
+			}
+			// marshal value
+			bytesData, err := json.Marshal(value)
+			if err != nil {
+				return fmt.Errorf("failed to marshal the value[%v], error: %s", err)
+			}
+			protoColumns[key] = structpb.NewStringValue(string(bytesData))
 		}
-		iceRecords = append(iceRecords, *debeziumRecord)
+		if len(protoColumns) > 0 {
+			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
+				Fields:     protoColumns,
+				RecordType: record.OperationType,
+			})
+		}
 	}
-	finalPayload := types.IcebergWriterPayload{
-		Type: "records",
-		Metadata: types.Metadata{
+
+	req := &proto.IcebergPayload{
+		Type: proto.IcebergPayload_RECORDS,
+		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: i.stream.Name(),
-			ThreadID:      i.threadID,
-			PrimaryKey:    constants.OlakeID,
+			ThreadId:      i.threadID,
 		},
-		Records: iceRecords,
+		Records: protoRecords,
 	}
 
-	err := i.sendRecords(ctx, finalPayload)
+	// Send to gRPC server with timeout
+	reqCtx, cancel := context.WithTimeout(ctx, 1000*time.Second)
+	defer cancel()
+
+	// Send the batch to the server
+	res, err := i.server.client.SendRecords(reqCtx, req)
 	if err != nil {
-		return fmt.Errorf("thread id %s: failed to flush buffer: %s", i.threadID, err)
+		logger.Errorf("failed to send batch: %s", err)
+		return err
 	}
-	logger.Infof("thread id %s: Batch flushed to Iceberg server for stream %s", i.threadID, i.stream.Name())
 
+	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
+		len(records),
+		res.GetResult())
 	return nil
 }
 

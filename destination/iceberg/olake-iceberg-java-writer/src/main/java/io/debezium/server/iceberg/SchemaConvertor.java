@@ -128,9 +128,9 @@ public class SchemaConvertor {
         break;
       case TIMESTAMP:
         if ((node.isLong() || node.isNumber()) && TS_MS_FIELDS.contains(field.name())) {
-          val = OffsetDateTime.ofInstant(Instant.ofEpochMilli(node.longValue()), ZoneOffset.UTC);
+          val = node.isNull() ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(node.longValue()), ZoneOffset.UTC);
         } else if (node.isTextual()) {
-          val = OffsetDateTime.parse(node.asText());
+          val = node.isNull() ? null : OffsetDateTime.parse(node.asText());
         } else {
           throw new RuntimeException("Failed to convert timestamp value, field: " + field.name() + " value: " + node);
         }
