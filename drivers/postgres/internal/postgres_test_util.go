@@ -241,7 +241,7 @@ func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backf
 	t.Helper()
 
 	var cfg Postgres
-	require.NoError(t, utils.UnmarshalFile("./testconfig/source.json", &cfg.config, false))
+	require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &cfg.config, false))
 	require.NoError(t, cfg.Setup(ctx))
 	db := cfg.client
 	defer func() {
