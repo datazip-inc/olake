@@ -21,7 +21,8 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	// 1. we need to ensure that state never has nil values for any cursor in all cases
 	if lastPrimaryCursorValue == nil {
 		logger.Warnf("last primary cursor value is nil for stream[%s]", stream.ID())
-	} else if lastSecondaryCursorValue == nil {
+	}
+	if secondaryCursor != "" &&  lastSecondaryCursorValue == nil {
 		logger.Warnf("last secondary cursor value is nil for stream[%s]", stream.ID())
 	}
 
