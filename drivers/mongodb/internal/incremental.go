@@ -15,16 +15,13 @@ import (
 // StreamIncrementalChanges implements incremental sync for MongoDB
 func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
-	primaryCursor, secondaryCursor := stream.Cursor()
-	lastPrimaryCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
-	lastSecondaryCursorValue := m.state.GetCursor(stream.Self(), secondaryCursor)
 
 	filter, err := buildFilter(stream)
 	if err != nil {
 		return fmt.Errorf("failed to build filter: %s", err)
 	}
 
-	incrementalFilter, err := m.buildIncrementalCondition(primaryCursor, secondaryCursor, lastPrimaryCursorValue, lastSecondaryCursorValue)
+	incrementalFilter, err := m.buildIncrementalCondition(stream)
 	if err != nil {
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
@@ -58,7 +55,11 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 }
 
 // buildIncrementalCondition generates the incremental condition BSON for MongoDB based on datatype and cursor value.
-func (m *Mongo) buildIncrementalCondition(primaryCursor, secondaryCursor string, lastPrimaryCursorValue, lastSecondaryCursorValue any) (bson.D, error) {
+func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D, error) {
+	primaryCursor, secondaryCursor := stream.Cursor()
+	lastPrimaryCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
+	lastSecondaryCursorValue := m.state.GetCursor(stream.Self(), secondaryCursor)
+	
 	incrementalCondition := buildMongoCondition(types.Condition{
 		Column:   primaryCursor,
 		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
