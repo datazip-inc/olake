@@ -25,7 +25,6 @@ type serverInstance struct {
 	refCount   int    // Tracks how many clients are using this server instance to manage shared resources. Comes handy when we need to close the server after all clients are done.
 	configHash string // Hash representing the server config
 	upsert     bool
-	streamID   string // Store the stream ID
 }
 
 type Iceberg struct {
@@ -94,7 +93,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
-
+		fmt.Println("recieved schema here: ", resp.Result)
 		return parseSchema(resp.Result)
 	}
 
@@ -152,7 +151,8 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId: i.threadID,
+			ThreadId:      i.threadID,
+			DestTableName: i.stream.Name(),
 		},
 	}
 	res, err := i.server.client.SendRecords(ctx, req)
@@ -235,6 +235,10 @@ func (i *Iceberg) ValidateSchema(pastSchema any, records []types.RawRecord) (boo
 		for key, value := range record.Data {
 			v, ok := newSchema[key]
 			valueType := typeutils.TypeFromValue(value)
+			if valueType == types.Null {
+				delete(record.Data, key)
+				continue
+			}
 			if ok && v != valueType.ToIceberg() {
 				// TODO: evolve type according to tree and then check
 				return false, nil, fmt.Errorf("failed to validate schema (got two different types in batch), expected type: %s, got type: %s", v, valueType)
@@ -254,7 +258,7 @@ func (i *Iceberg) ValidateSchema(pastSchema any, records []types.RawRecord) (boo
 
 		// TODO: check for schema evolution
 		if fieldType != oldType {
-			return false, nil, fmt.Errorf("different type detected in schema")
+			return false, nil, fmt.Errorf("different type detected in schema, old type: %s, new type: %s for field: %s", oldType, fieldType, fieldName)
 		}
 	}
 
@@ -351,7 +355,6 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 		typeInfo := strings.TrimSpace(parts[2])
 		// typeInfo will contain `required type (id)` or `optional type`
 		types := strings.Split(typeInfo, " ")
-		// Parse type info
 		fields[name] = types[1]
 
 	}

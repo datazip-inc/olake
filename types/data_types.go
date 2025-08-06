@@ -301,13 +301,13 @@ func (d DataType) ToIceberg() string {
 	case Bool:
 		return "boolean"
 	case Int32:
-		return "int32"
+		return "int"
 	case Int64:
-		return "int64"
+		return "long"
 	case Float32:
-		return "float32"
+		return "float"
 	case Float64:
-		return "float64"
+		return "double"
 	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
 		return "timestamptz" // use with timezone as we use default utc
 	default:
@@ -320,13 +320,13 @@ func toIceServerType(value any) string {
 	case bool:
 		return "boolean"
 	case int, int8, int16, int32:
-		return "int32"
+		return "int"
 	case int64:
-		return "int64"
+		return "long"
 	case float32:
-		return "float32"
+		return "float"
 	case float64:
-		return "float64"
+		return "double"
 	case time.Time:
 		return "timestamptz" // use with timezone as we use default utc
 	default:

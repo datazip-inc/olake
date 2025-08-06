@@ -167,22 +167,17 @@ public class SchemaConvertor {
 
   private static Type.PrimitiveType icebergPrimitiveField(String fieldName, String fieldType) {
     switch (fieldType) {
-      case "int8":
-      case "int16":
-      case "int32": // int 4 bytes
+      case "int": // int 4 bytes
         return Types.IntegerType.get();
-      case "int64": // long 8 bytes
+      case "long": // long 8 bytes
         if (TS_MS_FIELDS.contains(fieldName)) {
           return Types.TimestampType.withZone();
         } else {
           return Types.LongType.get();
         }
-      case "float8":
-      case "float16":
-      case "float32": // float is represented in 32 bits,
+      case "float": // float is represented in 32 bits,
         return Types.FloatType.get();
-      case "double":
-      case "float64": // double is represented in 64 bits
+      case "double": // double is represented in 64 bits
         return Types.DoubleType.get();
       case "boolean":
         return Types.BooleanType.get();
@@ -190,7 +185,7 @@ public class SchemaConvertor {
         return Types.StringType.get();
       case "uuid":
         return Types.UUIDType.get();
-      case "bytes":
+      case "binary":
         return Types.BinaryType.get();
       case "timestamp":
           return Types.TimestampType.withoutZone();
