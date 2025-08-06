@@ -362,11 +362,11 @@ func GetTestConfig(driver string) *TestConfig {
 	return &TestConfig{
 		Driver:          driver,
 		HostRoot:        hostRoot,
-		SourcePath:      fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/source.json", driver),
-		CatalogPath:     fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/streams.json", driver),
-		DestinationPath: fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/destination.json", driver),
-		StatePath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/state.json", driver),
-		StatsPath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testconfig/stats.json", driver),
+		SourcePath:      fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/source.json", driver),
+		CatalogPath:     fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/streams.json", driver),
+		DestinationPath: fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/destination.json", driver),
+		StatePath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/state.json", driver),
+		StatsPath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/stats.json", driver),
 	}
 }
 
@@ -393,7 +393,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 		// get current RPS
 		var stats map[string]interface{}
-		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, "stats.json")), &stats, false); err != nil {
+		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
 			return false, err
 		}
 		rps, err := getRPSFromStats(stats, false)
@@ -403,7 +403,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 		// get benchmark RPS
 		var benchmarkStats map[string]interface{}
-		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/benchmark.json", config.Driver)), &benchmarkStats, false); err != nil {
+		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testdata/benchmark.json", config.Driver)), &benchmarkStats, false); err != nil {
 			return false, err
 		}
 		benchmarkRps, err := getRPSFromStats(benchmarkStats, true)
