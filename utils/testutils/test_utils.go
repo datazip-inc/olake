@@ -375,11 +375,6 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 	// checks if the current rps (from stats.json) is at least 90% of the benchmark rps
 	isRPSAboveBenchmark := func(config TestConfig, isBackfill bool) (bool, error) {
-		var stats map[string]interface{}
-		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, "stats.json")), &stats, false); err != nil {
-			return false, err
-		}
-
 		getRPSFromStats := func(stats map[string]interface{}, isBenchmark bool) (float64, error) {
 			if isBenchmark {
 				testType := utils.Ternary(isBackfill, "backfill", "cdc").(string)
@@ -389,7 +384,6 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 				}
 				return benchmarkRps.(float64), nil
 			}
-
 			rps, err := typeutils.ReformatFloat64(strings.Split(stats["Speed"].(string), " ")[0])
 			if err != nil {
 				return 0, err
@@ -397,27 +391,30 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return rps.(float64), nil
 		}
 
+		// get current RPS
+		var stats map[string]interface{}
+		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/%s", config.Driver, "stats.json")), &stats, false); err != nil {
+			return false, err
+		}
 		rps, err := getRPSFromStats(stats, false)
 		if err != nil {
 			return false, err
 		}
 
+		// get benchmark RPS
 		var benchmarkStats map[string]interface{}
 		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testconfig/benchmark.json", config.Driver)), &benchmarkStats, false); err != nil {
 			return false, err
 		}
-
 		benchmarkRps, err := getRPSFromStats(benchmarkStats, true)
 		if err != nil {
 			return false, err
 		}
 
-		t.Logf("CurrentRPS: %.2f, BenchmarkRPS: %.2f\n", rps, benchmarkRps)
-
+		t.Logf("CurrentRPS: %.2f, BenchmarkRPS: %.2f", rps, benchmarkRps)
 		if rps < 0.9*benchmarkRps {
 			return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
 		}
-
 		return true, nil
 	}
 
@@ -427,7 +424,6 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 	syncCommand := func(config TestConfig, isBackfill bool, usesPreChunkedState bool) string {
 		baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
-
 		if !isBackfill {
 			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
 		}
@@ -435,10 +431,10 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		if isBackfill && usesPreChunkedState {
 			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
 		}
-
 		return baseCmd
 	}
 
+	// TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
 	updateStreamsCommand := func(config TestConfig, namespace string, stream []string, isBackfill bool) string {
 		if len(stream) == 0 {
 			return ""
@@ -449,9 +445,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 		}
 		condition := strings.Join(streamConditions, " or ")
-
 		tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc"))
-
 		jqExpr := fmt.Sprintf(
 			`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > %s && mv %s %s`,
 			namespace,
@@ -462,19 +456,18 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			tmpCatalog,
 			config.CatalogPath,
 		)
-
 		return jqExpr
 	}
 
 	syncWithTimeout := func(ctx context.Context, c testcontainers.Container, cmd string) ([]byte, error) {
 		timedCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
-		_, output, err := utils.ExecCommand(timedCtx, c, cmd)
+		code, output, err := utils.ExecCommand(timedCtx, c, cmd)
 		// check if sync was canceled due to timeout (expected)
 		if timedCtx.Err() == context.DeadlineExceeded {
 			return output, nil
 		}
-		if err != nil {
+		if err != nil || code != 0 {
 			return output, fmt.Errorf("sync failed: %s", err)
 		}
 		return output, nil
@@ -500,54 +493,76 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 				{
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							_, output, err := utils.ExecCommand(ctx, c, installCmd)
-							require.NoError(t, err, fmt.Sprintf("Failed to install dependencies:\n%s", string(output)))
+							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
+								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
+							}
+
+							t.Logf("running backfill test for %s", cfg.TestConfig.Driver)
 
 							discoverCmd := discoverCommand(*cfg.TestConfig)
-							_, output, err = utils.ExecCommand(ctx, c, discoverCmd)
-							require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
+							code, output, err := utils.ExecCommand(ctx, c, discoverCmd)
+							if err != nil || code != 0 {
+								return fmt.Errorf("failed to perform discover:\n%s", string(output))
+							}
 							t.Log(string(output))
 
 							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStreams, true)
-							_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
-							require.NoError(t, err, "Failed to update streams")
+							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
+								return fmt.Errorf("failed to update streams: %s", err)
+							}
 
 							syncCmd := syncCommand(*cfg.TestConfig, true, cfg.UsesPreChunkedState)
 							output, err = syncWithTimeout(ctx, c, syncCmd)
-							require.NoError(t, err, fmt.Sprintf("Failed to perform sync:\n%s", string(output)))
+							if err != nil {
+								return fmt.Errorf("failed to perform sync:\n%s", string(output))
+							}
 							t.Log(string(output))
 
 							checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, true)
-							require.NoError(t, err, "Failed to check RPS", err)
+							if err != nil {
+								return fmt.Errorf("failed to check RPS: %s", err)
+							}
 							require.True(t, checkRPS, fmt.Sprintf("%s backfill performance below benchmark", cfg.TestConfig.Driver))
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
 
 							if cfg.SupportsCDC {
+								t.Logf("running cdc test for %s", cfg.TestConfig.Driver)
+
 								cfg.ExecuteQuery(ctx, t, "setup_cdc", cfg.BackfillStreams)
 
 								discoverCmd := discoverCommand(*cfg.TestConfig)
-								_, output, err := utils.ExecCommand(ctx, c, discoverCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform discover:\n%s", string(output)))
+								code, output, err := utils.ExecCommand(ctx, c, discoverCmd)
+								if err != nil || code != 0 {
+									return fmt.Errorf("failed to perform discover:\n%s", string(output))
+								}
 								t.Log(string(output))
 
 								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStreams, false)
-								_, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
-								require.NoError(t, err, "Failed to update streams")
+								code, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
+								if err != nil || code != 0 {
+									return fmt.Errorf("failed to update streams: %s", err)
+								}
 
 								syncCmd := syncCommand(*cfg.TestConfig, true, false)
-								_, output, err = utils.ExecCommand(ctx, c, syncCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform initial sync:\n%s", string(output)))
+								code, output, err = utils.ExecCommand(ctx, c, syncCmd)
+								if err != nil || code != 0 {
+									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
+								}
 								t.Log(string(output))
 
 								cfg.ExecuteQuery(ctx, t, "trigger_cdc", cfg.BackfillStreams)
 
 								syncCmd = syncCommand(*cfg.TestConfig, false, false)
 								output, err = syncWithTimeout(ctx, c, syncCmd)
-								require.NoError(t, err, fmt.Sprintf("Failed to perform CDC sync:\n%s", string(output)))
+								if err != nil {
+									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
+								}
 								t.Log(string(output))
 
 								checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, false)
-								require.NoError(t, err, "Failed to check RPS", err)
+								if err != nil {
+									return fmt.Errorf("failed to check RPS: %s", err)
+								}
 								require.True(t, checkRPS, fmt.Sprintf("%s CDC performance below benchmark", cfg.TestConfig.Driver))
 								t.Logf("✅ SUCCESS: %s cdc", cfg.TestConfig.Driver)
 							}
@@ -563,7 +578,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			ContainerRequest: req,
 			Started:          true,
 		})
-		require.NoError(t, err, "Failed to start container")
+		require.NoError(t, err, "performance test failed")
 		defer func() {
 			if err := container.Terminate(ctx); err != nil {
 				t.Logf("warning: failed to terminate container: %v", err)

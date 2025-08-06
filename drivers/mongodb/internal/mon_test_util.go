@@ -30,7 +30,7 @@ func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backf
 		}
 	case "trigger_cdc":
 		// insert the data into the cdc tables concurrently
-		err := utils.Concurrent(ctx, backfillStreams, 2, func(ctx context.Context, stream string, executionNumber int) error {
+		err := utils.Concurrent(ctx, backfillStreams, len(backfillStreams), func(ctx context.Context, stream string, executionNumber int) error {
 			// TODO: insert 15M rows from backfill stream to CDC stream
 			_, err := db.Database("mongodb").Collection(fmt.Sprintf("%s_cdc", stream)).InsertOne(ctx, bson.M{"name": "test"})
 			return err

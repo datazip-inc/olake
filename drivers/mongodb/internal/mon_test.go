@@ -3,12 +3,13 @@ package driver
 import (
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
 func TestMongodbPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:          testutils.GetTestConfig("mongodb"),
+		TestConfig:          testutils.GetTestConfig(string(constants.MongoDB)),
 		Namespace:           "test",
 		BackfillStreams:     []string{"users"},
 		CDCStreams:          []string{"users_cdc"},

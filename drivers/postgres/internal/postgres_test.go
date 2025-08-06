@@ -22,7 +22,7 @@ func TestPostgresIntegration(t *testing.T) {
 
 func TestPostgresPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:          testutils.GetTestConfig("postgres"),
+		TestConfig:          testutils.GetTestConfig(string(constants.Postgres)),
 		Namespace:           "public",
 		BackfillStreams:     []string{"trips", "fhv_trips"},
 		CDCStreams:          []string{"trips_cdc", "fhv_trips_cdc"},

@@ -260,7 +260,7 @@ func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backf
 		batchSize := 300_000
 		totalRows := 15_000_000
 
-		err := utils.Concurrent(ctx, backfillStreams, 2, func(ctx context.Context, stream string, executionNumber int) error {
+		err := utils.Concurrent(ctx, backfillStreams, len(backfillStreams), func(ctx context.Context, stream string, executionNumber int) error {
 			for offset := 0; offset < totalRows; offset += batchSize {
 				query := fmt.Sprintf(
 					`INSERT INTO %s_cdc
