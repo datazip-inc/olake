@@ -22,7 +22,7 @@ func TestMySQLIntegration(t *testing.T) {
 func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:          testutils.GetTestConfig(string(constants.MySQL)),
-		Namespace:           "complex_dummy_db",
+		Namespace:           "benchmark",
 		BackfillStreams:     []string{"trips", "fhv_trips"},
 		CDCStreams:          []string{"trips_cdc", "fhv_trips_cdc"},
 		ExecuteQuery:        ExecuteQueryPerformance,

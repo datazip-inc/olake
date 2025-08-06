@@ -1,5 +1,17 @@
 {
     "type": "STREAM",
+    "global": {
+        "state": {
+            "server_id": 8000,
+            "state": {
+                "position": {
+                    "Name": "mysql-bin.000046",
+                    "Pos": 35853
+                }
+            }
+        },
+        "streams": []
+    },
     "streams": [
         {
             "stream": "fhv_trips",
