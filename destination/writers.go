@@ -276,7 +276,7 @@ func determineMaxBatchSize() int64 {
 	ramGB := utils.DetermineSystemMemoryGB()
 	switch {
 	case ramGB > 32:
-		return 800 * 1024 * 1024
+		return 2000 * 1024 * 1024
 	case ramGB > 16:
 		return 100 * 1024 * 1024
 	case ramGB > 8:
