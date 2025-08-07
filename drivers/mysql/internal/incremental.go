@@ -25,7 +25,7 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	filter = utils.Ternary(filter != "", fmt.Sprintf("(%s) AND (%s)", filter, incrementalCondition), incrementalCondition).(string)
 	query := fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), filter)
 
-	logger.Infof("Starting incremental sync for stream[%s] with filter: %s", stream.ID(), logger.InterpolateQueryPlaceholders(query, queryArgs))
+	logger.Infof("Starting incremental sync for stream[%s] with filter: %s and args: %s", stream.ID(), query, queryArgs)
 
 	var rows *sql.Rows
 	rows, err = m.client.QueryContext(ctx, query, queryArgs...)
