@@ -62,7 +62,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	var approxRowCount, avgRowSize int64
-	approxRowCountQuery := jdbc.AvgRowSizeAndRowCountQuery()
+	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
 	err = m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount,&avgRowSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)

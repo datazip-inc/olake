@@ -242,8 +242,8 @@ func MySQLPrimaryKeyQuery() string {
 	`
 }
 
-// MySQLTableRowsQuery returns the query to fetch the estimated row count of a table in MySQL
-func AvgRowSizeAndRowCountQuery() string {
+// MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
+func MySQLTableRowStatsQuery() string {
 	return `
 		SELECT TABLE_ROWS,
 		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
