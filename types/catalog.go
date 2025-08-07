@@ -54,7 +54,7 @@ type Catalog struct {
 }
 
 func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
-	// Whether the source is a relational driver ot not
+	// Whether the source is a relational driver to not
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
 	})
