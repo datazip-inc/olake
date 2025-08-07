@@ -10,6 +10,8 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
    Tracks and syncs incremental changes from MongoDB in real time.
 3. **Strict CDC (Change Data Capture)**
    Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
+4. **Incremental**
+   Syncs only new or modified records which have cursor value greater than or equal to the saved position.
 
 ---
 
@@ -98,10 +100,6 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "sync_mode": "cdc",
       ```
-   - Specify the cursor field (only for incremental syncs):
-      ```json
-      "cursor_field": "<cursor field from available_cursor_fields>"
-      ```
    - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration.
       ```json
          "selected_streams": {
@@ -114,6 +112,12 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   }
             ]
          },
+      ```
+   - Add `cursor_field` from set of `available_cursor_fields` in case of incremental sync. This column will be used to track which rows from the table must be synced. If the primary cursor field is expected to contain `null` values, a fallback cursor field can be specified after the primary cursor field using a colon separator. The system will use the fallback cursor when the primary cursor is `null`.
+   > **Note**: For incremental sync to work correctly, the primary cursor field (and fallback cursor field if defined) must contain at least one non-null value. Defined cursor fields cannot be entirely null.
+      ```json
+         "sync_mode": "incremental",
+         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be skipped if the primary cursor field does not contain null values)
       ```
    - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
       ```json
