@@ -33,7 +33,6 @@
             "description": "Additional JDBC URL parameters for connection tuning (optional)",
             "additionalProperties": true
         },
-
         "max_threads": {
             "type": "integer",
             "title": "Max Threads",
@@ -100,7 +99,6 @@
                 }
             ]
         }
-       
     },
     "required": [
         "host",

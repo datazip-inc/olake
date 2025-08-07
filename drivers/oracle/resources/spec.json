@@ -4,31 +4,32 @@
     "connection_type": {
       "type": "string",
       "title": "Connection Type",
+      "description": "Method used to establish a connection between the Oracle database server",
       "enum": [
         "sid",
         "service_name"
       ],
-      "default": "sid"
+      "default": "service_name"
     },
     "host": {
       "type": "string",
       "title": "Host",
-      "description": "Hostname or IP address of the Oracle database server."
+      "description": "Database host addresses for connection"
     },
     "port": {
       "type": "integer",
       "title": "Port",
-      "description": "Port number on which the Oracle database is listening."
+      "description": "Database server listening port"
     },
     "username": {
       "type": "string",
       "title": "Username",
-      "description": "Username for authenticating with the Oracle database."
+      "description": "Username used to authenticate with the database"
     },
     "password": {
       "type": "string",
       "title": "Password",
-      "description": "Password for the Oracle database user.",
+      "description": "Password for database authentication",
       "format": "password"
     },
     "max_threads": {
@@ -40,7 +41,7 @@
     "retry_count": {
       "type": "integer",
       "title": "Retry Count",
-      "description": "Number of sync retry attempts using exponential backoff",
+      "description": "Number of sync retries (exponential backoff on failure)",
       "default": 3
     },
     "ssl": {
@@ -62,6 +63,12 @@
       "required": [
         "mode"
       ]
+    },
+    "jdbc_url_params": {
+      "type": "object",
+      "title": "JDBC URL Parameters",
+      "description": "Additional JDBC URL parameters for connection tuning (optional)",
+      "additionalProperties": true
     }
   },
   "required": [
@@ -82,7 +89,7 @@
             "sid": {
               "type": "string",
               "title": "SID",
-              "description": "The Oracle database SID to connect to."
+              "description": "Unique name that identifies an instance of an Oracle database"
             }
           },
           "required": [
@@ -98,7 +105,7 @@
             "service_name": {
               "type": "string",
               "title": "Service Name",
-              "description": "The Oracle database service name to connect to."
+              "description": "A logical database service to connect to"
             }
           },
           "required": [
