@@ -8,7 +8,6 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -22,10 +21,10 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
-	filter = utils.Ternary(filter != "", fmt.Sprintf("(%s) AND (%s)", filter, incrementalCondition), incrementalCondition).(string)
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), filter)
 
-	logger.Infof("Starting incremental sync for stream[%s] with filter: %s and args: %s", stream.ID(), query, queryArgs)
+	query := jdbc.MySQLIncrementalQuery(stream, filter, incrementalCondition)
+
+	logger.Infof("Starting incremental sync for stream[%s] with filter: %s and args: %v", stream.ID(), query, queryArgs)
 
 	var rows *sql.Rows
 	rows, err = m.client.QueryContext(ctx, query, queryArgs...)
@@ -57,12 +56,14 @@ func (m *MySQL) buildIncrementalCondition(stream types.StreamInterface) (string,
 
 	//TODO:
 	// 1. we need to ensure that state never has nil values for any cursor in all cases
+	// should we fail here or just warning is ok, (to aware user in start that incremental not make sense)  
 	if lastPrimaryCursorValue == nil {
 		logger.Warnf("last primary cursor value is nil for stream[%s]", stream.ID())
 	}
 	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
 		logger.Warnf("last secondary cursor value is nil for stream[%s]", stream.ID())
 	}
+	// TODO: common out incremental condition for all drivers
 	primaryCondition := fmt.Sprintf("`%s` >= ?", primaryCursor)
 	queryArgs := []any{lastPrimaryCursorValue}
 	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
