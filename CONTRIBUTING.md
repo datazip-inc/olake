@@ -43,7 +43,7 @@ For example to contribute a new driver, you need to create a pull request (PR). 
 
 ## Committing
 
-We prefer squash or rebase commits so that all changes from a branch are committed to respective branch as a single commit. All pull requests are squashed when merged, but rebasing prior to merge gives you better control over the commit message. Run `make pre-commit` command before commiting.
+Make sure to pull the latest changes from the respective branch before committing. Run `make pre-commit` to validate your changes. Use a clear and descriptive commit message that reflects the purpose of your changes. Your pull request will be reviewed by the appropriate OLake maintainers.
 
 ## Installing and setting up Olake
 
