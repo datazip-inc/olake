@@ -15,7 +15,7 @@ var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
 	RunE: func(_ *cobra.Command, _ []string) error {
-		specPath, err := resolveSpecPath(destinationConfigPath)
+		specPath, err := resolveSpecPath()
 		if err != nil {
 			return err
 		}
@@ -41,13 +41,13 @@ var specCmd = &cobra.Command{
 	},
 }
 
-func resolveSpecPath(destinationConfigPath string) (string, error) {
+func resolveSpecPath() (string, error) {
 	pwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 	olakeRoot := filepath.Join(pwd, "..", "..")
-	specPath := utils.Ternary(destinationConfigPath == "not-set", filepath.Join(olakeRoot, "drivers", connector.Type(), "spec.json"), filepath.Join(olakeRoot, "destination", destinationConfigPath, "spec.json")).(string)
+	specPath := utils.Ternary(destinationType == "not-set", filepath.Join(olakeRoot, "drivers", connector.Type(), "resources/spec.json"), filepath.Join(olakeRoot, "destination", destinationType, "resources/spec.json")).(string)
 
 	// Check if the spec file exists
 	if _, err := os.Stat(specPath); os.IsNotExist(err) {

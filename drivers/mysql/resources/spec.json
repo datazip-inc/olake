@@ -10,7 +10,7 @@
     "database": {
       "type": "string",
       "title": "Database",
-      "description": "Name of the database to use for connection"
+      "description": "The name of the database to use for connection"
     },
     "host": {
       "type": "string",
@@ -50,8 +50,7 @@
             "initial_wait_time": {
               "type": "integer",
               "title": "Initial Wait Time",
-              "description": "Idle timeout for Bin log reading",
-              "default": 120
+              "description": "Idle timeout for Bin log reading"
             }
           },
           "required": [

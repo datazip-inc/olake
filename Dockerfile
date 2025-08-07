@@ -26,9 +26,9 @@ ARG DRIVER_NAME=olake
 COPY destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
 
 # Copy the spec files for driver and destinations
-COPY --from=base /home/app/drivers/${DRIVER_NAME}/spec.json /drivers/${DRIVER_NAME}/spec.json
-COPY --from=base /home/app/destination/iceberg/spec.json /destination/iceberg/spec.json
-COPY --from=base /home/app/destination/parquet/spec.json /destination/parquet/spec.json
+COPY --from=base /home/app/drivers/${DRIVER_NAME}/resources/spec.json /drivers/${DRIVER_NAME}/resources/spec.json
+COPY --from=base /home/app/destination/iceberg/resources/spec.json /destination/iceberg/resources/spec.json
+COPY --from=base /home/app/destination/parquet/resources/spec.json /destination/parquet/resources/spec.json
 
 # Metadata
 LABEL io.eggwhite.version=${DRIVER_VERSION}
