@@ -97,14 +97,8 @@ func (s *State) ResetCursor(stream *ConfiguredStream) {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
 	if contains {
-		s.Streams[index].State.Range(func(key, _ interface{}) bool {
-			if strKey, ok := key.(string); ok {
-				if strKey == primaryCursor || strKey == secondaryCursor {
-					s.Streams[index].State.Delete(key)
-				}
-			}
-			return true
-		})
+		s.Streams[index].State.Delete(primaryCursor)
+		s.Streams[index].State.Delete(secondaryCursor)
 	}
 	s.LogState()
 }
