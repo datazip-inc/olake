@@ -23,7 +23,7 @@ we can add you to list of approved contributors and review the changes proposed 
 
 You can contribute to open-source Olake project. View our [**Issues Page**](https://github.com/datazip-inc/olake/issues) to see all open issues. If you encounter a bug or have an improvement suggestion, you can [**submit an issue**](https://github.com/datazip-inc/olake/issues/new) describing your proposed change.
 
-One way you can contribute to Olake is to create an Driver. An Driver is a connection between Olake and a Database from where you would like to fetch your event data. There are several reasons why you may want to build an Driver:
+One way you can contribute to Olake is to create an Driver. An Driver is a connection between Olake and a Source from where you would like to fetch your event data. There are several reasons why you may want to build an Driver:
 
 - Custom Database Support: If your organization uses a unique or proprietary database not currently supported by Olake, creating a Driver allows seamless integration and data ingestion.
 - Optimized Performance: By building a custom Driver, you can tailor it to optimize for your specific use case, improving performance and reducing latency during data fetch operations
@@ -34,7 +34,7 @@ For more information on the different ways in which you can contribute to Olake,
 
 ## Submitting a pull request
 
-The type of change you make will dictate what repositories you will need to make pull requests for. You can reach out to us on our [**Slack**](https://join.slack.com/t/getolake/shared_invite/zt-2usyz3i6r-8I8c9MtfcQUINQbR7vNtCQ/) channel if you have any questions.
+For every suggested change or issue, you can make a pull request to the appropriate branch based on the type of change. You can reach out to us on our [**Slack**](https://join.slack.com/t/getolake/shared_invite/zt-2usyz3i6r-8I8c9MtfcQUINQbR7vNtCQ/) channel if you have any questions.
 
 For example to contribute a new driver, you need to create a pull request (PR). Follow these steps to ensure your PR is well-prepared:
 - Provide a clear and concise PR title.
@@ -43,7 +43,7 @@ For example to contribute a new driver, you need to create a pull request (PR). 
 
 ## Committing
 
-We prefer squash or rebase commits so that all changes from a branch are committed to master as a single commit. All pull requests are squashed when merged, but rebasing prior to merge gives you better control over the commit message. Run `make pre-commit` command before commiting.
+We prefer squash or rebase commits so that all changes from a branch are committed to respective branch as a single commit. All pull requests are squashed when merged, but rebasing prior to merge gives you better control over the commit message. Run `make pre-commit` command before commiting.
 
 ## Installing and setting up Olake
 
