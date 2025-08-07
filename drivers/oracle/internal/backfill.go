@@ -69,8 +69,9 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		query = jdbc.OracleBlockSizeQuery()
 		var blockSize int64
 		err = o.client.QueryRow(query).Scan(&blockSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get block size: %s", err)
+		if err != nil || blockSize == 0 {
+			logger.Warnf("failed to get block size from query, switching to default block size value 8192")
+			blockSize = 8192
 		}
 		blocksPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
 
