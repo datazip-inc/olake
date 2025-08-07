@@ -117,7 +117,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
    > **Note**: For incremental sync to work correctly, the primary cursor field (and fallback cursor field if defined) must contain at least one non-null value. Defined cursor fields cannot be entirely null.
       ```json
          "sync_mode": "incremental",
-         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be omitted if primary is not expected to contain null values)
+         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be skipped if the primary cursor field does not contain null values)
       ```
    - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
       ```json
