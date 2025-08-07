@@ -28,17 +28,18 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //
 // Output:
 //
-//	SELECT MAX(key_str) FROM (
-//	  SELECT CONCAT_WS(',', id, created_at) AS key_str
+//	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
+//	  SELECT (',', id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
 //	  ORDER BY id, created_at
-//	  LIMIT 1000
+//	  LIMIT 1 OFFSET 1000
 //	) AS subquery
 func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64, filter string) string {
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
+	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM `%s`.`%s`",
+		strings.Join(columns, ", "),
 		strings.Join(columns, ", "),
 		stream.Namespace(),
 		stream.Name(),
@@ -57,12 +58,13 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
 		query.WriteString(")")
 	}
+	// applies filters here
 	if filter != "" {
 		query.WriteString(" AND (" + filter + ")")
 	}
-	// ORDER + LIMIT
+	// ORDER and skip OFFSET number of rows and then return the next row
 	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(columns, ", "))
-	fmt.Fprintf(&query, " LIMIT %d) AS subquery", chunkSize)
+	fmt.Fprintf(&query, " LIMIT 1 OFFSET %d) AS subquery", chunkSize)
 	return query.String()
 }
 
@@ -119,11 +121,6 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 // AnalyzeTableQuery returns the query to analyze a table in MySQL
 func AnalyzeTableQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf("ANALYZE TABLE %s.%s", stream.Namespace(), stream.Name())
-}
-
-// getAvgRowSizeQuery returns the query to fetch the average row size of a table in MySQL
-func AvgRowSizeQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf("SELECT  CEIL(data_length / NULLIF(table_rows, 0)) AS `avg_row_bytes` FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s'", stream.Namespace(), stream.Name())
 }
 
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
@@ -246,9 +243,10 @@ func MySQLPrimaryKeyQuery() string {
 }
 
 // MySQLTableRowsQuery returns the query to fetch the estimated row count of a table in MySQL
-func MySQLTableRowsQuery() string {
+func AvgRowSizeAndRowCountQuery() string {
 	return `
-		SELECT TABLE_ROWS
+		SELECT TABLE_ROWS,
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?

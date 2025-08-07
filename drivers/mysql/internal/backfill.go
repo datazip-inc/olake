@@ -61,20 +61,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return nil, fmt.Errorf("failed to run analyze table query on table %s: %s", stream.ID(), err)
 	}
 
-	var approxRowCount int64
-	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
-	err = m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
+	var approxRowCount, avgRowSize int64
+	approxRowCountQuery := jdbc.AvgRowSizeAndRowCountQuery()
+	err = m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount,&avgRowSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
 	pool.AddRecordsToSync(approxRowCount)
-
-	avgRowSizeQuery := jdbc.AvgRowSizeQuery(stream)
-	var avgRowSize int64
-	err = m.client.QueryRow(avgRowSizeQuery).Scan(&avgRowSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rows per chunk: %s", err)
-	}
 
 	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
