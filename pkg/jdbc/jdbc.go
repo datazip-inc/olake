@@ -353,7 +353,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
 func OracleBlockSizeQuery() string {
-	return `SELECT TO_NUMBER(value) FROM v$parameter WHERE name = 'db_block_size'`
+	return `SELECT CEIL(BYTES / NULLIF(BLOCKS, 0)) FROM user_segments WHERE BLOCKS IS NOT NULL AND ROWNUM =1`
 }
 
 // OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
