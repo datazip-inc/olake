@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/utils"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -251,4 +252,37 @@ var MySQLToIcebergSchema = map[string]string{
 	"is_active":              "tinyint",
 	"long_varchar":           "mediumtext",
 	"name_bool":              "tinyint",
+}
+
+// ExecuteQueryPerformance executes MySQL queries for performance testing based on the operation type
+func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backfillStreams []string) {
+	t.Helper()
+
+	var cfg MySQL
+	require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &cfg.config, false))
+	require.NoError(t, cfg.Setup(ctx))
+	db := cfg.client
+	defer func() {
+		require.NoError(t, cfg.Close())
+	}()
+
+	switch op {
+	case "setup_cdc":
+		// truncate the cdc tables
+		for _, stream := range backfillStreams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
+		}
+
+	case "trigger_cdc":
+		// insert the data into the cdc tables concurrently
+		err := utils.Concurrent(ctx, backfillStreams, len(backfillStreams), func(ctx context.Context, stream string, executionNumber int) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 15000000", stream, stream))
+			return err
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
+
+	default:
+		t.Fatalf("unknown operation: %s", op)
+	}
 }

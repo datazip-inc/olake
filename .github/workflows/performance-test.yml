@@ -1,0 +1,112 @@
+name: Performance Tests
+
+on:
+  push:
+    branches:
+    - "master"
+    paths:
+    - '**/*.go'
+    - '**/*.java'
+  pull_request:
+    branches:
+    - "*"
+    paths:
+    - '**/*.go'
+    - '**/*.java'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  performance-tests:
+    environment: Performance Testing
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - driver: mysql
+          driver_upper: MYSQL
+        - driver: postgres
+          driver_upper: POSTGRES
+        # TODO: add these drivers after benchmarking
+        # - driver: mongodb
+        #   driver_upper: MONGODB
+        # - driver: oracle
+        #   driver_upper: ORACLE
+      fail-fast: false
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.2'
+
+    - name: Set up Java for Maven
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup VPN Client
+      if: matrix.driver != 'oracle'
+      run: |
+        sudo apt-get update -qq && sudo apt-get install -y openvpn iproute2 iputils-ping netcat-openbsd telnet
+        sudo mkdir -p /etc/openvpn/client && sudo chmod 700 /etc/openvpn/client
+        echo "${{ secrets[format('{0}_OPENVPN_CONFIG', matrix.driver_upper)] }}" | base64 --decode | sudo tee /etc/openvpn/client/client.ovpn > /dev/null
+        echo "${{ secrets.OPENVPN_USERNAME }}" | sudo tee /etc/openvpn/client/auth.txt > /dev/null
+        sudo chmod 600 /etc/openvpn/client/client.ovpn /etc/openvpn/client/auth.txt
+        sudo chown root:root /etc/openvpn/client/client.ovpn /etc/openvpn/client/auth.txt
+        sudo openvpn --config /etc/openvpn/client/client.ovpn --daemon ovpn-client --log /var/log/openvpn-client.log --verb 3
+        echo "Establishing VPN connection..."
+        for i in {1..30}; do
+          if ip addr show | grep -q "tun0\|tap0"; then echo "✅ VPN connected"; break; fi
+          [ $i -eq 30 ] && { echo "❌ VPN timeout"; sudo cat /var/log/openvpn-client.log; exit 1; }
+          sleep 2
+        done
+        sudo resolvectl dns tun0 ${{ secrets.VPN_DNS_SERVER }}
+        sudo resolvectl domain tun0 ~private.postgres.database.azure.com
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-session-name: performance_test_gh
+        role-to-assume: ${{ secrets.AWS_GITHUB_ROLE }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Install Go Dependencies
+      run: go mod download
+
+    - name: Build Project
+      run: go build -v ./...
+
+    - name: Build Iceberg Sink
+      working-directory: ./destination/iceberg/olake-iceberg-java-writer
+      run: mvn clean package -DskipTests
+
+    - name: Create source
+      run: |
+        echo '${{ secrets[format('{0}_SOURCE_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/source.json
+
+    - name: Create destination
+      run: |
+        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/destination.json
+
+    - name: Run Performance Tests
+      run: go test -v ./drivers/${{ matrix.driver }}/internal/... -timeout 0 -run 'Performance'
+
+    - name: Cleanup
+      if: always()
+      run: |
+        aws glue delete-database --name performance_${{ matrix.driver }} || { echo "failed to delete glue database: performance_${{ matrix.driver }}"; aws glue get-database --name performance_${{ matrix.driver }} || true; }
+        aws s3 rm s3://dz-stag-github-actions/performance_${{ matrix.driver }} --recursive || { echo "failed to delete s3 bucket: performance_${{ matrix.driver }}"; aws s3 ls s3://dz-stag-github-actions/performance_${{ matrix.driver }} || true; }
+        echo "Catalog cleanup completed"
+
+        if [[ "${{ matrix.driver }}" != "oracle" ]]; then
+            sudo pkill -f "openvpn.*client.ovpn" || true
+            sudo rm -rf /etc/openvpn/client/ /var/log/openvpn-client.log || true
+            echo "VPN cleanup completed"
+        fi

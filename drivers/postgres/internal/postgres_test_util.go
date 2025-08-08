@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
@@ -234,4 +235,46 @@ var PostgresToIcebergSchema = map[string]string{
 	"col_uuid":              "uuid",
 	"col_varbit":            "varbit",
 	"col_xml":               "xml",
+}
+
+func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backfillStreams []string) {
+	t.Helper()
+
+	var cfg Postgres
+	require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &cfg.config, false))
+	require.NoError(t, cfg.Setup(ctx))
+	db := cfg.client
+	defer func() {
+		require.NoError(t, cfg.client.Close())
+	}()
+
+	switch op {
+	case "setup_cdc":
+		for _, stream := range backfillStreams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
+		}
+
+	case "trigger_cdc":
+		// insert records in batches
+		batchSize := 300_000
+		totalRows := 15_000_000
+
+		err := utils.Concurrent(ctx, backfillStreams, len(backfillStreams), func(ctx context.Context, stream string, executionNumber int) error {
+			for offset := 0; offset < totalRows; offset += batchSize {
+				query := fmt.Sprintf(
+					`INSERT INTO %s_cdc
+					 SELECT * FROM %s
+					 ORDER BY id
+					 LIMIT %d OFFSET %d`,
+					stream, stream, batchSize, offset,
+				)
+				if _, err := db.ExecContext(ctx, query); err != nil {
+					return fmt.Errorf("stream: %s, offset: %d, error: %w", stream, offset, err)
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
+	}
 }
