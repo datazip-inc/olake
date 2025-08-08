@@ -72,3 +72,7 @@ func (m *MySQL) buildIncrementalCondition(stream types.StreamInterface) (string,
 	}
 	return incrementalCondition, queryArgs, nil
 }
+
+func (m *MySQL) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for MySQL")
+}

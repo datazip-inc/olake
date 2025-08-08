@@ -19,11 +19,23 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	defer close(backfillWaitChannel)
 
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		primaryCursor, secondaryCursor := stream.Cursor()
-		prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
-		prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
-		if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil && (secondaryCursor == "" || prevSecondaryCursor != nil)) {
-			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
+		skipBackfill := false
+		if a.driver.Type() == string(constants.Kafka) {
+			kafkaCursor := a.state.GetCursor(stream.Self(), "partitions")
+			if a.state.HasCompletedBackfill(stream.Self()) && kafkaCursor != nil {
+				logger.Infof("Skipping backfill for stream[%s] due to Kafka state in 'paritions' cursor", stream.ID())
+				skipBackfill = true
+			}
+		} else {
+			primaryCursor, secondaryCursor := stream.Cursor()
+			prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
+			prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
+			if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil && (secondaryCursor == "" || prevSecondaryCursor != nil)) {
+				logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
+				skipBackfill = true
+			}
+		}
+		if skipBackfill {
 			backfillWaitChannel <- stream.ID()
 			return nil
 		}
@@ -75,8 +87,15 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+						if a.driver.Type() == string(constants.Kafka) {
+							postIncrementalErr := a.driver.PostIncremental(ctx, stream, err == nil)
+							if postIncrementalErr != nil {
+								err = fmt.Errorf("post incremental error: %s, incremental insert thread error: %s", postIncrementalErr, err)
+							}
+						} else {
+							a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+							a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+						}
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
