@@ -54,22 +54,21 @@ func (m *MySQL) buildIncrementalCondition(stream types.StreamInterface) (string,
 	lastPrimaryCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
 	lastSecondaryCursorValue := m.state.GetCursor(stream.Self(), secondaryCursor)
 
-	//TODO:
-	// 1. we need to ensure that state never has nil values for any cursor in all cases
-	// should we fail here or just warning is ok, (to aware user in start that incremental not make sense)  
+	// TODO:
+	// should we fail here or just warning is ok, (to aware user in start that incremental won't make sense here)
 	if lastPrimaryCursorValue == nil {
 		logger.Warnf("last primary cursor value is nil for stream[%s]", stream.ID())
 	}
 	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
 		logger.Warnf("last secondary cursor value is nil for stream[%s]", stream.ID())
 	}
-	// TODO: common out incremental condition for all drivers
-	primaryCondition := fmt.Sprintf("`%s` >= ?", primaryCursor)
+	// TODO: common out incremental condition for all jdbc supported drivers
+	incrementalCondition := fmt.Sprintf("`%s` >= ?", primaryCursor)
 	queryArgs := []any{lastPrimaryCursorValue}
 	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
 		queryArgs = []any{lastPrimaryCursorValue, lastSecondaryCursorValue}
-		primaryCondition = fmt.Sprintf(" %s OR (`%s` IS NULL AND `%s` >= ?)",
-			primaryCondition, primaryCursor, secondaryCursor)
+		incrementalCondition = fmt.Sprintf(" %s OR (`%s` IS NULL AND `%s` >= ?)",
+		incrementalCondition, primaryCursor, secondaryCursor)
 	}
-	return primaryCondition, queryArgs, nil
+	return incrementalCondition, queryArgs, nil
 }
