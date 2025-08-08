@@ -122,10 +122,10 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
-func LogCatalog(streams []*Stream, oldCatalog *Catalog) {
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams),
+		Catalog: GetWrappedCatalog(streams, driver),
 	}
 	logger.Info(message)
 	// write catalog to the specified file
