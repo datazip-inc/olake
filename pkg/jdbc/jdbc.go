@@ -35,7 +35,7 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //	  ORDER BY id, created_at
 //	  LIMIT 1000
 //	) AS subquery
-func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64, filter string) string {
+func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
 	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
@@ -56,9 +56,6 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 		}
 		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
 		query.WriteString(")")
-	}
-	if filter != "" {
-		query.WriteString(" AND (" + filter + ")")
 	}
 	// ORDER + LIMIT
 	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(columns, ", "))
@@ -84,9 +81,8 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int, extraFilter string) string {
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int) string {
 	baseCond := fmt.Sprintf(`%s > %v`, filterColumn, filterValue)
-	baseCond = utils.Ternary(extraFilter == "", baseCond, fmt.Sprintf(`(%s) AND (%s)`, baseCond, extraFilter)).(string)
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), baseCond, filterColumn, batchSize)
 }
 
@@ -164,7 +160,7 @@ func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
-func MinMaxQueryMySQL(stream types.StreamInterface, columns []string, filter string) string {
+func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
 	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(columns, ", "))
 	orderAsc := strings.Join(columns, ", ")
 	descCols := make([]string, len(columns))
@@ -172,17 +168,13 @@ func MinMaxQueryMySQL(stream types.StreamInterface, columns []string, filter str
 		descCols[i] = col + " DESC"
 	}
 	orderDesc := strings.Join(descCols, ", ")
-	filterClause := ""
-	if filter != "" {
-		filterClause = fmt.Sprintf("WHERE %s", filter)
-	}
 	return fmt.Sprintf(`
 	SELECT
-		(SELECT %s FROM %s.%s %s ORDER BY %s LIMIT 1) AS min_value,
-		(SELECT %s FROM %s.%s %s ORDER BY %s LIMIT 1) AS max_value
+		(SELECT %s FROM %s.%s ORDER BY %s LIMIT 1) AS min_value,
+		(SELECT %s FROM %s.%s ORDER BY %s LIMIT 1) AS max_value
 	`,
-		concatCols, stream.Namespace(), stream.Name(), filterClause, orderAsc,
-		concatCols, stream.Namespace(), stream.Name(), filterClause, orderDesc,
+		concatCols, stream.Namespace(), stream.Name(), orderAsc,
+		concatCols, stream.Namespace(), stream.Name(), orderDesc,
 	)
 }
 
