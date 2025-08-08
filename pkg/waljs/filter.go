@@ -2,7 +2,9 @@ package waljs
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"sync"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
@@ -42,6 +44,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 	if len(changes.Change) == 0 {
 		return &nextLSN, 0, nil
 	}
+
 	buildChangesMap := func(values []interface{}, types []string, names []string) (map[string]any, error) {
 		data := make(map[string]any)
 		for i, val := range values {
@@ -54,13 +57,31 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 		}
 		return data, nil
 	}
-	rowsCount := 0
-	for _, ch := range changes.Change {
+
+	var (
+		rowsCount int
+		mu        sync.Mutex
+	)
+
+	// Use utils.Concurrent to process changes in parallel
+	err = utils.Concurrent(context.Background(), changes.Change, 10, func(ctx context.Context, ch struct {
+		Kind         string        `json:"kind"`
+		Schema       string        `json:"schema"`
+		Table        string        `json:"table"`
+		Columnnames  []string      `json:"columnnames"`
+		Columntypes  []string      `json:"columntypes"`
+		Columnvalues []interface{} `json:"columnvalues"`
+		Oldkeys      struct {
+			Keynames  []string      `json:"keynames"`
+			Keytypes  []string      `json:"keytypes"`
+			Keyvalues []interface{} `json:"keyvalues"`
+		} `json:"oldkeys"`
+	}, _ int) error {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
-			continue
+			return nil
 		}
-		rowsCount++
+
 		var changesMap map[string]any
 		var err error
 
@@ -71,7 +92,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 		}
 
 		if err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to convert change data: %s", err)
+			return fmt.Errorf("failed to convert change data: %s", err)
 		}
 
 		if err := OnFiltered(abstract.CDCChange{
@@ -80,8 +101,18 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 			Timestamp: changes.Timestamp,
 			Data:      changesMap,
 		}); err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)
+			return fmt.Errorf("failed to write filtered change: %s", err)
 		}
+
+		mu.Lock()
+		rowsCount++
+		mu.Unlock()
+		return nil
+	})
+
+	if err != nil {
+		return nil, rowsCount, err
 	}
+
 	return &nextLSN, rowsCount, nil
 }
