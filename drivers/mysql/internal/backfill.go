@@ -15,6 +15,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
@@ -54,18 +55,13 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 }
 
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-	// This query is used to update the stats table of mysql, which might return null values if not populated
-	analyzeTableQuery := jdbc.AnalyzeTableQuery(stream)
-	_, err := m.client.Exec(analyzeTableQuery)
-	if err != nil {
-		return nil, fmt.Errorf("failed to run analyze table query on table %s: %s", stream.ID(), err)
-	}
-
-	var approxRowCount, avgRowSize int64
+	var approxRowCount int64
+	var avgRowSize any
 	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
-	err = m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount,&avgRowSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get approx row count: %s", err)
+	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
+	if err != nil || avgRowSize == nil {
+		errorMsg := utils.Ternary(err != nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err), fmt.Errorf("stats not populated for [%s] run ANALYZE TABLE query or the table contains 0 records", stream.ID()))
+		return nil, errorMsg.(error)
 	}
 	pool.AddRecordsToSync(approxRowCount)
 
@@ -73,8 +69,12 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sql filter during chunk splitting: %s", err)
 	}
-
-	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(avgRowSize)))
+	// avgRowSize is returned as []uint8 which is converted to float64
+	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get avg row size: %s", err)
+	}
+	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat.(float64)))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize

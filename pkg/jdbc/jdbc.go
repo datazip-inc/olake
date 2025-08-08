@@ -118,11 +118,6 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 }
 
 // MySQL-Specific Queries
-// AnalyzeTableQuery returns the query to analyze a table in MySQL
-func AnalyzeTableQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf("ANALYZE TABLE %s.%s", stream.Namespace(), stream.Name())
-}
-
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
 func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	colTuple := "(" + strings.Join(filterColumns, ", ") + ")"
