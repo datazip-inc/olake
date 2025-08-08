@@ -1,6 +1,8 @@
 package constants
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	DefaultRetryCount      = 3
@@ -33,3 +35,5 @@ const (
 	Oracle   DriverType = "oracle"
 	Kafka    DriverType = "kafka"
 )
+
+var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
