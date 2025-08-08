@@ -249,6 +249,8 @@ Find more about writer docs [here.](https://olake.io/docs/category/destinations-
 ### Sync Command
 The *Sync* command fetches data from MySql and ingests it into the destination.
 
+> Note: For sync command to run properly and without errors or stale statistics, it's recommended to run ANALYZE TABLE to update the table statistics in INFORMATION_SCHEMA.TABLES. `ANALYZE TABLE <table_namespace>.<table_name>;`
+
 ```bash
 ./build.sh driver-mysql sync --config /mysql/examples/config.json --catalog /mysql/examples/streams.json --destination /mysql/examples/write.json
 ```

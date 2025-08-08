@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
@@ -57,15 +59,21 @@ func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterP
 
 func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var relPages uint32
+		var relPages, blockSize uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
 		err := p.client.QueryRow(relPagesQuery).Scan(&relPages)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get relPages: %s", err)
 		}
+		blockSizeQuery := jdbc.PostgresBlockSizeQuery()
+		err = p.client.QueryRow(blockSizeQuery).Scan(&blockSize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get block size: %s", err)
+		}
+		batchSize := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
+
 		relPages = utils.Ternary(relPages == uint32(0), uint32(1), relPages).(uint32)
 		chunks := types.NewSet[types.Chunk]()
-		batchSize := uint32(p.config.BatchSize)
 		for start := uint32(0); start < relPages; start += batchSize {
 			end := start + batchSize
 			if end >= relPages {
