@@ -22,20 +22,16 @@ const (
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	primaryCursor, secondaryCursor := stream.Cursor()
-	lastPrimaryCursorValue := o.state.GetCursor(stream.Self(), primaryCursor)
-	lastSecondaryCursorValue := o.state.GetCursor(stream.Self(), secondaryCursor)
-
 	filter, err := jdbc.SQLFilter(stream, o.Type())
 	if err != nil {
 		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
 	}
 
-	incrementalCondition, err := o.buildIncrementalCondition(primaryCursor, secondaryCursor, stream, lastPrimaryCursorValue, lastSecondaryCursorValue)
+	incrementalCondition, err := o.buildIncrementalCondition(stream)
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
-	filter = utils.Ternary(filter != "", fmt.Sprintf("%s AND %s", filter, incrementalCondition), incrementalCondition).(string)
+	filter = utils.Ternary(filter != "", fmt.Sprintf("(%s) AND %s", filter, incrementalCondition), incrementalCondition).(string)
 
 	query := fmt.Sprintf("SELECT * FROM %q.%q WHERE %s",
 		stream.Namespace(), stream.Name(), filter)
@@ -62,7 +58,17 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 }
 
 // buildIncrementalCondition generates the incremental condition SQL based on datatype and cursor value.
-func (o *Oracle) buildIncrementalCondition(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface, lastPrimaryCursorValue any, lastSecondaryCursorValue any) (string, error) {
+func (o *Oracle) buildIncrementalCondition(stream types.StreamInterface) (string, error) {
+	primaryCursorField, secondaryCursorField := stream.Cursor()
+	lastPrimaryCursorValue := o.state.GetCursor(stream.Self(), primaryCursorField)
+	lastSecondaryCursorValue := o.state.GetCursor(stream.Self(), secondaryCursorField)
+	if lastPrimaryCursorValue == nil {
+		logger.Warnf("Stored primary cursor value is nil for the stream [%s]", stream.ID())
+	}
+	if secondaryCursorField != "" && lastSecondaryCursorValue == nil {
+		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
+	}
+
 	formattedValue := func(cursorField string, lastCursorValue any) (string, error) {
 		// Get the datatype of the cursor field from streams
 		datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))

@@ -1,6 +1,8 @@
 package constants
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	DefaultRetryCount      = 3
@@ -31,3 +33,5 @@ const (
 	MySQL    DriverType = "mysql"
 	Oracle   DriverType = "oracle"
 )
+
+var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}

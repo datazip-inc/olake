@@ -403,6 +403,7 @@ func buildMongoCondition(cond types.Condition) bson.D {
 		"=":  "$eq",
 		"!=": "$ne",
 	}
+	//TODO: take val as any type
 	value := func(field, val string) interface{} {
 		// Handle unquoted null
 		if val == "null" {
