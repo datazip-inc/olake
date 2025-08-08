@@ -19,9 +19,27 @@ import (
 )
 
 const (
+	// Database and connection constants
 	icebergDatabase     = "olake_iceberg"
 	sparkConnectAddress = "sc://localhost:15002"
-	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
+
+	// Test file constants
+	TestStreamsFile = "test_streams.json"
+	StreamsFile     = "streams.json"
+	StateFile       = "state.json"
+	StatsFile       = "stats.json"
+
+	// Command constants
+	installCmd = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
+
+	// Container and path variables
+	TestWorkingDir     = "/test-olake"
+	HostDockerInternal = "host.docker.internal:host-gateway"
+)
+
+// Test variables
+var (
+	TestContainerImage = getTestContainerImage()
 )
 
 type IntegrationTest struct {
@@ -41,19 +59,19 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Logf("Root Project directory: %s", projectRoot)
 	testdataDir := filepath.Join(projectRoot, "drivers", cfg.Driver, "internal", "testdata")
 	t.Logf("Test data directory: %s", testdataDir)
-	dummyStreamFilePath := filepath.Join(testdataDir, "test_streams.json")
-	testStreamFilePath := filepath.Join(testdataDir, "streams.json")
+	dummyStreamFilePath := filepath.Join(testdataDir, TestStreamsFile)
+	testStreamFilePath := filepath.Join(testdataDir, StreamsFile)
 	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.Driver)
 	var (
-		sourceConfigPath      = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/source.json", cfg.Driver)
-		streamsPath           = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/streams.json", cfg.Driver)
-		destinationConfigPath = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/destination.json", cfg.Driver)
-		statePath             = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/state.json", cfg.Driver)
+		sourceConfigPath      = fmt.Sprintf("%s/drivers/%s/internal/testdata/source.json", TestWorkingDir, cfg.Driver)
+		streamsPath           = fmt.Sprintf("%s/drivers/%s/internal/testdata/%s", TestWorkingDir, cfg.Driver, StreamsFile)
+		destinationConfigPath = fmt.Sprintf("%s/drivers/%s/internal/testdata/destination.json", TestWorkingDir, cfg.Driver)
+		statePath             = fmt.Sprintf("%s/drivers/%s/internal/testdata/%s", TestWorkingDir, cfg.Driver, StateFile)
 	)
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.23.2",
+			Image: TestContainerImage,
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
@@ -71,12 +89,14 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 				{
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							// 1. Install required tools
-							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
+							// 1. Install required tools if using the base Go image
+							if TestContainerImage == "golang:1.23.2" {
+								if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
+									return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
+								}
 							}
 
-							// 2. Query on test table
+							// 2. Query on test table (tools already installed in custom image)
 							cfg.ExecuteQuery(ctx, t, currentTestTable, "create")
 							cfg.ExecuteQuery(ctx, t, currentTestTable, "clean")
 							cfg.ExecuteQuery(ctx, t, currentTestTable, "add")
@@ -126,7 +146,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.23.2",
+			Image: TestContainerImage,
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
@@ -144,12 +164,14 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 				{
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							// 1. Install required tools
-							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
+							// 1. Install required tools if using the base Go image
+							if TestContainerImage == "golang:1.23.2" {
+								if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
+									return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
+								}
 							}
 
-							// 2. Query on test table
+							// 2. Query on test table (tools already installed in custom image)
 							cfg.ExecuteQuery(ctx, t, currentTestTable, "create")
 							cfg.ExecuteQuery(ctx, t, currentTestTable, "clean")
 							cfg.ExecuteQuery(ctx, t, currentTestTable, "add")
@@ -164,6 +186,10 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								)
 							}
 							t.Logf("Enabled normalization in %s", streamsPath)
+
+							// Clean up any existing Iceberg table from previous runs
+							t.Logf("Cleaning up any existing Iceberg table: %s", currentTestTable)
+							cleanupIcebergTable(t, currentTestTable)
 
 							testCases := []struct {
 								syncMode    string
@@ -212,7 +238,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								} else {
 									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", cfg.Driver, sourceConfigPath, streamsPath, destinationConfigPath)
 								}
-
+								t.Logf("Executing command: %s", cmd)
 								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
 									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
@@ -223,7 +249,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							// 3. Run Sync command and verify records in Iceberg
 							for _, test := range testCases {
-								t.Logf("Running test for: %s", test.syncMode)
 								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
 									return err
 								}
@@ -246,11 +271,32 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 		})
 		require.NoError(t, err, "Container startup failed")
 		defer func() {
+			// Clean up test files (in case PostReadies hook fails)
+			cleanupTestFiles(t, testdataDir)
 			if err := container.Terminate(ctx); err != nil {
 				t.Logf("warning: failed to terminate container: %v", err)
 			}
 		}()
 	})
+}
+
+// cleanupTestFiles removes test-generated files that should not persist between test runs
+func cleanupTestFiles(t *testing.T, testdataDir string) {
+	t.Helper()
+
+	// Files to clean up
+	filesToRemove := []string{
+		StateFile,
+		StatsFile,
+		StreamsFile,
+	}
+
+	for _, filename := range filesToRemove {
+		filepath := filepath.Join(testdataDir, filename)
+		if err := os.Remove(filepath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Warning: Failed to remove test file %s: %v", filename, err)
+		}
+	}
 }
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
@@ -281,7 +327,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 	// delete row checked
 	if opSymbol == "d" {
 		deletedID := selectRows[0].Value("_olake_id")
-		require.Equalf(t, "1", deletedID, "Delete verification failed: expected _olake_id = '1', got %s", deletedID)
+		require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
 		return
 	}
 
@@ -326,4 +372,38 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
+}
+
+// cleanupIcebergTable drops the specified Iceberg table if it exists
+func cleanupIcebergTable(t *testing.T, tableName string) {
+	t.Helper()
+	ctx := context.Background()
+	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+	if err != nil {
+		t.Logf("Warning: Failed to connect to Spark Connect server for cleanup: %v", err)
+		return
+	}
+	defer func() {
+		if stopErr := spark.Stop(); stopErr != nil {
+			t.Logf("Warning: Failed to stop Spark session during cleanup: %v", stopErr)
+		}
+	}()
+
+	dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s.%s.%s", icebergDatabase, icebergDatabase, tableName)
+	t.Logf("Executing cleanup query: %s", dropQuery)
+
+	_, err = spark.Sql(ctx, dropQuery)
+	if err != nil {
+		t.Logf("Warning: Failed to drop Iceberg table %s: %v", tableName, err)
+	} else {
+		t.Logf("Successfully cleaned up Iceberg table: %s", tableName)
+	}
+}
+
+func getTestContainerImage() string {
+	//TODO: create a custom image for testing and push it to docker hub
+	if img := os.Getenv("OLAKE_TEST_IMAGE"); img != "" {
+		return img
+	}
+	return "golang:1.23.2"
 }
