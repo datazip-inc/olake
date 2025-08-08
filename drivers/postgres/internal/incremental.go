@@ -13,22 +13,12 @@ import (
 
 // IncrementalChanges is not supported for PostgreSQL
 func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	primaryCursor, secondaryCursor := stream.Cursor()
-	lastPrimaryCursorValue := p.state.GetCursor(stream.Self(), primaryCursor)
-	lastSecondaryCursorValue := p.state.GetCursor(stream.Self(), secondaryCursor)
-	if lastPrimaryCursorValue == nil {
-		logger.Warnf("Stored primary cursor value is nil for the stream [%s]", stream.ID())
-	}
-	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
-		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
-	}
-
 	filter, err := jdbc.SQLFilter(stream, p.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
-	incrementalCondition, err := p.buildIncrementalCondition(primaryCursor, secondaryCursor, lastPrimaryCursorValue, lastSecondaryCursorValue)
+	incrementalCondition, err := p.buildIncrementalCondition(stream)
 	if err != nil {
 		return fmt.Errorf("failed to format cursor condition: %s", err)
 	}
@@ -57,7 +47,18 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 }
 
 // buildIncrementalCondition generates the incremental condition SQL for PostgreSQL
-func (p *Postgres) buildIncrementalCondition(primaryCursor, secondaryCursor string, lastPrimaryCursorValue, lastSecondaryCursorValue any) (string, error) {
+func (p *Postgres) buildIncrementalCondition(stream types.StreamInterface) (string, error) {
+	primaryCursor, secondaryCursor := stream.Cursor()
+	lastPrimaryCursorValue := p.state.GetCursor(stream.Self(), primaryCursor)
+	lastSecondaryCursorValue := p.state.GetCursor(stream.Self(), secondaryCursor)
+	if lastPrimaryCursorValue == nil {
+		logger.Warnf("Stored primary cursor value is nil for the stream [%s]", stream.ID())
+	}
+	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
+		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
+	}
+
+	
 	incrementalCondition := fmt.Sprintf("%s >= '%v'", primaryCursor, lastPrimaryCursorValue)
 
 	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
