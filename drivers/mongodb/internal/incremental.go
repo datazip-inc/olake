@@ -93,3 +93,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 
 	return incrementalCondition, nil
 }
+
+func (m *Mongo) PostIncremental(_ context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for oracle")
+}
