@@ -4,7 +4,6 @@ import (
 	"github.com/goccy/go-json"
 
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -25,8 +24,6 @@ type Stream struct {
 	AvailableCursorFields *Set[string] `json:"available_cursor_fields,omitempty"`
 	// Input of JSON Schema from Client to be parsed by driver
 	AdditionalProperties string `json:"additional_properties,omitempty"`
-	// Renderable JSON Schema for additional properties supported by respective driver for individual stream
-	AdditionalPropertiesSchema schema.JSONSchema `json:"additional_properties_schema,omitempty"`
 	// Cursor field to be used for incremental sync
 	CursorField string `json:"cursor_field,omitempty"`
 	// Mode being used for syncing data

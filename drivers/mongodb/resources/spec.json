@@ -1,0 +1,81 @@
+{
+    "type": "object",
+    "properties": {
+        "authdb": {
+            "type": "string",
+            "title": "Auth DB",
+            "description": "Authentication database (mostly admin)",
+            "default": "admin"
+        },
+        "backoff_retry_count": {
+            "type": "integer",
+            "title": "Retry Count",
+            "description": "Number of sync retry attempts using exponential backoff",
+            "default": 3
+        },
+        "chunking_strategy": {
+            "type": "string",
+            "title": "Chunking Strategy",
+            "description": "Chunking strategy (timestamp, uses split vector strategy if the field is left empty)",
+            "default": "Split Vector",
+            "enum": [
+                "Split Vector",
+                "Timestamp"
+            ]
+        },
+        "database": {
+            "type": "string",
+            "title": "Database Name",
+            "description": "Name of the mongodb database selected for replication"
+        },
+        "hosts": {
+            "type": "array",
+            "title": "Hosts",
+            "description": "Specifies the hostnames or IP addresses of MongoDB for connection",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 1
+        },
+        "max_threads": {
+            "type": "integer",
+            "title": "Max Threads",
+            "description": "Max parallel threads for chunk snapshotting",
+            "default": 3
+        },
+        "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "MongoDB password",
+            "format": "password"
+        },
+        "read_preference": {
+            "type": "string",
+            "title": "Read Preference",
+            "description": "Read preference for MongoDB (e.g., primary, secondaryPreferred)"
+        },
+        "replica_set": {
+            "type": "string",
+            "title": "Replica Set",
+            "description": "MongoDB replica set name (if applicable)"
+        },
+        "srv": {
+            "type": "boolean",
+            "title": "Use SRV",
+            "description": "Enable this option if using DNS SRV connection strings. When set to true, the hosts field must contain only one entry - a DNS SRV address (['mongodataset.pigiy.mongodb.net'])",
+            "default": false
+        },
+        "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Username for MongoDB authentication"
+        }
+    },
+    "required": [
+        "hosts",
+        "database",
+        "authdb",
+        "username",
+        "password"
+    ]
+}

@@ -1,0 +1,36 @@
+{
+    "type": "object",
+    "properties": {
+      "s3_access_key": {
+        "type": "string",
+        "title": "S3 Access Key",
+        "description": "The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string"
+      },
+      "s3_bucket": {
+        "type": "string",
+        "title": "S3 Bucket",
+        "description": "The name of an existing Amazon S3 bucket with appropriate access permissions to store output files"
+      },
+      "s3_path": {
+        "type": "string",
+        "title": "S3 Path",
+        "description": "Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')"
+      },
+      "s3_region": {
+        "type": "string",
+        "title": "S3 Region",
+        "description": "Specify the AWS region where the S3 bucket is hosted"
+      },
+      "s3_secret_key": {
+        "type": "string",
+        "title": "AWS Secret Key",
+        "description": "The AWS secret key for S3 authentication—typically 40+ characters long",
+        "format": "password"
+      }
+    },
+    "required": [
+      "s3_bucket",
+      "s3_region",
+      "s3_path"
+    ]
+  }

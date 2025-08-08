@@ -28,7 +28,7 @@ type Config struct {
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
 	// initial wait time must be in range [120,2400), default value 1200
-	InitialWaitTime int `json:"intial_wait_time"`
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
 func (c *Config) Validate() error {
