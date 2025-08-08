@@ -342,7 +342,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
 	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
 
-	filterClause := utils.Ternary(filter == "", "", " AND "+filter).(string)
+	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
@@ -353,7 +353,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
 func OracleBlockSizeQuery() string {
-	return `SELECT TO_NUMBER(value) FROM v$parameter WHERE name = 'db_block_size'`
+	return `SELECT CEIL(BYTES / NULLIF(BLOCKS, 0)) FROM user_segments WHERE BLOCKS IS NOT NULL AND ROWNUM =1`
 }
 
 // OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
@@ -457,4 +457,10 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 		})
 		return strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
 	}
+}
+
+// MySQLIncrementalQuery builds the complete incremental query for MySQL
+func MySQLIncrementalQuery(stream types.StreamInterface, filter string, incrementalCondition string) string {
+	finalFilter := utils.Ternary(filter != "", fmt.Sprintf("(%s) AND (%s)", filter, incrementalCondition), incrementalCondition).(string)
+	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), finalFilter)
 }
