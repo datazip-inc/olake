@@ -174,12 +174,6 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			pipeline = append(pipeline, bson.D{{Key: "$match", Value: filter}})
 		}
 
-		var stats bson.M
-		err := collection.Database().RunCommand(ctx, bson.D{{Key: "collStats", Value: collection.Name()}}).Decode(&stats)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get collection stats: %s", err)
-		}
-
 		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
 		pipeline = append(pipeline,
 			bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
@@ -292,21 +286,21 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 }
 
 func (m *Mongo) totalCountAndStorageSizeInCollection(ctx context.Context, collection *mongo.Collection) (int64, float64, error) {
-	var countResult bson.M
+	var statResults bson.M
 	command := bson.D{{
 		Key:   "collStats",
 		Value: collection.Name(),
 	}}
 	// Select the database
-	err := collection.Database().RunCommand(ctx, command).Decode(&countResult)
+	err := collection.Database().RunCommand(ctx, command).Decode(&statResults)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
 	}
-	count, err := typeutils.ReformatInt64(countResult["count"])
+	count, err := typeutils.ReformatInt64(statResults["count"])
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
 	}
-	storageSize, err := typeutils.ReformatFloat64(countResult["storageSize"])
+	storageSize, err := typeutils.ReformatFloat64(statResults["storageSize"])
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
 	}
