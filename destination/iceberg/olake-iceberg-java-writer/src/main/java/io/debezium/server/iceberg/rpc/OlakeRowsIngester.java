@@ -31,6 +31,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private final IcebergTableOperator icebergTableOperator;
     private final List<Map<String, String>> partitionTransforms;
     private final Object tableCreationLock = new Object();
+    private Table icebergTable;
 
     public OlakeRowsIngester(boolean upsertRecords, String icebergNamespace, Catalog icebergCatalog, 
                            List<Map<String, String>> partitionTransforms, boolean createIdentifierFields) {
@@ -39,6 +40,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         this.icebergCatalog = icebergCatalog;
         this.partitionTransforms = partitionTransforms;
         this.createIdentifierFields = createIdentifierFields;
+        this.icebergTable = null;
         this.icebergTableOperator = new IcebergTableOperator(upsertRecords, createIdentifierFields);
     }
 
@@ -59,6 +61,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             if (destTableName == null || destTableName.isEmpty()) {
                 throw new Exception("Destination table name not present in metadata");
             }
+
+            if (this.icebergTable == null) {
+                SchemaConvertor schemaConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
+                this.icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
+                                        schemaConvertor.convertToIcebergSchema());
+            }
+            
             // TODO: load iceberg table on server and cache
             switch (request.getType()) {
                 case COMMIT:
@@ -70,29 +79,21 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     
                 case EVOLVE_SCHEMA:
                     SchemaConvertor convertor = new SchemaConvertor(primaryKey, schemaMetadata);
-                    Table icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
-                                               convertor.convertToIcebergSchema());
-                    icebergTableOperator.applyFieldAddition(icebergTable, convertor.convertToIcebergSchema());
+                    icebergTableOperator.applyFieldAddition(this.icebergTable, convertor.convertToIcebergSchema());
                     sendResponse(responseObserver, "schema evolution applied");
                     LOGGER.info("{} Successfully applied schema evolution for table: {}", requestId, destTableName);
                     break;
                     
                 case GET_OR_CREATE_TABLE:
-                    SchemaConvertor schemaConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
-                    Table table = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
-                                                schemaConvertor.convertToIcebergSchema());
-                    sendResponse(responseObserver, table.schema().toString());
+                    sendResponse(responseObserver, this.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully returned iceberg table {}", requestId, destTableName);
                     break;
-                    
                 case RECORDS:
                     LOGGER.info("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
-                    Table recordsTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
-                                                         recordsConvertor.convertToIcebergSchema());
                     // icebergTableOperator.applyFieldAddition(recordsTable, recordsConvertor.convertToIcebergSchema());
-                    List<RecordWrapper> finalRecords = recordsConvertor.convert(upsertRecords,recordsTable.schema(), request.getRecordsList());
-                    icebergTableOperator.addToTablePerSchema(threadId, recordsTable, finalRecords);
+                    List<RecordWrapper> finalRecords = recordsConvertor.convert(upsertRecords,this.icebergTable.schema(), request.getRecordsList());
+                    icebergTableOperator.addToTablePerSchema(threadId, this.icebergTable, finalRecords);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.info("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     break;

@@ -37,7 +37,6 @@ type (
 		maxThreads      int
 		batchSize       int64
 		totalRecords    atomic.Int64
-		recordCount     atomic.Int64
 		readCount       atomic.Int64
 		writeCount      atomic.Int64
 		flushThreads    atomic.Int64
@@ -241,7 +240,6 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 		maxThreads:    2, // TODO: hardcoded to 2 can have discussion what could be proper value for it
 		batchSize:     maxBatchSize,
 		totalRecords:  atomic.Int64{},
-		recordCount:   atomic.Int64{},
 		writerThreads: atomic.Int64{},
 		flushThreads:  atomic.Int64{},
 		writeCount:    atomic.Int64{},
@@ -262,7 +260,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 }
 
 func (w *WriterPool) SyncedRecords() int64 {
-	return w.recordCount.Load()
+	return w.writeCount.Load()
 }
 
 func (w *WriterPool) AddRecordsToSync(recordCount int64) {
