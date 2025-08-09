@@ -14,13 +14,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,7 +26,6 @@ import  io.debezium.server.iceberg.rpc.RecordIngest;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord;
 import io.debezium.server.iceberg.tableoperator.Operation;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
-import io.debezium.util.Strings;
 
 public class SchemaConvertor {
   static List<RecordIngest.IcebergPayload.SchemaField> schemaMetadata;

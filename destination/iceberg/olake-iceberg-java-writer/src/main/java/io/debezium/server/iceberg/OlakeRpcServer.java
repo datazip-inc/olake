@@ -116,7 +116,7 @@ public class OlakeRpcServer {
         }
         
         // Get max message size from config or use a reasonable default 3GB
-        int maxMessageSize = 3 * 1024 * 1024 * 1024;
+        int maxMessageSize =  1500 * 1024 * 1024;
         if (stringConfigMap.get("max-message-size") != null) {
             maxMessageSize = Integer.parseInt(stringConfigMap.get("max-message-size"));
         }

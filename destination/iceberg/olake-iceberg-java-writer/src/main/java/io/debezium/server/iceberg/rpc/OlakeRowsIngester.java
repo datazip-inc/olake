@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
-import java.util.ArrayList;
 
 @Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
@@ -87,6 +86,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
                     
                 case RECORDS:
+                    LOGGER.info("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
                     Table recordsTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
                                                          recordsConvertor.convertToIcebergSchema());
