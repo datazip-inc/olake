@@ -19,3 +19,17 @@ func TestPostgresIntegration(t *testing.T) {
 	}
 	testConfig.TestIntegration(t)
 }
+
+func TestPostgresPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:          testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:           "public",
+		BackfillStreams:     []string{"trips", "fhv_trips"},
+		CDCStreams:          []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:        ExecuteQueryPerformance,
+		SupportsCDC:         true,
+		UsesPreChunkedState: false,
+	}
+
+	config.TestPerformance(t)
+}

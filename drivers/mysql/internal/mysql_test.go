@@ -18,3 +18,17 @@ func TestMySQLIntegration(t *testing.T) {
 	}
 	testConfig.TestIntegration(t)
 }
+
+func TestMySQLPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:          testutils.GetTestConfig(string(constants.MySQL)),
+		Namespace:           "benchmark",
+		BackfillStreams:     []string{"trips", "fhv_trips"},
+		CDCStreams:          []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:        ExecuteQueryPerformance,
+		SupportsCDC:         true,
+		UsesPreChunkedState: true,
+	}
+
+	config.TestPerformance(t)
+}
