@@ -54,6 +54,7 @@ type (
 		errGroup       *errgroup.Group
 		groupCtx       context.Context
 		writer         Writer
+		writerThreads  *atomic.Int64
 		flushThreads   *atomic.Int64
 		readCounter    *atomic.Int64
 		writeCount     *atomic.Int64
@@ -99,6 +100,7 @@ func (t *ThreadEvent) Push(record types.RawRecord) error {
 }
 
 func (t *ThreadEvent) Close() error {
+	defer t.writerThreads.Add(-1)
 	buffer := make([]types.RawRecord, len(t.buffer))
 	copy(buffer, t.buffer)
 	t.buffer = t.buffer[:0]
@@ -150,7 +152,6 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) error {
 
 func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*ThreadEvent, error) {
 	w.writerThreads.Add(1)
-	defer w.writerThreads.Add(-1)
 
 	opts := &Options{}
 	for _, one := range options {
@@ -205,6 +206,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		batchSize:      w.batchSize,
 		readCounter:    &w.readCount,
 		writeCount:     &w.writeCount,
+		writerThreads:  &w.writerThreads,
 		flushThreads:   &w.flushThreads,
 		streamArtifact: streamArtifact,
 	}, nil
