@@ -80,7 +80,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 
 		// check if initial wait time is valid or not
 		if cdc.InitialWaitTime < 120 || cdc.InitialWaitTime > 2400 {
-			return fmt.Errorf("The CDC initial wait time must be at least 120 seconds and less than 2400 seconds.")
+			return fmt.Errorf("the CDC initial wait time must be at least 120 seconds and less than 2400 seconds")
 		}
 
 		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
