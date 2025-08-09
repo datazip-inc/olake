@@ -63,6 +63,9 @@ func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
 }
 
 func ReformatValue(dataType types.DataType, v any) (any, error) {
+	if v == nil {
+		return v, nil
+	}
 	switch dataType {
 	case types.Null:
 		return nil, ErrNullValue
