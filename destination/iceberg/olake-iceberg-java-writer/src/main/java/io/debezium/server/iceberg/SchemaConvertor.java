@@ -77,14 +77,12 @@ public class SchemaConvertor {
               genericRow.setField(fieldName, null);
               continue;
           }
+          String stringValue = fieldValue.getStringValue();
           try {
-              String stringValue = fieldValue.getStringValue();
-              ObjectMapper objectMapper = new ObjectMapper();
-              JsonNode node = objectMapper.readTree(stringValue);
-              Object convertedValue = jsonValToIcebergVal(field, node);
+              Object convertedValue = stringValToIcebergVal(field, stringValue);
               genericRow.setField(fieldName, convertedValue);
-          } catch (IOException e) {
-              throw new RuntimeException("Failed to parse JSON string for field "+fieldName, e);
+          } catch (RuntimeException e) {
+              throw new RuntimeException("Failed to parse JSON string for field "+ fieldName +" value "+ stringValue + " exceptipn: " + e);
           }
       }
       // check if it is append only or upsert
@@ -95,57 +93,90 @@ public class SchemaConvertor {
       return new RecordWrapper(genericRow, cdcOpValue(data.getRecordType()));
   }
 
-  private static Object jsonValToIcebergVal(Types.NestedField field, JsonNode node) {
-    LOGGER.debug("Processing Field:{} Type:{}", field.name(), field.type());
-    final Object val;
-    switch (field.type().typeId()) {
-      case INTEGER: // int 4 bytes
-        val = node.isNull() ? null : node.asInt();
-        break;
-      case LONG: // long 8 bytes
-        val = node.isNull() ? null : node.asLong();
-        break;
-      case FLOAT: // float is represented in 32 bits,
-        val = node.isNull() ? null : node.floatValue();
-        break;
-      case DOUBLE: // double is represented in 64 bits
-        val = node.isNull() ? null : node.asDouble();
-        break;
-      case BOOLEAN:
-        val = node.isNull() ? null : node.asBoolean();
-        break;
-      case STRING:
-        // if the node is not a value node (method isValueNode returns false), convert it to string.
-        val = node.isValueNode() ? node.asText(null) : node.toString();
-        break;
-      case UUID:
-        val = node.isValueNode() ? UUID.fromString(node.asText(null)) : UUID.fromString(node.toString());
-        break;
-      case TIMESTAMP:
-        if ((node.isLong() || node.isNumber()) && TS_MS_FIELDS.contains(field.name())) {
-          val = node.isNull() ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(node.longValue()), ZoneOffset.UTC);
-        } else if (node.isTextual()) {
-          val = node.isNull() ? null : OffsetDateTime.parse(node.asText());
-        } else {
-          throw new RuntimeException("Failed to convert timestamp value, field: " + field.name() + " value: " + node);
-        }
-        break;
-      case BINARY:
-        try {
-          val = node.isNull() ? null : ByteBuffer.wrap(node.binaryValue());
-        } catch (IOException e) {
-          throw new RuntimeException("Failed to convert binary value to iceberg value, field: " + field.name(), e);
-        }
-        break;
-      default:
-        // default to String type
-        // if the node is not a value node (method isValueNode returns false), convert it to string.
-        val = node.isValueNode() ? node.asText(null) : node.toString();
-        break;
-    }
-
-    return val;
+  private static Object stringValToIcebergVal(Types.NestedField field, String value) {
+      LOGGER.debug("Processing Field:{} Type:{} RawValue:{}", field.name(), field.type(), value);
+      if (value == null || value.trim().isEmpty()) {
+          return null;
+      }
+      try {
+          switch (field.type().typeId()) {
+              case INTEGER:
+                  return Integer.parseInt(value.trim());
+              case LONG:
+                  return Long.parseLong(value.trim());
+              case FLOAT:
+                  return Float.parseFloat(value.trim());
+              case DOUBLE:
+                  return Double.parseDouble(value.trim());
+              case BOOLEAN:
+                  return Boolean.parseBoolean(value.trim());
+              case STRING:
+                  return value;
+              case UUID:
+                  return UUID.fromString(value.trim());
+              case TIMESTAMP:
+                  return OffsetDateTime.parse(value.trim());
+              default:
+                  return value;
+          }
+      } catch (Exception e) {
+          throw new RuntimeException("Failed to parse value for field " + field.name() +
+                                    " as type " + field.type() +
+                                    ", raw value: " + value, e);
+      }
   }
+
+  // private static Object jsonValToIcebergVal(Types.NestedField field, JsonNode node) {
+  //   LOGGER.debug("Processing Field:{} Type:{}", field.name(), field.type());
+  //   final Object val;
+  //   switch (field.type().typeId()) {
+  //     case INTEGER: // int 4 bytes
+  //       val = node.isNull() ? null : node.asInt();
+  //       break;
+  //     case LONG: // long 8 bytes
+  //       val = node.isNull() ? null : node.asLong();
+  //       break;
+  //     case FLOAT: // float is represented in 32 bits,
+  //       val = node.isNull() ? null : node.floatValue();
+  //       break;
+  //     case DOUBLE: // double is represented in 64 bits
+  //       val = node.isNull() ? null : node.asDouble();
+  //       break;
+  //     case BOOLEAN:
+  //       val = node.isNull() ? null : node.asBoolean();
+  //       break;
+  //     case STRING:
+  //       // if the node is not a value node (method isValueNode returns false), convert it to string.
+  //       val = node.isValueNode() ? node.asText(null) : node.toString();
+  //       break;
+  //     case UUID:
+  //       val = node.isValueNode() ? UUID.fromString(node.asText(null)) : UUID.fromString(node.toString());
+  //       break;
+  //     case TIMESTAMP:
+  //       if ((node.isLong() || node.isNumber()) && TS_MS_FIELDS.contains(field.name())) {
+  //         val = node.isNull() ? null : OffsetDateTime.ofInstant(Instant.ofEpochMilli(node.longValue()), ZoneOffset.UTC);
+  //       } else if (node.isTextual()) {
+  //         val = node.isNull() ? null : OffsetDateTime.parse(node.asText());
+  //       } else {
+  //         throw new RuntimeException("Failed to convert timestamp value, field: " + field.name() + " value: " + node);
+  //       }
+  //       break;
+  //     case BINARY:
+  //       try {
+  //         val = node.isNull() ? null : ByteBuffer.wrap(node.binaryValue());
+  //       } catch (IOException e) {
+  //         throw new RuntimeException("Failed to convert binary value to iceberg value, field: " + field.name(), e);
+  //       }
+  //       break;
+  //     default:
+  //       // default to String type
+  //       // if the node is not a value node (method isValueNode returns false), convert it to string.
+  //       val = node.isValueNode() ? node.asText(null) : node.toString();
+  //       break;
+  //   }
+
+  //   return val;
+  // }
 
 
   public Operation cdcOpValue(String cdcOpField) {

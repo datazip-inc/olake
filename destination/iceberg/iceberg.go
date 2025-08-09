@@ -1,9 +1,7 @@
 package iceberg
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -104,31 +102,23 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	var protoRecords []*proto.IcebergPayload_IceRecord
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
 	for _, record := range records {
 		protoColumns := make(map[string]*structpb.Value)
 		record.Data[constants.OlakeID] = record.OlakeID
-		record.Data[constants.CdcTimestamp] = record.CdcTimestamp
-		record.Data[constants.OlakeTimestamp] = time.Now().UTC()
+		record.Data[constants.CdcTimestamp] = record.CdcTimestamp.Format(time.RFC3339)
+		record.Data[constants.OlakeTimestamp] = time.Now().UTC().Format(time.RFC3339)
 		record.Data[constants.OpType] = record.OperationType
 		for key, value := range record.Data {
 			if value == nil {
 				continue
 			}
-			// Reset buffer for each value
-			buf.Reset()
+			switch v := value.(type) {
+			case time.Time:
+				protoColumns[key] = structpb.NewStringValue(v.UTC().Format(time.RFC3339))
+			default:
+				protoColumns[key] = structpb.NewStringValue(fmt.Sprintf("%v", value))
+			}
 
-			// Stream JSON encoding directly to buffer
-			if err := encoder.Encode(value); err != nil {
-				return fmt.Errorf("failed to marshal value for key %s: %w", key, err)
-			}
-			// marshal value
-			strVal := buf.String()
-			if len(strVal) > 0 && strVal[len(strVal)-1] == '\n' {
-				strVal = strVal[:len(strVal)-1] // Trim newline added by encoder
-			}
-			protoColumns[key] = structpb.NewStringValue(strVal)
 		}
 
 		// release record data to save memory
@@ -288,7 +278,6 @@ func (i *Iceberg) ValidateSchema(rawOldSchema any, records []types.RawRecord) (b
 						persistedType, detecteIceType,
 					)
 				}
-
 				newSchema[key] = detecteIceType
 			}
 		}
