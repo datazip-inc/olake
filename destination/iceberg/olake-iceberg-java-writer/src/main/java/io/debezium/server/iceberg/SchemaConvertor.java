@@ -57,7 +57,7 @@ public class SchemaConvertor {
       // Pre-compute schema information once
       StructType tableFields = tableSchema.asStruct();
       // Use parallel stream with optimal chunk sizing
-      return records.parallelStream()
+      return records.stream()
           .map(data -> convertRecord(upsert, data, tableFields))
           .collect(Collectors.toList());
   }

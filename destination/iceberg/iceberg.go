@@ -1,6 +1,7 @@
 package iceberg
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -103,6 +104,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	var protoRecords []*proto.IcebergPayload_IceRecord
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
 	for _, record := range records {
 		protoColumns := make(map[string]*structpb.Value)
 		record.Data[constants.OlakeID] = record.OlakeID
@@ -113,12 +116,19 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 			if value == nil {
 				continue
 			}
-			// marshal value
-			bytesData, err := json.Marshal(value)
-			if err != nil {
-				return fmt.Errorf("failed to marshal the value[%v], error: %s", err)
+			// Reset buffer for each value
+			buf.Reset()
+
+			// Stream JSON encoding directly to buffer
+			if err := encoder.Encode(value); err != nil {
+				return fmt.Errorf("failed to marshal value for key %s: %w", key, err)
 			}
-			protoColumns[key] = structpb.NewStringValue(string(bytesData))
+			// marshal value
+			strVal := buf.String()
+			if len(strVal) > 0 && strVal[len(strVal)-1] == '\n' {
+				strVal = strVal[:len(strVal)-1] // Trim newline added by encoder
+			}
+			protoColumns[key] = structpb.NewStringValue(strVal)
 		}
 
 		// release record data to save memory
