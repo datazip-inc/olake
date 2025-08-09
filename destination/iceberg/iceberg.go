@@ -102,8 +102,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 }
 
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
-	// Convert record to Debezium format with thread ID
-	// We are adding the thread ID to process the records from multiple threads in parallel and separately so that we can commit when each thread finishes.
 	var protoRecords []*proto.IcebergPayload_IceRecord
 	for _, record := range records {
 		protoColumns := make(map[string]*structpb.Value)
@@ -112,7 +110,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 		record.Data[constants.OlakeTimestamp] = time.Now().UTC()
 		record.Data[constants.OpType] = record.OperationType
 		for key, value := range record.Data {
-			if value != nil {
+			if value == nil {
 				continue
 			}
 			// marshal value
@@ -122,6 +120,10 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 			}
 			protoColumns[key] = structpb.NewStringValue(string(bytesData))
 		}
+
+		// release record data to save memory
+		record.Data = nil
+
 		if len(protoColumns) > 0 {
 			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
 				Fields:     protoColumns,
@@ -130,6 +132,10 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 		}
 	}
 
+	if len(protoRecords) == 0 {
+		logger.Debug("no record found in batch")
+		return nil
+	}
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
@@ -149,7 +155,6 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 		logger.Errorf("failed to send batch: %s", err)
 		return err
 	}
-
 	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
 		len(records),
 		res.GetResult())
@@ -251,41 +256,74 @@ func (i *Iceberg) Flattener() destination.FlattenFunction {
 	return flattener.Flatten
 }
 
-func (i *Iceberg) ValidateSchema(pastSchema any, records []types.RawRecord) (bool, any, error) {
-	oldSchema, ok := pastSchema.(map[string]string)
-	if !ok {
-		return false, nil, fmt.Errorf("failed to convert past schema of type[%T] to map[string]string", pastSchema)
+// validate schema change & evolution and removes null records
+func (i *Iceberg) ValidateSchema(rawOldSchema any, records []types.RawRecord) (bool, any, error) {
+	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
+		newSchema := make(map[string]string)
+
+		for _, record := range records {
+			for key, value := range record.Data {
+				detectedType := typeutils.TypeFromValue(value)
+
+				if detectedType == types.Null {
+					// remove element from data if it is null
+					delete(record.Data, key)
+					continue
+				}
+
+				detecteIceType := detectedType.ToIceberg()
+				if persistedType, exists := newSchema[key]; exists && !isValidIcebergType(persistedType, detecteIceType) {
+					return nil, fmt.Errorf(
+						"failed to validate schema (got two different types in batch), expected type: %s, got type: %s",
+						persistedType, detecteIceType,
+					)
+				}
+
+				newSchema[key] = detecteIceType
+			}
+		}
+
+		return newSchema, nil
 	}
-	newSchema := make(map[string]string)
-	for _, record := range records {
-		for key, value := range record.Data {
-			v, ok := newSchema[key]
-			valueType := typeutils.TypeFromValue(value)
-			if valueType == types.Null {
-				delete(record.Data, key)
+
+	compareSchemas := func(oldSchema, newSchema map[string]string) (bool, error) {
+		schemaChange := false
+
+		for fieldName, newType := range newSchema {
+			oldType, exists := oldSchema[fieldName]
+
+			if !exists {
+				schemaChange = true
 				continue
 			}
-			if ok && v != valueType.ToIceberg() {
-				// TODO: evolve type according to tree and then check
-				return false, nil, fmt.Errorf("failed to validate schema (got two different types in batch), expected type: %s, got type: %s", v, valueType)
+
+			// TODO: we can break on schema change detection but
+			// should we check for type conversion is possible or not according to tree (need a discussion)
+
+			if !isValidIcebergType(oldType, newType) {
+				return false, fmt.Errorf(
+					"different type detected in schema, old type: %s, new type: %s for field: %s",
+					oldType, newType, fieldName,
+				)
 			}
-			newSchema[key] = valueType.ToIceberg()
 		}
+
+		return schemaChange, nil
 	}
 
-	schemaChange := false
-	// check for new column and types mismatch with iceberg
-	for fieldName, fieldType := range newSchema {
-		// check if field exist
-		oldType, ok := oldSchema[fieldName]
-		if !ok {
-			schemaChange = true
-		}
+	oldSchema, ok := rawOldSchema.(map[string]string)
+	if !ok {
+		return false, nil, fmt.Errorf("failed to convert past schema of type[%T] to map[string]string", rawOldSchema)
+	}
 
-		// TODO: check for schema evolution
-		if fieldType != oldType {
-			return false, nil, fmt.Errorf("different type detected in schema, old type: %s, new type: %s for field: %s", oldType, fieldType, fieldName)
-		}
+	newSchema, err := extractSchemaFromRecords(records)
+	if err != nil {
+		return false, nil, err
+	}
+
+	schemaChange, err := compareSchemas(oldSchema, newSchema)
+	if err != nil {
+		return false, nil, err
 	}
 
 	return schemaChange, newSchema, nil
@@ -317,6 +355,18 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any, _ []types.Raw
 	}
 	logger.Debug("response received after schema evolution: %s", resp.Result)
 	return nil
+}
+
+func isValidIcebergType(oldType, newType string) bool {
+	// Note: not added decimal precision as we not iceberg decimal type support as of now
+	switch oldType {
+	case "int":
+		return newType == "long" || newType == "int"
+	case "float":
+		return newType == "float" || newType == "double"
+	default:
+		return oldType == newType
+	}
 }
 
 // parsePartitionRegex parses the partition regex and populates the partitionInfo slice

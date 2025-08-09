@@ -3,7 +3,6 @@ package destination
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,11 +39,12 @@ type (
 		totalRecords    atomic.Int64
 		recordCount     atomic.Int64
 		readCount       atomic.Int64
-		ThreadCounter   atomic.Int64
+		writeCount      atomic.Int64
+		flushThreads    atomic.Int64
+		writerThreads   atomic.Int64
 		config          any
 		init            NewFunc
-		artifactsMutex  sync.RWMutex // Protects streamArtifacts map
-		streamArtifacts map[string]*StreamArtifacts
+		streamArtifacts sync.Map
 	}
 
 	ThreadEvent struct {
@@ -54,9 +54,9 @@ type (
 		errGroup       *errgroup.Group
 		groupCtx       context.Context
 		writer         Writer
-		writeCount     *atomic.Int64
-		threadCounter  *atomic.Int64
+		flushThreads   *atomic.Int64
 		readCounter    *atomic.Int64
+		writeCount     *atomic.Int64
 		batchSize      int64
 		streamArtifact *StreamArtifacts
 	}
@@ -80,128 +80,6 @@ func WithBackfill(backfill bool) ThreadOptions {
 	return func(opt *Options) {
 		opt.Backfill = backfill
 	}
-}
-
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams, dropStreams []string) (*WriterPool, error) {
-	newfunc, found := RegisteredWriters[config.Type]
-	if !found {
-		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
-	}
-
-	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		return nil, err
-	}
-
-	err := adapter.Check(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to test destination: %s", err)
-	}
-
-	if dropStreams != nil {
-		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
-			return nil, fmt.Errorf("failed to clear destination: %s", err)
-		}
-	}
-
-	streamArtifacts := make(map[string]*StreamArtifacts)
-	if syncStreams != nil {
-		for _, stream := range syncStreams {
-			streamArtifacts[stream] = &StreamArtifacts{
-				mutex:  sync.RWMutex{},
-				schema: nil,
-			}
-		}
-	}
-
-	maxBatchSize := determineMaxBatchSize()
-	if config.MaxThreads <= 0 {
-		config.MaxThreads = runtime.NumCPU()
-	}
-	logger.Infof("writer max batch size set to: %d bytes and max threads to: %d", maxBatchSize, config.MaxThreads)
-
-	return &WriterPool{
-		maxThreads:      2,
-		batchSize:       maxBatchSize,
-		totalRecords:    atomic.Int64{},
-		recordCount:     atomic.Int64{},
-		ThreadCounter:   atomic.Int64{},
-		config:          config.WriterConfig,
-		init:            newfunc,
-		streamArtifacts: streamArtifacts,
-	}, nil
-}
-
-func (w *WriterPool) SyncedRecords() int64 {
-	return w.recordCount.Load()
-}
-
-func (w *WriterPool) AddRecordsToSync(recordCount int64) {
-	w.totalRecords.Add(recordCount)
-}
-
-func (w *WriterPool) GetRecordsToSync() int64 {
-	return w.totalRecords.Load()
-}
-
-func (w *WriterPool) GetReadRecords() int64 {
-	return w.readCount.Load()
-}
-
-func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*ThreadEvent, error) {
-	opts := &Options{}
-	for _, one := range options {
-		one(opts)
-	}
-
-	group, ctx := errgroup.WithContext(ctx)
-	group.SetLimit(w.maxThreads)
-
-	w.artifactsMutex.RLock()
-	streamArtifact, ok := w.streamArtifacts[stream.ID()]
-	w.artifactsMutex.RUnlock()
-
-	if !ok {
-		return nil, fmt.Errorf("failed to get stream lock for stream[%s]", stream.ID())
-	}
-
-	var writerThread Writer
-	err := func() error {
-		streamArtifact.mutex.Lock()
-		defer streamArtifact.mutex.Unlock()
-
-		writerThread = w.init()
-		if err := utils.Unmarshal(w.config, writerThread.GetConfigRef()); err != nil {
-			return err
-		}
-
-		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema == nil, opts)
-		if err != nil {
-			return fmt.Errorf("failed to setup the writer thread: %s", err)
-		}
-
-		if streamArtifact.schema == nil {
-			streamArtifact.schema = output
-		}
-
-		return nil
-	}()
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
-	}
-
-	return &ThreadEvent{
-		buffer:         []types.RawRecord{},
-		stream:         stream,
-		errGroup:       group,
-		groupCtx:       ctx,
-		writer:         writerThread,
-		batchSize:      w.batchSize,
-		readCounter:    &w.readCount,
-		threadCounter:  &w.ThreadCounter,
-		writeCount:     &w.recordCount,
-		streamArtifact: streamArtifact,
-	}, nil
 }
 
 func (t *ThreadEvent) Push(record types.RawRecord) error {
@@ -240,16 +118,14 @@ func (t *ThreadEvent) Close() error {
 }
 
 func (t *ThreadEvent) flush(buf []types.RawRecord) error {
-	t.threadCounter.Add(1)
-	defer t.threadCounter.Add(-1)
+	// TODO: add recovery function
+	t.flushThreads.Add(1)
+	defer t.flushThreads.Add(-1)
 
 	t.streamArtifact.mutex.RLock()
 	cachedSchema := t.streamArtifact.schema
 	t.streamArtifact.mutex.RUnlock()
 
-	if cachedSchema == nil {
-		fmt.Println("hey rowdy hai re tu")
-	}
 	schemaEvolution, newSchema, err := t.writer.ValidateSchema(cachedSchema, buf)
 	if err != nil {
 		return fmt.Errorf("failed to flush data: %s", err)
@@ -265,11 +141,146 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) error {
 	}
 
 	if err := t.writer.Write(t.groupCtx, buf); err != nil {
-		return fmt.Errorf("failed to write record: %s", err)
+		return fmt.Errorf("failed to write records: %s", err)
 	}
 
 	t.writeCount.Add(int64(len(buf)))
 	return nil
+}
+
+func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*ThreadEvent, error) {
+	w.writerThreads.Add(1)
+	defer w.writerThreads.Add(-1)
+
+	opts := &Options{}
+	for _, one := range options {
+		one(opts)
+	}
+
+	rawStreamArtifact, ok := w.streamArtifacts.Load(stream.ID())
+	if !ok {
+		return nil, fmt.Errorf("failed to get stream lock for stream[%s]", stream.ID())
+	}
+
+	streamArtifact, ok := rawStreamArtifact.(*StreamArtifacts)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
+	}
+
+	var writerThread Writer
+	err := func() error {
+		streamArtifact.mutex.Lock()
+		defer streamArtifact.mutex.Unlock()
+
+		writerThread = w.init()
+		if err := utils.Unmarshal(w.config, writerThread.GetConfigRef()); err != nil {
+			return err
+		}
+
+		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema == nil, opts)
+		if err != nil {
+			return fmt.Errorf("failed to setup the writer thread: %s", err)
+		}
+
+		if streamArtifact.schema == nil {
+			streamArtifact.schema = output
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
+	}
+
+	// setup flush group
+	flushGroup, flushCtx := errgroup.WithContext(ctx)
+	flushGroup.SetLimit(w.maxThreads)
+
+	return &ThreadEvent{
+		buffer:         []types.RawRecord{},
+		stream:         stream,
+		errGroup:       flushGroup,
+		groupCtx:       flushCtx,
+		writer:         writerThread,
+		batchSize:      w.batchSize,
+		readCounter:    &w.readCount,
+		writeCount:     &w.writeCount,
+		flushThreads:   &w.flushThreads,
+		streamArtifact: streamArtifact,
+	}, nil
+}
+
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams, dropStreams []string) (*WriterPool, error) {
+	newfunc, found := RegisteredWriters[config.Type]
+	if !found {
+		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+	}
+
+	adapter := newfunc()
+	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
+		return nil, err
+	}
+
+	err := adapter.Check(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to test destination: %s", err)
+	}
+
+	if dropStreams != nil {
+		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
+			return nil, fmt.Errorf("failed to clear destination: %s", err)
+		}
+	}
+
+	maxBatchSize := determineMaxBatchSize()
+	logger.Infof("writer max batch size set to: %d bytes and max threads to: %d", maxBatchSize, 2)
+
+	pool := &WriterPool{
+		maxThreads:    2, // TODO: hardcoded to 2 can have discussion what could be proper value for it
+		batchSize:     maxBatchSize,
+		totalRecords:  atomic.Int64{},
+		recordCount:   atomic.Int64{},
+		writerThreads: atomic.Int64{},
+		flushThreads:  atomic.Int64{},
+		writeCount:    atomic.Int64{},
+		config:        config.WriterConfig,
+		init:          newfunc,
+	}
+
+	if syncStreams != nil {
+		for _, stream := range syncStreams {
+			pool.streamArtifacts.Store(stream, &StreamArtifacts{
+				mutex:  sync.RWMutex{},
+				schema: nil,
+			})
+		}
+	}
+
+	return pool, nil
+}
+
+func (w *WriterPool) SyncedRecords() int64 {
+	return w.recordCount.Load()
+}
+
+func (w *WriterPool) AddRecordsToSync(recordCount int64) {
+	w.totalRecords.Add(recordCount)
+}
+
+func (w *WriterPool) GetRecordsToSync() int64 {
+	return w.totalRecords.Load()
+}
+
+func (w *WriterPool) GetReadRecords() int64 {
+	return w.readCount.Load()
+}
+
+func (w *WriterPool) GetFlushThreads() int64 {
+	return w.flushThreads.Load()
+}
+
+func (w *WriterPool) GetWriterThreads() int64 {
+	return w.writerThreads.Load()
 }
 
 func determineMaxBatchSize() int64 {
