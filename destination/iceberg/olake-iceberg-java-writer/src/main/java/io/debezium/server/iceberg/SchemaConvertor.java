@@ -17,6 +17,7 @@ import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -53,26 +54,37 @@ public class SchemaConvertor {
     return new Schema(schemaData.fields(), schemaData.identifierFieldIds());
   }
 
-  public List<RecordWrapper> convert(Boolean upsert,Schema tableSchema, List<IceRecord> records) {
+  public List<RecordWrapper> convert(Boolean upsert, Schema tableSchema, List<IceRecord> records) {
       // Pre-compute schema information once
       StructType tableFields = tableSchema.asStruct();
+      Map<String, Integer> fieldNameToIndexMap = new HashMap<>();
+      for (int index = 0; index < schemaMetadata.size(); index++) {
+          RecordIngest.IcebergPayload.SchemaField rawField = schemaMetadata.get(index);
+          String fieldName = rawField.getKey(); // or whatever method gives the field name
+          fieldNameToIndexMap.put(fieldName, index); // Map field name → index
+      }
+
       // Use parallel stream with optimal chunk sizing
       return records.stream()
-          .map(data -> convertRecord(upsert, data, tableFields))
+          .map(data -> convertRecord(upsert,fieldNameToIndexMap, data, tableFields))
           .collect(Collectors.toList());
   }
 
-  private RecordWrapper convertRecord(Boolean upsert, IceRecord data, StructType tableFields) {
+  private RecordWrapper convertRecord(Boolean upsert, Map<String, Integer> fieldNameToIndexMap, IceRecord data, StructType tableFields) {
       // Create record using first field's struct (optimization)
       GenericRecord genericRow = GenericRecord.create(tableFields);
-      Map<String, Value> fieldsMap = data.getFieldsMap();
       List<Types.NestedField> fields = tableFields.fields();
-
+     
       // Process all fields 
       for (Types.NestedField field : fields) {
           String fieldName = field.name();
           // Get field value - single map lookup
-          Value fieldValue = fieldsMap.get(fieldName);
+          Integer idx = fieldNameToIndexMap.get(fieldName);
+          if (idx == null) {
+            genericRow.setField(fieldName, null);
+            continue;
+          }
+          Value fieldValue = data.getFields(idx);
           if (fieldValue == null || !fieldValue.hasStringValue() || fieldValue.getStringValue() == "") {
               genericRow.setField(fieldName, null);
               continue;

@@ -100,25 +100,34 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	return nil, nil
 }
 
-func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
+func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawRecord) error {
+	schemaMap, ok := schema.(map[string]string)
+	if !ok {
+		return fmt.Errorf("failed to convert schema map[%T] to map[string]string", schema)
+	}
+
+	var protoSchema []*proto.IcebergPayload_SchemaField
+	for field, _ := range schemaMap {
+		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
+			Key: field,
+		})
+	}
+
 	var protoRecords []*proto.IcebergPayload_IceRecord
 	for _, record := range records {
-		protoColumns := make(map[string]*structpb.Value)
-		record.Data[constants.OlakeID] = record.OlakeID
-		record.Data[constants.CdcTimestamp] = record.CdcTimestamp.Format(time.RFC3339)
-		record.Data[constants.OlakeTimestamp] = time.Now().UTC().Format(time.RFC3339)
-		record.Data[constants.OpType] = record.OperationType
-		for key, value := range record.Data {
-			if value == nil {
+		var protoColumns []*structpb.Value
+		for _, field := range protoSchema {
+			val, ok := record.Data[field.Key]
+			if !ok {
+				protoColumns = append(protoColumns, nil)
 				continue
 			}
-			switch v := value.(type) {
+			switch v := val.(type) {
 			case time.Time:
-				protoColumns[key] = structpb.NewStringValue(v.UTC().Format(time.RFC3339))
+				protoColumns = append(protoColumns, structpb.NewStringValue(v.UTC().Format(time.RFC3339)))
 			default:
-				protoColumns[key] = structpb.NewStringValue(fmt.Sprintf("%v", value))
+				protoColumns = append(protoColumns, structpb.NewStringValue(fmt.Sprintf("%v", val)))
 			}
-
 		}
 
 		// release record data to save memory
@@ -136,11 +145,13 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 		logger.Debug("no record found in batch")
 		return nil
 	}
+
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: i.stream.Name(),
 			ThreadId:      i.threadID,
+			Schema:        protoSchema,
 		},
 		Records: protoRecords,
 	}
@@ -262,6 +273,12 @@ func (i *Iceberg) ValidateSchema(rawOldSchema any, records []types.RawRecord) (b
 		newSchema := make(map[string]string)
 
 		for _, record := range records {
+			// set pre configured fields
+			record.Data[constants.OlakeID] = record.OlakeID
+			record.Data[constants.CdcTimestamp] = record.CdcTimestamp
+			record.Data[constants.OlakeTimestamp] = time.Now().UTC()
+			record.Data[constants.OpType] = record.OperationType
+
 			for key, value := range record.Data {
 				detectedType := typeutils.TypeFromValue(value)
 

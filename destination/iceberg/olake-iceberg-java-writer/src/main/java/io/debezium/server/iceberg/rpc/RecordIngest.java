@@ -2391,38 +2391,28 @@ public final class RecordIngest {
         com.google.protobuf.MessageOrBuilder {
 
       /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       */
+      java.util.List<com.google.protobuf.Value> 
+          getFieldsList();
+      /**
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       */
+      com.google.protobuf.Value getFields(int index);
+      /**
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
        */
       int getFieldsCount();
       /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
        */
-      boolean containsFields(
-          java.lang.String key);
+      java.util.List<? extends com.google.protobuf.ValueOrBuilder> 
+          getFieldsOrBuilderList();
       /**
-       * Use {@link #getFieldsMap()} instead.
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
        */
-      @java.lang.Deprecated
-      java.util.Map<java.lang.String, com.google.protobuf.Value>
-      getFields();
-      /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-       */
-      java.util.Map<java.lang.String, com.google.protobuf.Value>
-      getFieldsMap();
-      /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-       */
-      /* nullable */
-com.google.protobuf.Value getFieldsOrDefault(
-          java.lang.String key,
-          /* nullable */
-com.google.protobuf.Value defaultValue);
-      /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-       */
-      com.google.protobuf.Value getFieldsOrThrow(
-          java.lang.String key);
+      com.google.protobuf.ValueOrBuilder getFieldsOrBuilder(
+          int index);
 
       /**
        * <pre>
@@ -2457,6 +2447,7 @@ com.google.protobuf.Value defaultValue);
         super(builder);
       }
       private IceRecord() {
+        fields_ = java.util.Collections.emptyList();
         recordType_ = "";
       }
 
@@ -2477,18 +2468,6 @@ com.google.protobuf.Value defaultValue);
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor;
       }
 
-      @SuppressWarnings({"rawtypes"})
-      @java.lang.Override
-      protected com.google.protobuf.MapField internalGetMapField(
-          int number) {
-        switch (number) {
-          case 1:
-            return internalGetFields();
-          default:
-            throw new RuntimeException(
-                "Invalid map field number: " + number);
-        }
-      }
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
           internalGetFieldAccessorTable() {
@@ -2498,82 +2477,44 @@ com.google.protobuf.Value defaultValue);
       }
 
       public static final int FIELDS_FIELD_NUMBER = 1;
-      private static final class FieldsDefaultEntryHolder {
-        static final com.google.protobuf.MapEntry<
-            java.lang.String, com.google.protobuf.Value> defaultEntry =
-                com.google.protobuf.MapEntry
-                .<java.lang.String, com.google.protobuf.Value>newDefaultInstance(
-                    io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldsEntry_descriptor, 
-                    com.google.protobuf.WireFormat.FieldType.STRING,
-                    "",
-                    com.google.protobuf.WireFormat.FieldType.MESSAGE,
-                    com.google.protobuf.Value.getDefaultInstance());
-      }
       @SuppressWarnings("serial")
-      private com.google.protobuf.MapField<
-          java.lang.String, com.google.protobuf.Value> fields_;
-      private com.google.protobuf.MapField<java.lang.String, com.google.protobuf.Value>
-      internalGetFields() {
-        if (fields_ == null) {
-          return com.google.protobuf.MapField.emptyMapField(
-              FieldsDefaultEntryHolder.defaultEntry);
-        }
+      private java.util.List<com.google.protobuf.Value> fields_;
+      /**
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       */
+      @java.lang.Override
+      public java.util.List<com.google.protobuf.Value> getFieldsList() {
         return fields_;
       }
+      /**
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       */
+      @java.lang.Override
+      public java.util.List<? extends com.google.protobuf.ValueOrBuilder> 
+          getFieldsOrBuilderList() {
+        return fields_;
+      }
+      /**
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       */
+      @java.lang.Override
       public int getFieldsCount() {
-        return internalGetFields().getMap().size();
+        return fields_.size();
       }
       /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
        */
       @java.lang.Override
-      public boolean containsFields(
-          java.lang.String key) {
-        if (key == null) { throw new NullPointerException("map key"); }
-        return internalGetFields().getMap().containsKey(key);
+      public com.google.protobuf.Value getFields(int index) {
+        return fields_.get(index);
       }
       /**
-       * Use {@link #getFieldsMap()} instead.
+       * <code>repeated .google.protobuf.Value fields = 1;</code>
        */
       @java.lang.Override
-      @java.lang.Deprecated
-      public java.util.Map<java.lang.String, com.google.protobuf.Value> getFields() {
-        return getFieldsMap();
-      }
-      /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-       */
-      @java.lang.Override
-      public java.util.Map<java.lang.String, com.google.protobuf.Value> getFieldsMap() {
-        return internalGetFields().getMap();
-      }
-      /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-       */
-      @java.lang.Override
-      public /* nullable */
-com.google.protobuf.Value getFieldsOrDefault(
-          java.lang.String key,
-          /* nullable */
-com.google.protobuf.Value defaultValue) {
-        if (key == null) { throw new NullPointerException("map key"); }
-        java.util.Map<java.lang.String, com.google.protobuf.Value> map =
-            internalGetFields().getMap();
-        return map.containsKey(key) ? map.get(key) : defaultValue;
-      }
-      /**
-       * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-       */
-      @java.lang.Override
-      public com.google.protobuf.Value getFieldsOrThrow(
-          java.lang.String key) {
-        if (key == null) { throw new NullPointerException("map key"); }
-        java.util.Map<java.lang.String, com.google.protobuf.Value> map =
-            internalGetFields().getMap();
-        if (!map.containsKey(key)) {
-          throw new java.lang.IllegalArgumentException();
-        }
-        return map.get(key);
+      public com.google.protobuf.ValueOrBuilder getFieldsOrBuilder(
+          int index) {
+        return fields_.get(index);
       }
 
       public static final int RECORD_TYPE_FIELD_NUMBER = 2;
@@ -2637,12 +2578,9 @@ com.google.protobuf.Value defaultValue) {
       @java.lang.Override
       public void writeTo(com.google.protobuf.CodedOutputStream output)
                           throws java.io.IOException {
-        com.google.protobuf.GeneratedMessageV3
-          .serializeStringMapTo(
-            output,
-            internalGetFields(),
-            FieldsDefaultEntryHolder.defaultEntry,
-            1);
+        for (int i = 0; i < fields_.size(); i++) {
+          output.writeMessage(1, fields_.get(i));
+        }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(recordType_)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 2, recordType_);
         }
@@ -2655,15 +2593,9 @@ com.google.protobuf.Value defaultValue) {
         if (size != -1) return size;
 
         size = 0;
-        for (java.util.Map.Entry<java.lang.String, com.google.protobuf.Value> entry
-             : internalGetFields().getMap().entrySet()) {
-          com.google.protobuf.MapEntry<java.lang.String, com.google.protobuf.Value>
-          fields__ = FieldsDefaultEntryHolder.defaultEntry.newBuilderForType()
-              .setKey(entry.getKey())
-              .setValue(entry.getValue())
-              .build();
+        for (int i = 0; i < fields_.size(); i++) {
           size += com.google.protobuf.CodedOutputStream
-              .computeMessageSize(1, fields__);
+            .computeMessageSize(1, fields_.get(i));
         }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(recordType_)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, recordType_);
@@ -2683,8 +2615,8 @@ com.google.protobuf.Value defaultValue) {
         }
         io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord other = (io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord) obj;
 
-        if (!internalGetFields().equals(
-            other.internalGetFields())) return false;
+        if (!getFieldsList()
+            .equals(other.getFieldsList())) return false;
         if (!getRecordType()
             .equals(other.getRecordType())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -2698,9 +2630,9 @@ com.google.protobuf.Value defaultValue) {
         }
         int hash = 41;
         hash = (19 * hash) + getDescriptor().hashCode();
-        if (!internalGetFields().getMap().isEmpty()) {
+        if (getFieldsCount() > 0) {
           hash = (37 * hash) + FIELDS_FIELD_NUMBER;
-          hash = (53 * hash) + internalGetFields().hashCode();
+          hash = (53 * hash) + getFieldsList().hashCode();
         }
         hash = (37 * hash) + RECORD_TYPE_FIELD_NUMBER;
         hash = (53 * hash) + getRecordType().hashCode();
@@ -2811,28 +2743,6 @@ com.google.protobuf.Value defaultValue) {
           return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor;
         }
 
-        @SuppressWarnings({"rawtypes"})
-        protected com.google.protobuf.MapField internalGetMapField(
-            int number) {
-          switch (number) {
-            case 1:
-              return internalGetFields();
-            default:
-              throw new RuntimeException(
-                  "Invalid map field number: " + number);
-          }
-        }
-        @SuppressWarnings({"rawtypes"})
-        protected com.google.protobuf.MapField internalGetMutableMapField(
-            int number) {
-          switch (number) {
-            case 1:
-              return internalGetMutableFields();
-            default:
-              throw new RuntimeException(
-                  "Invalid map field number: " + number);
-          }
-        }
         @java.lang.Override
         protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
             internalGetFieldAccessorTable() {
@@ -2855,7 +2765,13 @@ com.google.protobuf.Value defaultValue) {
         public Builder clear() {
           super.clear();
           bitField0_ = 0;
-          internalGetMutableFields().clear();
+          if (fieldsBuilder_ == null) {
+            fields_ = java.util.Collections.emptyList();
+          } else {
+            fields_ = null;
+            fieldsBuilder_.clear();
+          }
+          bitField0_ = (bitField0_ & ~0x00000001);
           recordType_ = "";
           return this;
         }
@@ -2883,17 +2799,26 @@ com.google.protobuf.Value defaultValue) {
         @java.lang.Override
         public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord buildPartial() {
           io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord result = new io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord(this);
+          buildPartialRepeatedFields(result);
           if (bitField0_ != 0) { buildPartial0(result); }
           onBuilt();
           return result;
         }
 
+        private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord result) {
+          if (fieldsBuilder_ == null) {
+            if (((bitField0_ & 0x00000001) != 0)) {
+              fields_ = java.util.Collections.unmodifiableList(fields_);
+              bitField0_ = (bitField0_ & ~0x00000001);
+            }
+            result.fields_ = fields_;
+          } else {
+            result.fields_ = fieldsBuilder_.build();
+          }
+        }
+
         private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord result) {
           int from_bitField0_ = bitField0_;
-          if (((from_bitField0_ & 0x00000001) != 0)) {
-            result.fields_ = internalGetFields();
-            result.fields_.makeImmutable();
-          }
           if (((from_bitField0_ & 0x00000002) != 0)) {
             result.recordType_ = recordType_;
           }
@@ -2943,9 +2868,32 @@ com.google.protobuf.Value defaultValue) {
 
         public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord other) {
           if (other == io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.getDefaultInstance()) return this;
-          internalGetMutableFields().mergeFrom(
-              other.internalGetFields());
-          bitField0_ |= 0x00000001;
+          if (fieldsBuilder_ == null) {
+            if (!other.fields_.isEmpty()) {
+              if (fields_.isEmpty()) {
+                fields_ = other.fields_;
+                bitField0_ = (bitField0_ & ~0x00000001);
+              } else {
+                ensureFieldsIsMutable();
+                fields_.addAll(other.fields_);
+              }
+              onChanged();
+            }
+          } else {
+            if (!other.fields_.isEmpty()) {
+              if (fieldsBuilder_.isEmpty()) {
+                fieldsBuilder_.dispose();
+                fieldsBuilder_ = null;
+                fields_ = other.fields_;
+                bitField0_ = (bitField0_ & ~0x00000001);
+                fieldsBuilder_ = 
+                  com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                     getFieldsFieldBuilder() : null;
+              } else {
+                fieldsBuilder_.addAllMessages(other.fields_);
+              }
+            }
+          }
           if (!other.getRecordType().isEmpty()) {
             recordType_ = other.recordType_;
             bitField0_ |= 0x00000002;
@@ -2978,12 +2926,16 @@ com.google.protobuf.Value defaultValue) {
                   done = true;
                   break;
                 case 10: {
-                  com.google.protobuf.MapEntry<java.lang.String, com.google.protobuf.Value>
-                  fields__ = input.readMessage(
-                      FieldsDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
-                  internalGetMutableFields().getMutableMap().put(
-                      fields__.getKey(), fields__.getValue());
-                  bitField0_ |= 0x00000001;
+                  com.google.protobuf.Value m =
+                      input.readMessage(
+                          com.google.protobuf.Value.parser(),
+                          extensionRegistry);
+                  if (fieldsBuilder_ == null) {
+                    ensureFieldsIsMutable();
+                    fields_.add(m);
+                  } else {
+                    fieldsBuilder_.addMessage(m);
+                  }
                   break;
                 } // case 10
                 case 18: {
@@ -3008,131 +2960,244 @@ com.google.protobuf.Value defaultValue) {
         }
         private int bitField0_;
 
-        private com.google.protobuf.MapField<
-            java.lang.String, com.google.protobuf.Value> fields_;
-        private com.google.protobuf.MapField<java.lang.String, com.google.protobuf.Value>
-            internalGetFields() {
-          if (fields_ == null) {
-            return com.google.protobuf.MapField.emptyMapField(
-                FieldsDefaultEntryHolder.defaultEntry);
-          }
-          return fields_;
+        private java.util.List<com.google.protobuf.Value> fields_ =
+          java.util.Collections.emptyList();
+        private void ensureFieldsIsMutable() {
+          if (!((bitField0_ & 0x00000001) != 0)) {
+            fields_ = new java.util.ArrayList<com.google.protobuf.Value>(fields_);
+            bitField0_ |= 0x00000001;
+           }
         }
-        private com.google.protobuf.MapField<java.lang.String, com.google.protobuf.Value>
-            internalGetMutableFields() {
-          if (fields_ == null) {
-            fields_ = com.google.protobuf.MapField.newMapField(
-                FieldsDefaultEntryHolder.defaultEntry);
+
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            com.google.protobuf.Value, com.google.protobuf.Value.Builder, com.google.protobuf.ValueOrBuilder> fieldsBuilder_;
+
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public java.util.List<com.google.protobuf.Value> getFieldsList() {
+          if (fieldsBuilder_ == null) {
+            return java.util.Collections.unmodifiableList(fields_);
+          } else {
+            return fieldsBuilder_.getMessageList();
           }
-          if (!fields_.isMutable()) {
-            fields_ = fields_.copy();
-          }
-          bitField0_ |= 0x00000001;
-          onChanged();
-          return fields_;
         }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
         public int getFieldsCount() {
-          return internalGetFields().getMap().size();
-        }
-        /**
-         * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-         */
-        @java.lang.Override
-        public boolean containsFields(
-            java.lang.String key) {
-          if (key == null) { throw new NullPointerException("map key"); }
-          return internalGetFields().getMap().containsKey(key);
-        }
-        /**
-         * Use {@link #getFieldsMap()} instead.
-         */
-        @java.lang.Override
-        @java.lang.Deprecated
-        public java.util.Map<java.lang.String, com.google.protobuf.Value> getFields() {
-          return getFieldsMap();
-        }
-        /**
-         * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-         */
-        @java.lang.Override
-        public java.util.Map<java.lang.String, com.google.protobuf.Value> getFieldsMap() {
-          return internalGetFields().getMap();
-        }
-        /**
-         * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-         */
-        @java.lang.Override
-        public /* nullable */
-com.google.protobuf.Value getFieldsOrDefault(
-            java.lang.String key,
-            /* nullable */
-com.google.protobuf.Value defaultValue) {
-          if (key == null) { throw new NullPointerException("map key"); }
-          java.util.Map<java.lang.String, com.google.protobuf.Value> map =
-              internalGetFields().getMap();
-          return map.containsKey(key) ? map.get(key) : defaultValue;
-        }
-        /**
-         * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
-         */
-        @java.lang.Override
-        public com.google.protobuf.Value getFieldsOrThrow(
-            java.lang.String key) {
-          if (key == null) { throw new NullPointerException("map key"); }
-          java.util.Map<java.lang.String, com.google.protobuf.Value> map =
-              internalGetFields().getMap();
-          if (!map.containsKey(key)) {
-            throw new java.lang.IllegalArgumentException();
+          if (fieldsBuilder_ == null) {
+            return fields_.size();
+          } else {
+            return fieldsBuilder_.getCount();
           }
-          return map.get(key);
         }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public com.google.protobuf.Value getFields(int index) {
+          if (fieldsBuilder_ == null) {
+            return fields_.get(index);
+          } else {
+            return fieldsBuilder_.getMessage(index);
+          }
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public Builder setFields(
+            int index, com.google.protobuf.Value value) {
+          if (fieldsBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureFieldsIsMutable();
+            fields_.set(index, value);
+            onChanged();
+          } else {
+            fieldsBuilder_.setMessage(index, value);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public Builder setFields(
+            int index, com.google.protobuf.Value.Builder builderForValue) {
+          if (fieldsBuilder_ == null) {
+            ensureFieldsIsMutable();
+            fields_.set(index, builderForValue.build());
+            onChanged();
+          } else {
+            fieldsBuilder_.setMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public Builder addFields(com.google.protobuf.Value value) {
+          if (fieldsBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureFieldsIsMutable();
+            fields_.add(value);
+            onChanged();
+          } else {
+            fieldsBuilder_.addMessage(value);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public Builder addFields(
+            int index, com.google.protobuf.Value value) {
+          if (fieldsBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureFieldsIsMutable();
+            fields_.add(index, value);
+            onChanged();
+          } else {
+            fieldsBuilder_.addMessage(index, value);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public Builder addFields(
+            com.google.protobuf.Value.Builder builderForValue) {
+          if (fieldsBuilder_ == null) {
+            ensureFieldsIsMutable();
+            fields_.add(builderForValue.build());
+            onChanged();
+          } else {
+            fieldsBuilder_.addMessage(builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public Builder addFields(
+            int index, com.google.protobuf.Value.Builder builderForValue) {
+          if (fieldsBuilder_ == null) {
+            ensureFieldsIsMutable();
+            fields_.add(index, builderForValue.build());
+            onChanged();
+          } else {
+            fieldsBuilder_.addMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public Builder addAllFields(
+            java.lang.Iterable<? extends com.google.protobuf.Value> values) {
+          if (fieldsBuilder_ == null) {
+            ensureFieldsIsMutable();
+            com.google.protobuf.AbstractMessageLite.Builder.addAll(
+                values, fields_);
+            onChanged();
+          } else {
+            fieldsBuilder_.addAllMessages(values);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
         public Builder clearFields() {
-          bitField0_ = (bitField0_ & ~0x00000001);
-          internalGetMutableFields().getMutableMap()
-              .clear();
+          if (fieldsBuilder_ == null) {
+            fields_ = java.util.Collections.emptyList();
+            bitField0_ = (bitField0_ & ~0x00000001);
+            onChanged();
+          } else {
+            fieldsBuilder_.clear();
+          }
           return this;
         }
         /**
-         * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
          */
-        public Builder removeFields(
-            java.lang.String key) {
-          if (key == null) { throw new NullPointerException("map key"); }
-          internalGetMutableFields().getMutableMap()
-              .remove(key);
+        public Builder removeFields(int index) {
+          if (fieldsBuilder_ == null) {
+            ensureFieldsIsMutable();
+            fields_.remove(index);
+            onChanged();
+          } else {
+            fieldsBuilder_.remove(index);
+          }
           return this;
         }
         /**
-         * Use alternate mutation accessors instead.
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
          */
-        @java.lang.Deprecated
-        public java.util.Map<java.lang.String, com.google.protobuf.Value>
-            getMutableFields() {
-          bitField0_ |= 0x00000001;
-          return internalGetMutableFields().getMutableMap();
+        public com.google.protobuf.Value.Builder getFieldsBuilder(
+            int index) {
+          return getFieldsFieldBuilder().getBuilder(index);
         }
         /**
-         * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
          */
-        public Builder putFields(
-            java.lang.String key,
-            com.google.protobuf.Value value) {
-          if (key == null) { throw new NullPointerException("map key"); }
-          if (value == null) { throw new NullPointerException("map value"); }
-          internalGetMutableFields().getMutableMap()
-              .put(key, value);
-          bitField0_ |= 0x00000001;
-          return this;
+        public com.google.protobuf.ValueOrBuilder getFieldsOrBuilder(
+            int index) {
+          if (fieldsBuilder_ == null) {
+            return fields_.get(index);  } else {
+            return fieldsBuilder_.getMessageOrBuilder(index);
+          }
         }
         /**
-         * <code>map&lt;string, .google.protobuf.Value&gt; fields = 1;</code>
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
          */
-        public Builder putAllFields(
-            java.util.Map<java.lang.String, com.google.protobuf.Value> values) {
-          internalGetMutableFields().getMutableMap()
-              .putAll(values);
-          bitField0_ |= 0x00000001;
-          return this;
+        public java.util.List<? extends com.google.protobuf.ValueOrBuilder> 
+             getFieldsOrBuilderList() {
+          if (fieldsBuilder_ != null) {
+            return fieldsBuilder_.getMessageOrBuilderList();
+          } else {
+            return java.util.Collections.unmodifiableList(fields_);
+          }
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public com.google.protobuf.Value.Builder addFieldsBuilder() {
+          return getFieldsFieldBuilder().addBuilder(
+              com.google.protobuf.Value.getDefaultInstance());
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public com.google.protobuf.Value.Builder addFieldsBuilder(
+            int index) {
+          return getFieldsFieldBuilder().addBuilder(
+              index, com.google.protobuf.Value.getDefaultInstance());
+        }
+        /**
+         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         */
+        public java.util.List<com.google.protobuf.Value.Builder> 
+             getFieldsBuilderList() {
+          return getFieldsFieldBuilder().getBuilderList();
+        }
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            com.google.protobuf.Value, com.google.protobuf.Value.Builder, com.google.protobuf.ValueOrBuilder> 
+            getFieldsFieldBuilder() {
+          if (fieldsBuilder_ == null) {
+            fieldsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+                com.google.protobuf.Value, com.google.protobuf.Value.Builder, com.google.protobuf.ValueOrBuilder>(
+                    fields_,
+                    ((bitField0_ & 0x00000001) != 0),
+                    getParentForChildren(),
+                    isClean());
+            fields_ = null;
+          }
+          return fieldsBuilder_;
         }
 
         private java.lang.Object recordType_ = "";
@@ -5021,11 +5086,6 @@ com.google.protobuf.Value defaultValue) {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldsEntry_descriptor;
-  private static final 
-    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldsEntry_fieldAccessorTable;
-  private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
@@ -5041,7 +5101,7 @@ com.google.protobuf.Value defaultValue) {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
       "r.iceberg.rpc\032\034google/protobuf/struct.pr" +
-      "oto\"\361\005\n\016IcebergPayload\022H\n\004type\030\001 \001(\0162:.i" +
+      "oto\"\373\004\n\016IcebergPayload\022H\n\004type\030\001 \001(\0162:.i" +
       "o.debezium.server.iceberg.rpc.IcebergPay" +
       "load.PayloadType\022I\n\010metadata\030\002 \001(\01327.io." +
       "debezium.server.iceberg.rpc.IcebergPaylo" +
@@ -5052,20 +5112,17 @@ com.google.protobuf.Value defaultValue) {
       " \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\0132:.io.debezium." +
       "server.iceberg.rpc.IcebergPayload.Schema" +
       "FieldB\016\n\014_primary_key\032,\n\013SchemaField\022\020\n\010" +
-      "ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032\275\001\n\tIceRecor" +
-      "d\022T\n\006fields\030\001 \003(\0132D.io.debezium.server.i" +
-      "ceberg.rpc.IcebergPayload.IceRecord.Fiel" +
-      "dsEntry\022\023\n\013record_type\030\002 \001(\t\032E\n\013FieldsEn" +
-      "try\022\013\n\003key\030\001 \001(\t\022%\n\005value\030\002 \001(\0132\026.google" +
-      ".protobuf.Value:\0028\001\"b\n\013PayloadType\022\013\n\007RE" +
-      "CORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016" +
-      "\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\"" +
-      "7\n\024RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022" +
-      "\017\n\007success\030\002 \001(\0102\212\001\n\023RecordIngestService" +
-      "\022s\n\013SendRecords\022..io.debezium.server.ice" +
-      "berg.rpc.IcebergPayload\0324.io.debezium.se" +
-      "rver.iceberg.rpc.RecordIngestResponseb\006p" +
-      "roto3"
+      "ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032H\n\tIceRecord" +
+      "\022&\n\006fields\030\001 \003(\0132\026.google.protobuf.Value" +
+      "\022\023\n\013record_type\030\002 \001(\t\"b\n\013PayloadType\022\013\n\007" +
+      "RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002" +
+      "\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020" +
+      "\004\"7\n\024RecordIngestResponse\022\016\n\006result\030\001 \001(" +
+      "\t\022\017\n\007success\030\002 \001(\0102\212\001\n\023RecordIngestServi" +
+      "ce\022s\n\013SendRecords\022..io.debezium.server.i" +
+      "ceberg.rpc.IcebergPayload\0324.io.debezium." +
+      "server.iceberg.rpc.RecordIngestResponseb" +
+      "\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -5096,12 +5153,6 @@ com.google.protobuf.Value defaultValue) {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor,
         new java.lang.String[] { "Fields", "RecordType", });
-    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldsEntry_descriptor =
-      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor.getNestedTypes().get(0);
-    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldsEntry_fieldAccessorTable = new
-      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-        internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldsEntry_descriptor,
-        new java.lang.String[] { "Key", "Value", });
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor =
       getDescriptor().getMessageTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_fieldAccessorTable = new

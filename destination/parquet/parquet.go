@@ -131,7 +131,7 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, _ boo
 }
 
 // Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, _ []types.RawRecord) error {
+func (p *Parquet) Write(_ context.Context, _ any, _ []types.RawRecord) error {
 	// 	partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
 
 	// 	partitionFolder, exists := p.partitionedFiles[partitionedPath]

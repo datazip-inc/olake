@@ -310,9 +310,9 @@ func (x *IcebergPayload_SchemaField) GetKey() string {
 }
 
 type IcebergPayload_IceRecord struct {
-	state         protoimpl.MessageState     `protogen:"open.v1"`
-	Fields        map[string]*structpb.Value `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	RecordType    string                     `protobuf:"bytes,2,opt,name=record_type,json=recordType,proto3" json:"record_type,omitempty"` // "u", "c", "r"
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fields        []*structpb.Value      `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	RecordType    string                 `protobuf:"bytes,2,opt,name=record_type,json=recordType,proto3" json:"record_type,omitempty"` // "u", "c", "r"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -347,7 +347,7 @@ func (*IcebergPayload_IceRecord) Descriptor() ([]byte, []int) {
 	return file_records_ingest_proto_rawDescGZIP(), []int{0, 2}
 }
 
-func (x *IcebergPayload_IceRecord) GetFields() map[string]*structpb.Value {
+func (x *IcebergPayload_IceRecord) GetFields() []*structpb.Value {
 	if x != nil {
 		return x.Fields
 	}
@@ -365,7 +365,7 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\x1a\x1cgoogle/protobuf/struct.proto\"\xe5\x06\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\x1a\x1cgoogle/protobuf/struct.proto\"\xe3\x05\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
@@ -379,14 +379,11 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\f_primary_key\x1a:\n" +
 	"\vSchemaField\x12\x19\n" +
 	"\bice_type\x18\x01 \x01(\tR\aiceType\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\x1a\xdd\x01\n" +
-	"\tIceRecord\x12\\\n" +
-	"\x06fields\x18\x01 \x03(\v2D.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldsEntryR\x06fields\x12\x1f\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x1a\\\n" +
+	"\tIceRecord\x12.\n" +
+	"\x06fields\x18\x01 \x03(\v2\x16.google.protobuf.ValueR\x06fields\x12\x1f\n" +
 	"\vrecord_type\x18\x02 \x01(\tR\n" +
-	"recordType\x1aQ\n" +
-	"\vFieldsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
-	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value:\x028\x01\"b\n" +
+	"recordType\"b\n" +
 	"\vPayloadType\x12\v\n" +
 	"\aRECORDS\x10\x00\x12\n" +
 	"\n" +
@@ -414,7 +411,7 @@ func file_records_ingest_proto_rawDescGZIP() []byte {
 }
 
 var file_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_records_ingest_proto_goTypes = []any{
 	(IcebergPayload_PayloadType)(0),    // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
 	(*IcebergPayload)(nil),             // 1: io.debezium.server.iceberg.rpc.IcebergPayload
@@ -422,23 +419,21 @@ var file_records_ingest_proto_goTypes = []any{
 	(*IcebergPayload_Metadata)(nil),    // 3: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
 	(*IcebergPayload_SchemaField)(nil), // 4: io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
 	(*IcebergPayload_IceRecord)(nil),   // 5: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
-	nil,                                // 6: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldsEntry
-	(*structpb.Value)(nil),             // 7: google.protobuf.Value
+	(*structpb.Value)(nil),             // 6: google.protobuf.Value
 }
 var file_records_ingest_proto_depIdxs = []int32{
 	0, // 0: io.debezium.server.iceberg.rpc.IcebergPayload.type:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
 	3, // 1: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
 	5, // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
 	4, // 3: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	6, // 4: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldsEntry
-	7, // 5: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldsEntry.value:type_name -> google.protobuf.Value
-	1, // 6: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
-	2, // 7: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	6, // 4: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> google.protobuf.Value
+	1, // 5: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
+	2, // 6: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_records_ingest_proto_init() }
@@ -453,7 +448,7 @@ func file_records_ingest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_records_ingest_proto_rawDesc), len(file_records_ingest_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

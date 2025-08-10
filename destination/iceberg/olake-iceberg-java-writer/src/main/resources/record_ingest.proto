@@ -32,7 +32,7 @@ message IcebergPayload {
   }
 
   message IceRecord {
-    map<string, google.protobuf.Value> fields = 1;
+    repeated google.protobuf.Value fields = 1;
     string record_type = 2;  // "u", "c", "r"
   }
 
