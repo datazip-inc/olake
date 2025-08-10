@@ -497,26 +497,28 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
 							}
 
-							t.Logf("running backfill test for %s", cfg.TestConfig.Driver)
+							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
+							t.Log("(backfill) starting discover")
 							discoverCmd := discoverCommand(*cfg.TestConfig)
 							code, output, err := utils.ExecCommand(ctx, c, discoverCmd)
 							if err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
 							}
-							t.Log(string(output))
+							t.Log("(backfill) discover completed")
 
 							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStreams, true)
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
 
+							t.Log("(backfill) starting sync")
 							syncCmd := syncCommand(*cfg.TestConfig, true, cfg.UsesPreChunkedState)
 							output, err = syncWithTimeout(ctx, c, syncCmd)
 							if err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
-							t.Log(string(output))
+							t.Log("(backfill) sync completed")
 
 							checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, true)
 							if err != nil {
@@ -526,16 +528,18 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
 
 							if cfg.SupportsCDC {
-								t.Logf("running cdc test for %s", cfg.TestConfig.Driver)
+								t.Logf("(cdc) running performance test for %s", cfg.TestConfig.Driver)
 
 								cfg.ExecuteQuery(ctx, t, "setup_cdc", cfg.BackfillStreams)
+								t.Log("(cdc) setup cdc completed")
 
+								t.Log("(cdc) starting discover")
 								discoverCmd := discoverCommand(*cfg.TestConfig)
 								code, output, err := utils.ExecCommand(ctx, c, discoverCmd)
 								if err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
 								}
-								t.Log(string(output))
+								t.Log("(cdc) discover completed")
 
 								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStreams, false)
 								code, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
@@ -543,21 +547,24 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
 
+								t.Log("(cdc) starting initial sync")
 								syncCmd := syncCommand(*cfg.TestConfig, true, false)
 								code, output, err = utils.ExecCommand(ctx, c, syncCmd)
 								if err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
-								t.Log(string(output))
+								t.Log("(cdc) initial sync completed")
 
 								cfg.ExecuteQuery(ctx, t, "trigger_cdc", cfg.BackfillStreams)
+								t.Log("(cdc) trigger cdc completed")
 
+								t.Log("(cdc) starting sync")
 								syncCmd = syncCommand(*cfg.TestConfig, false, false)
 								output, err = syncWithTimeout(ctx, c, syncCmd)
 								if err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
 								}
-								t.Log(string(output))
+								t.Log("(cdc) sync completed")
 
 								checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, false)
 								if err != nil {
