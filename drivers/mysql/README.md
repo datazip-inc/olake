@@ -10,6 +10,8 @@ The MySql Driver enables data synchronization from MySql to your desired destina
    Tracks and syncs incremental changes from MySql in real time.
 3. **Strict CDC (Change Data Capture)**
    Tracks only new changes from the current position in the MySQL binlog, without performing an initial backfill.
+4. **Incremental**
+   Syncs only new or modified records which have cursor value greater than or equal to the saved position.
 
 ---
 
@@ -115,6 +117,28 @@ Before running the Sync command, the generated `streams.json` file must be confi
             ]
          },
       ```
+      
+   - Add `cursor_field` from set of `available_cursor_fields` in case of incremental sync. This column will be used to track which rows from the table must be synced. If the primary cursor field is expected to contain `null` values, a fallback cursor field can be specified after the primary cursor field using a colon separator. The system will use the fallback cursor when the primary cursor is `null`.
+        > **Note**: For incremental sync to work correctly, the primary cursor field (and fallback cursor field if defined) must contain at least one non-null value. Defined cursor fields cannot be entirely null.
+      ```json
+         "sync_mode": "incremental",
+         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be skipped if the primary cursor is not expected to contain null values)
+      ```
+
+   - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "incr",
+                     "normalization": false,
+                     "filter": "id > 123 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
+                  }
+            ]
+         },
+      ```
+      For primitive types like _id, directly provide the value without using any quotes.
    - The `filter` mode under selected_streams allows you to define precise criteria for selectively syncing data from your source.
       ```json
          "selected_streams": {
