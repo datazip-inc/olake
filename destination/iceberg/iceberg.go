@@ -2,6 +2,7 @@ package iceberg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -81,15 +82,29 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 
 	primaryKey := constants.OlakeID
 	if createOrLoadSchema {
-		requestPayload := proto.IcebergPayload{
-			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:        stream.Schema().ToIceberg(),
-				DestTableName: i.stream.Name(),
-				ThreadId:      i.threadID,
-				PrimaryKey:    &primaryKey,
-			},
+		var requestPayload proto.IcebergPayload
+		if stream.NormalizationEnabled() {
+			requestPayload = proto.IcebergPayload{
+				Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+				Metadata: &proto.IcebergPayload_Metadata{
+					Schema:        stream.Schema().ToIceberg(),
+					DestTableName: i.stream.Name(),
+					ThreadId:      i.threadID,
+					PrimaryKey:    &primaryKey,
+				},
+			}
+		} else {
+			requestPayload = proto.IcebergPayload{
+				Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+				Metadata: &proto.IcebergPayload_Metadata{
+					Schema:        types.RawSchema(),
+					DestTableName: i.stream.Name(),
+					ThreadId:      i.threadID,
+					PrimaryKey:    &primaryKey,
+				},
+			}
 		}
+
 		resp, err := i.server.client.SendRecords(ctx, &requestPayload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
@@ -113,25 +128,50 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 		})
 	}
 
+	// release schema memory
+	schemaMap = nil
+
 	var protoRecords []*proto.IcebergPayload_IceRecord
 	for _, record := range records {
-		var protoColumns []*structpb.Value
-		for _, field := range protoSchema {
-			val, ok := record.Data[field.Key]
-			if !ok {
-				protoColumns = append(protoColumns, nil)
-				continue
-			}
-			switch v := val.(type) {
-			case time.Time:
-				protoColumns = append(protoColumns, structpb.NewStringValue(v.UTC().Format(time.RFC3339)))
-			default:
-				protoColumns = append(protoColumns, structpb.NewStringValue(fmt.Sprintf("%v", val)))
-			}
+		if record.Data == nil {
+			continue
 		}
 
-		// release record data to save memory
-		record.Data = nil
+		var protoColumns []*structpb.Value
+		if !i.stream.NormalizationEnabled() {
+			for _, field := range protoSchema {
+				switch field.Key {
+				case constants.OlakeID:
+					protoColumns = append(protoColumns, structpb.NewStringValue(record.OlakeID))
+				case constants.CdcTimestamp:
+					protoColumns = append(protoColumns, structpb.NewStringValue(record.CdcTimestamp.UTC().Format(time.RFC3339)))
+				case constants.OlakeTimestamp:
+					protoColumns = append(protoColumns, structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339)))
+				case constants.OpType:
+					protoColumns = append(protoColumns, structpb.NewStringValue(record.OperationType))
+				case constants.StringifiedData:
+					bytesData, err := json.Marshal(record.Data)
+					if err != nil {
+						return fmt.Errorf("failed to marshal data in normalization: %s", err)
+					}
+					protoColumns = append(protoColumns, structpb.NewStringValue(string(bytesData)))
+				}
+			}
+		} else {
+			for _, field := range protoSchema {
+				val, ok := record.Data[field.Key]
+				if !ok {
+					protoColumns = append(protoColumns, nil)
+					continue
+				}
+				switch v := val.(type) {
+				case time.Time:
+					protoColumns = append(protoColumns, structpb.NewStringValue(v.UTC().Format(time.RFC3339)))
+				default:
+					protoColumns = append(protoColumns, structpb.NewStringValue(fmt.Sprintf("%v", val)))
+				}
+			}
+		}
 
 		if len(protoColumns) > 0 {
 			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
@@ -139,7 +179,11 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 				RecordType: record.OperationType,
 			})
 		}
+		record = types.RawRecord{}
 	}
+
+	// release records memory
+	records = nil
 
 	if len(protoRecords) == 0 {
 		logger.Debug("no record found in batch")
@@ -186,9 +230,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	// Send commit request for this thread using a special message format
 	ctx, cancel := context.WithTimeout(ctx, 1000*time.Second)
 	defer cancel()
-
-	// Create a special commit message
-	// commitMessage := fmt.Sprintf(`{"commit": true, "thread_id": "%s"}`, i.threadID)
 
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
@@ -268,11 +309,19 @@ func (i *Iceberg) Flattener() destination.FlattenFunction {
 }
 
 // validate schema change & evolution and removes null records
-func (i *Iceberg) ValidateSchema(rawOldSchema any, records []types.RawRecord) (bool, any, error) {
-	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
+func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecord) (bool, any, error) {
+	extractSchemaFromRecords := func(normalization bool, records []types.RawRecord) (map[string]string, error) {
 		newSchema := make(map[string]string)
+		if !normalization {
+			for _, schema := range types.RawSchema() {
+				newSchema[schema.Key] = schema.IceType
+			}
+			return newSchema, nil
+		}
 
 		for _, record := range records {
+			// TODO: normalized column names (remove from driver side)
+
 			// set pre configured fields
 			record.Data[constants.OlakeID] = record.OlakeID
 			record.Data[constants.CdcTimestamp] = record.CdcTimestamp
@@ -332,7 +381,7 @@ func (i *Iceberg) ValidateSchema(rawOldSchema any, records []types.RawRecord) (b
 		return false, nil, fmt.Errorf("failed to convert past schema of type[%T] to map[string]string", rawOldSchema)
 	}
 
-	newSchema, err := extractSchemaFromRecords(records)
+	newSchema, err := extractSchemaFromRecords(i.stream.NormalizationEnabled(), records)
 	if err != nil {
 		return false, nil, err
 	}
@@ -362,6 +411,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any, _ []types.Raw
 		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: i.stream.Name(),
 			Schema:        schema,
+			ThreadId:      i.threadID,
 		},
 	}
 

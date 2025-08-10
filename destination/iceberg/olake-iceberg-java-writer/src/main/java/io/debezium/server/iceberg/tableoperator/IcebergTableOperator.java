@@ -178,13 +178,11 @@ public class IcebergTableOperator {
     BaseTaskWriter<Record> writer = writerFactory2.create(icebergTable);
 
     try {
-      int idx = 0;
       for (RecordWrapper record : events) {
         try{
-           idx++;
            writer.write(record);
         }catch (Exception ex) {
-          LOGGER.error("Failed to idx: {} write data: {}, exception: {}", idx, record,ex);
+          LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
           throw ex;
         }
       }

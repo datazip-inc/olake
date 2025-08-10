@@ -286,7 +286,7 @@ func (p *Parquet) Close(ctx context.Context) error {
 	return nil
 }
 
-func (p *Parquet) ValidateSchema(pastSchema any, records []types.RawRecord) (bool, any, error) {
+func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error) {
 	return false, nil, nil
 }
 

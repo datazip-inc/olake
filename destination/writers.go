@@ -115,7 +115,7 @@ func (t *ThreadEvent) Close() error {
 
 	t.streamArtifact.mutex.Lock()
 	defer t.streamArtifact.mutex.Unlock()
-	return t.writer.Close(t.groupCtx)
+	return t.writer.Close(context.Background())
 }
 
 func (t *ThreadEvent) flush(buf []types.RawRecord) error {
@@ -127,7 +127,7 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) error {
 	cachedSchema := t.streamArtifact.schema
 	t.streamArtifact.mutex.RUnlock()
 
-	schemaEvolution, newSchema, err := t.writer.ValidateSchema(cachedSchema, buf)
+	schemaEvolution, newSchema, err := t.writer.FlattenAndCleanData(cachedSchema, buf)
 	if err != nil {
 		return fmt.Errorf("failed to flush data: %s", err)
 	}
@@ -287,7 +287,7 @@ func determineMaxBatchSize() int64 {
 	ramGB := utils.DetermineSystemMemoryGB()
 	switch {
 	case ramGB > 32:
-		return 2000 * 1024 * 1024
+		return 600 * 1024 * 1024
 	case ramGB > 16:
 		return 100 * 1024 * 1024
 	case ramGB > 8:

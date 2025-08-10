@@ -16,6 +16,7 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	DBName                 = "_db"
+	StringifiedData        = "data"
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
 	ConfigFolder           = "CONFIG_FOLDER"

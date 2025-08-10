@@ -31,9 +31,9 @@ type Writer interface {
 	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
 	// schema update with an Alter Query
 	Flattener() FlattenFunction
-	// validate past schema and current schema through records
+	// flatten data and validate past schema and current schema through records
 	// returns true if change detected with new schema
-	ValidateSchema(pastSchema any, records []types.RawRecord) (bool, any, error)
+	FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error)
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
 	EvolveSchema(ctx context.Context, newSchema any, record []types.RawRecord, insertTime time.Time) error
