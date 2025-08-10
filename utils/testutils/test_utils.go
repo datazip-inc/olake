@@ -585,7 +585,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			ContainerRequest: req,
 			Started:          true,
 		})
-		require.NoError(t, err, "performance test failed")
+		require.NoError(t, err, "performance test failed: ", err)
 		defer func() {
 			if err := container.Terminate(ctx); err != nil {
 				t.Logf("warning: failed to terminate container: %v", err)
