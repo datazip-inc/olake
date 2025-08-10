@@ -141,11 +141,12 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) error {
 		}
 	}
 
+	bufferSize := len(buf)
 	if err := t.writer.Write(t.groupCtx, newSchema, buf); err != nil {
 		return fmt.Errorf("failed to write records: %s", err)
 	}
 
-	t.writeCount.Add(int64(len(buf)))
+	t.writeCount.Add(int64(bufferSize))
 	return nil
 }
 
