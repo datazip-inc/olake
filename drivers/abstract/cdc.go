@@ -62,7 +62,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
 					}
 					defer func() {
-						if threadErr := inserter.Close(); threadErr != nil {
+						if threadErr := inserter.Close(ctx); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
 
@@ -111,7 +111,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		}
 		defer func() {
 			for stream, insert := range inserters {
-				if threadErr := insert.Close(); threadErr != nil {
+				if threadErr := insert.Close(ctx); threadErr != nil {
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}

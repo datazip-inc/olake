@@ -1,32 +1,18 @@
 package iceberg
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
-	"strings"
 )
-
-// getGoroutineID returns a unique ID for the current goroutine
-// This is a simple implementation that uses the string address of a local variable
-// which will be unique per goroutine
-func getGoroutineID() string {
-	var buf [64]byte
-	n := runtime.Stack(buf[:], false)
-	id := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
-	return id
-}
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
 func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
@@ -208,32 +194,6 @@ func (i *Iceberg) CloseIcebergClient() error {
 			logger.Errorf("thread id %s: Failed to kill Iceberg server: %s", i.threadID, err)
 		}
 	}
-
-	return nil
-}
-
-// sendRecords sends a slice of records to the Iceberg RPC server
-func (i *Iceberg) sendRecords(ctx context.Context, payload types.IcebergWriterPayload) error {
-	// Skip if empty
-	if len(payload.Records) == 0 {
-		return nil
-	}
-
-	// // Filter out any empty strings from records
-	// validRecords := make([]string, 0, len(payload.Records))
-	// for _, record := range payload.Records {
-	// 	if record != "" {
-	// 		validRecords = append(validRecords, record)
-	// 	}
-	// }
-
-	// // Skip if all records were empty after filtering
-	// if len(validRecords) == 0 {
-	// 	return nil
-	// }
-
-	// logger.Infof("thread id %s: Sending batch to Iceberg server: %d records", i.threadID, len(validRecords))
-	// Create request with all records
 
 	return nil
 }

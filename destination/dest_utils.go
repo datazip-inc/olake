@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -59,4 +60,14 @@ func FindAvailablePort(serverHost string) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
+}
+
+// GetGoroutineID returns a unique ID for the current goroutine
+// This is a simple implementation that uses the string address of a local variable
+// which will be unique per goroutine
+func GetGoroutineID() string {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	id := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+	return id
 }

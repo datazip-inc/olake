@@ -66,7 +66,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					return fmt.Errorf("failed to create new writer thread in pool: %s", err)
 				}
 				defer func() {
-					if threadErr := inserter.Close(); threadErr != nil {
+					if threadErr := inserter.Close(ctx); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 					}
 
@@ -83,7 +83,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
 						cursorValue := record[cursorField]
-						maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
+						maxCursorValue = utils.Ternary(utils.CompareInterfaceValue(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
 						return inserter.Push(types.CreateRawRecord(id, record, "r", time.Unix(0, 0)))

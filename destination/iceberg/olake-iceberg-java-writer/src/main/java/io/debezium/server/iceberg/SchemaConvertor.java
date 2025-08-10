@@ -12,16 +12,10 @@ import org.apache.iceberg.types.Types.StructType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.Value;
 import  io.debezium.server.iceberg.rpc.RecordIngest;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord;

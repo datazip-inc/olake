@@ -107,7 +107,7 @@ public class OlakeRpcServer {
         keySerde.configure(Collections.emptyMap(), true);
         keyDeserializer = keySerde.deserializer();
 
-        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms, createIdFields);
+        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms);
 
         // Build the server to listen on port 50051
         int port = 50051; // Default port

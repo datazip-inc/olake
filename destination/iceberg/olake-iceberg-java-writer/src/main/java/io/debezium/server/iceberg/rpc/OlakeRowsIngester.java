@@ -27,21 +27,18 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private final String icebergNamespace;
     private final Catalog icebergCatalog;
     private final boolean upsertRecords;
-    private final boolean createIdentifierFields;
     private final IcebergTableOperator icebergTableOperator;
     private final List<Map<String, String>> partitionTransforms;
-    private final Object tableCreationLock = new Object();
     private Table icebergTable;
 
     public OlakeRowsIngester(boolean upsertRecords, String icebergNamespace, Catalog icebergCatalog, 
-                           List<Map<String, String>> partitionTransforms, boolean createIdentifierFields) {
+                           List<Map<String, String>> partitionTransforms) {
         this.upsertRecords = upsertRecords;
         this.icebergNamespace = icebergNamespace;
         this.icebergCatalog = icebergCatalog;
         this.partitionTransforms = partitionTransforms;
-        this.createIdentifierFields = createIdentifierFields;
         this.icebergTable = null;
-        this.icebergTableOperator = new IcebergTableOperator(upsertRecords, createIdentifierFields);
+        this.icebergTableOperator = new IcebergTableOperator(upsertRecords);
     }
 
     @Override
@@ -56,6 +53,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             String primaryKey = metadata.getPrimaryKey();
             List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
             if (threadId == null || threadId.isEmpty()) {
+                // file references are being stored through thread id
                 throw new Exception("Thread id not present in metadata");
             }
             if (destTableName == null || destTableName.isEmpty()) {
@@ -68,7 +66,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                                         schemaConvertor.convertToIcebergSchema());
             }
             
-            // TODO: load iceberg table on server and cache
             switch (request.getType()) {
                 case COMMIT:
                     LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
@@ -91,11 +88,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 case RECORDS:
                     LOGGER.info("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
-                    // icebergTableOperator.applyFieldAddition(recordsTable, recordsConvertor.convertToIcebergSchema());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(upsertRecords, this.icebergTable.schema(), request.getRecordsList());
                     icebergTableOperator.addToTablePerSchema(threadId, this.icebergTable, finalRecords);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.info("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
+                    finalRecords = null; // release memory 
                     break;
                     
                 case DROP_TABLE:
@@ -124,17 +121,15 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     }
 
     public Table loadIcebergTable(TableIdentifier tableId, Schema schema) {
-        synchronized (tableCreationLock) {
-            return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
-                try {
-                    return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
-                } catch (Exception e) {
-                    String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", 
-                                                       tableId, e.getMessage());
-                    LOGGER.error(errorMessage, e);
-                    throw new DebeziumException(errorMessage, e);
-                }
-            });
-        }
+        return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
+            try {
+                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
+            } catch (Exception e) {
+                String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", 
+                                                    tableId, e.getMessage());
+                LOGGER.error(errorMessage, e);
+                throw new DebeziumException(errorMessage, e);
+            }
+        });
     }
 }

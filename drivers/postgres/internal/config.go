@@ -54,7 +54,7 @@ func (c *Config) Validate() error {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
 
-	logger.Info("driver max threads set to: %d", c.MaxThreads)
+	logger.Infof("driver max threads set to: %d", c.MaxThreads)
 
 	// Add the connection parameters to the url
 	parsed := &url.URL{

@@ -45,8 +45,7 @@ public class IcebergTableOperator {
   // Map to store completed WriteResult per thread for later commit
   private final Map<String, List<WriteResult>> threadWriteResults = new ConcurrentHashMap<>();
 
-  public IcebergTableOperator(boolean upsert_records, boolean createIdentifierFields) {
-    this.createIdentifierFields = createIdentifierFields;
+  public IcebergTableOperator(boolean upsert_records) {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;

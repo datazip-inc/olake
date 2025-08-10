@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"google.golang.org/grpc"
@@ -58,7 +60,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]PartitionInfo, 0)
-	i.threadID = getGoroutineID()
+	i.threadID = destination.GetGoroutineID()
 
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -131,12 +133,37 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	// release schema memory
 	schemaMap = nil
 
+	if len(i.partitionInfo) > 0 {
+		// sort record based on partition order
+		sort.Slice(records, func(idx, jdx int) bool {
+			iRecord := records[idx].Data
+			jRecord := records[jdx].Data
+
+			for _, partition := range i.partitionInfo {
+				iField, iOk := iRecord[partition.Field]
+				jField, jOk := jRecord[partition.Field]
+
+				if !iOk && !jOk {
+					continue // i == j
+				} else if !iOk {
+					return false // i < j
+				} else if !jOk {
+					return true // i > j
+				}
+
+				if cmp := utils.CompareInterfaceValue(iField, jField); cmp != 0 {
+					return cmp == -1 // i < j
+				}
+			}
+			return true
+		})
+	}
 	var protoRecords []*proto.IcebergPayload_IceRecord
 	for _, record := range records {
 		if record.Data == nil {
 			continue
 		}
-
+		// TODO: add rfc nano for time
 		var protoColumns []*structpb.Value
 		if !i.stream.NormalizationEnabled() {
 			for _, field := range protoSchema {
@@ -253,7 +280,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Save the current stream reference
 	originalStream := i.stream
 	originalPartitionInfo := i.partitionInfo
-	i.threadID = getGoroutineID()
+	i.threadID = destination.GetGoroutineID()
 
 	// Temporarily set stream to nil and clear partition fields to force a new server for the check
 	i.stream = nil
@@ -274,7 +301,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	// TODO: add back
+	// TODO: add back or check command
 	// // Try to send a test message
 	// req := &proto.RecordIngestRequest{
 	// 	Messages: []string{getTestDebeziumRecord(i.threadID)},

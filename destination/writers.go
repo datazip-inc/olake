@@ -98,7 +98,7 @@ func (t *ThreadEvent) Push(record types.RawRecord) error {
 	return nil
 }
 
-func (t *ThreadEvent) Close() error {
+func (t *ThreadEvent) Close(ctx context.Context) error {
 	defer t.writerThreads.Add(-1)
 	buffer := make([]types.RawRecord, len(t.buffer))
 	copy(buffer, t.buffer)
@@ -115,7 +115,9 @@ func (t *ThreadEvent) Close() error {
 
 	t.streamArtifact.mutex.Lock()
 	defer t.streamArtifact.mutex.Unlock()
-	return t.writer.Close(context.Background())
+
+	// use passed context as group context already done
+	return t.writer.Close(ctx)
 }
 
 func (t *ThreadEvent) flush(buf []types.RawRecord) error {
@@ -145,8 +147,8 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) error {
 	if err := t.writer.Write(t.groupCtx, newSchema, buf); err != nil {
 		return fmt.Errorf("failed to write records: %s", err)
 	}
-
 	t.writeCount.Add(int64(bufferSize))
+	logger.Infof("Successfully wrote %d records", bufferSize)
 	return nil
 }
 
@@ -288,11 +290,11 @@ func determineMaxBatchSize() int64 {
 	ramGB := utils.DetermineSystemMemoryGB()
 	switch {
 	case ramGB > 32:
-		return 600 * 1024 * 1024
+		return 800 * 1024 * 1024
 	case ramGB > 16:
-		return 100 * 1024 * 1024
+		return 400 * 1024 * 1024
 	case ramGB > 8:
-		return 100 * 1024 * 1024
+		return 200 * 1024 * 1024
 	default:
 		return 100 * 1024 * 1024
 	}

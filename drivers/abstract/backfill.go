@@ -11,7 +11,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
@@ -48,7 +47,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		}
 		defer func() {
 			// wait for chunk completion
-			if writerErr := inserter.Close(); writerErr != nil {
+			if writerErr := inserter.Close(ctx); writerErr != nil {
 				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
 			}
 
@@ -67,7 +66,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				// if it is incremental update the max cursor value received in chunk
 				if stream.GetSyncMode() == types.INCREMENTAL && maxCursorValue != nil {
 					prevCursor := a.state.GetCursor(stream.Self(), cursorField)
-					if typeutils.Compare(maxCursorValue, prevCursor) == 1 {
+					if utils.CompareInterfaceValue(maxCursorValue, prevCursor) == 1 {
 						a.state.SetCursor(stream.Self(), cursorField, maxCursorValue)
 					}
 				}
@@ -78,7 +77,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
 					cursorValue := data[cursorField]
-					maxCursorValue = utils.Ternary(typeutils.Compare(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
+					maxCursorValue = utils.Ternary(utils.CompareInterfaceValue(cursorValue, maxCursorValue) == 1, cursorValue, maxCursorValue)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				return inserter.Push(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
