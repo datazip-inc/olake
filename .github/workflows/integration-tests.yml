@@ -67,7 +67,7 @@ jobs:
           max_attempts: 30
           retry_wait_seconds: 5
           command: |
-            docker exec primary_mongo mongosh -h localhost:27017 -u mongodb -p secure_password123 --authenticationDatabase admin --eval "db.adminCommand('ping')"
+            docker exec primary_mongo mongosh --host localhost --port 27017 -u mongodb -p secure_password123 --authenticationDatabase admin --eval "db.adminCommand('ping')"
 
       - name: Set up Data Directories
         run: |
