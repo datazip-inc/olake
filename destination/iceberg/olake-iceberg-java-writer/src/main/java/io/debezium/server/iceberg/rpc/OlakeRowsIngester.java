@@ -85,6 +85,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, this.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully returned iceberg table {}", requestId, destTableName);
                     break;
+
                 case RECORDS:
                     LOGGER.info("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
@@ -99,7 +100,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     LOGGER.warn("{} Table {} not dropped, drop table not implemented", requestId, destTableName);
                     sendResponse(responseObserver, "Drop table not implemented");
                     break;
-                    
+                
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());
             }

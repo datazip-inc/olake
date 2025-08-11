@@ -260,7 +260,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 
 func (i *Iceberg) Check(ctx context.Context) error {
 	// Create a temporary setup for checking
-	_, err := newIcebergClient(i.config, []PartitionInfo{}, true, false)
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, true, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup java server: %s", err)
 	}
@@ -271,20 +271,55 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	// TODO: add back or check command
-	// // Try to send a test message
-	// req := &proto.RecordIngestRequest{
-	// 	Messages: []string{getTestDebeziumRecord(i.threadID)},
-	// }
 
-	// // Call the remote procedure
-	// res, err := i.client.SendRecords(ctx, req)
-	// if err != nil {
-	// 	return fmt.Errorf("error sending record to Iceberg RPC Server: %s", err)
-	// }
-	// Print the response from the server
-	// logger.Infof("thread id %s: Server Response: %s", i.threadID, res.GetResult())
+	// try to create table
+	req := &proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+		Metadata: &proto.IcebergPayload_Metadata{
+			ThreadId:      server.serverID,
+			DestTableName: "test_olake",
+			Schema:        icebergRawSchema(),
+		},
+	}
 
+	res, err := server.sendClientRequest(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to create or get table: %s", err)
+	}
+	logger.Infof("table created or loaded test olake: %s", res)
+
+	// try writing record in dest table
+	schema := icebergRawSchema()
+	protoColumns := make([]*structpb.Value, 0, len(schema))
+
+	dataMap := make(map[string]*structpb.Value)
+	dataMap[constants.OlakeID] = structpb.NewStringValue("olake_row_id_1")
+	dataMap[constants.CdcTimestamp] = structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339Nano))
+	dataMap[constants.OlakeTimestamp] = structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339Nano))
+	dataMap[constants.StringifiedData] = structpb.NewStringValue(`{"name": "olake"}`)
+	for _, field := range schema {
+		protoColumns = append(protoColumns, dataMap[field.Key])
+	}
+
+	recrodInsertReq := &proto.IcebergPayload{
+		Type: proto.IcebergPayload_RECORDS,
+		Metadata: &proto.IcebergPayload_Metadata{
+			ThreadId:      server.serverID,
+			DestTableName: "test_olake",
+			Schema:        icebergRawSchema(),
+		},
+		Records: []*proto.IcebergPayload_IceRecord{&proto.IcebergPayload_IceRecord{
+			Fields:     protoColumns,
+			RecordType: "r",
+		}},
+	}
+
+	resInsert, err := server.sendClientRequest(ctx, recrodInsertReq)
+	if err != nil {
+		return fmt.Errorf("failed to insert request: %s", err)
+	}
+
+	logger.Infof("record inserted successfully: %s", resInsert)
 	return nil
 }
 
