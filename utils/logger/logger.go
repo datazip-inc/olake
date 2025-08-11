@@ -171,6 +171,11 @@ func Init() {
 	if viper.GetString(constants.ConfigFolder) == "" {
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 	}
+	if viper.GetInt(constants.LogRetentionDays) == 0 {
+		viper.SetDefault(constants.LogRetentionDays, 30)
+	}
+	//delete old logs
+	DeleteOldLogFiles(viper.GetString(constants.ConfigFolder), viper.GetInt(constants.LogRetentionDays))
 	// Set up timestamp for log file names
 	currentTimestamp := time.Now().UTC()
 	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d",
@@ -363,6 +368,75 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	// since they're only needed by the child process
 	stdoutWriter.Close()
 	stderrWriter.Close()
+
+	return nil
+}
+
+// DeleteOldLogFiles deletes .log files in logs/ folders older than maxDays.
+func DeleteOldLogFiles(baseDir string, logRetentionDays int) error {
+	cutoff := time.Now().AddDate(0, 0, -logRetentionDays)
+
+	// Helper to clean a logs/ folder
+	cleanLogs := func(logsPath string) {
+		filepath.WalkDir(logsPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil // ignore errors
+			}
+			if d.IsDir() {
+				return nil // skip directories
+			}
+
+			name := d.Name()
+			ext := filepath.Ext(name)
+
+			// Match .log, .gz, .log.gz
+			if !(ext == ".log" || strings.HasSuffix(name, ".log.gz") || strings.HasSuffix(name, ".gz")) {
+				return nil
+			}
+
+			info, err := os.Stat(path)
+			if err != nil {
+				return nil
+			}
+
+			if info.ModTime().Before(cutoff) {
+				fmt.Printf("Deleting old log file: %s\n", path)
+				if err := os.Remove(path); err != nil {
+					fmt.Printf("Failed to delete %s: %v\n", path, err)
+				}
+			}
+			return nil
+		})
+	}
+
+	cleanLogsIfExists := func(logsPath string) {
+		if _, err := os.Stat(logsPath); err == nil {
+			cleanLogs(logsPath)
+		}
+	}
+
+	// 1. Check baseDir/logs
+	fmt.Println(baseDir)
+	baseLogs := filepath.Join(baseDir, "logs")
+	cleanLogsIfExists(baseLogs)
+
+	// 2. Check subdirectories for basedir/folder/logs
+	parentDir := filepath.Dir(baseDir)
+	entries, err := os.ReadDir(parentDir)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %s", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		logPath := filepath.Join(parentDir, entry.Name(), "logs")
+		if _, err := os.Stat(logPath); err == nil {
+			cleanLogs(logPath)
+		}
+	}
 
 	return nil
 }
