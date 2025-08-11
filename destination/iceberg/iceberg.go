@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,34 +16,21 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
 )
-
-type serverInstance struct {
-	port       int
-	cmd        *exec.Cmd
-	client     proto.RecordIngestServiceClient
-	conn       *grpc.ClientConn
-	refCount   int    // Tracks how many clients are using this server instance to manage shared resources. Comes handy when we need to close the server after all clients are done.
-	configHash string // Hash representing the server config
-	upsert     bool
-}
 
 type Iceberg struct {
 	options       *destination.Options
 	config        *Config
 	stream        types.StreamInterface
-	conn          *grpc.ClientConn
 	partitionInfo []PartitionInfo // ordered slice to preserve partition column order
-	threadID      string
 	server        *serverInstance // java server instance
 }
 
 // PartitionInfo represents a Iceberg partition column with its transform, preserving order
 type PartitionInfo struct {
-	Field     string
-	Transform string
+	field     string
+	transform string
 }
 
 func (i *Iceberg) GetConfigRef() destination.Config {
@@ -60,7 +46,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]PartitionInfo, 0)
-	i.threadID = destination.GetGoroutineID()
 
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -77,41 +62,35 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 		upsertMode = false
 	}
 	upsertMode = upsertMode || !options.Backfill
-	err := i.SetupIcebergClient(upsertMode)
+	server, err := newIcebergClient(i.config, i.partitionInfo, false, upsertMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start java server: %s", err)
 	}
 
-	primaryKey := constants.OlakeID
+	// persist server details
+	i.server = server
+
+	// check for identifier fields setting
+	primaryKey := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+
 	if createOrLoadSchema {
 		var requestPayload proto.IcebergPayload
-		if stream.NormalizationEnabled() {
-			requestPayload = proto.IcebergPayload{
-				Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-				Metadata: &proto.IcebergPayload_Metadata{
-					Schema:        stream.Schema().ToIceberg(),
-					DestTableName: i.stream.Name(),
-					ThreadId:      i.threadID,
-					PrimaryKey:    &primaryKey,
-				},
-			}
-		} else {
-			requestPayload = proto.IcebergPayload{
-				Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-				Metadata: &proto.IcebergPayload_Metadata{
-					Schema:        icebergRawSchema(),
-					DestTableName: i.stream.Name(),
-					ThreadId:      i.threadID,
-					PrimaryKey:    &primaryKey,
-				},
-			}
+		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
+		requestPayload = proto.IcebergPayload{
+			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+			Metadata: &proto.IcebergPayload_Metadata{
+				Schema:        iceSchema,
+				DestTableName: i.stream.Name(),
+				ThreadId:      i.server.serverID,
+				PrimaryKey:    &primaryKey,
+			},
 		}
 
-		resp, err := i.server.client.SendRecords(ctx, &requestPayload)
+		resp, err := i.server.sendClientRequest(ctx, &requestPayload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
-		return parseSchema(resp.Result)
+		return parseSchema(resp)
 	}
 
 	return nil, nil
@@ -123,7 +102,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 		return fmt.Errorf("failed to convert schema map[%T] to map[string]string", schema)
 	}
 
-	var protoSchema []*proto.IcebergPayload_SchemaField
+	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(schemaMap))
 	for field, _ := range schemaMap {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
 			Key: field,
@@ -135,13 +114,14 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 
 	if len(i.partitionInfo) > 0 {
 		// sort record based on partition order
+		// Note: OlakeTimestamp not present in records data (assuming it does not matter that much as the minimum granularity is HH)
 		sort.Slice(records, func(idx, jdx int) bool {
 			iRecord := records[idx].Data
 			jRecord := records[jdx].Data
 
 			for _, partition := range i.partitionInfo {
-				iField, iOk := iRecord[partition.Field]
-				jField, jOk := jRecord[partition.Field]
+				iField, iOk := iRecord[partition.field]
+				jField, jOk := jRecord[partition.field]
 
 				if !iOk && !jOk {
 					continue // i == j
@@ -158,31 +138,32 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 			return true
 		})
 	}
-	var protoRecords []*proto.IcebergPayload_IceRecord
+
+	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
 	for _, record := range records {
 		if record.Data == nil {
 			continue
 		}
-		// TODO: add rfc nano for time
-		var protoColumns []*structpb.Value
+
+		protoColumns := make([]*structpb.Value, 0, len(protoSchema))
 		if !i.stream.NormalizationEnabled() {
+			dataMap := make(map[string]*structpb.Value)
+			dataMap[constants.OlakeID] = structpb.NewStringValue(record.OlakeID)
+			dataMap[constants.CdcTimestamp] = structpb.NewStringValue(record.CdcTimestamp.UTC().Format(time.RFC3339Nano))
+			dataMap[constants.OlakeTimestamp] = structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339Nano))
+			bytesData, err := json.Marshal(record.Data)
+			if err != nil {
+				return fmt.Errorf("failed to marshal data in normalization: %s", err)
+			}
+			dataMap[constants.StringifiedData] = structpb.NewStringValue(string(bytesData))
+
 			for _, field := range protoSchema {
-				switch field.Key {
-				case constants.OlakeID:
-					protoColumns = append(protoColumns, structpb.NewStringValue(record.OlakeID))
-				case constants.CdcTimestamp:
-					protoColumns = append(protoColumns, structpb.NewStringValue(record.CdcTimestamp.UTC().Format(time.RFC3339)))
-				case constants.OlakeTimestamp:
-					protoColumns = append(protoColumns, structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339)))
-				case constants.OpType:
-					protoColumns = append(protoColumns, structpb.NewStringValue(record.OperationType))
-				case constants.StringifiedData:
-					bytesData, err := json.Marshal(record.Data)
-					if err != nil {
-						return fmt.Errorf("failed to marshal data in normalization: %s", err)
-					}
-					protoColumns = append(protoColumns, structpb.NewStringValue(string(bytesData)))
+				value, ok := dataMap[field.Key]
+				if !ok {
+					protoColumns = append(protoColumns, nil)
+					continue
 				}
+				protoColumns = append(protoColumns, value)
 			}
 		} else {
 			for _, field := range protoSchema {
@@ -191,10 +172,10 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 					protoColumns = append(protoColumns, nil)
 					continue
 				}
-				switch v := val.(type) {
-				case time.Time:
-					protoColumns = append(protoColumns, structpb.NewStringValue(v.UTC().Format(time.RFC3339)))
-				default:
+
+				if t, ok := val.(time.Time); ok {
+					protoColumns = append(protoColumns, structpb.NewStringValue(t.UTC().Format(time.RFC3339Nano)))
+				} else {
 					protoColumns = append(protoColumns, structpb.NewStringValue(fmt.Sprintf("%v", val)))
 				}
 			}
@@ -206,7 +187,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 				RecordType: record.OperationType,
 			})
 		}
-		record = types.RawRecord{}
+		record.Data = nil
 	}
 
 	// release records memory
@@ -221,7 +202,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: i.stream.Name(),
-			ThreadId:      i.threadID,
+			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
 		Records: protoRecords,
@@ -232,21 +213,25 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	defer cancel()
 
 	// Send the batch to the server
-	res, err := i.server.client.SendRecords(reqCtx, req)
+	res, err := i.server.sendClientRequest(reqCtx, req)
 	if err != nil {
 		logger.Errorf("failed to send batch: %s", err)
 		return err
 	}
-	logger.Infof("Sent batch to Iceberg server, response: %s", res.GetResult())
+
+	logger.Infof("Sent batch to Iceberg server, response: %s", res)
 	return nil
 }
 
 func (i *Iceberg) Close(ctx context.Context) error {
 	// skip flushing on error
 	defer func() {
-		err := i.CloseIcebergClient()
+		if i.server == nil {
+			return
+		}
+		err := i.server.closeIcebergClient(i.server)
 		if err != nil {
-			logger.Errorf("thread id %s: Error closing Iceberg client: %s", i.threadID, err)
+			logger.Errorf("thread id %s: Error closing Iceberg client: %s", i.server.serverID, err)
 		}
 	}()
 	if ctx.Err() != nil {
@@ -259,42 +244,29 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      i.threadID,
+			ThreadId:      i.server.serverID,
 			DestTableName: i.stream.Name(),
 		},
 	}
-	res, err := i.server.client.SendRecords(ctx, req)
+	res, err := i.server.sendClientRequest(ctx, req)
 	if err != nil {
-		logger.Errorf("thread id %s: Error sending commit message on close: %s", i.threadID, err)
-		return fmt.Errorf("thread id %s: failed to send commit message: %s", i.threadID, err)
+		logger.Errorf("thread id %s: Error sending commit message on close: %s", i.server.serverID, err)
+		return fmt.Errorf("thread id %s: failed to send commit message: %s", i.server.serverID, err)
 	}
 
-	logger.Infof("thread id %s: Sent commit message: %s", i.threadID, res.GetResult())
-
+	logger.Infof("thread id %s: Sent commit message: %s", i.server.serverID, res)
 	return nil
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
-	// Save the current stream reference
-	originalStream := i.stream
-	originalPartitionInfo := i.partitionInfo
-	i.threadID = destination.GetGoroutineID()
-
-	// Temporarily set stream to nil and clear partition fields to force a new server for the check
-	i.stream = nil
-	i.partitionInfo = make([]PartitionInfo, 0)
-
 	// Create a temporary setup for checking
-	err := i.SetupIcebergClient(false)
+	_, err := newIcebergClient(i.config, []PartitionInfo{}, true, false)
 	if err != nil {
-		return fmt.Errorf("failed to setup iceberg: %s", err)
+		return fmt.Errorf("failed to setup java server: %s", err)
 	}
 
 	defer func() {
 		i.Close(ctx)
-		// Restore original stream and partition info
-		i.stream = originalStream
-		i.partitionInfo = originalPartitionInfo
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -321,16 +293,10 @@ func (i *Iceberg) Type() string {
 }
 
 // validate schema change & evolution and removes null records
+// only call if normalization is enabled
 func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecord) (bool, any, error) {
-	extractSchemaFromRecords := func(normalization bool, records []types.RawRecord) (map[string]string, error) {
+	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
 		newSchema := make(map[string]string)
-		if !normalization {
-			for _, schema := range icebergRawSchema() {
-				newSchema[schema.Key] = schema.IceType
-			}
-			return newSchema, nil
-		}
-
 		for _, record := range records {
 			// TODO: normalized column names (remove from driver side)
 
@@ -393,7 +359,7 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 		return false, nil, fmt.Errorf("failed to convert past schema of type[%T] to map[string]string", rawOldSchema)
 	}
 
-	newSchema, err := extractSchemaFromRecords(i.stream.NormalizationEnabled(), records)
+	newSchema, err := extractSchemaFromRecords(records)
 	if err != nil {
 		return false, nil, err
 	}
@@ -411,6 +377,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 	if !ok {
 		return fmt.Errorf("failed to convert new schema of type %T to map[string]string", newSchema)
 	}
+
 	var schema []*proto.IcebergPayload_SchemaField
 	for field, fieldType := range newSchemaMap {
 		schema = append(schema, &proto.IcebergPayload_SchemaField{
@@ -418,20 +385,22 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 			IceType: fieldType,
 		})
 	}
+
 	req := proto.IcebergPayload{
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: i.stream.Name(),
 			Schema:        schema,
-			ThreadId:      i.threadID,
+			ThreadId:      i.server.serverID,
 		},
 	}
 
-	resp, err := i.server.client.SendRecords(ctx, &req)
+	resp, err := i.server.sendClientRequest(ctx, &req)
 	if err != nil {
 		return fmt.Errorf("failed to send records to evolve schema: %s", err)
 	}
-	logger.Debug("response received after schema evolution: %s", resp.Result)
+
+	logger.Debug("response received after schema evolution: %s", resp)
 	return nil
 }
 
@@ -439,7 +408,7 @@ func isValidIcebergType(oldType, newType string) bool {
 	// Note: not added decimal precision as we not iceberg decimal type support as of now
 	switch oldType {
 	case "int":
-		return newType == "long" || newType == "int"
+		return newType == "int" || newType == "long"
 	case "float":
 		return newType == "float" || newType == "double"
 	default:
@@ -463,8 +432,8 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 
 		// Append to ordered slice to preserve partition order
 		i.partitionInfo = append(i.partitionInfo, PartitionInfo{
-			Field:     colName,
-			Transform: transform,
+			field:     colName,
+			transform: transform,
 		})
 	}
 
@@ -507,10 +476,10 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 
 		name := strings.TrimSpace(parts[1])
 		typeInfo := strings.TrimSpace(parts[2])
+
 		// typeInfo will contain `required type (id)` or `optional type`
 		types := strings.Split(typeInfo, " ")
 		fields[name] = types[1]
-
 	}
 	return fields, nil
 }

@@ -305,11 +305,9 @@ func (p *Parquet) Close(ctx context.Context) error {
 	return err
 }
 
+// validate schema change & evolution and removes null records
+// only call if normalization is enabled
 func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error) {
-	if !p.stream.NormalizationEnabled() {
-		return false, types.RawSchema, nil
-	}
-
 	oldSchema, ok := pastSchema.(typeutils.Fields)
 	if !ok {
 		return false, nil, fmt.Errorf("failed to typecast schema[%T] into (typeutils.Fields)", pastSchema)

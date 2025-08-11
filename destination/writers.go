@@ -132,24 +132,28 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) (err error) {
 	cachedSchema := t.streamArtifact.schema
 	t.streamArtifact.mutex.RUnlock()
 
-	schemaEvolution, newSchema, err := t.writer.FlattenAndCleanData(cachedSchema, buf)
-	if err != nil {
-		return fmt.Errorf("failed to flush data: %s", err)
-	}
+	if t.stream.NormalizationEnabled() {
+		schemaEvolution, newSchema, err := t.writer.FlattenAndCleanData(cachedSchema, buf)
+		if err != nil {
+			return fmt.Errorf("failed to flush data: %s", err)
+		}
 
-	if schemaEvolution {
-		t.streamArtifact.mutex.Lock()
-		defer t.streamArtifact.mutex.Unlock()
-		t.streamArtifact.schema = newSchema
-		if err := t.writer.EvolveSchema(t.groupCtx, newSchema); err != nil {
-			return fmt.Errorf("failed to evolve schema: %s", err)
+		if schemaEvolution {
+			t.streamArtifact.mutex.Lock()
+			t.streamArtifact.schema = newSchema
+			t.streamArtifact.mutex.Unlock()
+			if err := t.writer.EvolveSchema(t.groupCtx, newSchema); err != nil {
+				return fmt.Errorf("failed to evolve schema: %s", err)
+			}
+			cachedSchema = newSchema
 		}
 	}
 
 	bufferSize := len(buf)
-	if err := t.writer.Write(t.groupCtx, newSchema, buf); err != nil {
+	if err := t.writer.Write(t.groupCtx, cachedSchema, buf); err != nil {
 		return fmt.Errorf("failed to write records: %s", err)
 	}
+
 	t.writeCount.Add(int64(bufferSize))
 	logger.Infof("Successfully wrote %d records", bufferSize)
 	return nil
