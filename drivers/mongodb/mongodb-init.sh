@@ -20,7 +20,7 @@ until mongosh --port 27017 --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; 
 done
 
 echo "Initializing replica set..."
-mongosh --port 27017 --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]})"
+mongosh --port 27017 --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'host.docker.internal:27017'}]})"
 
 echo "Waiting for PRIMARY..."
 for i in {1..30}; do
