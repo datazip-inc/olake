@@ -501,8 +501,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							t.Log("(backfill) starting discover")
 							discoverCmd := discoverCommand(*cfg.TestConfig)
-							code, output, err := utils.ExecCommand(ctx, c, discoverCmd)
-							if err != nil || code != 0 {
+							if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
 							}
 							t.Log("(backfill) discover completed")
@@ -514,8 +513,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							t.Log("(backfill) starting sync")
 							syncCmd := syncCommand(*cfg.TestConfig, true, cfg.UsesPreChunkedState)
-							output, err = syncWithTimeout(ctx, c, syncCmd)
-							if err != nil {
+							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
 							t.Log("(backfill) sync completed")
@@ -530,38 +528,36 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							if cfg.SupportsCDC {
 								t.Logf("(cdc) running performance test for %s", cfg.TestConfig.Driver)
 
+								t.Log("(cdc) starting setup cdc")
 								cfg.ExecuteQuery(ctx, t, "setup_cdc", cfg.BackfillStreams)
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) starting discover")
 								discoverCmd := discoverCommand(*cfg.TestConfig)
-								code, output, err := utils.ExecCommand(ctx, c, discoverCmd)
-								if err != nil || code != 0 {
+								if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
 								}
 								t.Log("(cdc) discover completed")
 
 								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStreams, false)
-								code, _, err = utils.ExecCommand(ctx, c, updateStreamsCmd)
-								if err != nil || code != 0 {
+								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
 
 								t.Log("(cdc) starting initial sync")
 								syncCmd := syncCommand(*cfg.TestConfig, true, false)
-								code, output, err = utils.ExecCommand(ctx, c, syncCmd)
-								if err != nil || code != 0 {
+								if code, output, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
 								t.Log("(cdc) initial sync completed")
 
+								t.Log("(cdc) starting trigger cdc")
 								cfg.ExecuteQuery(ctx, t, "trigger_cdc", cfg.BackfillStreams)
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) starting sync")
 								syncCmd = syncCommand(*cfg.TestConfig, false, false)
-								output, err = syncWithTimeout(ctx, c, syncCmd)
-								if err != nil {
+								if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
 								}
 								t.Log("(cdc) sync completed")
