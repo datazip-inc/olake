@@ -1,6 +1,6 @@
 package testutils
 
-// GlobalTypeToDataType maps database-specific types (Postgres/MySQL) to internal standard types
+// GlobalTypeToDataType maps database-specific types (Postgres/MySQL/MongoDB) to internal standard types
 var GlobalTypeMapping = map[string]string{
 	// Integer Types
 	"tinyint":            "int",
@@ -53,6 +53,7 @@ var GlobalTypeMapping = map[string]string{
 	"longvarchar":       "string",
 	"bpchar":            "string",
 	"name":              "string",
+	"string":            "string",
 
 	// Binary Types
 	"binary":     "string",
