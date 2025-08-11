@@ -53,7 +53,6 @@ var GlobalTypeMapping = map[string]string{
 	"longvarchar":       "string",
 	"bpchar":            "string",
 	"name":              "string",
-	"string":            "string",
 
 	// Binary Types
 	"binary":     "string",
