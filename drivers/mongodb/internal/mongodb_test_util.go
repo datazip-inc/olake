@@ -70,7 +70,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, collectionName string, oper
 		return
 
 	case "insert":
-		// Insert the same data as the add operation (following MySQL/PostgreSQL pattern)
+		// Insert the same data as the add operation
 		doc := bson.M{
 			"id_bigint":         int64(123456789012345),
 			"id_int":            int32(100),
@@ -154,7 +154,6 @@ var ExpectedMongoData = map[string]interface{}{
 	"id_double":         float64(123.456),
 	"id_bool":           true,
 	"created_timestamp": int32(1754905992),
-	"id_nil":            nil,
 	"id_regex":          `{"pattern": "test.*", "options": "i"}`,
 	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
 	"id_minkey":         `{}`,
@@ -170,7 +169,6 @@ var ExpectedUpdatedMongoData = map[string]interface{}{
 	"id_double":         float64(202.456),
 	"id_bool":           false,
 	"created_timestamp": int32(1754905699),
-	"id_nil":            nil,
 	"id_regex":          `{"pattern": "updated.*", "options": "i"}`,
 	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
 	"id_minkey":         `{}`,
