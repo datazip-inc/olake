@@ -69,7 +69,7 @@ jobs:
           command: | 
                 docker exec primary_mongo mongosh \
                 --host localhost --port 27017 \
-                -u mongodb -p secure_password123 \
+                -u admin -p password \
                 --authenticationDatabase admin \
                 --eval "
                   const ping = db.adminCommand('ping').ok;
