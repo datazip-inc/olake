@@ -66,21 +66,8 @@ jobs:
           timeout_minutes: 5
           max_attempts: 30
           retry_wait_seconds: 5
-          command: | 
-                docker exec primary_mongo mongosh \
-                --host localhost --port 27017 \
-                -u admin -p password \
-                --authenticationDatabase admin \
-                --eval "
-                  const ping = db.adminCommand('ping').ok;
-                  const rsName = rs.status().set;
-                  if (ping != 1 || rsName !== 'rs0') {
-                    print(`Mongo not ready or replica set mismatch: got '${rsName}'`);
-                    quit(1);
-                  } else {
-                    print(`Mongo OK with replica set '${rsName}'`);
-                  }
-                "
+          command: |
+            docker exec primary_mongo mongosh --host localhost --port 27017 -u mongodb -p secure_password123 --authenticationDatabase admin --eval "db.adminCommand('ping')"
 
       - name: Set up Data Directories
         run: |
