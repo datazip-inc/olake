@@ -10,6 +10,9 @@ x-signup-defaults:
   password: &defaultPassword "password"
   email: &defaultEmail "admin@example.com"
 
+x-encryption:
+  key: &encryptionKey "" 
+
 services:
   rest:
     image: tabulario/iceberg-rest
@@ -198,10 +201,9 @@ services:
     container_name: olake-app
     environment:
       PERSISTENT_DIR: *hostPersistencePath
-      POSTGRES_DB: "postgres://olake:olake@postgresql:5432/olakedb"
+      OLAKE_SECRET_KEY: *encryptionKey
     ports:
       - "8000:8000"  # Expose UI port
-      - "8080:8080"  # Expose backend API port
     volumes:
       - <<: *workerConfigVolumeDetails
     networks:
@@ -215,7 +217,7 @@ services:
         condition: service_completed_successfully # Wait for binlog-checker to complete
     restart: unless-stopped
     healthcheck: # Updated healthcheck for olake-app
-      test: ["CMD-SHELL", "nc -z localhost 8080"] # Check if port 8080 is listening
+      test: ["CMD-SHELL", "nc -z localhost 8000"] # Check if port 8080 is listening
       interval: 15s
       timeout: 5s
       retries: 5
@@ -233,7 +235,7 @@ services:
       USERNAME: *defaultUsername
       PASSWORD: *defaultPassword
       EMAIL: *defaultEmail
-      OLAKE_APP_URL: "http://olake-app:8080/signup"
+      OLAKE_APP_URL: "http://olake-app:8000/signup"
     command: >
       sh -c "
         echo 'signup-init: Initializing user setup...'
@@ -274,6 +276,7 @@ services:
       - <<: *workerConfigVolumeDetails
     environment:
       TEMPORAL_ADDRESS: "temporal:7233"
+      OLAKE_SECRET_KEY: *encryptionKey
       PERSISTENT_DIR: *hostPersistencePath
     depends_on:
       temporal:
@@ -329,6 +332,8 @@ services:
   temporal-ui:
     container_name: temporal-ui
     image: temporalio/ui:2.16.2
+    profiles:
+      - debug
     depends_on:
       temporal:
         condition: service_started
