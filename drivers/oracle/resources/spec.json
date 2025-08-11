@@ -6,10 +6,10 @@
       "title": "Connection Type",
       "description": "Method used to establish a connection between the Oracle database server",
       "enum": [
-        "sid",
-        "service_name"
+        "SID",
+        "Service Name"
       ],
-      "default": "service_name"
+      "default": "Service Name"
     },
     "host": {
       "type": "string",
@@ -84,7 +84,7 @@
         {
           "properties": {
             "connection_type": {
-              "const": "sid"
+              "const": "SID"
             },
             "sid": {
               "type": "string",
@@ -100,7 +100,7 @@
         {
           "properties": {
             "connection_type": {
-              "const": "service_name"
+              "const": "Service Name"
             },
             "service_name": {
               "type": "string",

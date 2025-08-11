@@ -4,12 +4,12 @@
       "catalog_type": {
         "type": "string",
         "enum": [
-          "jdbc",
-          "hive",
-          "rest",
-          "glue"
+          "JDBC Catalog",
+          "Hive Catalog",
+          "REST Catalog",
+          "AWS Glue"
         ],
-        "default": "glue",
+        "default": "AWS Glue",
         "title": "Catalog Type",
         "description": "Type of catalog to use"
       },
@@ -53,7 +53,7 @@
           {
             "properties": {
               "catalog_type": {
-                "const": "jdbc"
+                "const": "JDBC Catalog"
               },
               "jdbc_url": {
                 "type": "string",
@@ -99,7 +99,7 @@
           {
             "properties": {
               "catalog_type": {
-                "const": "hive"
+                "const": "Hive Catalog"
               },
               "hive_uri": {
                 "type": "string",
@@ -138,7 +138,7 @@
           {
             "properties": {
               "catalog_type": {
-                "const": "rest"
+                "const": "REST Catalog"
               },
               "rest_catalog_url": {
                 "type": "string",
@@ -201,7 +201,7 @@
           {
             "properties": {
               "catalog_type": {
-                "const": "glue"
+                "const": "AWS Glue"
               },
               "sink_rpc_server_host": {
                 "type": "string",
