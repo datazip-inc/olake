@@ -242,8 +242,8 @@ func (i *Iceberg) getServerConfigJSON(port int, upsert bool) ([]byte, error) {
 		return nil, fmt.Errorf("unsupported catalog type: %s", i.config.CatalogType)
 	}
 
-	// Configure S3 file IO
-	serverConfig["io-impl"] = "org.apache.iceberg.aws.s3.S3FileIO"
+	// Configure S3 or GCP file IO
+	serverConfig["io-impl"] = utils.Ternary(strings.HasPrefix(i.config.IcebergS3Path, "gs://"), "org.apache.iceberg.gcp.gcs.GCSFileIO", "org.apache.iceberg.aws.s3.S3FileIO")
 
 	// Only set access keys if explicitly provided, otherwise they'll be picked up from
 	// environment variables or AWS credential files

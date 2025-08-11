@@ -68,17 +68,6 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 
 // PostgreSQL-Specific Queries
 // TODO: Rewrite queries for taking vars as arguments while execution.
-
-// PostgresWithoutState returns the query for a simple SELECT without state
-func PostgresWithoutState(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT * FROM "%s"."%s" ORDER BY %s`, stream.Namespace(), stream.Name(), stream.Cursor())
-}
-
-// PostgresWithState returns the query for a SELECT with state
-func PostgresWithState(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT * FROM "%s"."%s" where "%s">$1 ORDER BY "%s" ASC NULLS FIRST`, stream.Namespace(), stream.Name(), stream.Cursor(), stream.Cursor())
-}
-
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
 func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
@@ -364,7 +353,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
 	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
 
-	filterClause := utils.Ternary(filter == "", "", " AND "+filter).(string)
+	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
@@ -375,7 +364,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
 func OracleBlockSizeQuery() string {
-	return `SELECT TO_NUMBER(value) FROM v$parameter WHERE name = 'db_block_size'`
+	return `SELECT CEIL(BYTES / NULLIF(BLOCKS, 0)) FROM user_segments WHERE BLOCKS IS NOT NULL AND ROWNUM =1`
 }
 
 // OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
@@ -479,4 +468,10 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 		})
 		return strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
 	}
+}
+
+// MySQLIncrementalQuery builds the complete incremental query for MySQL
+func MySQLIncrementalQuery(stream types.StreamInterface, filter string, incrementalCondition string) string {
+	finalFilter := utils.Ternary(filter != "", fmt.Sprintf("(%s) AND (%s)", filter, incrementalCondition), incrementalCondition).(string)
+	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), finalFilter)
 }
