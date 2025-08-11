@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
@@ -138,32 +137,6 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 		return true
 	})
 
-	return icebergFields
-}
-
-// returns raw schema in iceberg format
-func RawSchema() []*proto.IcebergPayload_SchemaField {
-	var icebergFields []*proto.IcebergPayload_SchemaField
-	icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-		IceType: String.ToIceberg(),
-		Key:     constants.OlakeID,
-	})
-	icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-		IceType: Timestamp.ToIceberg(),
-		Key:     constants.OlakeTimestamp,
-	})
-	icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-		IceType: Timestamp.ToIceberg(),
-		Key:     constants.CdcTimestamp,
-	})
-	icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-		IceType: String.ToIceberg(),
-		Key:     constants.OpType,
-	})
-	icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-		IceType: String.ToIceberg(),
-		Key:     constants.StringifiedData,
-	})
 	return icebergFields
 }
 

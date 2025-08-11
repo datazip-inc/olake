@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -120,8 +119,12 @@ func (t *ThreadEvent) Close(ctx context.Context) error {
 	return t.writer.Close(ctx)
 }
 
-func (t *ThreadEvent) flush(buf []types.RawRecord) error {
-	// TODO: add recovery function
+func (t *ThreadEvent) flush(buf []types.RawRecord) (err error) {
+	defer func() {
+		if rec := recover(); err == nil && rec != nil {
+			err = fmt.Errorf("failed to flush batch panic caught in recover: %s", rec)
+		}
+	}()
 	t.flushThreads.Add(1)
 	defer t.flushThreads.Add(-1)
 
@@ -138,7 +141,7 @@ func (t *ThreadEvent) flush(buf []types.RawRecord) error {
 		t.streamArtifact.mutex.Lock()
 		defer t.streamArtifact.mutex.Unlock()
 		t.streamArtifact.schema = newSchema
-		if err := t.writer.EvolveSchema(t.groupCtx, newSchema, buf, time.Now().UTC()); err != nil {
+		if err := t.writer.EvolveSchema(t.groupCtx, newSchema); err != nil {
 			return fmt.Errorf("failed to evolve schema: %s", err)
 		}
 	}

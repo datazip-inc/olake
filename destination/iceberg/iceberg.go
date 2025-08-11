@@ -99,7 +99,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 			requestPayload = proto.IcebergPayload{
 				Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 				Metadata: &proto.IcebergPayload_Metadata{
-					Schema:        types.RawSchema(),
+					Schema:        icebergRawSchema(),
 					DestTableName: i.stream.Name(),
 					ThreadId:      i.threadID,
 					PrimaryKey:    &primaryKey,
@@ -237,9 +237,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 		logger.Errorf("failed to send batch: %s", err)
 		return err
 	}
-	logger.Infof("Sent batch to Iceberg server: %d records, response: %s",
-		len(records),
-		res.GetResult())
+	logger.Infof("Sent batch to Iceberg server, response: %s", res.GetResult())
 	return nil
 }
 
@@ -318,21 +316,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	return nil
 }
 
-func (i *Iceberg) ReInitiationOnTypeChange() bool {
-	return true
-}
-
-func (i *Iceberg) ReInitiationOnNewColumns() bool {
-	return true
-}
-
 func (i *Iceberg) Type() string {
 	return string(types.Iceberg)
-}
-
-func (i *Iceberg) Flattener() destination.FlattenFunction {
-	flattener := typeutils.NewFlattener()
-	return flattener.Flatten
 }
 
 // validate schema change & evolution and removes null records
@@ -340,7 +325,7 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 	extractSchemaFromRecords := func(normalization bool, records []types.RawRecord) (map[string]string, error) {
 		newSchema := make(map[string]string)
 		if !normalization {
-			for _, schema := range types.RawSchema() {
+			for _, schema := range icebergRawSchema() {
 				newSchema[schema.Key] = schema.IceType
 			}
 			return newSchema, nil
@@ -421,7 +406,7 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 	return schemaChange, newSchema, nil
 }
 
-func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any, _ []types.RawRecord, _ time.Time) error {
+func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 	newSchemaMap, ok := newSchema.(map[string]string)
 	if !ok {
 		return fmt.Errorf("failed to convert new schema of type %T to map[string]string", newSchema)
@@ -528,6 +513,18 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 
 	}
 	return fields, nil
+}
+
+// returns raw schema in iceberg format
+func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
+	var icebergFields []*proto.IcebergPayload_SchemaField
+	for key, typ := range types.RawSchema {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: typ.ToIceberg(),
+			Key:     key,
+		})
+	}
+	return icebergFields
 }
 
 func init() {

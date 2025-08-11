@@ -1,8 +1,10 @@
 package types
 
 import (
-	"github.com/parquet-go/parquet-go"
 	"time"
+
+	"github.com/datazip-inc/olake/constants"
+	"github.com/parquet-go/parquet-go"
 )
 
 type DataType string
@@ -48,6 +50,13 @@ var TypeWeights = map[DataType]int{
 	TimestampMicro: 8,
 	TimestampMilli: 7,
 	Timestamp:      6,
+}
+
+var RawSchema = map[string]DataType{
+	constants.StringifiedData: String,
+	constants.CdcTimestamp:    Timestamp,
+	constants.OlakeTimestamp:  Timestamp,
+	constants.OpType:          String,
 }
 
 type Record map[string]any
