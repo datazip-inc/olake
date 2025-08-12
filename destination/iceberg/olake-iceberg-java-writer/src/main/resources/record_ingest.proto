@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package io.debezium.server.iceberg.rpc;
 
-import "google/protobuf/struct.proto";  // For Value type
-
 service RecordIngestService {
   rpc SendRecords(IcebergPayload) returns (RecordIngestResponse);
 }
@@ -22,8 +20,8 @@ message IcebergPayload {
   message Metadata {
     string dest_table_name = 1;
     string thread_id = 2;
-    optional string primary_key = 3;  // Only for records/evolve_schema/get_or_create_table
-    repeated SchemaField schema = 4;   // Only for records/evolve_schema/get_or_create_table
+    optional string primary_key = 3;
+    repeated SchemaField schema = 4;
   }
 
   message SchemaField {
@@ -31,16 +29,30 @@ message IcebergPayload {
     string key = 2;
   }
 
+  // OPTIMIZED: Replace google.protobuf.Value with typed fields
   message IceRecord {
-    repeated google.protobuf.Value fields = 1;
+    // Use oneof for efficient memory usage - only one field type active per record field
+    message FieldValue {
+      oneof value {
+        string string_value = 1;
+        int32 int_value = 2;
+        int64 long_value = 3;
+        float float_value = 4;
+        double double_value = 5;
+        bool bool_value = 6;
+        bytes bytes_value = 7;
+      }
+    }
+    
+    repeated FieldValue fields = 1;
     string record_type = 2;  // "u", "c", "r"
   }
 
   Metadata metadata = 2;
-  repeated IceRecord records = 3;  // Only present for "records" type
+  repeated IceRecord records = 3;
 }
 
 message RecordIngestResponse {
   string result = 1;
-  bool success = 2;
+  bool success = 2;  // Adding success boolean for better error handling
 }

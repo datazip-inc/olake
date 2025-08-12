@@ -69,7 +69,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             switch (request.getType()) {
                 case COMMIT:
                     LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
-                    icebergTableOperator.commitThread(threadId);
+                    icebergTableOperator.commitThread(threadId, this.icebergTable);
                     sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
                     LOGGER.info("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
@@ -93,7 +93,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     icebergTableOperator.addToTablePerSchema(threadId, this.icebergTable, finalRecords);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.info("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
-                    finalRecords = null; // release memory 
+                    if (finalRecords != null) {
+                        // release memory
+                        finalRecords.clear();
+                    }
+                    request = null;
                     break;
                     
                 case DROP_TABLE:

@@ -9,7 +9,6 @@ package proto
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -81,7 +80,7 @@ type IcebergPayload struct {
 	state         protoimpl.MessageState      `protogen:"open.v1"`
 	Type          IcebergPayload_PayloadType  `protobuf:"varint,1,opt,name=type,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_PayloadType" json:"type,omitempty"`
 	Metadata      *IcebergPayload_Metadata    `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Records       []*IcebergPayload_IceRecord `protobuf:"bytes,3,rep,name=records,proto3" json:"records,omitempty"` // Only present for "records" type
+	Records       []*IcebergPayload_IceRecord `protobuf:"bytes,3,rep,name=records,proto3" json:"records,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -140,7 +139,7 @@ func (x *IcebergPayload) GetRecords() []*IcebergPayload_IceRecord {
 type RecordIngestResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Result        string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"` // Adding success boolean for better error handling
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -193,8 +192,8 @@ type IcebergPayload_Metadata struct {
 	state         protoimpl.MessageState        `protogen:"open.v1"`
 	DestTableName string                        `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
 	ThreadId      string                        `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	PrimaryKey    *string                       `protobuf:"bytes,3,opt,name=primary_key,json=primaryKey,proto3,oneof" json:"primary_key,omitempty"` // Only for records/evolve_schema/get_or_create_table
-	Schema        []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`                                 // Only for records/evolve_schema/get_or_create_table
+	PrimaryKey    *string                       `protobuf:"bytes,3,opt,name=primary_key,json=primaryKey,proto3,oneof" json:"primary_key,omitempty"`
+	Schema        []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -309,10 +308,11 @@ func (x *IcebergPayload_SchemaField) GetKey() string {
 	return ""
 }
 
+// OPTIMIZED: Replace google.protobuf.Value with typed fields
 type IcebergPayload_IceRecord struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Fields        []*structpb.Value      `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
-	RecordType    string                 `protobuf:"bytes,2,opt,name=record_type,json=recordType,proto3" json:"record_type,omitempty"` // "u", "c", "r"
+	state         protoimpl.MessageState                 `protogen:"open.v1"`
+	Fields        []*IcebergPayload_IceRecord_FieldValue `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	RecordType    string                                 `protobuf:"bytes,2,opt,name=record_type,json=recordType,proto3" json:"record_type,omitempty"` // "u", "c", "r"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -347,7 +347,7 @@ func (*IcebergPayload_IceRecord) Descriptor() ([]byte, []int) {
 	return file_records_ingest_proto_rawDescGZIP(), []int{0, 2}
 }
 
-func (x *IcebergPayload_IceRecord) GetFields() []*structpb.Value {
+func (x *IcebergPayload_IceRecord) GetFields() []*IcebergPayload_IceRecord_FieldValue {
 	if x != nil {
 		return x.Fields
 	}
@@ -361,11 +361,178 @@ func (x *IcebergPayload_IceRecord) GetRecordType() string {
 	return ""
 }
 
+// Use oneof for efficient memory usage - only one field type active per record field
+type IcebergPayload_IceRecord_FieldValue struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Value:
+	//
+	//	*IcebergPayload_IceRecord_FieldValue_StringValue
+	//	*IcebergPayload_IceRecord_FieldValue_IntValue
+	//	*IcebergPayload_IceRecord_FieldValue_LongValue
+	//	*IcebergPayload_IceRecord_FieldValue_FloatValue
+	//	*IcebergPayload_IceRecord_FieldValue_DoubleValue
+	//	*IcebergPayload_IceRecord_FieldValue_BoolValue
+	//	*IcebergPayload_IceRecord_FieldValue_BytesValue
+	Value         isIcebergPayload_IceRecord_FieldValue_Value `protobuf_oneof:"value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) Reset() {
+	*x = IcebergPayload_IceRecord_FieldValue{}
+	mi := &file_records_ingest_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IcebergPayload_IceRecord_FieldValue) ProtoMessage() {}
+
+func (x *IcebergPayload_IceRecord_FieldValue) ProtoReflect() protoreflect.Message {
+	mi := &file_records_ingest_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IcebergPayload_IceRecord_FieldValue.ProtoReflect.Descriptor instead.
+func (*IcebergPayload_IceRecord_FieldValue) Descriptor() ([]byte, []int) {
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 2, 0}
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetValue() isIcebergPayload_IceRecord_FieldValue_Value {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetStringValue() string {
+	if x != nil {
+		if x, ok := x.Value.(*IcebergPayload_IceRecord_FieldValue_StringValue); ok {
+			return x.StringValue
+		}
+	}
+	return ""
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetIntValue() int32 {
+	if x != nil {
+		if x, ok := x.Value.(*IcebergPayload_IceRecord_FieldValue_IntValue); ok {
+			return x.IntValue
+		}
+	}
+	return 0
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetLongValue() int64 {
+	if x != nil {
+		if x, ok := x.Value.(*IcebergPayload_IceRecord_FieldValue_LongValue); ok {
+			return x.LongValue
+		}
+	}
+	return 0
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetFloatValue() float32 {
+	if x != nil {
+		if x, ok := x.Value.(*IcebergPayload_IceRecord_FieldValue_FloatValue); ok {
+			return x.FloatValue
+		}
+	}
+	return 0
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetDoubleValue() float64 {
+	if x != nil {
+		if x, ok := x.Value.(*IcebergPayload_IceRecord_FieldValue_DoubleValue); ok {
+			return x.DoubleValue
+		}
+	}
+	return 0
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetBoolValue() bool {
+	if x != nil {
+		if x, ok := x.Value.(*IcebergPayload_IceRecord_FieldValue_BoolValue); ok {
+			return x.BoolValue
+		}
+	}
+	return false
+}
+
+func (x *IcebergPayload_IceRecord_FieldValue) GetBytesValue() []byte {
+	if x != nil {
+		if x, ok := x.Value.(*IcebergPayload_IceRecord_FieldValue_BytesValue); ok {
+			return x.BytesValue
+		}
+	}
+	return nil
+}
+
+type isIcebergPayload_IceRecord_FieldValue_Value interface {
+	isIcebergPayload_IceRecord_FieldValue_Value()
+}
+
+type IcebergPayload_IceRecord_FieldValue_StringValue struct {
+	StringValue string `protobuf:"bytes,1,opt,name=string_value,json=stringValue,proto3,oneof"`
+}
+
+type IcebergPayload_IceRecord_FieldValue_IntValue struct {
+	IntValue int32 `protobuf:"varint,2,opt,name=int_value,json=intValue,proto3,oneof"`
+}
+
+type IcebergPayload_IceRecord_FieldValue_LongValue struct {
+	LongValue int64 `protobuf:"varint,3,opt,name=long_value,json=longValue,proto3,oneof"`
+}
+
+type IcebergPayload_IceRecord_FieldValue_FloatValue struct {
+	FloatValue float32 `protobuf:"fixed32,4,opt,name=float_value,json=floatValue,proto3,oneof"`
+}
+
+type IcebergPayload_IceRecord_FieldValue_DoubleValue struct {
+	DoubleValue float64 `protobuf:"fixed64,5,opt,name=double_value,json=doubleValue,proto3,oneof"`
+}
+
+type IcebergPayload_IceRecord_FieldValue_BoolValue struct {
+	BoolValue bool `protobuf:"varint,6,opt,name=bool_value,json=boolValue,proto3,oneof"`
+}
+
+type IcebergPayload_IceRecord_FieldValue_BytesValue struct {
+	BytesValue []byte `protobuf:"bytes,7,opt,name=bytes_value,json=bytesValue,proto3,oneof"`
+}
+
+func (*IcebergPayload_IceRecord_FieldValue_StringValue) isIcebergPayload_IceRecord_FieldValue_Value() {
+}
+
+func (*IcebergPayload_IceRecord_FieldValue_IntValue) isIcebergPayload_IceRecord_FieldValue_Value() {}
+
+func (*IcebergPayload_IceRecord_FieldValue_LongValue) isIcebergPayload_IceRecord_FieldValue_Value() {}
+
+func (*IcebergPayload_IceRecord_FieldValue_FloatValue) isIcebergPayload_IceRecord_FieldValue_Value() {
+}
+
+func (*IcebergPayload_IceRecord_FieldValue_DoubleValue) isIcebergPayload_IceRecord_FieldValue_Value() {
+}
+
+func (*IcebergPayload_IceRecord_FieldValue_BoolValue) isIcebergPayload_IceRecord_FieldValue_Value() {}
+
+func (*IcebergPayload_IceRecord_FieldValue_BytesValue) isIcebergPayload_IceRecord_FieldValue_Value() {
+}
+
 var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\x1a\x1cgoogle/protobuf/struct.proto\"\xe3\x05\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\x9a\b\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
@@ -379,11 +546,25 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\f_primary_key\x1a:\n" +
 	"\vSchemaField\x12\x19\n" +
 	"\bice_type\x18\x01 \x01(\tR\aiceType\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\x1a\\\n" +
-	"\tIceRecord\x12.\n" +
-	"\x06fields\x18\x01 \x03(\v2\x16.google.protobuf.ValueR\x06fields\x12\x1f\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x1a\x92\x03\n" +
+	"\tIceRecord\x12[\n" +
+	"\x06fields\x18\x01 \x03(\v2C.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValueR\x06fields\x12\x1f\n" +
 	"\vrecord_type\x18\x02 \x01(\tR\n" +
-	"recordType\"b\n" +
+	"recordType\x1a\x86\x02\n" +
+	"\n" +
+	"FieldValue\x12#\n" +
+	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1d\n" +
+	"\tint_value\x18\x02 \x01(\x05H\x00R\bintValue\x12\x1f\n" +
+	"\n" +
+	"long_value\x18\x03 \x01(\x03H\x00R\tlongValue\x12!\n" +
+	"\vfloat_value\x18\x04 \x01(\x02H\x00R\n" +
+	"floatValue\x12#\n" +
+	"\fdouble_value\x18\x05 \x01(\x01H\x00R\vdoubleValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
+	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
+	"bytesValueB\a\n" +
+	"\x05value\"b\n" +
 	"\vPayloadType\x12\v\n" +
 	"\aRECORDS\x10\x00\x12\n" +
 	"\n" +
@@ -411,22 +592,22 @@ func file_records_ingest_proto_rawDescGZIP() []byte {
 }
 
 var file_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_records_ingest_proto_goTypes = []any{
-	(IcebergPayload_PayloadType)(0),    // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
-	(*IcebergPayload)(nil),             // 1: io.debezium.server.iceberg.rpc.IcebergPayload
-	(*RecordIngestResponse)(nil),       // 2: io.debezium.server.iceberg.rpc.RecordIngestResponse
-	(*IcebergPayload_Metadata)(nil),    // 3: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
-	(*IcebergPayload_SchemaField)(nil), // 4: io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	(*IcebergPayload_IceRecord)(nil),   // 5: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
-	(*structpb.Value)(nil),             // 6: google.protobuf.Value
+	(IcebergPayload_PayloadType)(0),             // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
+	(*IcebergPayload)(nil),                      // 1: io.debezium.server.iceberg.rpc.IcebergPayload
+	(*RecordIngestResponse)(nil),                // 2: io.debezium.server.iceberg.rpc.RecordIngestResponse
+	(*IcebergPayload_Metadata)(nil),             // 3: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
+	(*IcebergPayload_SchemaField)(nil),          // 4: io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
+	(*IcebergPayload_IceRecord)(nil),            // 5: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
+	(*IcebergPayload_IceRecord_FieldValue)(nil), // 6: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
 }
 var file_records_ingest_proto_depIdxs = []int32{
 	0, // 0: io.debezium.server.iceberg.rpc.IcebergPayload.type:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
 	3, // 1: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
 	5, // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
 	4, // 3: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	6, // 4: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> google.protobuf.Value
+	6, // 4: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
 	1, // 5: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
 	2, // 6: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
 	6, // [6:7] is the sub-list for method output_type
@@ -442,13 +623,22 @@ func file_records_ingest_proto_init() {
 		return
 	}
 	file_records_ingest_proto_msgTypes[2].OneofWrappers = []any{}
+	file_records_ingest_proto_msgTypes[5].OneofWrappers = []any{
+		(*IcebergPayload_IceRecord_FieldValue_StringValue)(nil),
+		(*IcebergPayload_IceRecord_FieldValue_IntValue)(nil),
+		(*IcebergPayload_IceRecord_FieldValue_LongValue)(nil),
+		(*IcebergPayload_IceRecord_FieldValue_FloatValue)(nil),
+		(*IcebergPayload_IceRecord_FieldValue_DoubleValue)(nil),
+		(*IcebergPayload_IceRecord_FieldValue_BoolValue)(nil),
+		(*IcebergPayload_IceRecord_FieldValue_BytesValue)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_records_ingest_proto_rawDesc), len(file_records_ingest_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

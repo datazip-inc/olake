@@ -247,7 +247,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 	logger.Infof("writer max batch size set to: %d bytes and max threads to: %d", maxBatchSize, 2)
 
 	pool := &WriterPool{
-		maxThreads:    2, // TODO: hardcoded to 2 can have discussion what could be proper value for it
+		maxThreads:    1, // TODO: hardcoded to 2 can have discussion what could be proper value for it
 		batchSize:     maxBatchSize,
 		totalRecords:  atomic.Int64{},
 		writerThreads: atomic.Int64{},
@@ -301,7 +301,7 @@ func determineMaxBatchSize() int64 {
 	case ramGB > 16:
 		return 400 * 1024 * 1024
 	case ramGB > 8:
-		return 200 * 1024 * 1024
+		return 50 * 1024 * 1024
 	default:
 		return 100 * 1024 * 1024
 	}

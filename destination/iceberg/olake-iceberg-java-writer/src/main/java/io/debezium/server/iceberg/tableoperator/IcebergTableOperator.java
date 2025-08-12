@@ -39,9 +39,6 @@ public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
 
-  // Map to track table references per thread
-  private final Map<String, Table> threadTables = new ConcurrentHashMap<>();
-
   // Map to store completed WriteResult per thread for later commit
   private final Map<String, List<WriteResult>> threadWriteResults = new ConcurrentHashMap<>();
 
@@ -100,10 +97,9 @@ public class IcebergTableOperator {
    * @param threadId The thread ID to commit
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId) {
+  public void commitThread(String threadId, Table table) {
     // Get the WriteResults for this thread
     List<WriteResult> writeResults = threadWriteResults.remove(threadId);
-    Table table = threadTables.remove(threadId);
 
     if (writeResults == null || writeResults.isEmpty()) {
       LOGGER.warn("No WriteResults found for thread: {}", threadId);
@@ -173,7 +169,6 @@ public class IcebergTableOperator {
   public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
     // Create a new writer for this batch
     LOGGER.info("Creating new writer for thread: {}", threadID);
-    threadTables.put(threadID, icebergTable);
     BaseTaskWriter<Record> writer = writerFactory2.create(icebergTable);
 
     try {
@@ -224,7 +219,6 @@ public class IcebergTableOperator {
 
       // Also clean up any stored write results for this thread
       threadWriteResults.remove(threadID);
-      threadTables.remove(threadID);
 
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
     }

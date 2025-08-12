@@ -45,44 +45,24 @@ public final class RecordIngest {
     io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.MetadataOrBuilder getMetadataOrBuilder();
 
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord> 
         getRecordsList();
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord getRecords(int index);
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     int getRecordsCount();
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecordOrBuilder> 
         getRecordsOrBuilderList();
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecordOrBuilder getRecordsOrBuilder(
@@ -294,28 +274,16 @@ public final class RecordIngest {
           getThreadIdBytes();
 
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>optional string primary_key = 3;</code>
        * @return Whether the primaryKey field is set.
        */
       boolean hasPrimaryKey();
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>optional string primary_key = 3;</code>
        * @return The primaryKey.
        */
       java.lang.String getPrimaryKey();
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>optional string primary_key = 3;</code>
        * @return The bytes for primaryKey.
        */
@@ -323,44 +291,24 @@ public final class RecordIngest {
           getPrimaryKeyBytes();
 
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField> 
           getSchemaList();
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField getSchema(int index);
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       int getSchemaCount();
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaFieldOrBuilder> 
           getSchemaOrBuilderList();
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaFieldOrBuilder getSchemaOrBuilder(
@@ -493,10 +441,6 @@ public final class RecordIngest {
       @SuppressWarnings("serial")
       private volatile java.lang.Object primaryKey_ = "";
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>optional string primary_key = 3;</code>
        * @return Whether the primaryKey field is set.
        */
@@ -505,10 +449,6 @@ public final class RecordIngest {
         return ((bitField0_ & 0x00000001) != 0);
       }
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>optional string primary_key = 3;</code>
        * @return The primaryKey.
        */
@@ -526,10 +466,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>optional string primary_key = 3;</code>
        * @return The bytes for primaryKey.
        */
@@ -552,10 +488,6 @@ public final class RecordIngest {
       @SuppressWarnings("serial")
       private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField> schema_;
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       @java.lang.Override
@@ -563,10 +495,6 @@ public final class RecordIngest {
         return schema_;
       }
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       @java.lang.Override
@@ -575,10 +503,6 @@ public final class RecordIngest {
         return schema_;
       }
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       @java.lang.Override
@@ -586,10 +510,6 @@ public final class RecordIngest {
         return schema_.size();
       }
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       @java.lang.Override
@@ -597,10 +517,6 @@ public final class RecordIngest {
         return schema_.get(index);
       }
       /**
-       * <pre>
-       * Only for records/evolve_schema/get_or_create_table
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
        */
       @java.lang.Override
@@ -1207,10 +1123,6 @@ public final class RecordIngest {
 
         private java.lang.Object primaryKey_ = "";
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>optional string primary_key = 3;</code>
          * @return Whether the primaryKey field is set.
          */
@@ -1218,10 +1130,6 @@ public final class RecordIngest {
           return ((bitField0_ & 0x00000004) != 0);
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>optional string primary_key = 3;</code>
          * @return The primaryKey.
          */
@@ -1238,10 +1146,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>optional string primary_key = 3;</code>
          * @return The bytes for primaryKey.
          */
@@ -1259,10 +1163,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>optional string primary_key = 3;</code>
          * @param value The primaryKey to set.
          * @return This builder for chaining.
@@ -1276,10 +1176,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>optional string primary_key = 3;</code>
          * @return This builder for chaining.
          */
@@ -1290,10 +1186,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>optional string primary_key = 3;</code>
          * @param value The bytes for primaryKey to set.
          * @return This builder for chaining.
@@ -1321,10 +1213,6 @@ public final class RecordIngest {
             io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaFieldOrBuilder> schemaBuilder_;
 
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField> getSchemaList() {
@@ -1335,10 +1223,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public int getSchemaCount() {
@@ -1349,10 +1233,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField getSchema(int index) {
@@ -1363,10 +1243,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder setSchema(
@@ -1384,10 +1260,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder setSchema(
@@ -1402,10 +1274,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder addSchema(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField value) {
@@ -1422,10 +1290,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder addSchema(
@@ -1443,10 +1307,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder addSchema(
@@ -1461,10 +1321,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder addSchema(
@@ -1479,10 +1335,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder addAllSchema(
@@ -1498,10 +1350,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder clearSchema() {
@@ -1515,10 +1363,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public Builder removeSchema(int index) {
@@ -1532,10 +1376,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.Builder getSchemaBuilder(
@@ -1543,10 +1383,6 @@ public final class RecordIngest {
           return getSchemaFieldBuilder().getBuilder(index);
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaFieldOrBuilder getSchemaOrBuilder(
@@ -1557,10 +1393,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaFieldOrBuilder> 
@@ -1572,10 +1404,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.Builder addSchemaBuilder() {
@@ -1583,10 +1411,6 @@ public final class RecordIngest {
               io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.getDefaultInstance());
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.Builder addSchemaBuilder(
@@ -1595,10 +1419,6 @@ public final class RecordIngest {
               index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.getDefaultInstance());
         }
         /**
-         * <pre>
-         * Only for records/evolve_schema/get_or_create_table
-         * </pre>
-         *
          * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField schema = 4;</code>
          */
         public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.Builder> 
@@ -2391,27 +2211,27 @@ public final class RecordIngest {
         com.google.protobuf.MessageOrBuilder {
 
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
-      java.util.List<com.google.protobuf.Value> 
+      java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> 
           getFieldsList();
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
-      com.google.protobuf.Value getFields(int index);
+      io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getFields(int index);
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
       int getFieldsCount();
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
-      java.util.List<? extends com.google.protobuf.ValueOrBuilder> 
+      java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> 
           getFieldsOrBuilderList();
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
-      com.google.protobuf.ValueOrBuilder getFieldsOrBuilder(
+      io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder getFieldsOrBuilder(
           int index);
 
       /**
@@ -2435,6 +2255,10 @@ public final class RecordIngest {
           getRecordTypeBytes();
     }
     /**
+     * <pre>
+     * OPTIMIZED: Replace google.protobuf.Value with typed fields
+     * </pre>
+     *
      * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord}
      */
     public static final class IceRecord extends
@@ -2476,43 +2300,1342 @@ public final class RecordIngest {
                 io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.class, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.Builder.class);
       }
 
+      public interface FieldValueOrBuilder extends
+          // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue)
+          com.google.protobuf.MessageOrBuilder {
+
+        /**
+         * <code>string string_value = 1;</code>
+         * @return Whether the stringValue field is set.
+         */
+        boolean hasStringValue();
+        /**
+         * <code>string string_value = 1;</code>
+         * @return The stringValue.
+         */
+        java.lang.String getStringValue();
+        /**
+         * <code>string string_value = 1;</code>
+         * @return The bytes for stringValue.
+         */
+        com.google.protobuf.ByteString
+            getStringValueBytes();
+
+        /**
+         * <code>int32 int_value = 2;</code>
+         * @return Whether the intValue field is set.
+         */
+        boolean hasIntValue();
+        /**
+         * <code>int32 int_value = 2;</code>
+         * @return The intValue.
+         */
+        int getIntValue();
+
+        /**
+         * <code>int64 long_value = 3;</code>
+         * @return Whether the longValue field is set.
+         */
+        boolean hasLongValue();
+        /**
+         * <code>int64 long_value = 3;</code>
+         * @return The longValue.
+         */
+        long getLongValue();
+
+        /**
+         * <code>float float_value = 4;</code>
+         * @return Whether the floatValue field is set.
+         */
+        boolean hasFloatValue();
+        /**
+         * <code>float float_value = 4;</code>
+         * @return The floatValue.
+         */
+        float getFloatValue();
+
+        /**
+         * <code>double double_value = 5;</code>
+         * @return Whether the doubleValue field is set.
+         */
+        boolean hasDoubleValue();
+        /**
+         * <code>double double_value = 5;</code>
+         * @return The doubleValue.
+         */
+        double getDoubleValue();
+
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return Whether the boolValue field is set.
+         */
+        boolean hasBoolValue();
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return The boolValue.
+         */
+        boolean getBoolValue();
+
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return Whether the bytesValue field is set.
+         */
+        boolean hasBytesValue();
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return The bytesValue.
+         */
+        com.google.protobuf.ByteString getBytesValue();
+
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.ValueCase getValueCase();
+      }
+      /**
+       * <pre>
+       * Use oneof for efficient memory usage - only one field type active per record field
+       * </pre>
+       *
+       * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue}
+       */
+      public static final class FieldValue extends
+          com.google.protobuf.GeneratedMessageV3 implements
+          // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue)
+          FieldValueOrBuilder {
+      private static final long serialVersionUID = 0L;
+        // Use FieldValue.newBuilder() to construct.
+        private FieldValue(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+          super(builder);
+        }
+        private FieldValue() {
+        }
+
+        @java.lang.Override
+        @SuppressWarnings({"unused"})
+        protected java.lang.Object newInstance(
+            UnusedPrivateParameter unused) {
+          return new FieldValue();
+        }
+
+        @java.lang.Override
+        public final com.google.protobuf.UnknownFieldSet
+        getUnknownFields() {
+          return this.unknownFields;
+        }
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_descriptor;
+        }
+
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.class, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder.class);
+        }
+
+        private int valueCase_ = 0;
+        private java.lang.Object value_;
+        public enum ValueCase
+            implements com.google.protobuf.Internal.EnumLite,
+                com.google.protobuf.AbstractMessage.InternalOneOfEnum {
+          STRING_VALUE(1),
+          INT_VALUE(2),
+          LONG_VALUE(3),
+          FLOAT_VALUE(4),
+          DOUBLE_VALUE(5),
+          BOOL_VALUE(6),
+          BYTES_VALUE(7),
+          VALUE_NOT_SET(0);
+          private final int value;
+          private ValueCase(int value) {
+            this.value = value;
+          }
+          /**
+           * @param value The number of the enum to look for.
+           * @return The enum associated with the given number.
+           * @deprecated Use {@link #forNumber(int)} instead.
+           */
+          @java.lang.Deprecated
+          public static ValueCase valueOf(int value) {
+            return forNumber(value);
+          }
+
+          public static ValueCase forNumber(int value) {
+            switch (value) {
+              case 1: return STRING_VALUE;
+              case 2: return INT_VALUE;
+              case 3: return LONG_VALUE;
+              case 4: return FLOAT_VALUE;
+              case 5: return DOUBLE_VALUE;
+              case 6: return BOOL_VALUE;
+              case 7: return BYTES_VALUE;
+              case 0: return VALUE_NOT_SET;
+              default: return null;
+            }
+          }
+          public int getNumber() {
+            return this.value;
+          }
+        };
+
+        public ValueCase
+        getValueCase() {
+          return ValueCase.forNumber(
+              valueCase_);
+        }
+
+        public static final int STRING_VALUE_FIELD_NUMBER = 1;
+        /**
+         * <code>string string_value = 1;</code>
+         * @return Whether the stringValue field is set.
+         */
+        public boolean hasStringValue() {
+          return valueCase_ == 1;
+        }
+        /**
+         * <code>string string_value = 1;</code>
+         * @return The stringValue.
+         */
+        public java.lang.String getStringValue() {
+          java.lang.Object ref = "";
+          if (valueCase_ == 1) {
+            ref = value_;
+          }
+          if (ref instanceof java.lang.String) {
+            return (java.lang.String) ref;
+          } else {
+            com.google.protobuf.ByteString bs = 
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            if (valueCase_ == 1) {
+              value_ = s;
+            }
+            return s;
+          }
+        }
+        /**
+         * <code>string string_value = 1;</code>
+         * @return The bytes for stringValue.
+         */
+        public com.google.protobuf.ByteString
+            getStringValueBytes() {
+          java.lang.Object ref = "";
+          if (valueCase_ == 1) {
+            ref = value_;
+          }
+          if (ref instanceof java.lang.String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            if (valueCase_ == 1) {
+              value_ = b;
+            }
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+
+        public static final int INT_VALUE_FIELD_NUMBER = 2;
+        /**
+         * <code>int32 int_value = 2;</code>
+         * @return Whether the intValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasIntValue() {
+          return valueCase_ == 2;
+        }
+        /**
+         * <code>int32 int_value = 2;</code>
+         * @return The intValue.
+         */
+        @java.lang.Override
+        public int getIntValue() {
+          if (valueCase_ == 2) {
+            return (java.lang.Integer) value_;
+          }
+          return 0;
+        }
+
+        public static final int LONG_VALUE_FIELD_NUMBER = 3;
+        /**
+         * <code>int64 long_value = 3;</code>
+         * @return Whether the longValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasLongValue() {
+          return valueCase_ == 3;
+        }
+        /**
+         * <code>int64 long_value = 3;</code>
+         * @return The longValue.
+         */
+        @java.lang.Override
+        public long getLongValue() {
+          if (valueCase_ == 3) {
+            return (java.lang.Long) value_;
+          }
+          return 0L;
+        }
+
+        public static final int FLOAT_VALUE_FIELD_NUMBER = 4;
+        /**
+         * <code>float float_value = 4;</code>
+         * @return Whether the floatValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasFloatValue() {
+          return valueCase_ == 4;
+        }
+        /**
+         * <code>float float_value = 4;</code>
+         * @return The floatValue.
+         */
+        @java.lang.Override
+        public float getFloatValue() {
+          if (valueCase_ == 4) {
+            return (java.lang.Float) value_;
+          }
+          return 0F;
+        }
+
+        public static final int DOUBLE_VALUE_FIELD_NUMBER = 5;
+        /**
+         * <code>double double_value = 5;</code>
+         * @return Whether the doubleValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasDoubleValue() {
+          return valueCase_ == 5;
+        }
+        /**
+         * <code>double double_value = 5;</code>
+         * @return The doubleValue.
+         */
+        @java.lang.Override
+        public double getDoubleValue() {
+          if (valueCase_ == 5) {
+            return (java.lang.Double) value_;
+          }
+          return 0D;
+        }
+
+        public static final int BOOL_VALUE_FIELD_NUMBER = 6;
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return Whether the boolValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasBoolValue() {
+          return valueCase_ == 6;
+        }
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return The boolValue.
+         */
+        @java.lang.Override
+        public boolean getBoolValue() {
+          if (valueCase_ == 6) {
+            return (java.lang.Boolean) value_;
+          }
+          return false;
+        }
+
+        public static final int BYTES_VALUE_FIELD_NUMBER = 7;
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return Whether the bytesValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasBytesValue() {
+          return valueCase_ == 7;
+        }
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return The bytesValue.
+         */
+        @java.lang.Override
+        public com.google.protobuf.ByteString getBytesValue() {
+          if (valueCase_ == 7) {
+            return (com.google.protobuf.ByteString) value_;
+          }
+          return com.google.protobuf.ByteString.EMPTY;
+        }
+
+        private byte memoizedIsInitialized = -1;
+        @java.lang.Override
+        public final boolean isInitialized() {
+          byte isInitialized = memoizedIsInitialized;
+          if (isInitialized == 1) return true;
+          if (isInitialized == 0) return false;
+
+          memoizedIsInitialized = 1;
+          return true;
+        }
+
+        @java.lang.Override
+        public void writeTo(com.google.protobuf.CodedOutputStream output)
+                            throws java.io.IOException {
+          if (valueCase_ == 1) {
+            com.google.protobuf.GeneratedMessageV3.writeString(output, 1, value_);
+          }
+          if (valueCase_ == 2) {
+            output.writeInt32(
+                2, (int)((java.lang.Integer) value_));
+          }
+          if (valueCase_ == 3) {
+            output.writeInt64(
+                3, (long)((java.lang.Long) value_));
+          }
+          if (valueCase_ == 4) {
+            output.writeFloat(
+                4, (float)((java.lang.Float) value_));
+          }
+          if (valueCase_ == 5) {
+            output.writeDouble(
+                5, (double)((java.lang.Double) value_));
+          }
+          if (valueCase_ == 6) {
+            output.writeBool(
+                6, (boolean)((java.lang.Boolean) value_));
+          }
+          if (valueCase_ == 7) {
+            output.writeBytes(
+                7, (com.google.protobuf.ByteString) value_);
+          }
+          getUnknownFields().writeTo(output);
+        }
+
+        @java.lang.Override
+        public int getSerializedSize() {
+          int size = memoizedSize;
+          if (size != -1) return size;
+
+          size = 0;
+          if (valueCase_ == 1) {
+            size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, value_);
+          }
+          if (valueCase_ == 2) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeInt32Size(
+                  2, (int)((java.lang.Integer) value_));
+          }
+          if (valueCase_ == 3) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeInt64Size(
+                  3, (long)((java.lang.Long) value_));
+          }
+          if (valueCase_ == 4) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeFloatSize(
+                  4, (float)((java.lang.Float) value_));
+          }
+          if (valueCase_ == 5) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeDoubleSize(
+                  5, (double)((java.lang.Double) value_));
+          }
+          if (valueCase_ == 6) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeBoolSize(
+                  6, (boolean)((java.lang.Boolean) value_));
+          }
+          if (valueCase_ == 7) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeBytesSize(
+                  7, (com.google.protobuf.ByteString) value_);
+          }
+          size += getUnknownFields().getSerializedSize();
+          memoizedSize = size;
+          return size;
+        }
+
+        @java.lang.Override
+        public boolean equals(final java.lang.Object obj) {
+          if (obj == this) {
+           return true;
+          }
+          if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue)) {
+            return super.equals(obj);
+          }
+          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue other = (io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue) obj;
+
+          if (!getValueCase().equals(other.getValueCase())) return false;
+          switch (valueCase_) {
+            case 1:
+              if (!getStringValue()
+                  .equals(other.getStringValue())) return false;
+              break;
+            case 2:
+              if (getIntValue()
+                  != other.getIntValue()) return false;
+              break;
+            case 3:
+              if (getLongValue()
+                  != other.getLongValue()) return false;
+              break;
+            case 4:
+              if (java.lang.Float.floatToIntBits(getFloatValue())
+                  != java.lang.Float.floatToIntBits(
+                      other.getFloatValue())) return false;
+              break;
+            case 5:
+              if (java.lang.Double.doubleToLongBits(getDoubleValue())
+                  != java.lang.Double.doubleToLongBits(
+                      other.getDoubleValue())) return false;
+              break;
+            case 6:
+              if (getBoolValue()
+                  != other.getBoolValue()) return false;
+              break;
+            case 7:
+              if (!getBytesValue()
+                  .equals(other.getBytesValue())) return false;
+              break;
+            case 0:
+            default:
+          }
+          if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+          return true;
+        }
+
+        @java.lang.Override
+        public int hashCode() {
+          if (memoizedHashCode != 0) {
+            return memoizedHashCode;
+          }
+          int hash = 41;
+          hash = (19 * hash) + getDescriptor().hashCode();
+          switch (valueCase_) {
+            case 1:
+              hash = (37 * hash) + STRING_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + getStringValue().hashCode();
+              break;
+            case 2:
+              hash = (37 * hash) + INT_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + getIntValue();
+              break;
+            case 3:
+              hash = (37 * hash) + LONG_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+                  getLongValue());
+              break;
+            case 4:
+              hash = (37 * hash) + FLOAT_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + java.lang.Float.floatToIntBits(
+                  getFloatValue());
+              break;
+            case 5:
+              hash = (37 * hash) + DOUBLE_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+                  java.lang.Double.doubleToLongBits(getDoubleValue()));
+              break;
+            case 6:
+              hash = (37 * hash) + BOOL_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+                  getBoolValue());
+              break;
+            case 7:
+              hash = (37 * hash) + BYTES_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + getBytesValue().hashCode();
+              break;
+            case 0:
+            default:
+          }
+          hash = (29 * hash) + getUnknownFields().hashCode();
+          memoizedHashCode = hash;
+          return hash;
+        }
+
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            java.nio.ByteBuffer data)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            java.nio.ByteBuffer data,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            com.google.protobuf.ByteString data)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            com.google.protobuf.ByteString data,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(byte[] data)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            byte[] data,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(java.io.InputStream input)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            java.io.InputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseDelimitedFrom(java.io.InputStream input)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseDelimitedWithIOException(PARSER, input);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseDelimitedFrom(
+            java.io.InputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            com.google.protobuf.CodedInputStream input)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input, extensionRegistry);
+        }
+
+        @java.lang.Override
+        public Builder newBuilderForType() { return newBuilder(); }
+        public static Builder newBuilder() {
+          return DEFAULT_INSTANCE.toBuilder();
+        }
+        public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue prototype) {
+          return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+        }
+        @java.lang.Override
+        public Builder toBuilder() {
+          return this == DEFAULT_INSTANCE
+              ? new Builder() : new Builder().mergeFrom(this);
+        }
+
+        @java.lang.Override
+        protected Builder newBuilderForType(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          Builder builder = new Builder(parent);
+          return builder;
+        }
+        /**
+         * <pre>
+         * Use oneof for efficient memory usage - only one field type active per record field
+         * </pre>
+         *
+         * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue}
+         */
+        public static final class Builder extends
+            com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+            // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue)
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder {
+          public static final com.google.protobuf.Descriptors.Descriptor
+              getDescriptor() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_descriptor;
+          }
+
+          @java.lang.Override
+          protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+              internalGetFieldAccessorTable() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_fieldAccessorTable
+                .ensureFieldAccessorsInitialized(
+                    io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.class, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder.class);
+          }
+
+          // Construct using io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.newBuilder()
+          private Builder() {
+
+          }
+
+          private Builder(
+              com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+            super(parent);
+
+          }
+          @java.lang.Override
+          public Builder clear() {
+            super.clear();
+            bitField0_ = 0;
+            valueCase_ = 0;
+            value_ = null;
+            return this;
+          }
+
+          @java.lang.Override
+          public com.google.protobuf.Descriptors.Descriptor
+              getDescriptorForType() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_descriptor;
+          }
+
+          @java.lang.Override
+          public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getDefaultInstanceForType() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.getDefaultInstance();
+          }
+
+          @java.lang.Override
+          public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue build() {
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue result = buildPartial();
+            if (!result.isInitialized()) {
+              throw newUninitializedMessageException(result);
+            }
+            return result;
+          }
+
+          @java.lang.Override
+          public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue buildPartial() {
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue result = new io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue(this);
+            if (bitField0_ != 0) { buildPartial0(result); }
+            buildPartialOneofs(result);
+            onBuilt();
+            return result;
+          }
+
+          private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue result) {
+            int from_bitField0_ = bitField0_;
+          }
+
+          private void buildPartialOneofs(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue result) {
+            result.valueCase_ = valueCase_;
+            result.value_ = this.value_;
+          }
+
+          @java.lang.Override
+          public Builder clone() {
+            return super.clone();
+          }
+          @java.lang.Override
+          public Builder setField(
+              com.google.protobuf.Descriptors.FieldDescriptor field,
+              java.lang.Object value) {
+            return super.setField(field, value);
+          }
+          @java.lang.Override
+          public Builder clearField(
+              com.google.protobuf.Descriptors.FieldDescriptor field) {
+            return super.clearField(field);
+          }
+          @java.lang.Override
+          public Builder clearOneof(
+              com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+            return super.clearOneof(oneof);
+          }
+          @java.lang.Override
+          public Builder setRepeatedField(
+              com.google.protobuf.Descriptors.FieldDescriptor field,
+              int index, java.lang.Object value) {
+            return super.setRepeatedField(field, index, value);
+          }
+          @java.lang.Override
+          public Builder addRepeatedField(
+              com.google.protobuf.Descriptors.FieldDescriptor field,
+              java.lang.Object value) {
+            return super.addRepeatedField(field, value);
+          }
+          @java.lang.Override
+          public Builder mergeFrom(com.google.protobuf.Message other) {
+            if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue) {
+              return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue)other);
+            } else {
+              super.mergeFrom(other);
+              return this;
+            }
+          }
+
+          public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue other) {
+            if (other == io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.getDefaultInstance()) return this;
+            switch (other.getValueCase()) {
+              case STRING_VALUE: {
+                valueCase_ = 1;
+                value_ = other.value_;
+                onChanged();
+                break;
+              }
+              case INT_VALUE: {
+                setIntValue(other.getIntValue());
+                break;
+              }
+              case LONG_VALUE: {
+                setLongValue(other.getLongValue());
+                break;
+              }
+              case FLOAT_VALUE: {
+                setFloatValue(other.getFloatValue());
+                break;
+              }
+              case DOUBLE_VALUE: {
+                setDoubleValue(other.getDoubleValue());
+                break;
+              }
+              case BOOL_VALUE: {
+                setBoolValue(other.getBoolValue());
+                break;
+              }
+              case BYTES_VALUE: {
+                setBytesValue(other.getBytesValue());
+                break;
+              }
+              case VALUE_NOT_SET: {
+                break;
+              }
+            }
+            this.mergeUnknownFields(other.getUnknownFields());
+            onChanged();
+            return this;
+          }
+
+          @java.lang.Override
+          public final boolean isInitialized() {
+            return true;
+          }
+
+          @java.lang.Override
+          public Builder mergeFrom(
+              com.google.protobuf.CodedInputStream input,
+              com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+              throws java.io.IOException {
+            if (extensionRegistry == null) {
+              throw new java.lang.NullPointerException();
+            }
+            try {
+              boolean done = false;
+              while (!done) {
+                int tag = input.readTag();
+                switch (tag) {
+                  case 0:
+                    done = true;
+                    break;
+                  case 10: {
+                    java.lang.String s = input.readStringRequireUtf8();
+                    valueCase_ = 1;
+                    value_ = s;
+                    break;
+                  } // case 10
+                  case 16: {
+                    value_ = input.readInt32();
+                    valueCase_ = 2;
+                    break;
+                  } // case 16
+                  case 24: {
+                    value_ = input.readInt64();
+                    valueCase_ = 3;
+                    break;
+                  } // case 24
+                  case 37: {
+                    value_ = input.readFloat();
+                    valueCase_ = 4;
+                    break;
+                  } // case 37
+                  case 41: {
+                    value_ = input.readDouble();
+                    valueCase_ = 5;
+                    break;
+                  } // case 41
+                  case 48: {
+                    value_ = input.readBool();
+                    valueCase_ = 6;
+                    break;
+                  } // case 48
+                  case 58: {
+                    value_ = input.readBytes();
+                    valueCase_ = 7;
+                    break;
+                  } // case 58
+                  default: {
+                    if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                      done = true; // was an endgroup tag
+                    }
+                    break;
+                  } // default:
+                } // switch (tag)
+              } // while (!done)
+            } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+              throw e.unwrapIOException();
+            } finally {
+              onChanged();
+            } // finally
+            return this;
+          }
+          private int valueCase_ = 0;
+          private java.lang.Object value_;
+          public ValueCase
+              getValueCase() {
+            return ValueCase.forNumber(
+                valueCase_);
+          }
+
+          public Builder clearValue() {
+            valueCase_ = 0;
+            value_ = null;
+            onChanged();
+            return this;
+          }
+
+          private int bitField0_;
+
+          /**
+           * <code>string string_value = 1;</code>
+           * @return Whether the stringValue field is set.
+           */
+          @java.lang.Override
+          public boolean hasStringValue() {
+            return valueCase_ == 1;
+          }
+          /**
+           * <code>string string_value = 1;</code>
+           * @return The stringValue.
+           */
+          @java.lang.Override
+          public java.lang.String getStringValue() {
+            java.lang.Object ref = "";
+            if (valueCase_ == 1) {
+              ref = value_;
+            }
+            if (!(ref instanceof java.lang.String)) {
+              com.google.protobuf.ByteString bs =
+                  (com.google.protobuf.ByteString) ref;
+              java.lang.String s = bs.toStringUtf8();
+              if (valueCase_ == 1) {
+                value_ = s;
+              }
+              return s;
+            } else {
+              return (java.lang.String) ref;
+            }
+          }
+          /**
+           * <code>string string_value = 1;</code>
+           * @return The bytes for stringValue.
+           */
+          @java.lang.Override
+          public com.google.protobuf.ByteString
+              getStringValueBytes() {
+            java.lang.Object ref = "";
+            if (valueCase_ == 1) {
+              ref = value_;
+            }
+            if (ref instanceof String) {
+              com.google.protobuf.ByteString b = 
+                  com.google.protobuf.ByteString.copyFromUtf8(
+                      (java.lang.String) ref);
+              if (valueCase_ == 1) {
+                value_ = b;
+              }
+              return b;
+            } else {
+              return (com.google.protobuf.ByteString) ref;
+            }
+          }
+          /**
+           * <code>string string_value = 1;</code>
+           * @param value The stringValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setStringValue(
+              java.lang.String value) {
+            if (value == null) { throw new NullPointerException(); }
+            valueCase_ = 1;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>string string_value = 1;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearStringValue() {
+            if (valueCase_ == 1) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+          /**
+           * <code>string string_value = 1;</code>
+           * @param value The bytes for stringValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setStringValueBytes(
+              com.google.protobuf.ByteString value) {
+            if (value == null) { throw new NullPointerException(); }
+            checkByteStringIsUtf8(value);
+            valueCase_ = 1;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+
+          /**
+           * <code>int32 int_value = 2;</code>
+           * @return Whether the intValue field is set.
+           */
+          public boolean hasIntValue() {
+            return valueCase_ == 2;
+          }
+          /**
+           * <code>int32 int_value = 2;</code>
+           * @return The intValue.
+           */
+          public int getIntValue() {
+            if (valueCase_ == 2) {
+              return (java.lang.Integer) value_;
+            }
+            return 0;
+          }
+          /**
+           * <code>int32 int_value = 2;</code>
+           * @param value The intValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setIntValue(int value) {
+            
+            valueCase_ = 2;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>int32 int_value = 2;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearIntValue() {
+            if (valueCase_ == 2) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>int64 long_value = 3;</code>
+           * @return Whether the longValue field is set.
+           */
+          public boolean hasLongValue() {
+            return valueCase_ == 3;
+          }
+          /**
+           * <code>int64 long_value = 3;</code>
+           * @return The longValue.
+           */
+          public long getLongValue() {
+            if (valueCase_ == 3) {
+              return (java.lang.Long) value_;
+            }
+            return 0L;
+          }
+          /**
+           * <code>int64 long_value = 3;</code>
+           * @param value The longValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setLongValue(long value) {
+            
+            valueCase_ = 3;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>int64 long_value = 3;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearLongValue() {
+            if (valueCase_ == 3) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>float float_value = 4;</code>
+           * @return Whether the floatValue field is set.
+           */
+          public boolean hasFloatValue() {
+            return valueCase_ == 4;
+          }
+          /**
+           * <code>float float_value = 4;</code>
+           * @return The floatValue.
+           */
+          public float getFloatValue() {
+            if (valueCase_ == 4) {
+              return (java.lang.Float) value_;
+            }
+            return 0F;
+          }
+          /**
+           * <code>float float_value = 4;</code>
+           * @param value The floatValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setFloatValue(float value) {
+            
+            valueCase_ = 4;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>float float_value = 4;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearFloatValue() {
+            if (valueCase_ == 4) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>double double_value = 5;</code>
+           * @return Whether the doubleValue field is set.
+           */
+          public boolean hasDoubleValue() {
+            return valueCase_ == 5;
+          }
+          /**
+           * <code>double double_value = 5;</code>
+           * @return The doubleValue.
+           */
+          public double getDoubleValue() {
+            if (valueCase_ == 5) {
+              return (java.lang.Double) value_;
+            }
+            return 0D;
+          }
+          /**
+           * <code>double double_value = 5;</code>
+           * @param value The doubleValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setDoubleValue(double value) {
+            
+            valueCase_ = 5;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>double double_value = 5;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearDoubleValue() {
+            if (valueCase_ == 5) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return Whether the boolValue field is set.
+           */
+          public boolean hasBoolValue() {
+            return valueCase_ == 6;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return The boolValue.
+           */
+          public boolean getBoolValue() {
+            if (valueCase_ == 6) {
+              return (java.lang.Boolean) value_;
+            }
+            return false;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @param value The boolValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setBoolValue(boolean value) {
+            
+            valueCase_ = 6;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearBoolValue() {
+            if (valueCase_ == 6) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @return Whether the bytesValue field is set.
+           */
+          public boolean hasBytesValue() {
+            return valueCase_ == 7;
+          }
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @return The bytesValue.
+           */
+          public com.google.protobuf.ByteString getBytesValue() {
+            if (valueCase_ == 7) {
+              return (com.google.protobuf.ByteString) value_;
+            }
+            return com.google.protobuf.ByteString.EMPTY;
+          }
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @param value The bytesValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setBytesValue(com.google.protobuf.ByteString value) {
+            if (value == null) { throw new NullPointerException(); }
+            valueCase_ = 7;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearBytesValue() {
+            if (valueCase_ == 7) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+          @java.lang.Override
+          public final Builder setUnknownFields(
+              final com.google.protobuf.UnknownFieldSet unknownFields) {
+            return super.setUnknownFields(unknownFields);
+          }
+
+          @java.lang.Override
+          public final Builder mergeUnknownFields(
+              final com.google.protobuf.UnknownFieldSet unknownFields) {
+            return super.mergeUnknownFields(unknownFields);
+          }
+
+
+          // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue)
+        }
+
+        // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue)
+        private static final io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue DEFAULT_INSTANCE;
+        static {
+          DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue();
+        }
+
+        public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getDefaultInstance() {
+          return DEFAULT_INSTANCE;
+        }
+
+        private static final com.google.protobuf.Parser<FieldValue>
+            PARSER = new com.google.protobuf.AbstractParser<FieldValue>() {
+          @java.lang.Override
+          public FieldValue parsePartialFrom(
+              com.google.protobuf.CodedInputStream input,
+              com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+              throws com.google.protobuf.InvalidProtocolBufferException {
+            Builder builder = newBuilder();
+            try {
+              builder.mergeFrom(input, extensionRegistry);
+            } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+              throw e.setUnfinishedMessage(builder.buildPartial());
+            } catch (com.google.protobuf.UninitializedMessageException e) {
+              throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+            } catch (java.io.IOException e) {
+              throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                  .setUnfinishedMessage(builder.buildPartial());
+            }
+            return builder.buildPartial();
+          }
+        };
+
+        public static com.google.protobuf.Parser<FieldValue> parser() {
+          return PARSER;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Parser<FieldValue> getParserForType() {
+          return PARSER;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getDefaultInstanceForType() {
+          return DEFAULT_INSTANCE;
+        }
+
+      }
+
       public static final int FIELDS_FIELD_NUMBER = 1;
       @SuppressWarnings("serial")
-      private java.util.List<com.google.protobuf.Value> fields_;
+      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> fields_;
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
       @java.lang.Override
-      public java.util.List<com.google.protobuf.Value> getFieldsList() {
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> getFieldsList() {
         return fields_;
       }
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
       @java.lang.Override
-      public java.util.List<? extends com.google.protobuf.ValueOrBuilder> 
+      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> 
           getFieldsOrBuilderList() {
         return fields_;
       }
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
       @java.lang.Override
       public int getFieldsCount() {
         return fields_.size();
       }
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
       @java.lang.Override
-      public com.google.protobuf.Value getFields(int index) {
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getFields(int index) {
         return fields_.get(index);
       }
       /**
-       * <code>repeated .google.protobuf.Value fields = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
        */
       @java.lang.Override
-      public com.google.protobuf.ValueOrBuilder getFieldsOrBuilder(
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder getFieldsOrBuilder(
           int index) {
         return fields_.get(index);
       }
@@ -2732,6 +3855,10 @@ public final class RecordIngest {
         return builder;
       }
       /**
+       * <pre>
+       * OPTIMIZED: Replace google.protobuf.Value with typed fields
+       * </pre>
+       *
        * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord}
        */
       public static final class Builder extends
@@ -2926,9 +4053,9 @@ public final class RecordIngest {
                   done = true;
                   break;
                 case 10: {
-                  com.google.protobuf.Value m =
+                  io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue m =
                       input.readMessage(
-                          com.google.protobuf.Value.parser(),
+                          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.parser(),
                           extensionRegistry);
                   if (fieldsBuilder_ == null) {
                     ensureFieldsIsMutable();
@@ -2960,22 +4087,22 @@ public final class RecordIngest {
         }
         private int bitField0_;
 
-        private java.util.List<com.google.protobuf.Value> fields_ =
+        private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> fields_ =
           java.util.Collections.emptyList();
         private void ensureFieldsIsMutable() {
           if (!((bitField0_ & 0x00000001) != 0)) {
-            fields_ = new java.util.ArrayList<com.google.protobuf.Value>(fields_);
+            fields_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>(fields_);
             bitField0_ |= 0x00000001;
            }
         }
 
         private com.google.protobuf.RepeatedFieldBuilderV3<
-            com.google.protobuf.Value, com.google.protobuf.Value.Builder, com.google.protobuf.ValueOrBuilder> fieldsBuilder_;
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> fieldsBuilder_;
 
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public java.util.List<com.google.protobuf.Value> getFieldsList() {
+        public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> getFieldsList() {
           if (fieldsBuilder_ == null) {
             return java.util.Collections.unmodifiableList(fields_);
           } else {
@@ -2983,7 +4110,7 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public int getFieldsCount() {
           if (fieldsBuilder_ == null) {
@@ -2993,9 +4120,9 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public com.google.protobuf.Value getFields(int index) {
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getFields(int index) {
           if (fieldsBuilder_ == null) {
             return fields_.get(index);
           } else {
@@ -3003,10 +4130,10 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder setFields(
-            int index, com.google.protobuf.Value value) {
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue value) {
           if (fieldsBuilder_ == null) {
             if (value == null) {
               throw new NullPointerException();
@@ -3020,10 +4147,10 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder setFields(
-            int index, com.google.protobuf.Value.Builder builderForValue) {
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder builderForValue) {
           if (fieldsBuilder_ == null) {
             ensureFieldsIsMutable();
             fields_.set(index, builderForValue.build());
@@ -3034,9 +4161,9 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public Builder addFields(com.google.protobuf.Value value) {
+        public Builder addFields(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue value) {
           if (fieldsBuilder_ == null) {
             if (value == null) {
               throw new NullPointerException();
@@ -3050,10 +4177,10 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder addFields(
-            int index, com.google.protobuf.Value value) {
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue value) {
           if (fieldsBuilder_ == null) {
             if (value == null) {
               throw new NullPointerException();
@@ -3067,10 +4194,10 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder addFields(
-            com.google.protobuf.Value.Builder builderForValue) {
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder builderForValue) {
           if (fieldsBuilder_ == null) {
             ensureFieldsIsMutable();
             fields_.add(builderForValue.build());
@@ -3081,10 +4208,10 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder addFields(
-            int index, com.google.protobuf.Value.Builder builderForValue) {
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder builderForValue) {
           if (fieldsBuilder_ == null) {
             ensureFieldsIsMutable();
             fields_.add(index, builderForValue.build());
@@ -3095,10 +4222,10 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder addAllFields(
-            java.lang.Iterable<? extends com.google.protobuf.Value> values) {
+            java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> values) {
           if (fieldsBuilder_ == null) {
             ensureFieldsIsMutable();
             com.google.protobuf.AbstractMessageLite.Builder.addAll(
@@ -3110,7 +4237,7 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder clearFields() {
           if (fieldsBuilder_ == null) {
@@ -3123,7 +4250,7 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
         public Builder removeFields(int index) {
           if (fieldsBuilder_ == null) {
@@ -3136,16 +4263,16 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public com.google.protobuf.Value.Builder getFieldsBuilder(
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder getFieldsBuilder(
             int index) {
           return getFieldsFieldBuilder().getBuilder(index);
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public com.google.protobuf.ValueOrBuilder getFieldsOrBuilder(
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder getFieldsOrBuilder(
             int index) {
           if (fieldsBuilder_ == null) {
             return fields_.get(index);  } else {
@@ -3153,9 +4280,9 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public java.util.List<? extends com.google.protobuf.ValueOrBuilder> 
+        public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> 
              getFieldsOrBuilderList() {
           if (fieldsBuilder_ != null) {
             return fieldsBuilder_.getMessageOrBuilderList();
@@ -3164,33 +4291,33 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public com.google.protobuf.Value.Builder addFieldsBuilder() {
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder addFieldsBuilder() {
           return getFieldsFieldBuilder().addBuilder(
-              com.google.protobuf.Value.getDefaultInstance());
+              io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.getDefaultInstance());
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public com.google.protobuf.Value.Builder addFieldsBuilder(
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder addFieldsBuilder(
             int index) {
           return getFieldsFieldBuilder().addBuilder(
-              index, com.google.protobuf.Value.getDefaultInstance());
+              index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.getDefaultInstance());
         }
         /**
-         * <code>repeated .google.protobuf.Value fields = 1;</code>
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue fields = 1;</code>
          */
-        public java.util.List<com.google.protobuf.Value.Builder> 
+        public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder> 
              getFieldsBuilderList() {
           return getFieldsFieldBuilder().getBuilderList();
         }
         private com.google.protobuf.RepeatedFieldBuilderV3<
-            com.google.protobuf.Value, com.google.protobuf.Value.Builder, com.google.protobuf.ValueOrBuilder> 
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> 
             getFieldsFieldBuilder() {
           if (fieldsBuilder_ == null) {
             fieldsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
-                com.google.protobuf.Value, com.google.protobuf.Value.Builder, com.google.protobuf.ValueOrBuilder>(
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder>(
                     fields_,
                     ((bitField0_ & 0x00000001) != 0),
                     getParentForChildren(),
@@ -3403,10 +4530,6 @@ public final class RecordIngest {
     @SuppressWarnings("serial")
     private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord> records_;
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     @java.lang.Override
@@ -3414,10 +4537,6 @@ public final class RecordIngest {
       return records_;
     }
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     @java.lang.Override
@@ -3426,10 +4545,6 @@ public final class RecordIngest {
       return records_;
     }
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     @java.lang.Override
@@ -3437,10 +4552,6 @@ public final class RecordIngest {
       return records_.size();
     }
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     @java.lang.Override
@@ -3448,10 +4559,6 @@ public final class RecordIngest {
       return records_.get(index);
     }
     /**
-     * <pre>
-     * Only present for "records" type
-     * </pre>
-     *
      * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
      */
     @java.lang.Override
@@ -4075,10 +5182,6 @@ public final class RecordIngest {
           io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecordOrBuilder> recordsBuilder_;
 
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord> getRecordsList() {
@@ -4089,10 +5192,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public int getRecordsCount() {
@@ -4103,10 +5202,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord getRecords(int index) {
@@ -4117,10 +5212,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder setRecords(
@@ -4138,10 +5229,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder setRecords(
@@ -4156,10 +5243,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder addRecords(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord value) {
@@ -4176,10 +5259,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder addRecords(
@@ -4197,10 +5276,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder addRecords(
@@ -4215,10 +5290,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder addRecords(
@@ -4233,10 +5304,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder addAllRecords(
@@ -4252,10 +5319,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder clearRecords() {
@@ -4269,10 +5332,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public Builder removeRecords(int index) {
@@ -4286,10 +5345,6 @@ public final class RecordIngest {
         return this;
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.Builder getRecordsBuilder(
@@ -4297,10 +5352,6 @@ public final class RecordIngest {
         return getRecordsFieldBuilder().getBuilder(index);
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecordOrBuilder getRecordsOrBuilder(
@@ -4311,10 +5362,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecordOrBuilder> 
@@ -4326,10 +5373,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.Builder addRecordsBuilder() {
@@ -4337,10 +5380,6 @@ public final class RecordIngest {
             io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.getDefaultInstance());
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.Builder addRecordsBuilder(
@@ -4349,10 +5388,6 @@ public final class RecordIngest {
             index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.getDefaultInstance());
       }
       /**
-       * <pre>
-       * Only present for "records" type
-       * </pre>
-       *
        * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord records = 3;</code>
        */
       public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.Builder> 
@@ -4454,6 +5489,10 @@ public final class RecordIngest {
         getResultBytes();
 
     /**
+     * <pre>
+     * Adding success boolean for better error handling
+     * </pre>
+     *
      * <code>bool success = 2;</code>
      * @return The success.
      */
@@ -4542,6 +5581,10 @@ public final class RecordIngest {
     public static final int SUCCESS_FIELD_NUMBER = 2;
     private boolean success_ = false;
     /**
+     * <pre>
+     * Adding success boolean for better error handling
+     * </pre>
+     *
      * <code>bool success = 2;</code>
      * @return The success.
      */
@@ -4972,6 +6015,10 @@ public final class RecordIngest {
 
       private boolean success_ ;
       /**
+       * <pre>
+       * Adding success boolean for better error handling
+       * </pre>
+       *
        * <code>bool success = 2;</code>
        * @return The success.
        */
@@ -4980,6 +6027,10 @@ public final class RecordIngest {
         return success_;
       }
       /**
+       * <pre>
+       * Adding success boolean for better error handling
+       * </pre>
+       *
        * <code>bool success = 2;</code>
        * @param value The success to set.
        * @return This builder for chaining.
@@ -4992,6 +6043,10 @@ public final class RecordIngest {
         return this;
       }
       /**
+       * <pre>
+       * Adding success boolean for better error handling
+       * </pre>
+       *
        * <code>bool success = 2;</code>
        * @return This builder for chaining.
        */
@@ -5086,6 +6141,11 @@ public final class RecordIngest {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
@@ -5100,34 +6160,38 @@ public final class RecordIngest {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\032\034google/protobuf/struct.pr" +
-      "oto\"\373\004\n\016IcebergPayload\022H\n\004type\030\001 \001(\0162:.i" +
-      "o.debezium.server.iceberg.rpc.IcebergPay" +
-      "load.PayloadType\022I\n\010metadata\030\002 \001(\01327.io." +
-      "debezium.server.iceberg.rpc.IcebergPaylo" +
-      "ad.Metadata\022I\n\007records\030\003 \003(\01328.io.debezi" +
-      "um.server.iceberg.rpc.IcebergPayload.Ice" +
-      "Record\032\254\001\n\010Metadata\022\027\n\017dest_table_name\030\001" +
-      " \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\030\n\013primary_key\030\003" +
-      " \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\0132:.io.debezium." +
-      "server.iceberg.rpc.IcebergPayload.Schema" +
-      "FieldB\016\n\014_primary_key\032,\n\013SchemaField\022\020\n\010" +
-      "ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032H\n\tIceRecord" +
-      "\022&\n\006fields\030\001 \003(\0132\026.google.protobuf.Value" +
-      "\022\023\n\013record_type\030\002 \001(\t\"b\n\013PayloadType\022\013\n\007" +
-      "RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002" +
-      "\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020" +
-      "\004\"7\n\024RecordIngestResponse\022\016\n\006result\030\001 \001(" +
-      "\t\022\017\n\007success\030\002 \001(\0102\212\001\n\023RecordIngestServi" +
-      "ce\022s\n\013SendRecords\022..io.debezium.server.i" +
-      "ceberg.rpc.IcebergPayload\0324.io.debezium." +
-      "server.iceberg.rpc.RecordIngestResponseb" +
-      "\006proto3"
+      "r.iceberg.rpc\"\340\006\n\016IcebergPayload\022H\n\004type" +
+      "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
+      "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
+      " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
+      "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
+      ".io.debezium.server.iceberg.rpc.IcebergP" +
+      "ayload.IceRecord\032\254\001\n\010Metadata\022\027\n\017dest_ta" +
+      "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\030\n\013pri" +
+      "mary_key\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\0132:.io" +
+      ".debezium.server.iceberg.rpc.IcebergPayl" +
+      "oad.SchemaFieldB\016\n\014_primary_key\032,\n\013Schem" +
+      "aField\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032\254\002" +
+      "\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C.io.debeziu" +
+      "m.server.iceberg.rpc.IcebergPayload.IceR" +
+      "ecord.FieldValue\022\023\n\013record_type\030\002 \001(\t\032\264\001" +
+      "\n\nFieldValue\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\t" +
+      "int_value\030\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022" +
+      "\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005" +
+      " \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025\n\013bytes_va" +
+      "lue\030\007 \001(\014H\000B\007\n\005value\"b\n\013PayloadType\022\013\n\007R" +
+      "ECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022" +
+      "\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004" +
+      "\"7\n\024RecordIngestResponse\022\016\n\006result\030\001 \001(\t" +
+      "\022\017\n\007success\030\002 \001(\0102\212\001\n\023RecordIngestServic" +
+      "e\022s\n\013SendRecords\022..io.debezium.server.ic" +
+      "eberg.rpc.IcebergPayload\0324.io.debezium.s" +
+      "erver.iceberg.rpc.RecordIngestResponseb\006" +
+      "proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
         new com.google.protobuf.Descriptors.FileDescriptor[] {
-          com.google.protobuf.StructProto.getDescriptor(),
         });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor =
       getDescriptor().getMessageTypes().get(0);
@@ -5153,13 +6217,18 @@ public final class RecordIngest {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor,
         new java.lang.String[] { "Fields", "RecordType", });
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_descriptor =
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor.getNestedTypes().get(0);
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_descriptor,
+        new java.lang.String[] { "StringValue", "IntValue", "LongValue", "FloatValue", "DoubleValue", "BoolValue", "BytesValue", "Value", });
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor =
       getDescriptor().getMessageTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor,
         new java.lang.String[] { "Result", "Success", });
-    com.google.protobuf.StructProto.getDescriptor();
   }
 
   // @@protoc_insertion_point(outer_class_scope)

@@ -142,8 +142,8 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, check, upse
 
 	// setup command
 	var serverCmd *exec.Cmd
-	// If debug mode is enabled and stream is available (stream is nil for check operations), start the server with debug options
-	if os.Getenv("OLAKE_DEBUG_MODE") != "" && check {
+	// If debug mode is enabled and it is not check command
+	if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
 		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
 	} else {
 		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))

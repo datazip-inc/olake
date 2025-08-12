@@ -16,7 +16,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type Iceberg struct {
@@ -96,6 +95,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	return nil, nil
 }
 
+// note: java server parses time from long value which will in milliseconds
 func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawRecord) error {
 	schemaMap, ok := schema.(map[string]string)
 	if !ok {
@@ -103,9 +103,10 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	}
 
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(schemaMap))
-	for field, _ := range schemaMap {
+	for field, dType := range schemaMap {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
-			Key: field,
+			Key:     field,
+			IceType: dType,
 		})
 	}
 
@@ -145,17 +146,17 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 			continue
 		}
 
-		protoColumns := make([]*structpb.Value, 0, len(protoSchema))
+		protoColumns := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 		if !i.stream.NormalizationEnabled() {
-			dataMap := make(map[string]*structpb.Value)
-			dataMap[constants.OlakeID] = structpb.NewStringValue(record.OlakeID)
-			dataMap[constants.CdcTimestamp] = structpb.NewStringValue(record.CdcTimestamp.UTC().Format(time.RFC3339Nano))
-			dataMap[constants.OlakeTimestamp] = structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339Nano))
+			dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
+			dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OlakeID}}
+			dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
+			dataMap[constants.OlakeTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().UnixMilli()}}
 			bytesData, err := json.Marshal(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to marshal data in normalization: %s", err)
 			}
-			dataMap[constants.StringifiedData] = structpb.NewStringValue(string(bytesData))
+			dataMap[constants.StringifiedData] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: string(bytesData)}}
 
 			for _, field := range protoSchema {
 				value, ok := dataMap[field.Key]
@@ -172,11 +173,45 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 					protoColumns = append(protoColumns, nil)
 					continue
 				}
-
-				if t, ok := val.(time.Time); ok {
-					protoColumns = append(protoColumns, structpb.NewStringValue(t.UTC().Format(time.RFC3339Nano)))
-				} else {
-					protoColumns = append(protoColumns, structpb.NewStringValue(fmt.Sprintf("%v", val)))
+				switch field.IceType {
+				case "boolean":
+					boolVal, err := typeutils.ReformatBool(val)
+					if err != nil {
+						return fmt.Errorf("failed to reformat rawValue[%v] as bool value: %s", val, err)
+					}
+					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolVal}})
+				case "int":
+					intValue, err := typeutils.ReformatInt32(val)
+					if err != nil {
+						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as int32 value: %s", val, val, err)
+					}
+					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: intValue}})
+				case "long":
+					longValue, err := typeutils.ReformatInt64(val)
+					if err != nil {
+						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as long value: %s", val, val, err)
+					}
+					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: longValue}})
+				case "float":
+					floatValue, err := typeutils.ReformatFloat32(val)
+					if err != nil {
+						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float32 value: %s", val, val, err)
+					}
+					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: floatValue}})
+				case "double":
+					doubleValue, err := typeutils.ReformatFloat64(val)
+					if err != nil {
+						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float64 value: %s", val, val, err)
+					}
+					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}})
+				case "timestamptz":
+					timeValue, err := typeutils.ReformatDate(val)
+					if err != nil {
+						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as time value: %s", val, val, err)
+					}
+					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: timeValue.UnixMilli()}})
+				default:
+					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", val)}})
 				}
 			}
 		}
@@ -290,13 +325,13 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	// try writing record in dest table
 	schema := icebergRawSchema()
-	protoColumns := make([]*structpb.Value, 0, len(schema))
+	protoColumns := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(schema))
 
-	dataMap := make(map[string]*structpb.Value)
-	dataMap[constants.OlakeID] = structpb.NewStringValue("olake_row_id_1")
-	dataMap[constants.CdcTimestamp] = structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339Nano))
-	dataMap[constants.OlakeTimestamp] = structpb.NewStringValue(time.Now().UTC().Format(time.RFC3339Nano))
-	dataMap[constants.StringifiedData] = structpb.NewStringValue(`{"name": "olake"}`)
+	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
+	dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: "test_olake_id"}}
+	dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().Unix()}}
+	dataMap[constants.OlakeTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().Unix()}}
+	dataMap[constants.StringifiedData] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: `{"name": "olake"}`}}
 	for _, field := range schema {
 		protoColumns = append(protoColumns, dataMap[field.Key])
 	}
