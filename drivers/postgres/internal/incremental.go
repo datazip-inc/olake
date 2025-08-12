@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 )
 
-// IncrementalChanges is not supported for PostgreSQL
 func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	filter, err := jdbc.SQLFilter(stream, p.Type())
 	if err != nil {
@@ -17,7 +17,7 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 	}
 
 	opts := jdbc.IncrementalConditionOptions{
-		Driver: "postgres",
+		Driver: constants.Postgres,
 		Stream: stream,
 		State:  p.state,
 		Filter: filter,

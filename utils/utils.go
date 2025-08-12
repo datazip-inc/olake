@@ -321,11 +321,11 @@ func CompareInterfaceValue(a, b interface{}) int {
 		}
 		return 0
 	case float32, float64:
-		af := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
-		bf := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
-		if af < bf {
+		aFloat := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
+		bFloat := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
+		if aFloat < bFloat {
 			return -1
-		} else if af > bf {
+		} else if aFloat > bFloat {
 			return 1
 		}
 		return 0

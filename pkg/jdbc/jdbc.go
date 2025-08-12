@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -398,6 +399,36 @@ func OracleChunkRetrievalQuery(taskName string) string {
 	return fmt.Sprintf(`SELECT chunk_id, start_rowid, end_rowid FROM user_parallel_execute_chunks WHERE task_name = '%s' ORDER BY chunk_id`, taskName)
 }
 
+// OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
+func OracleIncrementalValueFormatter(cursorField string, lastCursorValue any, argumentPosition int, opts IncrementalConditionOptions) (string, any, error) {
+	// this query is only used for Oracle to get the datatype of the cursor field
+	const oracleColumnDatatypeQuery = "SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'"
+
+	// Get the datatype of the cursor field from streams
+	stream := opts.Stream
+	datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
+	if err != nil {
+		return "", nil, fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
+	}
+
+	isTimestamp := strings.Contains(string(datatype), "timestamp")
+	formattedValue, err := typeutils.ReformatValue(datatype, lastCursorValue)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to reformat value: %s", err)
+	}
+
+	query := fmt.Sprintf(oracleColumnDatatypeQuery, stream.Namespace(), stream.Name(), cursorField)
+	err = opts.Client.QueryRow(query).Scan(&datatype)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+	}
+	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
+	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
+		return fmt.Sprintf("%q >= CAST(:%d AS TIMESTAMP)", cursorField, argumentPosition), formattedValue, nil
+	}
+	return fmt.Sprintf("%q >= :%d", cursorField, argumentPosition), formattedValue, nil
+}
+
 // ParseFilter converts a filter string to a valid SQL WHERE condition
 func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 	buildCondition := func(cond types.Condition, driver string) (string, error) {
@@ -463,7 +494,7 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 
 // IncrementalConditionOptions contains options for building incremental conditions
 type IncrementalConditionOptions struct {
-	Driver string
+	Driver constants.DriverType
 	Stream types.StreamInterface
 	State  *types.State
 	Client *sqlx.DB
@@ -483,58 +514,34 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 		logger.Warnf("last secondary cursor value is nil for stream[%s]", opts.Stream.ID())
 	}
 
-	// this query is only used for Oracle to get the datatype of the cursor field
-	const oracleColumnDatatypeQuery = "SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'"
-
 	// Get placeholder and quotes style based on driver
 	var placeholder func(int) string
 	var quoteIdentifier func(string) string
 	switch opts.Driver {
-	case "mysql":
+	case constants.MySQL:
 		{
 			placeholder = func(_ int) string { return "?" }
 			quoteIdentifier = func(identifier string) string { return fmt.Sprintf("`%s`", identifier) }
 		}
-	case "postgres":
+	case constants.Postgres:
 		{
 			placeholder = func(i int) string { return fmt.Sprintf("$%d", i) }
 			quoteIdentifier = func(identifier string) string { return identifier } // postgres doesn't require quotes
 		}
-	case "oracle":
+	case constants.Oracle:
 		{
 			placeholder = func(i int) string { return fmt.Sprintf(":%d", i) }
 			quoteIdentifier = func(identifier string) string { return fmt.Sprintf("%q", identifier) }
 		}
 	default:
-		return "", nil, fmt.Errorf("unsupported driver: %s", opts.Driver)
+		return "", nil, fmt.Errorf("unsupported driver: %s", string(opts.Driver))
 	}
 
 	valueFormatter := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
 		formattedValue := lastCursorValue
 		// Formatting the value is only required for Oracle due to various timestamp formats
-		if opts.Driver == "oracle" {
-			// Get the datatype of the cursor field from streams
-			stream := opts.Stream
-			datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
-			if err != nil {
-				return "", nil, fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
-			}
-
-			isTimestamp := strings.Contains(string(datatype), "timestamp")
-			formattedValue, err = typeutils.ReformatValue(datatype, lastCursorValue)
-			if err != nil {
-				return "", nil, fmt.Errorf("failed to reformat value: %s", err)
-			}
-
-			query := fmt.Sprintf(oracleColumnDatatypeQuery, stream.Namespace(), stream.Name(), cursorField)
-			err = opts.Client.QueryRow(query).Scan(&datatype)
-			if err != nil {
-				return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
-			}
-			// if the cursor field is a timestamp and not timezone aware, we need to cast the value to a timestamp
-			if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
-				return fmt.Sprintf("%q >= CAST(:%d AS TIMESTAMP)", cursorField, argumentPosition), formattedValue, nil
-			}
+		if opts.Driver == constants.Oracle {
+			return OracleIncrementalValueFormatter(cursorField, lastCursorValue, argumentPosition, opts)
 		}
 
 		return fmt.Sprintf("%s >= %s", quoteIdentifier(cursorField), placeholder(argumentPosition)), formattedValue, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
@@ -17,7 +18,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}
 
 	opts := jdbc.IncrementalConditionOptions{
-		Driver: "oracle",
+		Driver: constants.Oracle,
 		Stream: stream,
 		State:  o.state,
 		Client: o.client,
