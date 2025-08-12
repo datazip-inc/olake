@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
 
@@ -42,7 +43,7 @@ type StreamMetadata struct {
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode,omitempty"`
-	Normalization  bool   `json:"normalization" default:"false"`
+	Normalization  bool   `json:"normalization"`
 	Filter         string `json:"filter,omitempty"`
 }
 
@@ -52,7 +53,11 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-func GetWrappedCatalog(streams []*Stream) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
+	// Whether the source is a relational driver or not
+	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
+		return src == constants.DriverType(driver)
+	})
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -67,6 +72,7 @@ func GetWrappedCatalog(streams []*Stream) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			AppendMode:     false,
+			Normalization:  isRelational,
 		})
 	}
 
@@ -113,12 +119,9 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		if !exists {
 			return nil
 		}
-		if newStream.SupportedSyncModes().Exists(oldStream.Stream.SyncMode) {
-			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
-		}
-		if newStream.Stream.AvailableCursorFields.Exists(oldStream.Stream.CursorField) {
-			newStream.Stream.CursorField = oldStream.Stream.CursorField
-		}
+		// not adding checks, let validation handle it
+		newStream.Stream.SyncMode = oldStream.Stream.SyncMode
+		newStream.Stream.CursorField = oldStream.Stream.CursorField
 		return nil
 	})
 
