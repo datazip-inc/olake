@@ -68,7 +68,7 @@ func (m *MySQL) buildIncrementalCondition(stream types.StreamInterface) (string,
 	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
 		queryArgs = []any{lastPrimaryCursorValue, lastSecondaryCursorValue}
 		incrementalCondition = fmt.Sprintf(" %s OR (`%s` IS NULL AND `%s` >= ?)",
-		incrementalCondition, primaryCursor, secondaryCursor)
+			incrementalCondition, primaryCursor, secondaryCursor)
 	}
 	return incrementalCondition, queryArgs, nil
 }

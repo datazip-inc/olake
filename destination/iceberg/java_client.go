@@ -22,7 +22,6 @@ type serverInstance struct {
 	cmd      *exec.Cmd
 	client   proto.RecordIngestServiceClient
 	conn     *grpc.ClientConn
-	upsert   bool
 	serverID string
 }
 

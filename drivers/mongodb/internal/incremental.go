@@ -65,7 +65,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
 		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
 	}
-	
+
 	incrementalCondition := buildMongoCondition(types.Condition{
 		Column:   primaryCursor,
 		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),

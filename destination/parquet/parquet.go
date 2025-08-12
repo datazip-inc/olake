@@ -112,7 +112,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, createOrLoadSchema bool, options *destination.Options) (any, error) {
+func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, createOrLoadSchema bool, options *destination.Options) (any, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = sync.Map{}
@@ -127,19 +127,17 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, creat
 		return nil, err
 	}
 
-	if createOrLoadSchema {
-		if p.stream.NormalizationEnabled() {
-			fields := make(typeutils.Fields)
-			fields.FromSchema(stream.Schema())
-			return fields, nil
-		}
-		return types.RawSchema, nil
+	if createOrLoadSchema && p.stream.NormalizationEnabled() {
+		fields := make(typeutils.Fields)
+		fields.FromSchema(stream.Schema())
+		return fields, nil
 	}
-	return nil, nil
+	// note: calling function variable only update if createOrLoadSchema is true
+	return types.RawSchema, nil
 }
 
 // Write writes a record to the Parquet file.
-func (p *Parquet) Write(ctx context.Context, schema any, records []types.RawRecord) error {
+func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
@@ -225,7 +223,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context) error {
+func (p *Parquet) Close(_ context.Context) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -260,12 +258,11 @@ func (p *Parquet) Close(ctx context.Context) error {
 			err = parquetFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
 		}
 		if err != nil {
-			err = fmt.Errorf("failed to close writer: %s", err)
 			return false
 		}
+
 		// Close file
 		if err := parquetFile.file.Close(); err != nil {
-			err = fmt.Errorf("failed to close file: %s", err)
 			return false
 		}
 
@@ -275,7 +272,6 @@ func (p *Parquet) Close(ctx context.Context) error {
 			// Open file for S3 upload
 			file, err := os.Open(filePath)
 			if err != nil {
-				err = fmt.Errorf("failed to open local file for S3 upload: %s", err)
 				return false
 			}
 			defer file.Close()
@@ -294,7 +290,6 @@ func (p *Parquet) Close(ctx context.Context) error {
 				Body:   file,
 			})
 			if err != nil {
-				err = fmt.Errorf("failed to upload file to S3 (bucket: %s, path: %s): %s", p.config.Bucket, s3KeyPath, err)
 				return false
 			}
 

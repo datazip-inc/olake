@@ -182,7 +182,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
 		if fieldName, ok := key.(string); ok {
-				stream.WithCursorField(fieldName)
+			stream.WithCursorField(fieldName)
 		}
 		return true
 	})

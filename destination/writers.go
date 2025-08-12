@@ -257,13 +257,11 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 		init:          newfunc,
 	}
 
-	if syncStreams != nil {
-		for _, stream := range syncStreams {
-			pool.streamArtifacts.Store(stream, &StreamArtifacts{
-				mutex:  sync.RWMutex{},
-				schema: nil,
-			})
-		}
+	for _, stream := range syncStreams {
+		pool.streamArtifacts.Store(stream, &StreamArtifacts{
+			mutex:  sync.RWMutex{},
+			schema: nil,
+		})
 	}
 
 	return pool, nil

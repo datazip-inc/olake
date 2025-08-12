@@ -148,22 +148,3 @@ func (d DataType) ToIceberg() string {
 		return "string"
 	}
 }
-
-func toIceServerType(value any) string {
-	switch value.(type) {
-	case bool:
-		return "boolean"
-	case int, int8, int16, int32:
-		return "int"
-	case int64:
-		return "long"
-	case float32:
-		return "float"
-	case float64:
-		return "double"
-	case time.Time:
-		return "timestamptz" // use with timezone as we use default utc
-	default:
-		return "string"
-	}
-}

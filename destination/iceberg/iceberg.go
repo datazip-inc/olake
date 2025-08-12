@@ -91,8 +91,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 		}
 		return parseSchema(resp)
 	}
-
-	return nil, nil
+	// note: calling function variable only update if createOrLoadSchema is true
+	return icebergRawSchema(), nil
 }
 
 // note: java server parses time from long value which will in milliseconds
@@ -109,9 +109,6 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 			IceType: dType,
 		})
 	}
-
-	// release schema memory
-	schemaMap = nil
 
 	if len(i.partitionInfo) > 0 {
 		// sort record based on partition order
@@ -343,7 +340,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 			DestTableName: "test_olake",
 			Schema:        icebergRawSchema(),
 		},
-		Records: []*proto.IcebergPayload_IceRecord{&proto.IcebergPayload_IceRecord{
+		Records: []*proto.IcebergPayload_IceRecord{{
 			Fields:     protoColumns,
 			RecordType: "r",
 		}},
