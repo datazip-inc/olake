@@ -286,25 +286,25 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 }
 
 func (m *Mongo) totalCountAndStorageSizeInCollection(ctx context.Context, collection *mongo.Collection) (int64, float64, error) {
-	var statResults bson.M
+	var statsResult bson.M
 	command := bson.D{{
 		Key:   "collStats",
 		Value: collection.Name(),
 	}}
 	// Select the database
-	err := collection.Database().RunCommand(ctx, command).Decode(&statResults)
+	err := collection.Database().RunCommand(ctx, command).Decode(&statsResult)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
 	}
-	count, err := typeutils.ReformatInt64(statResults["count"])
+	count, err := typeutils.ReformatInt64(statsResult["count"])
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
 	}
-	storageSize, err := typeutils.ReformatFloat64(statResults["storageSize"])
+	storageSize, err := typeutils.ReformatFloat64(statsResult["storageSize"])
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
 	}
-	return count, storageSize.(float64), nil
+	return count, storageSize, nil
 }
 
 func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection, filter bson.D) (time.Time, time.Time, error) {

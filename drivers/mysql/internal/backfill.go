@@ -60,7 +60,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
 	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
 	if err != nil || avgRowSize == nil {
-		errorMsg := utils.Ternary(err != nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err), fmt.Errorf("stats not populated for [%s] run ANALYZE TABLE query or the table contains 0 records", stream.ID()))
+		errorMsg := utils.Ternary(err != nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err), fmt.Errorf("either stats not populated for table[%s] or the table contains 0 records. (to populate stats run ANALYZE TABLE query)", stream.ID()))
 		return nil, errorMsg.(error)
 	}
 	pool.AddRecordsToSync(approxRowCount)
@@ -74,7 +74,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if err != nil {
 		return nil, fmt.Errorf("failed to get avg row size: %s", err)
 	}
-	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat.(float64)))
+	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
