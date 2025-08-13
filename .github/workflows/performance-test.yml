@@ -29,7 +29,7 @@ jobs:
           driver_upper: MYSQL
         - driver: postgres
           driver_upper: POSTGRES
-        # TODO: add these drivers after benchmarking
+        # TODO: add benchmark tests for the below databases
         # - driver: mongodb
         #   driver_upper: MONGODB
         # - driver: oracle

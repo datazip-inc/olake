@@ -14,21 +14,34 @@ import (
 )
 
 // ExecuteQuery executes MySQL queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
-	db, ok := sqlx.ConnectContext(ctx, "mysql",
-		"mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true",
-	)
-	require.NoError(t, ok, "failed to connect to  mysql")
 
-	var (
-		query string
-		err   error
-	)
+	var connStr string
+	if fileConfig {
+		var driver MySQL
+		utils.UnmarshalFile("./testdata/source.json", &driver.config, false)
+		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+			driver.config.Username,
+			driver.config.Password,
+			driver.config.Host,
+			driver.config.Port,
+			driver.config.Database)
+	} else {
+		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
+	}
+	db, err := sqlx.ConnectContext(ctx, "mysql", connStr)
+	require.NoError(t, err, "failed to connect to  mysql")
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	// integration test uses only one stream for testing
+	integrationTestTable := streams[0]
 
 	switch operation {
 	case "create":
-		query = fmt.Sprintf(`
+		query := fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 				id_bigint BIGINT,
@@ -60,20 +73,26 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 				long_varchar MEDIUMTEXT,
 				name_bool TINYINT(1) DEFAULT '1',
 				PRIMARY KEY (id)
-			)`, tableName)
+			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "drop":
-		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+		query := fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "clean":
-		query = fmt.Sprintf("DELETE FROM %s", tableName)
+		query := fmt.Sprintf("DELETE FROM %s", integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "add":
-		insertTestData(t, ctx, db, tableName)
+		insertTestData(t, ctx, db, integrationTestTable)
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
-		query = fmt.Sprintf(`
+		query := fmt.Sprintf(`
 			INSERT INTO %s (
 			id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
@@ -95,10 +114,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1
-		)`, tableName)
+		)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "update":
-		query = fmt.Sprintf(`
+		query := fmt.Sprintf(`
 			UPDATE %s SET
 				id_bigint = 987654321098765,
 				id_int = 200, id_int_unsigned = 201,
@@ -115,17 +136,33 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0
-			WHERE id = 1`, tableName)
+			WHERE id = 1`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "delete":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", tableName)
+		query := fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+
+	case "setup_cdc":
+		// truncate the cdc tables
+		for _, stream := range streams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		}
+
+	case "trigger_cdc":
+		// insert the data into the cdc tables concurrently
+		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, stream string, executionNumber int) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 15000000", stream, stream))
+			return err
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
-
-	_, err = db.ExecContext(ctx, query)
-	require.NoError(t, err, "Failed to execute %s operation", operation)
 }
 
 // insertTestData inserts test data into the specified table
@@ -252,37 +289,4 @@ var MySQLToIcebergSchema = map[string]string{
 	"is_active":              "tinyint",
 	"long_varchar":           "mediumtext",
 	"name_bool":              "tinyint",
-}
-
-// ExecuteQueryPerformance executes MySQL queries for performance testing based on the operation type
-func ExecuteQueryPerformance(ctx context.Context, t *testing.T, op string, backfillStreams []string) {
-	t.Helper()
-
-	var cfg MySQL
-	require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &cfg.config, false))
-	require.NoError(t, cfg.Setup(ctx))
-	db := cfg.client
-	defer func() {
-		require.NoError(t, cfg.Close())
-	}()
-
-	switch op {
-	case "setup_cdc":
-		// truncate the cdc tables
-		for _, stream := range backfillStreams {
-			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
-			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
-		}
-
-	case "trigger_cdc":
-		// insert the data into the cdc tables concurrently
-		err := utils.Concurrent(ctx, backfillStreams, len(backfillStreams), func(ctx context.Context, stream string, executionNumber int) error {
-			_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 15000000", stream, stream))
-			return err
-		})
-		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", op), err)
-
-	default:
-		t.Fatalf("unknown operation: %s", op)
-	}
 }

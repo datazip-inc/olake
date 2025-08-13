@@ -9,13 +9,11 @@ import (
 
 func TestOraclePerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:          testutils.GetTestConfig(string(constants.Oracle)),
-		Namespace:           "ADMIN",
-		BackfillStreams:     []string{"USERS"},
-		CDCStreams:          []string{""},
-		ExecuteQuery:        nil,
-		SupportsCDC:         false,
-		UsesPreChunkedState: false,
+		TestConfig:      testutils.GetTestConfig(string(constants.Oracle)),
+		Namespace:       "ADMIN",
+		BackfillStreams: []string{"user_accounts"},
+		CDCStreams:      []string{""},
+		ExecuteQuery:    nil,
 	}
 
 	config.TestPerformance(t)

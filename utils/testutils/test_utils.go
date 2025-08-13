@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/docker/docker/api/types/container"
@@ -27,60 +28,125 @@ const (
 )
 
 type IntegrationTest struct {
-	Driver             string
+	TestConfig         *TestConfig
 	ExpectedData       map[string]interface{}
 	ExpectedUpdateData map[string]interface{}
 	DataTypeSchema     map[string]string
-	ExecuteQuery       func(ctx context.Context, t *testing.T, tableName, operation string)
-}
-
-// TestConfig is used for performance test
-type TestConfig struct {
-	Driver          string
-	HostRoot        string
-	SourcePath      string
-	CatalogPath     string
-	DestinationPath string
-	StatePath       string
-	StatsPath       string
+	Namespace          string
+	ExecuteQuery       func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 }
 
 type PerformanceTest struct {
-	TestConfig          *TestConfig
-	Namespace           string
-	BackfillStreams     []string
-	CDCStreams          []string
-	ExecuteQuery        func(ctx context.Context, t *testing.T, operation string, backfillStreams []string)
-	SupportsCDC         bool
-	UsesPreChunkedState bool
+	TestConfig      *TestConfig
+	Namespace       string
+	BackfillStreams []string
+	CDCStreams      []string
+	ExecuteQuery    func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+}
+
+type benchmarkStats struct {
+	Backfill float64
+	CDC      float64
+}
+type SyncSpeed struct {
+	Speed string
+}
+type TestConfig struct {
+	Driver           string
+	HostRootPath     string
+	SourcePath       string
+	CatalogPath      string
+	DestinationPath  string
+	StatePath        string
+	StatsPath        string
+	HostTestDataPath string
+	DummyStreamPath  string
+}
+
+// this benchmark is for performance test which runs on a github runner
+// for absolute benchmarks, please checkout out olake docs: https://olake.io/docs/connectors/postgres/benchmarks
+var benchmarks = map[constants.DriverType]benchmarkStats{
+	constants.MySQL:    {Backfill: 0, CDC: 0},
+	constants.Postgres: {Backfill: 0, CDC: 0},
+	constants.Oracle:   {Backfill: 0, CDC: 0},
+	constants.MongoDB:  {Backfill: 0, CDC: 0},
+}
+
+// GetTestConfig returns the test config for the given driver
+func GetTestConfig(driver string) *TestConfig {
+	// pwd is olake/drivers/(driver)/internal
+	pwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	// root path is olake's root path
+	rootPath := filepath.Join(pwd, "../../..")
+
+	path := "/test-olake/drivers/%s/internal/testdata/%s"
+	return &TestConfig{
+		Driver:           driver,
+		HostRootPath:     rootPath,
+		HostTestDataPath: filepath.Join(rootPath, "drivers", driver, "internal", "testdata"),
+		SourcePath:       fmt.Sprintf(path, driver, "source.json"),
+		CatalogPath:      fmt.Sprintf(path, driver, "streams.json"),
+		DestinationPath:  fmt.Sprintf(path, driver, "destination.json"),
+		StatePath:        fmt.Sprintf(path, driver, "state.json"),
+		StatsPath:        fmt.Sprintf(path, driver, "stats.json"),
+		DummyStreamPath:  fmt.Sprintf(path, driver, "test_streams.json"),
+	}
+}
+
+func syncCommand(config TestConfig, isBackfill bool, usesPreChunkedState bool) string {
+	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
+	// use state file for backfill if pre-chunked state is used
+	if !isBackfill || (isBackfill && usesPreChunkedState) {
+		baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
+	}
+	return baseCmd
+}
+
+func discoverCommand(config TestConfig) string {
+	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+}
+
+// TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
+func updateStreamsCommand(config TestConfig, namespace string, stream []string, isBackfill bool) string {
+	if len(stream) == 0 {
+		return ""
+	}
+	streamConditions := make([]string, len(stream))
+	for i, s := range stream {
+		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
+	}
+	condition := strings.Join(streamConditions, " or ")
+	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc"))
+	jqExpr := fmt.Sprintf(
+		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > %s && mv %s %s`,
+		namespace,
+		namespace,
+		condition,
+		config.CatalogPath,
+		tmpCatalog,
+		tmpCatalog,
+		config.CatalogPath,
+	)
+	return jqExpr
 }
 
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	ctx := context.Background()
-	cwd, err := os.Getwd()
-	t.Logf("Host working directory: %s", cwd)
-	require.NoErrorf(t, err, "Failed to get current working directory")
-	projectRoot := filepath.Join(cwd, "../../..")
-	t.Logf("Root Project directory: %s", projectRoot)
-	testdataDir := filepath.Join(projectRoot, "drivers", cfg.Driver, "internal", "testdata")
-	t.Logf("Test data directory: %s", testdataDir)
-	dummyStreamFilePath := filepath.Join(testdataDir, "test_streams.json")
-	testStreamFilePath := filepath.Join(testdataDir, "streams.json")
-	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.Driver)
-	var (
-		sourceConfigPath      = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/source.json", cfg.Driver)
-		streamsPath           = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/streams.json", cfg.Driver)
-		destinationConfigPath = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/destination.json", cfg.Driver)
-		statePath             = fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/state.json", cfg.Driver)
-	)
+
+	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
+	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
+	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
 			Image: "golang:1.23.2",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
-					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
-					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", testdataDir, cfg.Driver),
+					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
+					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
@@ -100,22 +166,22 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// 2. Query on test table
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "create")
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "clean")
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "add")
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// 3. Run discover command
-							discoverCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", cfg.Driver, sourceConfigPath)
+							discoverCmd := discoverCommand(*cfg.TestConfig)
 							if code, out, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("discover failed (%d): %s\n%s", code, err, string(out))
 							}
 
 							// 4. Verify streams.json file
-							streamsJSON, err := os.ReadFile(dummyStreamFilePath)
+							streamsJSON, err := os.ReadFile(cfg.TestConfig.DummyStreamPath)
 							if err != nil {
 								return fmt.Errorf("failed to read expected streams JSON: %s", err)
 							}
-							testStreamsJSON, err := os.ReadFile(testStreamFilePath)
+							testStreamsJSON, err := os.ReadFile(cfg.TestConfig.CatalogPath)
 							if err != nil {
 								return fmt.Errorf("failed to read actual streams JSON: %s", err)
 							}
@@ -125,8 +191,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							t.Logf("Generated streams validated with test streams")
 
 							// 5. Clean up
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "drop")
-							t.Logf("%s discover test-container clean up", cfg.Driver)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+							t.Logf("%s discover test-container clean up", cfg.TestConfig.Driver)
 							return nil
 						},
 					},
@@ -152,8 +218,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			Image: "golang:1.23.2",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
-					fmt.Sprintf("%s:/test-olake:rw", projectRoot),
-					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", testdataDir, cfg.Driver),
+					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
+					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
@@ -173,20 +239,22 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// 2. Query on test table
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "create")
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "clean")
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "add")
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
-							streamUpdateCmd := fmt.Sprintf(
-								`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
-								streamsPath, streamsPath,
-							)
+							// streamUpdateCmd := fmt.Sprintf(
+							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
+							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
+							// )
+							streamUpdateCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json (%d): %s\n%s",
 									code, err, out,
 								)
 							}
-							t.Logf("Enabled normalization in %s", streamsPath)
+
+							t.Logf("Enabled normalization in %s", cfg.TestConfig.CatalogPath)
 
 							testCases := []struct {
 								syncMode    string
@@ -226,21 +294,16 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
-								var cmd string
-								if useState {
-									if operation != "" {
-										cfg.ExecuteQuery(ctx, t, currentTestTable, operation)
-									}
-									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s --state %s", cfg.Driver, sourceConfigPath, streamsPath, destinationConfigPath, statePath)
-								} else {
-									cmd = fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", cfg.Driver, sourceConfigPath, streamsPath, destinationConfigPath)
+								cmd := syncCommand(*cfg.TestConfig, useState, false)
+								if useState && operation != "" {
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, operation, false)
 								}
 
 								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
 									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
-								t.Logf("Sync successful for %s driver", cfg.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.DataTypeSchema, schema, opSymbol, cfg.Driver)
+								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
+								VerifyIcebergSync(t, currentTestTable, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
 								return nil
 							}
 
@@ -253,8 +316,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// 4. Clean up
-							cfg.ExecuteQuery(ctx, t, currentTestTable, "drop")
-							t.Logf("%s sync test-container clean up", cfg.Driver)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+							t.Logf("%s sync test-container clean up", cfg.TestConfig.Driver)
 							return nil
 						},
 					},
@@ -351,112 +414,34 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 	t.Logf("Verified datatypes in Iceberg after sync")
 }
 
-// GetTestConfig returns the test config for the given driver for performance tests
-func GetTestConfig(driver string) *TestConfig {
-	pwd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	hostRoot := filepath.Join(pwd, "../../..")
-
-	return &TestConfig{
-		Driver:          driver,
-		HostRoot:        hostRoot,
-		SourcePath:      fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/source.json", driver),
-		CatalogPath:     fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/streams.json", driver),
-		DestinationPath: fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/destination.json", driver),
-		StatePath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/state.json", driver),
-		StatsPath:       fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/stats.json", driver),
-	}
-}
-
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	ctx := context.Background()
 
 	// checks if the current rps (from stats.json) is at least 90% of the benchmark rps
 	isRPSAboveBenchmark := func(config TestConfig, isBackfill bool) (bool, error) {
-		getRPSFromStats := func(stats map[string]interface{}, isBenchmark bool) (float64, error) {
-			if isBenchmark {
-				testType := utils.Ternary(isBackfill, "backfill", "cdc").(string)
-				benchmarkRps, err := typeutils.ReformatFloat64(stats[testType])
-				if err != nil {
-					return 0, err
-				}
-				return benchmarkRps.(float64), nil
-			}
-			rps, err := typeutils.ReformatFloat64(strings.Split(stats["Speed"].(string), " ")[0])
-			if err != nil {
-				return 0, err
-			}
-			return rps.(float64), nil
-		}
-
 		// get current RPS
-		var stats map[string]interface{}
-		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
+		var stats SyncSpeed
+		if err := utils.UnmarshalFile(filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
 			return false, err
 		}
-		rps, err := getRPSFromStats(stats, false)
+		rpsInterface, err := typeutils.ReformatFloat64(strings.Split(stats.Speed, " ")[0])
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("failed to get RPS from stats: %s", err)
+		}
+		rps, ok := rpsInterface.(float64)
+		if !ok {
+			return false, fmt.Errorf("failed to get RPS from stats: %s", err)
 		}
 
 		// get benchmark RPS
-		var benchmarkStats map[string]interface{}
-		if err := utils.UnmarshalFile(filepath.Join(config.HostRoot, fmt.Sprintf("drivers/%s/internal/testdata/benchmark.json", config.Driver)), &benchmarkStats, false); err != nil {
-			return false, err
-		}
-		benchmarkRps, err := getRPSFromStats(benchmarkStats, true)
-		if err != nil {
-			return false, err
-		}
+		benchmarkDriverStats := benchmarks[constants.DriverType(config.Driver)]
+		benchmarkRPS := utils.Ternary(isBackfill, benchmarkDriverStats.Backfill, benchmarkDriverStats.CDC).(float64)
 
-		t.Logf("CurrentRPS: %.2f, BenchmarkRPS: %.2f", rps, benchmarkRps)
-		if rps < 0.9*benchmarkRps {
+		t.Logf("CurrentRPS: %.2f, BenchmarkRPS: %.2f", rps, benchmarkRPS)
+		if rps < 0.9*benchmarkRPS {
 			return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
 		}
 		return true, nil
-	}
-
-	discoverCommand := func(config TestConfig) string {
-		return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
-	}
-
-	syncCommand := func(config TestConfig, isBackfill bool, usesPreChunkedState bool) string {
-		baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
-		if !isBackfill {
-			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
-		}
-		// use state file for backfill if pre-chunked state is used
-		if isBackfill && usesPreChunkedState {
-			baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
-		}
-		return baseCmd
-	}
-
-	// TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
-	updateStreamsCommand := func(config TestConfig, namespace string, stream []string, isBackfill bool) string {
-		if len(stream) == 0 {
-			return ""
-		}
-
-		streamConditions := make([]string, len(stream))
-		for i, s := range stream {
-			streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
-		}
-		condition := strings.Join(streamConditions, " or ")
-		tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc"))
-		jqExpr := fmt.Sprintf(
-			`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > %s && mv %s %s`,
-			namespace,
-			namespace,
-			condition,
-			config.CatalogPath,
-			tmpCatalog,
-			tmpCatalog,
-			config.CatalogPath,
-		)
-		return jqExpr
 	}
 
 	syncWithTimeout := func(ctx context.Context, c testcontainers.Container, cmd string) ([]byte, error) {
@@ -478,7 +463,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			Image: "golang:1.23.2",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
-					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRoot),
+					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 				hc.NetworkMode = "host"
@@ -512,7 +497,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 
 							t.Log("(backfill) starting sync")
-							syncCmd := syncCommand(*cfg.TestConfig, true, cfg.UsesPreChunkedState)
+							usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
+							syncCmd := syncCommand(*cfg.TestConfig, true, usePreChunkedState)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
@@ -525,11 +511,11 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							require.True(t, checkRPS, fmt.Sprintf("%s backfill performance below benchmark", cfg.TestConfig.Driver))
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
 
-							if cfg.SupportsCDC {
+							if len(cfg.CDCStreams) > 0 {
 								t.Logf("(cdc) running performance test for %s", cfg.TestConfig.Driver)
 
 								t.Log("(cdc) starting setup cdc")
-								cfg.ExecuteQuery(ctx, t, "setup_cdc", cfg.BackfillStreams)
+								cfg.ExecuteQuery(ctx, t, cfg.BackfillStreams, "setup_cdc", true)
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) starting discover")
@@ -552,7 +538,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) initial sync completed")
 
 								t.Log("(cdc) starting trigger cdc")
-								cfg.ExecuteQuery(ctx, t, "trigger_cdc", cfg.BackfillStreams)
+								cfg.ExecuteQuery(ctx, t, cfg.BackfillStreams, "trigger_cdc", true)
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) starting sync")

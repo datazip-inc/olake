@@ -9,13 +9,11 @@ import (
 
 func TestMongodbPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:          testutils.GetTestConfig(string(constants.MongoDB)),
-		Namespace:           "test",
-		BackfillStreams:     []string{"users"},
-		CDCStreams:          []string{"users_cdc"},
-		ExecuteQuery:        ExecuteQueryPerformance,
-		SupportsCDC:         true,
-		UsesPreChunkedState: false,
+		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),
+		Namespace:       "test",
+		BackfillStreams: []string{"users"},
+		CDCStreams:      []string{"users_cdc"},
+		ExecuteQuery:    ExecuteQuery,
 	}
 
 	config.TestPerformance(t)

@@ -10,7 +10,8 @@ import (
 func TestMySQLIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		Driver:             string(constants.MySQL),
+		TestConfig:         testutils.GetTestConfig(string(constants.MySQL)),
+		Namespace:          "olake_mysql_test",
 		ExpectedData:       ExpectedMySQLData,
 		ExpectedUpdateData: ExpectedUpdatedMySQLData,
 		DataTypeSchema:     MySQLToIcebergSchema,
@@ -21,13 +22,11 @@ func TestMySQLIntegration(t *testing.T) {
 
 func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:          testutils.GetTestConfig(string(constants.MySQL)),
-		Namespace:           "benchmark",
-		BackfillStreams:     []string{"trips", "fhv_trips"},
-		CDCStreams:          []string{"trips_cdc", "fhv_trips_cdc"},
-		ExecuteQuery:        ExecuteQueryPerformance,
-		SupportsCDC:         true,
-		UsesPreChunkedState: true,
+		TestConfig:      testutils.GetTestConfig(string(constants.MySQL)),
+		Namespace:       "benchmark",
+		BackfillStreams: []string{"trips", "fhv_trips"},
+		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:    ExecuteQuery,
 	}
 
 	config.TestPerformance(t)
