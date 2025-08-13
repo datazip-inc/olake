@@ -31,17 +31,18 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //
 // Output:
 //
-//	SELECT MAX(key_str) FROM (
-//	  SELECT CONCAT_WS(',', id, created_at) AS key_str
+//	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
+//	  SELECT (',', id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
 //	  ORDER BY id, created_at
-//	  LIMIT 1000
+//	  LIMIT 1 OFFSET 1000
 //	) AS subquery
 func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64, filter string) string {
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
+	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM `%s`.`%s`",
+		strings.Join(columns, ", "),
 		strings.Join(columns, ", "),
 		stream.Namespace(),
 		stream.Name(),
@@ -60,12 +61,13 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
 		query.WriteString(")")
 	}
+	// applies filters here
 	if filter != "" {
 		query.WriteString(" AND (" + filter + ")")
 	}
-	// ORDER + LIMIT
+	// ORDER and skip OFFSET number of rows and then return the next row
 	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(columns, ", "))
-	fmt.Fprintf(&query, " LIMIT %d) AS subquery", chunkSize)
+	fmt.Fprintf(&query, " LIMIT 1 OFFSET %d) AS subquery", chunkSize)
 	return query.String()
 }
 
@@ -74,6 +76,11 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
 func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
+}
+
+// PostgresBlockSizeQuery returns the query to fetch the block size in PostgreSQL
+func PostgresBlockSizeQuery() string {
+	return `SHOW block_size`
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
@@ -233,10 +240,11 @@ func MySQLPrimaryKeyQuery() string {
 	`
 }
 
-// MySQLTableRowsQuery returns the query to fetch the estimated row count of a table in MySQL
-func MySQLTableRowsQuery() string {
+// MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
+func MySQLTableRowStatsQuery() string {
 	return `
-		SELECT TABLE_ROWS
+		SELECT TABLE_ROWS,
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
