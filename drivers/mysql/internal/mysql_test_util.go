@@ -150,7 +150,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		for _, stream := range streams {
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+
 		}
+		
 
 	case "trigger_cdc":
 		// insert the data into the cdc tables concurrently
