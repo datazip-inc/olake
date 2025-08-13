@@ -294,15 +294,15 @@ func (m *Mongo) totalCountAndStorageSizeInCollection(ctx context.Context, collec
 	// Select the database
 	err := collection.Database().RunCommand(ctx, command).Decode(&statsResult)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
+		return 0, 0, fmt.Errorf("failed to fetch collection stats: %s", err)
 	}
 	count, err := typeutils.ReformatInt64(statsResult["count"])
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
+		return 0, 0, fmt.Errorf("failed to reformat total count from %T to int64: %s", statsResult["count"], err)
 	}
 	storageSize, err := typeutils.ReformatFloat64(statsResult["storageSize"])
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get total count: %s", err)
+		return 0, 0, fmt.Errorf("failed to reformat storage size from %T to float64: %s", statsResult["storageSize"], err)
 	}
 	return count, storageSize, nil
 }
