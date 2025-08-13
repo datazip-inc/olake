@@ -408,10 +408,7 @@ func OracleChunkRetrievalQuery(taskName string) string {
 }
 
 // OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(cursorField string, lastCursorValue any, argumentPosition int, opts IncrementalConditionOptions) (string, any, error) {
-	// this query is only used for Oracle to get the datatype of the cursor field
-	const oracleColumnDatatypeQuery = "SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'"
-
+func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
@@ -422,19 +419,19 @@ func OracleIncrementalValueFormatter(cursorField string, lastCursorValue any, ar
 	isTimestamp := strings.Contains(string(datatype), "timestamp")
 	formattedValue, err := typeutils.ReformatValue(datatype, lastCursorValue)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to reformat value: %s", err)
+		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %s", lastCursorValue, lastCursorValue, err)
 	}
 
-	query := fmt.Sprintf(oracleColumnDatatypeQuery, stream.Namespace(), stream.Name(), cursorField)
+	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
 	err = opts.Client.QueryRow(query).Scan(&datatype)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
 	}
 	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
 	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
-		return fmt.Sprintf("%q >= CAST(:%d AS TIMESTAMP)", cursorField, argumentPosition), formattedValue, nil
+		return fmt.Sprintf("%q >= CAST(%s AS TIMESTAMP)", cursorField, argumentPlaceholder), formattedValue, nil
 	}
-	return fmt.Sprintf("%q >= :%d", cursorField, argumentPosition), formattedValue, nil
+	return fmt.Sprintf("%q >= %s", cursorField, argumentPlaceholder), formattedValue, nil
 }
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition
@@ -509,7 +506,7 @@ type IncrementalConditionOptions struct {
 	Filter string
 }
 
-// BuildIncrementalQuery generates the incremental query SQL based on driver type and options
+// BuildIncrementalQuery generates the incremental query SQL based on driver type
 func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, error) {
 	primaryCursor, secondaryCursor := opts.Stream.Cursor()
 	lastPrimaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
@@ -523,8 +520,10 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	}
 
 	// Get placeholder and quotes style based on driver
-	var placeholder func(int) string
-	var quoteIdentifier func(string) string
+	var (
+		placeholder     func(int) string
+		quoteIdentifier func(string) string
+	)
 	switch opts.Driver {
 	case constants.MySQL:
 		{
@@ -545,18 +544,16 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 		return "", nil, fmt.Errorf("unsupported driver: %s", string(opts.Driver))
 	}
 
-	valueFormatter := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
-		formattedValue := lastCursorValue
-		// Formatting the value is only required for Oracle due to various timestamp formats
+	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
+	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(cursorField, lastCursorValue, argumentPosition, opts)
+			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), lastCursorValue, opts)
 		}
-
-		return fmt.Sprintf("%s >= %s", quoteIdentifier(cursorField), placeholder(argumentPosition)), formattedValue, nil
+		return fmt.Sprintf("%s >= %s", quoteIdentifier(cursorField), placeholder(argumentPosition)), lastCursorValue, nil
 	}
 
 	// Build primary cursor condition
-	incrementalCondition, primaryArg, err := valueFormatter(primaryCursor, lastPrimaryCursorValue, 1)
+	incrementalCondition, primaryArg, err := buildCursorCondition(primaryCursor, lastPrimaryCursorValue, 1)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to format primary cursor value: %s", err)
 	}
@@ -564,7 +561,7 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 
 	// Add secondary cursor condition if present
 	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
-		secondaryCondition, secondaryArg, err := valueFormatter(secondaryCursor, lastSecondaryCursorValue, 2)
+		secondaryCondition, secondaryArg, err := buildCursorCondition(secondaryCursor, lastSecondaryCursorValue, 2)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to format secondary cursor value: %s", err)
 		}
