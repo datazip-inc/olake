@@ -63,6 +63,7 @@ type TestConfig struct {
 	StatePath           string
 	StatsPath           string
 	HostTestDataPath    string
+	HostCatalogPath     string
 	HostTestCatalogPath string
 }
 
@@ -92,6 +93,7 @@ func GetTestConfig(driver string) *TestConfig {
 		HostRootPath:        rootPath,
 		HostTestDataPath:    fmt.Sprintf(hostTestDataPath, ""),
 		HostTestCatalogPath: fmt.Sprintf(hostTestDataPath, "test_streams.json"),
+		HostCatalogPath:     fmt.Sprintf(hostTestDataPath, "streams.json"),
 		SourcePath:          fmt.Sprintf(containerTestDataPath, "source.json"),
 		CatalogPath:         fmt.Sprintf(containerTestDataPath, "streams.json"),
 		DestinationPath:     fmt.Sprintf(containerTestDataPath, "destination.json"),
@@ -184,7 +186,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							if err != nil {
 								return fmt.Errorf("failed to read expected streams JSON: %s", err)
 							}
-							testStreamsJSON, err := os.ReadFile(cfg.TestConfig.CatalogPath)
+							testStreamsJSON, err := os.ReadFile(cfg.TestConfig.HostCatalogPath)
 							if err != nil {
 								return fmt.Errorf("failed to read actual streams JSON: %s", err)
 							}
