@@ -27,9 +27,10 @@ import (
 )
 
 type FileMetadata struct {
-	fileName string
-	writer   any
-	file     source.ParquetFile
+	sync.Mutex // we can also think to remove lock and use new file everytime, but problem will be multiple files get created and merge operation will be required
+	fileName   string
+	writer     any
+	file       source.ParquetFile
 }
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
@@ -40,6 +41,7 @@ type Parquet struct {
 	basePath         string   // construct with streamNamespace/streamName
 	partitionedFiles sync.Map // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
+	fileCreationLock sync.Mutex
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -80,6 +82,8 @@ func (p *Parquet) initS3Writer() error {
 }
 
 func (p *Parquet) createNewPartitionFile(basePath string) error {
+	p.fileCreationLock.Lock() // to avoid multiple writer creating same partition path
+	defer p.fileCreationLock.Unlock()
 	// construct directory path
 	directoryPath := filepath.Join(p.config.Path, basePath)
 
@@ -97,12 +101,12 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
+			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy), pqgo.MaxRowsPerRowGroup(10000))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy), pqgo.MaxRowsPerRowGroup(10000))
 	}()
 
-	p.partitionedFiles.Store(basePath, FileMetadata{
+	p.partitionedFiles.Store(basePath, &FileMetadata{
 		fileName: fileName,
 		file:     pqFile,
 		writer:   writer,
@@ -116,7 +120,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, createO
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = sync.Map{}
-
+	p.fileCreationLock = sync.Mutex{}
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
 		p.config.Path = os.TempDir()
@@ -142,7 +146,6 @@ func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) err
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
-
 		rawPartitionFile, exists := p.partitionedFiles.Load(partitionedPath)
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
@@ -156,11 +159,12 @@ func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) err
 			return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
 		}
 
-		partitionFile, ok := rawPartitionFile.(FileMetadata)
+		partitionFile, ok := rawPartitionFile.(*FileMetadata)
 		if !ok {
 			return fmt.Errorf("failed to typecast raw partitionFile[%T] into FileMetadata", rawPartitionFile)
 		}
 
+		partitionFile.Lock() // to avoid multiple writers write same file
 		var err error
 		if p.stream.NormalizationEnabled() {
 			record.Data[constants.OlakeID] = record.OlakeID
@@ -171,6 +175,7 @@ func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) err
 		} else {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
 		}
+		partitionFile.Unlock()
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
 		}
@@ -241,7 +246,7 @@ func (p *Parquet) Close(_ context.Context) error {
 			return false
 		}
 
-		parquetFile, ok := rawPqFile.(FileMetadata)
+		parquetFile, ok := rawPqFile.(*FileMetadata)
 		if !ok {
 			err = fmt.Errorf("failed to typecast raw pq file[%T] into FileMetadata", rawPqFile)
 			return false

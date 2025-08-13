@@ -84,8 +84,8 @@ func WithBackfill(backfill bool) ThreadOptions {
 func (t *ThreadEvent) Push(record types.RawRecord) error {
 	t.readCounter.Add(1)
 	t.buffer = append(t.buffer, record)
-	t.recordSize += int64(len(fmt.Sprintf("%v", record)))
-	if t.recordSize > t.batchSize {
+	// t.recordSize += int64(len(fmt.Sprintf("%v", record)))
+	if int64(len(t.buffer)) > t.batchSize {
 		t.recordSize = 0
 		newBuffer := make([]types.RawRecord, len(t.buffer))
 		copy(newBuffer, t.buffer)
@@ -243,7 +243,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 		}
 	}
 
-	maxBatchSize := determineMaxBatchSize()
+	maxBatchSize := int64(10000)
 	logger.Infof("writer max batch size set to: %d bytes and max threads to: %d", maxBatchSize, 2)
 
 	pool := &WriterPool{
