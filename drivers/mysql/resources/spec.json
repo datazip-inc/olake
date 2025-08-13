@@ -12,7 +12,7 @@
       "title": "Database",
       "description": "The name of the database to use for connection"
     },
-    "host": {
+    "hosts": {
       "type": "string",
       "title": "MySQL Host",
       "description": "Database host addresses for connection"
