@@ -322,7 +322,7 @@ func ReformatInt32(v any) (int32, error) {
 	return int32(0), fmt.Errorf("failed to change %v (type:%T) to int32", v, v)
 }
 
-func ReformatFloat64(v interface{}) (interface{}, error) {
+func ReformatFloat64(v interface{}) (float64, error) {
 	switch v := v.(type) {
 	case []uint8:
 		// Convert byte slice to string first
@@ -372,7 +372,7 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 	return float64(0), fmt.Errorf("failed to change %v (type:%T) to float64", v, v)
 }
 
-func ReformatFloat32(v interface{}) (interface{}, error) {
+func ReformatFloat32(v interface{}) (float32, error) {
 	switch v := v.(type) {
 	case []uint8:
 		// Convert byte slice to string first
