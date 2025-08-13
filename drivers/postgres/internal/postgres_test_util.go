@@ -31,10 +31,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	// integration test uses only one stream for testing
 	integrationTestTable := streams[0]
+	var query string
 
 	switch operation {
 	case "create":
-		query := fmt.Sprintf(`
+		query = fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				col_bigint BIGINT,
 				col_bigserial BIGSERIAL PRIMARY KEY,
@@ -63,25 +64,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_xml XML,
 				CONSTRAINT unique_custom_key UNIQUE (col_bigserial)
 			)`, integrationTestTable)
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "drop":
-		query := fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
+		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
 
 	case "clean":
-		query := fmt.Sprintf("DELETE FROM %s", integrationTestTable)
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
+		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
 		insertTestData(t, ctx, db, integrationTestTable)
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
-		query := fmt.Sprintf(`
+		query = fmt.Sprintf(`
 			INSERT INTO %s (
 				col_bigint, col_bool, col_char, col_character,
 				col_character_varying, col_date, col_decimal,
@@ -99,11 +94,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'123e4567-e89b-12d3-a456-426614174000', B'101010',
 				'<tag>value</tag>'
 			)`, integrationTestTable)
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "update":
-		query := fmt.Sprintf(`
+		query = fmt.Sprintf(`
 			UPDATE %s SET
 				col_bigint = 123456789012340,
 				col_bool = FALSE,
@@ -130,19 +123,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varbit = B'111000',
 				col_xml = '<updated>value</updated>'
 			WHERE col_bigserial = 1`, integrationTestTable)
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "delete":
-		query := fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
+		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
 
 	case "setup_cdc":
 		for _, stream := range streams {
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
+		return
 
 	case "trigger_cdc":
 		// insert records in batches
@@ -165,10 +155,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			return nil
 		})
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
+
+	_, err := db.ExecContext(ctx, query)
+	require.NoError(t, err, "Failed to execute %s operation", operation)
 }
 
 // insertTestData inserts test data into the specified table

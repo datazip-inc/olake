@@ -38,10 +38,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	// integration test uses only one stream for testing
 	integrationTestTable := streams[0]
+	var query string
 
 	switch operation {
 	case "create":
-		query := fmt.Sprintf(`
+		query = fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 				id_bigint BIGINT,
@@ -74,25 +75,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				name_bool TINYINT(1) DEFAULT '1',
 				PRIMARY KEY (id)
 			)`, integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "drop":
-		query := fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
+		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
 
 	case "clean":
-		query := fmt.Sprintf("DELETE FROM %s", integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
+		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
 		insertTestData(t, ctx, db, integrationTestTable)
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
-		query := fmt.Sprintf(`
+		query = fmt.Sprintf(`
 			INSERT INTO %s (
 			id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
@@ -115,11 +110,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1
 		)`, integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "update":
-		query := fmt.Sprintf(`
+		query = fmt.Sprintf(`
 			UPDATE %s SET
 				id_bigint = 987654321098765,
 				id_int = 200, id_int_unsigned = 201,
@@ -137,34 +130,44 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0
 			WHERE id = 1`, integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 	case "delete":
-		query := fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to execute %s operation", operation)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "setup_cdc":
 		// truncate the cdc tables
 		for _, stream := range streams {
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
-
+			// mysql chunking strategy does not support 0 record sync
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s ORDER BY id LIMIT 1", stream, stream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
-		
+		return
 
 	case "trigger_cdc":
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, stream string, executionNumber int) error {
-			_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 15000000", stream, stream))
-			return err
+			// truncate the inserted data during setup_cdc step
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 15000000", stream, stream))
+			if err != nil {
+				return err
+			}
+			return nil
 		})
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
+
+	_, err = db.ExecContext(ctx, query)
+	require.NoError(t, err, "Failed to execute %s operation", operation)
 }
 
 // insertTestData inserts test data into the specified table
