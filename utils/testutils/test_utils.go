@@ -424,12 +424,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		if err := utils.UnmarshalFile(filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
 			return false, err
 		}
-		rpsInterface, err := typeutils.ReformatFloat64(strings.Split(stats.Speed, " ")[0])
+		rps, err := typeutils.ReformatFloat64(strings.Split(stats.Speed, " ")[0])
 		if err != nil {
-			return false, fmt.Errorf("failed to get RPS from stats: %s", err)
-		}
-		rps, ok := rpsInterface.(float64)
-		if !ok {
 			return false, fmt.Errorf("failed to get RPS from stats: %s", err)
 		}
 
