@@ -51,9 +51,13 @@
               "type": "integer",
               "title": "Initial Wait Time",
               "description": "Idle timeout for Bin log reading"
+            },
+            "type": {
+              "const": "CDC"
             }
           },
           "required": [
+            "type",
             "initial_wait_time"
           ],
           "additionalProperties": false
@@ -61,7 +65,14 @@
         {
           "type": "object",
           "title": "Standalone",
-          "additionalProperties": false
+          "properties": {
+            "type": {
+              "const": "Standalone"
+            }
+          },
+          "required": [
+            "type"
+          ]
         }
       ]
     },
@@ -72,7 +83,7 @@
     }
   },
   "required": [
-    "host",
+    "hosts",
     "username",
     "password",
     "database",

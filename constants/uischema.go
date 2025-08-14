@@ -34,52 +34,67 @@ const MongoDBUISchema = `{
 }`
 
 const PostgresUISchema = `{
-    "ui:grid": [
-        { "host": 12, "database": 12 },
-        { "username": 12, "password": 12 },
-        { "port": 12, "jdbc_url_params": 12 },
-        { "ssl": 24 },
-        { "max_threads": 12, "reader_batch_size": 12 },
-        { "update_method": 12 }
-    ],
-    "ssl": {
-        "ui:grid": [
-            { "mode": 12, "client_cert": 12 },
-            { "client_key": 12, "server_ca": 12 }
-        ],
-        "ui:options": {
-            "title": false,
-            "description": false
-        }
-    },
-    "update_method": {
-        "ui:grid": [
-            { "initial_wait_time": 12, "replication_slot": 12 }
-        ],
-        "ui:options": {
-            "title": false,
-            "description": false
-        }
+  "ui:grid": [
+    { "host": 12, "database": 12 },
+    { "username": 12, "password": 12 },
+    { "port": 12, "jdbc_url_params": 12 },
+    { "ssl": 12, "max_threads": 12 },
+    { "reader_batch_size": 12, "update_method": 12 }
+  ],
+  "ssl": {
+    "ui:options": {
+      "title": false,
+      "description": false
     }
+  },
+  "update_method": {
+    "ui:grid": [
+      { "initial_wait_time": 12, "replication_slot": 12 }
+    ],
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+     "type": {
+      "ui:widget": "hidden"
+    }
+  },
+  "ssl_schema": {
+    "type": "object",
+    "title": " ",
+    "properties": {
+      "mode": {
+        "default": "disable",
+        "enum": ["require", "disable", "verify-ca", "verify-full"],
+        "title": "SSL Mode",
+        "type": "string",
+        "description": "Database connection SSL configuration (e.g., SSL mode)"
+      }
+    },
+    "required": ["mode"]
+  }
 }`
 
 const MySQLUISchema = `{
-    "ui:grid": [
-        { "hosts": 12, "database": 12 },
-        { "username": 12, "password": 12 },
-        { "port": 12, "tls_skip_verify": 12 },
-        { "max_threads": 12, "backoff_retry_count": 12 },
-        { "update_method": 12 }
-    ],
-    "tls_skip_verify": {
-        "ui:widget": "boolean"
+  "ui:grid": [
+    { "hosts": 12, "database": 12 },
+    { "username": 12, "password": 12 },
+    { "port": 12, "max_threads": 12 },
+    { "backoff_retry_count": 12, "tls_skip_verify": 12 },
+    { "update_method": 12 }
+  ],
+  "tls_skip_verify": {
+    "ui:widget": "boolean"
+  },
+  "update_method": {
+    "ui:options": {
+      "title": false,
+      "description": false
     },
-    "update_method": {
-        "ui:options": {
-            "title": false,
-            "description": false
-        }
+    "type": {
+      "ui:widget": "hidden"
     }
+  }
 }`
 
 const OracleUISchema = `{

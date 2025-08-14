@@ -67,7 +67,7 @@
     "jdbc_url_params": {
       "type": "object",
       "title": "JDBC URL Parameters",
-      "description": "Additional JDBC URL parameters for connection tuning (optional)",
+      "description": "Additional JDBC URL parameters for connection tuning",
       "additionalProperties": true
     }
   },

@@ -16,7 +16,7 @@
         "chunking_strategy": {
             "type": "string",
             "title": "Chunking Strategy",
-            "description": "Chunking strategy (timestamp, uses split vector strategy if the field is left empty)",
+            "description": "Chunking strategy (timestamp, uses Split Vector strategy if the field is left empty)",
             "default": "Split Vector",
             "enum": [
                 "Split Vector",
@@ -46,13 +46,13 @@
         "password": {
             "type": "string",
             "title": "Password",
-            "description": "MongoDB password",
+            "description": "Password with the username for authentication",
             "format": "password"
         },
         "read_preference": {
             "type": "string",
             "title": "Read Preference",
-            "description": "Read preference for MongoDB (e.g., primary, secondaryPreferred)"
+            "description": "Read preference for MongoDB (e.g., secondaryPreferred)"
         },
         "replica_set": {
             "type": "string",

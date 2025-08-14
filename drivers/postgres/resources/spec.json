@@ -73,6 +73,9 @@
                     "type": "object",
                     "title": "CDC",
                     "properties": {
+                        "type": {
+                            "const": "CDC"
+                        },
                         "initial_wait_time": {
                             "type": "integer",
                             "title": "Initial Wait Time",
@@ -86,16 +89,25 @@
                             "description": "Slot to retain WAL logs for consistent replication"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
+                        "type",
                         "replication_slot",
                         "initial_wait_time"
-                    ],
-                    "additionalProperties": false
+                    ]
                 },
                 {
                     "type": "object",
                     "title": "Standalone",
-                    "additionalProperties": false
+                    "properties": {
+                        "type": {
+                            "const": "Standalone"
+                        }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                        "type"
+                    ]
                 }
             ]
         }
