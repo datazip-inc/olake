@@ -1,7 +1,11 @@
 package driver
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
@@ -9,7 +13,6 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
-
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
 	Host          string      `json:"hosts"`
@@ -21,6 +24,8 @@ type Config struct {
 	UpdateMethod  interface{} `json:"update_method"`
 	MaxThreads    int         `json:"max_threads"`
 	RetryCount    int         `json:"backoff_retry_count"`
+	JDBCURLParams map[string]string `json:"jdbc_url_params,omitempty"`
+	SSLConfig     *utils.SSLConfig  `json:"ssl_config,omitempty"`
 }
 type CDC struct {
 	InitialWaitTime int `json:"intial_wait_time"`
@@ -46,8 +51,50 @@ func (c *Config) URI() string {
 		DBName:               c.Database,
 		AllowNativePasswords: true,
 	}
+	// Handle SSL configuration (only if present)
+	urlParams := url.Values{}
+	if c.SSLConfig != nil && c.SSLConfig.Mode != utils.Unknown && c.SSLConfig.Mode != utils.SSLModeDisable {
+		// Compose TLS config
+		rootCertPool := x509.NewCertPool()
+		if c.SSLConfig.ServerCA != "" {
+			pem, err := os.ReadFile(c.SSLConfig.ServerCA)
+			if err == nil {
+				rootCertPool.AppendCertsFromPEM(pem)
+			}
+		}
 
-	return cfg.FormatDSN()
+		clientCert := make([]tls.Certificate, 0, 1)
+		if c.SSLConfig.ClientCert != "" && c.SSLConfig.ClientKey != "" {
+			cert, err := tls.LoadX509KeyPair(c.SSLConfig.ClientCert, c.SSLConfig.ClientKey)
+			if err == nil {
+				clientCert = append(clientCert, cert)
+			}
+		}
+
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: c.TLSSkipVerify,
+			RootCAs:            rootCertPool,
+			Certificates:       clientCert,
+		}
+		mysql.RegisterTLSConfig("custom", tlsConfig)
+		urlParams.Set("tls", "custom")
+	}
+
+	// Add custom JDBC URL parameters
+	for k, v := range c.JDBCURLParams {
+		urlParams.Set(k, v)
+	}
+
+	// Build DSN with query params if any
+	dsn := cfg.FormatDSN()
+	if len(urlParams) > 0 {
+		if strings.Contains(dsn, "?") {
+			dsn = fmt.Sprintf("%s&%s", dsn, urlParams.Encode())
+		} else {
+			dsn = fmt.Sprintf("%s?%s", dsn, urlParams.Encode())
+		}
+	}
+	return dsn
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -85,6 +132,10 @@ func (c *Config) Validate() error {
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
-
+	if c.SSLConfig != nil {
+		if err := c.SSLConfig.Validate(); err != nil {
+			return fmt.Errorf("invalid SSL config: %w", err)
+		}
+	}
 	return utils.Validate(c)
 }
