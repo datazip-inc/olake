@@ -28,9 +28,9 @@ type AbstractDriver struct { //nolint:gosec,revive
 
 var DefaultColumns = map[string]types.DataType{
 	constants.OlakeID:        types.String,
-	constants.OlakeTimestamp: types.Int64,
+	constants.OlakeTimestamp: types.TimestampMicro,
 	constants.OpType:         types.String,
-	constants.CdcTimestamp:   types.Int64,
+	constants.CdcTimestamp:   types.TimestampMicro,
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
