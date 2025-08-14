@@ -94,7 +94,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 			Kind:      record.OperationType,
 		}
 		m.cdcCursor.Store(stream.ID(), cursor.ResumeToken().Lookup(cdcCursorField).StringValue())
-		if err := OnMessage(change); err != nil {
+		if err := OnMessage(ctx, change); err != nil {
 			return fmt.Errorf("failed to process message: %s", err)
 		}
 	}

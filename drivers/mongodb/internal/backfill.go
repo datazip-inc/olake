@@ -50,7 +50,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		}
 		// filter mongo object
 		filterMongoObject(doc)
-		if err := OnMessage(doc); err != nil {
+		if err := OnMessage(ctx, doc); err != nil {
 			return fmt.Errorf("failed to send message to writer: %s", err)
 		}
 	}

@@ -46,7 +46,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 			return fmt.Errorf("decode error: %s", err)
 		}
 		filterMongoObject(doc)
-		if err := processFn(doc); err != nil {
+		if err := processFn(ctx, doc); err != nil {
 			return fmt.Errorf("process error: %s", err)
 		}
 	}

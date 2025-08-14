@@ -219,11 +219,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 				RecordType: record.OperationType,
 			})
 		}
-		record.Data = nil
 	}
-
-	// release records memory
-	records = nil
 
 	if len(protoRecords) == 0 {
 		logger.Debug("no record found in batch")
@@ -362,6 +358,9 @@ func (i *Iceberg) Type() string {
 // validate schema change & evolution and removes null records
 // only call if normalization is enabled
 func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecord) (bool, any, error) {
+	if !i.stream.NormalizationEnabled() {
+		return false, nil, nil
+	}
 	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
 		newSchema := make(map[string]string)
 		for _, record := range records {

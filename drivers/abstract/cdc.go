@@ -77,10 +77,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						}
 					}()
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-						return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
+						return a.driver.StreamChanges(ctx, streams[index], func(ctx context.Context, change CDCChange) error {
 							pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-							return inserter.Push(types.CreateRawRecord(
+							return inserter.Push(ctx, types.CreateRawRecord(
 								utils.GetKeysHash(change.Data, pkFields...),
 								change.Data,
 								opType,
@@ -127,10 +127,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.StreamChanges(ctx, nil, func(change CDCChange) error {
+			return a.driver.StreamChanges(ctx, nil, func(ctx context.Context, change CDCChange) error {
 				pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 				opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-				return inserters[change.Stream].Push(types.CreateRawRecord(
+				return inserters[change.Stream].Push(ctx, types.CreateRawRecord(
 					utils.GetKeysHash(change.Data, pkFields...),
 					change.Data,
 					opType,

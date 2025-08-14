@@ -49,7 +49,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			if err != nil {
 				return fmt.Errorf("failed to scan record data as map: %s", err)
 			}
-			return OnMessage(record)
+			return OnMessage(ctx, record)
 		})
 	})
 }

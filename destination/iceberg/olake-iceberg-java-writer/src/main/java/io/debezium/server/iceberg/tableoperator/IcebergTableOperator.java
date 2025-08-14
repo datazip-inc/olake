@@ -24,7 +24,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +39,6 @@ public class IcebergTableOperator {
   IcebergTableWriterFactory writerFactory2;
 
   // Map to store completed WriteResult per thread for later commit
-  private final Map<String, List<WriteResult>> threadWriteResults = new ConcurrentHashMap<>();
   private final Map<String, BaseTaskWriter<Record>> threadWriter = new ConcurrentHashMap<>();
 
 
@@ -107,9 +105,9 @@ public class IcebergTableOperator {
         LOGGER.warn("No writer found for thread: {}", threadId);
         return;
       }
-      WriteResult writeResults = writer.complete();
+      WriteResult writeResult = writer.complete();
       LOGGER.info("Writer for thread {} completed with {} data files and {} delete files",
-              threadId, writeResults.dataFiles().length, writeResults.deleteFiles().length);
+              threadId, writeResult.dataFiles().length, writeResult.deleteFiles().length);
 
 
       if (table == null) {
@@ -118,8 +116,8 @@ public class IcebergTableOperator {
       }
 
       // Calculate total files across all WriteResults
-      int totalDataFiles = writeResults.dataFiles().length;
-      int totalDeleteFiles =writeResults.deleteFiles().length;
+      int totalDataFiles = writeResult.dataFiles().length;
+      int totalDeleteFiles =writeResult.deleteFiles().length;
 
       LOGGER.info("Committing {} data files and {} delete files for thread: {}",
           totalDataFiles, totalDeleteFiles, threadId);
@@ -141,13 +139,13 @@ public class IcebergTableOperator {
         if (hasDeleteFiles) {
           RowDelta rowDelta = table.newRowDelta();
           // Add all data and delete files from all WriteResults
-          Arrays.stream(writeResults.dataFiles()).forEach(rowDelta::addRows);
-          Arrays.stream(writeResults.deleteFiles()).forEach(rowDelta::addDeletes);
+          Arrays.stream(writeResult.dataFiles()).forEach(rowDelta::addRows);
+          Arrays.stream(writeResult.deleteFiles()).forEach(rowDelta::addDeletes);
           rowDelta.commit();
         } else {
           AppendFiles appendFiles = table.newAppend();
           // Add all data files from all WriteResults
-          Arrays.stream(writeResults.dataFiles()).forEach(appendFiles::appendFile);
+          Arrays.stream(writeResult.dataFiles()).forEach(appendFiles::appendFile);
           appendFiles.commit();
         }
 
