@@ -7,8 +7,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -28,17 +31,18 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //
 // Output:
 //
-//	SELECT MAX(key_str) FROM (
-//	  SELECT CONCAT_WS(',', id, created_at) AS key_str
+//	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
+//	  SELECT (',', id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
 //	  ORDER BY id, created_at
-//	  LIMIT 1000
+//	  LIMIT 1 OFFSET 1000
 //	) AS subquery
 func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64, filter string) string {
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
+	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM `%s`.`%s`",
+		strings.Join(columns, ", "),
 		strings.Join(columns, ", "),
 		stream.Namespace(),
 		stream.Name(),
@@ -57,12 +61,13 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
 		query.WriteString(")")
 	}
+	// applies filters here
 	if filter != "" {
 		query.WriteString(" AND (" + filter + ")")
 	}
-	// ORDER + LIMIT
+	// ORDER and skip OFFSET number of rows and then return the next row
 	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(columns, ", "))
-	fmt.Fprintf(&query, " LIMIT %d) AS subquery", chunkSize)
+	fmt.Fprintf(&query, " LIMIT 1 OFFSET %d) AS subquery", chunkSize)
 	return query.String()
 }
 
@@ -71,6 +76,11 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
 func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
+}
+
+// PostgresBlockSizeQuery returns the query to fetch the block size in PostgreSQL
+func PostgresBlockSizeQuery() string {
+	return `SHOW block_size`
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
@@ -230,10 +240,11 @@ func MySQLPrimaryKeyQuery() string {
 	`
 }
 
-// MySQLTableRowsQuery returns the query to fetch the estimated row count of a table in MySQL
-func MySQLTableRowsQuery() string {
+// MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
+func MySQLTableRowStatsQuery() string {
 	return `
-		SELECT TABLE_ROWS
+		SELECT TABLE_ROWS,
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
@@ -396,6 +407,34 @@ func OracleChunkRetrievalQuery(taskName string) string {
 	return fmt.Sprintf(`SELECT chunk_id, start_rowid, end_rowid FROM user_parallel_execute_chunks WHERE task_name = '%s' ORDER BY chunk_id`, taskName)
 }
 
+// OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
+func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
+	// Get the datatype of the cursor field from streams
+	stream := opts.Stream
+	// remove cursorField conversion to lower case once column normalization is based on writer side
+	datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
+	if err != nil {
+		return "", nil, fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
+	}
+
+	isTimestamp := strings.Contains(string(datatype), "timestamp")
+	formattedValue, err := typeutils.ReformatValue(datatype, lastCursorValue)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %s", lastCursorValue, lastCursorValue, err)
+	}
+
+	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+	err = opts.Client.QueryRow(query).Scan(&datatype)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+	}
+	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
+	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
+		return fmt.Sprintf("%q >= CAST(%s AS TIMESTAMP)", cursorField, argumentPlaceholder), formattedValue, nil
+	}
+	return fmt.Sprintf("%q >= %s", cursorField, argumentPlaceholder), formattedValue, nil
+}
+
 // ParseFilter converts a filter string to a valid SQL WHERE condition
 func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 	buildCondition := func(cond types.Condition, driver string) (string, error) {
@@ -459,8 +498,81 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 	}
 }
 
-// MySQLIncrementalQuery builds the complete incremental query for MySQL
-func MySQLIncrementalQuery(stream types.StreamInterface, filter string, incrementalCondition string) string {
-	finalFilter := utils.Ternary(filter != "", fmt.Sprintf("(%s) AND (%s)", filter, incrementalCondition), incrementalCondition).(string)
-	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), finalFilter)
+// IncrementalConditionOptions contains options for building incremental conditions
+type IncrementalConditionOptions struct {
+	Driver constants.DriverType
+	Stream types.StreamInterface
+	State  *types.State
+	Client *sqlx.DB
+	Filter string
+}
+
+// BuildIncrementalQuery generates the incremental query SQL based on driver type
+func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, error) {
+	primaryCursor, secondaryCursor := opts.Stream.Cursor()
+	lastPrimaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
+	lastSecondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
+	// cursor values cannot contain only nil values
+	if lastPrimaryCursorValue == nil {
+		logger.Warnf("last primary cursor value is nil for stream[%s]", opts.Stream.ID())
+	}
+	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
+		logger.Warnf("last secondary cursor value is nil for stream[%s]", opts.Stream.ID())
+	}
+
+	// Get placeholder and quotes style based on driver
+	var (
+		placeholder     func(int) string
+		quoteIdentifier func(string) string
+	)
+	switch opts.Driver {
+	case constants.MySQL:
+		{
+			placeholder = func(_ int) string { return "?" }
+			quoteIdentifier = func(identifier string) string { return fmt.Sprintf("`%s`", identifier) }
+		}
+	case constants.Postgres:
+		{
+			placeholder = func(i int) string { return fmt.Sprintf("$%d", i) }
+			quoteIdentifier = func(identifier string) string { return identifier } // postgres doesn't require quotes
+		}
+	case constants.Oracle:
+		{
+			placeholder = func(i int) string { return fmt.Sprintf(":%d", i) }
+			quoteIdentifier = func(identifier string) string { return fmt.Sprintf("%q", identifier) }
+		}
+	default:
+		return "", nil, fmt.Errorf("unsupported driver: %s", string(opts.Driver))
+	}
+
+	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
+	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
+		if opts.Driver == constants.Oracle {
+			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), lastCursorValue, opts)
+		}
+		return fmt.Sprintf("%s >= %s", quoteIdentifier(cursorField), placeholder(argumentPosition)), lastCursorValue, nil
+	}
+
+	// Build primary cursor condition
+	incrementalCondition, primaryArg, err := buildCursorCondition(primaryCursor, lastPrimaryCursorValue, 1)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to format primary cursor value: %s", err)
+	}
+	queryArgs := []any{primaryArg}
+
+	// Add secondary cursor condition if present
+	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
+		secondaryCondition, secondaryArg, err := buildCursorCondition(secondaryCursor, lastSecondaryCursorValue, 2)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to format secondary cursor value: %s", err)
+		}
+		incrementalCondition = fmt.Sprintf("%s OR (%s IS NULL AND %s)", incrementalCondition, quoteIdentifier(primaryCursor), secondaryCondition)
+		queryArgs = append(queryArgs, secondaryArg)
+	}
+
+	finalFilter := utils.Ternary(opts.Filter != "", fmt.Sprintf("(%s) AND (%s)", opts.Filter, incrementalCondition), incrementalCondition).(string)
+	logger.Infof("Starting incremental sync for stream[%s] with filter: %s and args: %v", opts.Stream.ID(), finalFilter, queryArgs)
+	incrementalQuery := fmt.Sprintf("SELECT * FROM %s.%s WHERE %s", quoteIdentifier(opts.Stream.Namespace()), quoteIdentifier(opts.Stream.Name()), finalFilter)
+
+	return incrementalQuery, queryArgs, nil
 }
