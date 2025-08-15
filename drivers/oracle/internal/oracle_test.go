@@ -12,7 +12,7 @@ func TestOraclePerformance(t *testing.T) {
 		TestConfig:      testutils.GetTestConfig(string(constants.Oracle)),
 		Namespace:       "ADMIN",
 		BackfillStreams: []string{"user_accounts"},
-		CDCStreams:      []string{""},
+		CDCStreams:      []string{},
 		ExecuteQuery:    nil,
 	}
 

@@ -52,7 +52,7 @@ type benchmarkStats struct {
 	CDC      float64
 }
 type SyncSpeed struct {
-	Speed string
+	Speed string `json:"Speed"`
 }
 type TestConfig struct {
 	Driver              string
@@ -68,7 +68,7 @@ type TestConfig struct {
 }
 
 // this benchmark is for performance test which runs on a github runner
-// for absolute benchmarks, please checkout out olake docs: https://olake.io/docs/connectors/postgres/benchmarks
+// for absolute benchmarks, please checkout olake docs: https://olake.io/docs/connectors/postgres/benchmarks
 var benchmarks = map[constants.DriverType]benchmarkStats{
 	constants.MySQL:    {Backfill: 15906.40, CDC: 15648.93},
 	constants.Postgres: {Backfill: 13475.41, CDC: 1404.78},
@@ -86,19 +86,19 @@ func GetTestConfig(driver string) *TestConfig {
 	// root path is olake's root path
 	rootPath := filepath.Join(pwd, "../../..")
 
-	containerTestDataPath := fmt.Sprintf("/test-olake/drivers/%s/internal/testdata/%s", driver, "%s")
-	hostTestDataPath := filepath.Join(rootPath, "drivers", driver, "internal", "testdata", "%s")
+	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/%s"
+	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", "%s")
 	return &TestConfig{
 		Driver:              driver,
 		HostRootPath:        rootPath,
-		HostTestDataPath:    fmt.Sprintf(hostTestDataPath, ""),
-		HostTestCatalogPath: fmt.Sprintf(hostTestDataPath, "test_streams.json"),
-		HostCatalogPath:     fmt.Sprintf(hostTestDataPath, "streams.json"),
-		SourcePath:          fmt.Sprintf(containerTestDataPath, "source.json"),
-		CatalogPath:         fmt.Sprintf(containerTestDataPath, "streams.json"),
-		DestinationPath:     fmt.Sprintf(containerTestDataPath, "destination.json"),
-		StatePath:           fmt.Sprintf(containerTestDataPath, "state.json"),
-		StatsPath:           fmt.Sprintf(containerTestDataPath, "stats.json"),
+		HostTestDataPath:    fmt.Sprintf(hostTestDataPath, driver, ""),
+		HostTestCatalogPath: fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
+		HostCatalogPath:     fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
+		SourcePath:          fmt.Sprintf(containerTestDataPath, driver, "source.json"),
+		CatalogPath:         fmt.Sprintf(containerTestDataPath, driver, "streams.json"),
+		DestinationPath:     fmt.Sprintf(containerTestDataPath, driver, "destination.json"),
+		StatePath:           fmt.Sprintf(containerTestDataPath, driver, "state.json"),
+		StatsPath:           fmt.Sprintf(containerTestDataPath, driver, "stats.json"),
 	}
 }
 
@@ -124,7 +124,7 @@ func updateStreamsCommand(config TestConfig, namespace string, stream []string, 
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
-	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc"))
+	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 	jqExpr := fmt.Sprintf(
 		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > %s && mv %s %s`,
 		namespace,
@@ -485,7 +485,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
-							t.Log("(backfill) starting discover")
+							t.Log("(backfill) discover started")
 							discoverCmd := discoverCommand(*cfg.TestConfig)
 							if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
@@ -497,7 +497,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
 
-							t.Log("(backfill) starting sync")
+							t.Log("(backfill) sync started")
 							usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
 							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
@@ -512,14 +512,14 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							require.True(t, checkRPS, fmt.Sprintf("%s backfill performance below benchmark", cfg.TestConfig.Driver))
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
 
-							if len(cfg.CDCStreams) > 0 && strings.TrimSpace(cfg.CDCStreams[0]) != "" {
+							if len(cfg.CDCStreams) > 0 {
 								t.Logf("(cdc) running performance test for %s", cfg.TestConfig.Driver)
 
-								t.Log("(cdc) starting setup cdc")
+								t.Log("(cdc) setup cdc started")
 								cfg.ExecuteQuery(ctx, t, cfg.BackfillStreams, "setup_cdc", true)
 								t.Log("(cdc) setup cdc completed")
 
-								t.Log("(cdc) starting discover")
+								t.Log("(cdc) discover started")
 								discoverCmd := discoverCommand(*cfg.TestConfig)
 								if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
@@ -531,18 +531,18 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
 
-								t.Log("(cdc) starting initial sync")
+								t.Log("(cdc) setup started")
 								syncCmd := syncCommand(*cfg.TestConfig, false)
 								if code, output, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
-								t.Log("(cdc) initial sync completed")
+								t.Log("(cdc) setup completed")
 
-								t.Log("(cdc) starting trigger cdc")
-								cfg.ExecuteQuery(ctx, t, cfg.BackfillStreams, "trigger_cdc", true)
+								t.Log("(cdc) trigger cdc started")
+								cfg.ExecuteQuery(ctx, t, cfg.BackfillStreams, "bulk_cdc_data_insert", true)
 								t.Log("(cdc) trigger cdc completed")
 
-								t.Log("(cdc) starting sync")
+								t.Log("(cdc) sync started")
 								syncCmd = syncCommand(*cfg.TestConfig, true)
 								if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))

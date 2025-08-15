@@ -19,7 +19,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	if fileConfig {
 		var driver Postgres
 		utils.UnmarshalFile("./testdata/source.json", &driver.config, false)
-		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require", driver.config.Username, driver.config.Password, driver.config.Host, driver.config.Port, driver.config.Database)
+		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
+			driver.config.Username,
+			driver.config.Password,
+			driver.config.Host,
+			driver.config.Port,
+			driver.config.Database,
+		)
 	} else {
 		connStr = "postgres://postgres@localhost:5433/postgres?sslmode=disable"
 	}
@@ -134,7 +140,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		}
 		return
 
-	case "trigger_cdc":
+	case "bulk_cdc_data_insert":
 		// insert records in batches
 		batchSize := 300_000
 		totalRows := 15_000_000

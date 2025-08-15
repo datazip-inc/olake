@@ -39,7 +39,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			err := db.Database("mongodb").Collection(fmt.Sprintf("%s_cdc", stream)).Drop(ctx)
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
-	case "trigger_cdc":
+	case "bulk_cdc_data_insert":
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, stream string, executionNumber int) error {
 			// TODO: insert 15M rows from backfill stream to CDC stream

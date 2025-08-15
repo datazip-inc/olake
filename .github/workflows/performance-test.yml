@@ -1,15 +1,10 @@
 name: Performance Tests
 
 on:
-  push:
-    branches:
-    - "master"
-    paths:
-    - '**/*.go'
-    - '**/*.java'
   pull_request:
     branches:
-    - "*"
+    - "staging"
+    types: [ closed ]
     paths:
     - '**/*.go'
     - '**/*.java'
@@ -20,6 +15,7 @@ permissions:
 
 jobs:
   performance-tests:
+    if: github.event.pull_request.merged == true # run only on PR merge and not on close
     environment: Performance Testing
     runs-on: ubuntu-latest
     strategy:

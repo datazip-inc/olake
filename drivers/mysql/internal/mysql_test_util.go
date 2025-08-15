@@ -145,7 +145,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		}
 		return
 
-	case "trigger_cdc":
+	case "bulk_cdc_data_insert":
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, stream string, executionNumber int) error {
 			// truncate the inserted data during setup_cdc step
