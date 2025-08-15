@@ -125,7 +125,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.INCREMENTAL)
+		stream := types.NewStream(streamName, db.Name())
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
@@ -182,7 +182,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
 		if fieldName, ok := key.(string); ok {
-				stream.WithCursorField(fieldName)
+			stream.WithCursorField(fieldName)
 		}
 		return true
 	})

@@ -89,7 +89,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		convStream.WithSyncMode(types.FULLREFRESH)
+		convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 		convStream.SyncMode = types.FULLREFRESH
 
 		// Add CDC columns if supported
