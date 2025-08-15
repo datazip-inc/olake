@@ -1,58 +1,94 @@
-Trino with OLake Integration Guide
-This guide details how to use Trino to query Iceberg tables managed by the main OLake Docker stack.
+# Trino with OLake Integration Guide
 
-Prerequisites: Ensure the main OLake Docker stack is running, including the iceberg-rest-catalog and minio services, and that you have loaded some data into your Iceberg tables.
+This guide explains how to use Trino to query Iceberg tables managed by the OLake Docker stack.
 
-1. Trino and Iceberg Configuration
-The Trino example is pre-configured with the necessary iceberg.properties file at examples/trino/etc/catalog/iceberg.properties.
+## **Prerequisites**
+Before starting, ensure:  
+- The main OLake Docker stack is running.
+- The iceberg-rest-catalog and minio services are healthy.  
+- Data is already loaded into your Iceberg tables.
+___
+## **1. Configuration Overview**
+The Trino setup comes with a pre-configured **iceberg.properties** file:  
 
-2. Running Trino and Querying Data
-Follow these steps from the examples directory of your OLake project:
+```plaintext
+examples/trino/etc/catalog/iceberg.properties
+```  
 
-Navigate to the Trino example directory:
+This file connects Trino to your Iceberg catalog.
+___
+## **2. Running Trino**
+**Step 1— Navigate to the Trino example directory**
 
-cd trino
+```bash
+cd examples/trino
+``` 
 
-Start the Trino container:
-This command launches the Trino coordinator and connects it to your existing OLake services.
+**Step 2 — Start the Trino Coordinator**  
+This command launches the Trino coordinator and connects it to the existing OLake services:  
 
+```bash
 docker run -d \
   --name olake-trino-coordinator \
   --network app-network \
-  -p 80:8080 \
+  -p 8888:8080 \
   -v "$(pwd)/etc:/opt/trino-server/etc" \
   trinodb/trino:latest
+  ```
+___
+## **3. Querying Data**
+You can use either the **Trino UI** or a **SQL client**.  
 
-Run a query:
+### **Option A — Trino Web UI**
+Open your browser and visit:
 
-Using the Trino UI:
+[http://localhost:8888](http://localhost:8888)
 
-Open your web browser and go to http://localhost:80.
 
-Log in with the username admin.
+Log in with:
+* Username: `admin`  
 
-In the UI, select Catalog: iceberg and Schema: weather.
+#### ⚠️ **Important:**  
+In some setups (including the current OLake example), the Trino Web UI will not display available catalogs or schemas.  
+Use the CLI or a SQL client (Option B) to view them instead. This is expected behavior — it is not a bug in your setup.
 
-Using DBeaver:
 
-If the Trino UI dropdowns are not visible, you can connect directly using a SQL client like DBeaver. Refer to the official documentation here: https://dbeaver.com/docs/dbeaver/Database-driver-Trino/.
+### **Option B — SQL Client (Recommended)**  
 
-Execute a query to verify your data, for example:
+Using a SQL client like DBeaver provides a more reliable experience.  
+📄 [Official DBeaver guide for Trino](https://dbeaver.com/docs/dbeaver/Database-driver-Trino/)
 
+
+#### **Example Queries:**
+
+Check if Iceberg catalog is registered:  
+```sql
+SHOW CATALOGS;
+```  
+
+List schemas in the Iceberg catalog:  
+```sql
+SHOW SCHEMAS IN iceberg;
+```   
+
+Preview data:  
+```sql
 SELECT * FROM iceberg.weather.weather LIMIT 10;
-
-3. Trino Container Troubleshooting
-If you encounter issues with the Trino container, these commands can help:
-
-View Trino container logs:
-
+```
+___
+## **4. Troubleshooting**
+View Trino container logs:  
+```bash 
 docker logs -f olake-trino-coordinator
-
-Check Trino container status:
-
+```  
+Check Trino container status:  
+```bash 
 docker ps -f name=olake-trino-coordinator
-
-Restart the Trino container:
-
+```  
+Restart the Trino container:  
+```bash 
 docker restart olake-trino-coordinator
-
+```
+___
+✅ **Tip:**    If the UI doesn’t show dropdowns for catalogs/schemas, queries will still work via CLI or a SQL client.
+___

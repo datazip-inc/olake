@@ -1,0 +1,1 @@
+FROM trinodb/trino:latest

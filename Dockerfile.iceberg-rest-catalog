@@ -1,0 +1,1 @@
+FROM tabulario/iceberg-rest:latest

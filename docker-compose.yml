@@ -1,11 +1,84 @@
 services:
-  mongodb_sync:
-    image: olakego/source-mongodb:latest
-    command: >
-      sync
-      --config /mnt/config/config.json
-      --catalog /mnt/config/catalog.json
-      --destination /mnt/config/writer.json
-      --state /mnt/config/state.json
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    networks:
+      - olake_app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+  
+  hive-metastore:
+    image: apache/hive:3.1.3
+    container_name: hive-metastore
+    command: /opt/hive/bin/schematool -dbType derby -initSchema && hive --service metastore
+    ports:
+      - "9083:9083"
+    environment:
+      HIVE_CONF_DIR: /opt/hive/conf
+      SERVICE_NAME: hive-metastore
+    depends_on:
+      - minio
+    networks:
+      - olake_app-network
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9083 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  iceberg-rest-catalog:
+    build:
+      context: .
+      dockerfile: Dockerfile.iceberg-rest-catalog
+    container_name: iceberg-rest-catalog
+    ports:
+      - "8081:8181"
+    environment:
+      CATALOG_WAREHOUSE: s3a://warehouse/
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_S3_ENDPOINT: http://minio:9000
+    depends_on:
+      - minio
+      - hive-metastore
+    networks:
+      - olake_app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/v1/ping"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  trino-coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile.trino
+    container_name: olake-trino-coordinator
+    ports:
+      - "8888:8080"
     volumes:
-      - ./drivers/mongodb/examples:/mnt/config
+    - ./config/trino/etc:/etc/trino
+    environment:
+      TRINO_SERVER_TYPE: coordinator
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    depends_on:
+      - iceberg-rest-catalog
+      - hive-metastore
+    networks:
+      - olake_app-network
+
+networks:
+  olake_app-network:
+    driver: bridge
