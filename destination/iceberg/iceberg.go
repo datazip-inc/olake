@@ -78,7 +78,7 @@ func (i *Iceberg) Setup(stream types.StreamInterface, options *destination.Optio
 func (i *Iceberg) Write(ctx context.Context, record types.RawRecord) error {
 	// Convert record to Debezium format with thread ID
 	// We are adding the thread ID to process the records from multiple threads in parallel and separately so that we can commit when each thread finishes.
-	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.Name(), i.stream.NormalizationEnabled(), i.threadID)
+	debeziumRecord, err := record.ToDebeziumFormat(i.config.IcebergDatabase, i.stream.TargetName(), i.stream.NormalizationEnabled(), i.threadID)
 	if err != nil {
 		return fmt.Errorf("failed to convert record: %v", err)
 	}
@@ -92,7 +92,7 @@ func (i *Iceberg) Write(ctx context.Context, record types.RawRecord) error {
 		if err != nil {
 			return fmt.Errorf("thread id %s: failed to flush buffer: %s", i.threadID, err)
 		}
-		logger.Infof("thread id %s: Batch flushed to Iceberg server for stream %s", i.threadID, i.stream.Name())
+		logger.Infof("thread id %s: Batch flushed to Iceberg server for stream %s as %s", i.threadID, i.stream.Name(), i.stream.TargetName())
 	}
 
 	i.records.Add(1)

@@ -42,6 +42,7 @@ type StreamMetadata struct {
 	ChunkColumn    string `json:"chunk_column,omitempty"`
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
+	TargetName     string `json:"target_name,omitempty"`
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
 	Filter         string `json:"filter,omitempty"`
