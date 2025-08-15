@@ -22,8 +22,8 @@ var pgTypeToDataTypes = map[string]types.DataType{
 	"bigserial":   types.Int64,
 
 	// numbers
-	"decimal":          types.Float32,
-	"numeric":          types.Float32,
+	"decimal":          types.Float64,
+	"numeric":          types.Float64,
 	"double precision": types.Float64,
 	"float":            types.Float32,
 	"float4":           types.Float32,
