@@ -411,6 +411,7 @@ func OracleChunkRetrievalQuery(taskName string) string {
 func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
+	// remove cursorField conversion to lower case once column normalization is based on writer side
 	datatype, err := stream.Self().Stream.Schema.GetType(strings.ToLower(cursorField))
 	if err != nil {
 		return "", nil, fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
