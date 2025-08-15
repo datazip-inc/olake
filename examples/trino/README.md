@@ -12,27 +12,23 @@ ___
 The Trino setup comes with a pre-configured **iceberg.properties** file:  
 
 ```plaintext
-examples/trino/etc/catalog/iceberg.properties
+config/trino/etc/catalog/iceberg.properties
 ```  
 
 This file connects Trino to your Iceberg catalog.
 ___
 ## **2. Running Trino**
-**Step 1— Navigate to the Trino example directory**
 
-```bash
-cd examples/trino
-``` 
+**Start the Trino Coordinator**  
 
-**Step 2 — Start the Trino Coordinator**  
-This command launches the Trino coordinator and connects it to the existing OLake services:  
+From the project's root directory (```Olake```), run this command. It launches the Trino coordinator and connects it to the existing OLake services:
 
 ```bash
 docker run -d \
   --name olake-trino-coordinator \
   --network app-network \
   -p 8888:8080 \
-  -v "$(pwd)/etc:/opt/trino-server/etc" \
+  -v "$(pwd)/config/trino/etc:/opt/trino-server/etc" \
   trinodb/trino:latest
   ```
 ___
