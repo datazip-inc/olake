@@ -356,7 +356,6 @@ func (i *Iceberg) Type() string {
 }
 
 // validate schema change & evolution and removes null records
-// only call if normalization is enabled
 func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecord) (bool, any, error) {
 	if !i.stream.NormalizationEnabled() {
 		return false, nil, nil

@@ -282,7 +282,6 @@ func (p *Parquet) Close(_ context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-// only call if normalization is enabled
 func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, nil, nil

@@ -46,6 +46,13 @@ import java.util.UUID;
 import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
 import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
 import static org.apache.iceberg.TableProperties.FORMAT_VERSION;
+import static org.apache.iceberg.TableProperties.PARQUET_DICT_SIZE_BYTES;
+import static org.apache.iceberg.TableProperties.PARQUET_PAGE_SIZE_BYTES;
+import static org.apache.iceberg.TableProperties.PARQUET_ROW_GROUP_SIZE_BYTES;
+import static org.apache.iceberg.TableProperties.PARQUET_PAGE_ROW_LIMIT;
+import static org.apache.iceberg.TableProperties.PARQUET_COMPRESSION;;
+
+
 
 
 /**
@@ -141,6 +148,11 @@ public class IcebergUtil {
       return icebergCatalog.buildTable(tableIdentifier, schema)
           .withProperty(FORMAT_VERSION, "2")
           .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+          .withProperty(PARQUET_DICT_SIZE_BYTES,"524288") // 512 kb
+          .withProperty(PARQUET_PAGE_SIZE_BYTES, "262144") // 256 kb
+          .withProperty(PARQUET_ROW_GROUP_SIZE_BYTES, "16777216") // 16 mb
+          .withProperty(PARQUET_PAGE_ROW_LIMIT, "5000")
+          .withProperty(PARQUET_COMPRESSION, "snappy")
           .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
           .create();
     } else {

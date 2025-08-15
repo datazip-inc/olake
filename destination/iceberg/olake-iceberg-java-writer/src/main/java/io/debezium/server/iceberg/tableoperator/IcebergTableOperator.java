@@ -26,8 +26,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 /**
  * Wrapper to perform operations on iceberg tables
  *
@@ -38,9 +36,7 @@ public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
 
-  // Map to store completed WriteResult per thread for later commit
-  private final Map<String, BaseTaskWriter<Record>> threadWriter = new ConcurrentHashMap<>();
-
+  BaseTaskWriter<Record> writer;
 
   public IcebergTableOperator(boolean upsert_records) {
     writerFactory2 = new IcebergTableWriterFactory();
@@ -98,8 +94,6 @@ public class IcebergTableOperator {
    * @throws RuntimeException if commit fails
    */
   public void commitThread(String threadId, Table table) {
-    BaseTaskWriter<Record> writer =  threadWriter.remove(threadId);
-
     try {
       if (writer == null) {
         LOGGER.warn("No writer found for thread: {}", threadId);
@@ -178,13 +172,7 @@ public class IcebergTableOperator {
    * @param events
    */
   public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
-    BaseTaskWriter<Record> writer = threadWriter.get(threadID);
-    if (writer == null) {
-        LOGGER.warn("No writer found creating new for thread {}", threadID);
-        writer = writerFactory2.create(icebergTable);
-        threadWriter.put(threadID, writer);
-    }
-
+    writer = writerFactory2.create(icebergTable);
     try {
       for (RecordWrapper record : events) {
         try{
@@ -195,9 +183,6 @@ public class IcebergTableOperator {
         }
       }
       LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadID);
-
-      // Complete the writer and store the WriteResult for later commit
-      
 
     } catch (Exception ex) {
       LOGGER.error("Failed to write data to table: {} for thread: {}, exception: {}", icebergTable.name(), threadID, ex);
@@ -213,9 +198,6 @@ public class IcebergTableOperator {
       } catch (IOException e) {
         LOGGER.warn("Failed to close writer", e);
       }
-      // Also clean up any stored write results for this thread
-      threadWriter.remove(threadID);
-
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
     }
   }
