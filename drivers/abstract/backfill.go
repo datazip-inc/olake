@@ -67,7 +67,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
 					if a.driver.Type() != string(constants.Kafka) {
 						prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-						if err != nil {
+						if cursorErr != nil {
 							err = cursorErr
 							return
 						}
