@@ -311,7 +311,7 @@ func CompareInterfaceValue(a, b interface{}) int {
 	}
 
 	switch aVal := a.(type) {
-	case uint, uint32, uint64:
+	case uint, uint8, uint16, uint32, uint64:
 		aUint := reflect.ValueOf(a).Convert(reflect.TypeOf(uint64(0))).Uint()
 		bUint := reflect.ValueOf(b).Convert(reflect.TypeOf(uint64(0))).Uint()
 		if aUint < bUint {
@@ -320,7 +320,7 @@ func CompareInterfaceValue(a, b interface{}) int {
 			return 1
 		}
 		return 0
-	case int, int32, int64:
+	case int, int8, int16, int32, int64:
 		aInt := reflect.ValueOf(a).Convert(reflect.TypeOf(int64(0))).Int()
 		bInt := reflect.ValueOf(b).Convert(reflect.TypeOf(int64(0))).Int()
 		if aInt < bInt {
