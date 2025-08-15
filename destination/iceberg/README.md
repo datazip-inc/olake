@@ -166,6 +166,7 @@ change the placeholders with actual values
 * `BUCKET_NAME` -> Table Bucket Name
 
 ### Unity Catalog support (Rest)
+```json
 {
   "type": "ICEBERG",
   "writer": {
@@ -178,6 +179,7 @@ change the placeholders with actual values
     "no_identifier_fields": true
   }
 }
+```
 
 change the placeholders with actual values
 * `DATABRICK_WORKSPACE_URL` -> Databricks workplace URL (URL that you used to access your Databricks console)

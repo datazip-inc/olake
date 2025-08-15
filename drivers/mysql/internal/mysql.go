@@ -159,7 +159,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			}
 			stream.WithCursorField(columnName)
 			datatype := types.Unknown
-
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
