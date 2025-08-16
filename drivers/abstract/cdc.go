@@ -84,7 +84,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 								utils.GetKeysHash(change.Data, pkFields...),
 								change.Data,
 								opType,
-								change.Timestamp.Time,
+								&change.Timestamp.Time,
 							))
 						})
 					})
@@ -134,7 +134,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					utils.GetKeysHash(change.Data, pkFields...),
 					change.Data,
 					opType,
-					change.Timestamp.Time,
+					&change.Timestamp.Time,
 				))
 			})
 		})

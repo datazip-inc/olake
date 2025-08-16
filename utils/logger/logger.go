@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/pbnjay/memory"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -155,7 +154,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 				stats := map[string]interface{}{
 					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
-					"Memory":                   fmt.Sprintf("%.2f pc", GetMemoryUsagePercent()),
+					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
 					"Read Speed":               fmt.Sprintf("%.2f rps", readSpeed),
 					"Write Speed":              fmt.Sprintf("%.2f wps", speed),
 					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
@@ -167,15 +166,6 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 			}
 		}
 	}()
-}
-
-func GetMemoryUsagePercent() float64 {
-	totalMemory := memory.TotalMemory()
-	// freeMemory := memory.FreeMemory()
-	// usedMemory := totalMemory - freeMemory
-
-	// usagePercent := float64(usedMemory) / float64(totalMemory) * 100
-	return float64(totalMemory)
 }
 
 func Init() {

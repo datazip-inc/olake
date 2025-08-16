@@ -7,7 +7,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type Config struct {
@@ -53,8 +52,6 @@ func (c *Config) Validate() error {
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
-
-	logger.Infof("driver max threads set to: %d", c.MaxThreads)
 
 	// Add the connection parameters to the url
 	parsed := &url.URL{

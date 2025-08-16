@@ -93,11 +93,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     icebergTableOperator.addToTablePerSchema(threadId, this.icebergTable, finalRecords);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.info("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
-                    if (finalRecords != null) {
-                        // release memory
-                        finalRecords.clear();
-                    }
-                    request = null;
                     break;
                     
                 case DROP_TABLE:

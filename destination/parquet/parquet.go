@@ -115,6 +115,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, createO
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string]*FileMetadata)
+	p.basePath = filepath.Join(p.stream.Namespace(), p.stream.Name())
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
 		p.config.Path = os.TempDir()
@@ -146,7 +147,7 @@ func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) err
 			if err != nil {
 				return fmt.Errorf("failed to create parititon file: %s", err)
 			}
-			partitionFile, _ = p.partitionedFiles[partitionedPath]
+			partitionFile = p.partitionedFiles[partitionedPath]
 		}
 
 		if partitionFile == nil {
@@ -155,10 +156,6 @@ func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) err
 
 		var err error
 		if p.stream.NormalizationEnabled() {
-			record.Data[constants.OlakeID] = record.OlakeID
-			record.Data[constants.OlakeTimestamp] = record.OlakeTimestamp
-			record.Data[constants.OpType] = record.OperationType
-			record.Data[constants.CdcTimestamp] = record.CdcTimestamp
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
@@ -277,7 +274,8 @@ func (p *Parquet) Close(_ context.Context) error {
 			logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, s3KeyPath)
 		}
 	}
-
+	// make map empty
+	p.partitionedFiles = make(map[string]*FileMetadata)
 	return nil
 }
 
@@ -287,27 +285,35 @@ func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord)
 		return false, nil, nil
 	}
 
-	oldSchema, ok := pastSchema.(typeutils.Fields)
+	schema, ok := pastSchema.(typeutils.Fields)
 	if !ok {
 		return false, nil, fmt.Errorf("failed to typecast schema[%T] into (typeutils.Fields)", pastSchema)
 	}
 
 	schemaChange := false
-	for _, record := range records {
+	for idx, record := range records {
+		// add common fields
+		records[idx].Data[constants.OlakeID] = record.OlakeID
+		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
+		records[idx].Data[constants.OpType] = record.OperationType
+		if record.CdcTimestamp != nil {
+			records[idx].Data[constants.CdcTimestamp] = record.CdcTimestamp
+		}
+
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return false, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
 		}
-		change, typeChange, _ := oldSchema.Process(flattenedRecord)
+		change, typeChange, _ := schema.Process(flattenedRecord)
 		schemaChange = schemaChange || change || typeChange
-		err = typeutils.ReformatRecord(oldSchema, flattenedRecord)
+		err = typeutils.ReformatRecord(schema, flattenedRecord)
 		if err != nil {
 			return false, nil, fmt.Errorf("failed to reformat records: %s", err)
 		}
-		record.Data = flattenedRecord
+		records[idx].Data = flattenedRecord // use idx to update slice record
 	}
 
-	return schemaChange, oldSchema, nil
+	return schemaChange, schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
@@ -323,7 +329,7 @@ func (p *Parquet) EvolveSchema(ctx context.Context, newSchema any) error {
 	p.stream.Schema().Override(newFieldSchema.ToProperties())
 
 	// TODO: can we implement something https://github.com/parquet-go/parquet-go?tab=readme-ov-file#evolving-parquet-schemas-parquetconvert
-	// close prev files as change detected
+	// close prev files as change detected (new files will be created with new schema)
 	return p.Close(ctx)
 }
 

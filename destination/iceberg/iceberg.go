@@ -362,14 +362,16 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 	}
 	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
 		newSchema := make(map[string]string)
-		for _, record := range records {
+		for idx, record := range records {
 			// TODO: normalized column names (remove from driver side)
 
 			// set pre configured fields
-			record.Data[constants.OlakeID] = record.OlakeID
-			record.Data[constants.CdcTimestamp] = record.CdcTimestamp
-			record.Data[constants.OlakeTimestamp] = time.Now().UTC()
-			record.Data[constants.OpType] = record.OperationType
+			records[idx].Data[constants.OlakeID] = record.OlakeID
+			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
+			records[idx].Data[constants.OpType] = record.OperationType
+			if record.CdcTimestamp != nil {
+				records[idx].Data[constants.CdcTimestamp] = record.CdcTimestamp
+			}
 
 			for key, value := range record.Data {
 				detectedType := typeutils.TypeFromValue(value)
@@ -383,7 +385,7 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 				detecteIceType := detectedType.ToIceberg()
 				if persistedType, exists := newSchema[key]; exists && !isValidIcebergType(persistedType, detecteIceType) {
 					return nil, fmt.Errorf(
-						"failed to validate schema (got two different types in batch), expected type: %s, got type: %s",
+						"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
 						persistedType, detecteIceType,
 					)
 				}

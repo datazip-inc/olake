@@ -18,7 +18,7 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)

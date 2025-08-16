@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -86,7 +85,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
 				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-				return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
+				return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", nil))
 			})
 		})
 	}

@@ -95,7 +95,10 @@ func (t *ThreadEvent) Push(ctx context.Context, record types.RawRecord) error {
 
 func (t *ThreadEvent) Close(ctx context.Context) error {
 	defer t.stats.writerThreads.Add(-1)
-	t.flush(ctx, t.buffer)
+	err := t.flush(ctx, t.buffer)
+	if err != nil {
+		return fmt.Errorf("failed to flush data while closing: %s", err)
+	}
 
 	t.streamArtifact.mutex.Lock()
 	defer t.streamArtifact.mutex.Unlock()
@@ -120,7 +123,7 @@ func (t *ThreadEvent) flush(ctx context.Context, buf []types.RawRecord) (err err
 
 	schemaEvolution, newSchema, err := t.writer.FlattenAndCleanData(cachedSchema, buf)
 	if err != nil {
-		return fmt.Errorf("failed to flush data: %s", err)
+		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
 
 	if schemaEvolution {

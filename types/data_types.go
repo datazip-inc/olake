@@ -66,39 +66,16 @@ type RawRecord struct {
 	OlakeID        string         `parquet:"_olake_id"`
 	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
 	OperationType  string         `parquet:"_op_type"` // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
-	CdcTimestamp   time.Time      `parquet:"_cdc_timestamp"`
+	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp time.Time) RawRecord {
+func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
 		OperationType: operationType,
 		CdcTimestamp:  cdcTimestamp,
 	}
-}
-
-type Metadata struct {
-	DestTableName string `json:"dest_table_name"`
-	ThreadID      string `json:"thread_id"`
-	PrimaryKey    string `json:"primary_key,omitempty"` // omitempty because it's not in commit type
-}
-
-type IceColumn struct {
-	IceType string `json:"ice_type"`
-	Key     string `json:"key"`
-	Value   any    `json:"value"`
-}
-
-type IceRecord struct {
-	Record     []IceColumn `json:"record"`
-	RecordType string      `json:"record_type"` // u/c/r
-}
-
-type IcebergWriterPayload struct {
-	Type     string      `json:"type"` // "records" or "commit"
-	Metadata Metadata    `json:"metadata"`
-	Records  []IceRecord `json:"records,omitempty"` // omitempty because it's not in commit type
 }
 
 func (d DataType) ToNewParquet() parquet.Node {
