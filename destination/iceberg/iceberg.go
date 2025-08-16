@@ -145,24 +145,11 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 
 		protoColumns := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 		if !i.stream.NormalizationEnabled() {
-			dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
-			dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OlakeID}}
-			dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
-			dataMap[constants.OlakeTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().UnixMilli()}}
-			bytesData, err := json.Marshal(record.Data)
+			protoCols, err := rawDataColumnBuffer(record, protoSchema)
 			if err != nil {
-				return fmt.Errorf("failed to marshal data in normalization: %s", err)
+				return fmt.Errorf("failed to create raw data column buffer")
 			}
-			dataMap[constants.StringifiedData] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: string(bytesData)}}
-
-			for _, field := range protoSchema {
-				value, ok := dataMap[field.Key]
-				if !ok {
-					protoColumns = append(protoColumns, nil)
-					continue
-				}
-				protoColumns = append(protoColumns, value)
-			}
+			protoColumns = protoCols
 		} else {
 			for _, field := range protoSchema {
 				val, ok := record.Data[field.Key]
@@ -317,24 +304,19 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	logger.Infof("table created or loaded test olake: %s", res)
 
 	// try writing record in dest table
-	schema := icebergRawSchema()
-	protoColumns := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(schema))
-
-	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
-	dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: "test_olake_id"}}
-	dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().Unix()}}
-	dataMap[constants.OlakeTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().Unix()}}
-	dataMap[constants.StringifiedData] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: `{"name": "olake"}`}}
-	for _, field := range schema {
-		protoColumns = append(protoColumns, dataMap[field.Key])
+	currentTime := time.Now().UTC()
+	protoSchema := icebergRawSchema()
+	record := types.CreateRawRecord("olake_test", map[string]any{"name": "olake"}, "r", &currentTime)
+	protoColumns, err := rawDataColumnBuffer(record, protoSchema)
+	if err != nil {
+		return fmt.Errorf("failed to create raw data column buffer: %s", err)
 	}
-
 	recrodInsertReq := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
 			DestTableName: "test_olake",
-			Schema:        icebergRawSchema(),
+			Schema:        protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{
 			Fields:     protoColumns,
@@ -549,6 +531,33 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 		fields[name] = types[1]
 	}
 	return fields, nil
+}
+
+func rawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
+	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
+	protoColumns := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
+
+	dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OlakeID}}
+	dataMap[constants.OlakeTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().UnixMilli()}}
+	if record.CdcTimestamp != nil {
+		dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
+	}
+
+	bytesData, err := json.Marshal(record.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data in normalization: %s", err)
+	}
+	dataMap[constants.StringifiedData] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: string(bytesData)}}
+
+	for _, field := range protoSchema {
+		value, ok := dataMap[field.Key]
+		if !ok {
+			protoColumns = append(protoColumns, nil)
+			continue
+		}
+		protoColumns = append(protoColumns, value)
+	}
+	return protoColumns, nil
 }
 
 // returns raw schema in iceberg format

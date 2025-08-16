@@ -57,6 +57,7 @@ var RawSchema = map[string]DataType{
 	constants.CdcTimestamp:    Timestamp,
 	constants.OlakeTimestamp:  Timestamp,
 	constants.OpType:          String,
+	constants.OlakeID:         String,
 }
 
 type Record map[string]any
