@@ -172,7 +172,10 @@ public class IcebergTableOperator {
    * @param events
    */
   public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
-    writer = writerFactory2.create(icebergTable);
+    if (writer == null) {
+      writer = writerFactory2.create(icebergTable);
+    }
+    
     try {
       for (RecordWrapper record : events) {
         try{

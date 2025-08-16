@@ -279,7 +279,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to setup java server: %s", err)
 	}
-
+	i.server = server // to close properly
 	defer func() {
 		i.Close(ctx)
 	}()
