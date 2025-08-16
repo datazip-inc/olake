@@ -156,7 +156,9 @@ public class IcebergTableOperator {
     } finally {
         // Close the writer
         try {
-          writer.close();
+          if (writer != null) {
+            writer.close();
+          }
         } catch (IOException e) {
           LOGGER.warn("Failed to close writer for thread: {}", threadId, e);
         }
@@ -175,7 +177,7 @@ public class IcebergTableOperator {
     if (writer == null) {
       writer = writerFactory2.create(icebergTable);
     }
-    
+
     try {
       for (RecordWrapper record : events) {
         try{
