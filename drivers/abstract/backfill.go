@@ -65,7 +65,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				// if it is incremental update the max cursor value received in chunk
 				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
 					prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-					if err != nil {
+					if cursorErr != nil {
 						err = cursorErr
 						return
 					}

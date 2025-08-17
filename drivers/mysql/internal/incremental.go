@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
@@ -17,17 +18,19 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
-	incrementalCondition, queryArgs, err := m.buildIncrementalCondition(stream)
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.MySQL,
+		Stream: stream,
+		State:  m.state,
+		Filter: filter,
+	}
+	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
 	if err != nil {
-		return fmt.Errorf("failed to format cursor condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
-	query := jdbc.MySQLIncrementalQuery(stream, filter, incrementalCondition)
-
-	logger.Infof("Starting incremental sync for stream[%s] with filter: %s and args: %v", stream.ID(), query, queryArgs)
-
 	var rows *sql.Rows
-	rows, err = m.client.QueryContext(ctx, query, queryArgs...)
+	rows, err = m.client.QueryContext(ctx, incrementalQuery, queryArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to execute incremental query: %s", err)
 	}
