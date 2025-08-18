@@ -18,8 +18,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	t.Helper()
 
 	var connStr string
+	var config Config
 	if fileConfig {
-		var config Config
 		utils.UnmarshalFile("./testdata/source.json", &config, false)
 		connStr = fmt.Sprintf(
 			"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s",
@@ -39,7 +39,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "setup_cdc":
 		// truncate the cdc tables
 		for _, cdcStream := range streams {
-			_, err := db.Database("mongodb").Collection(cdcStream).DeleteMany(ctx, bson.D{})
+			_, err := db.Database(config.Database).Collection(cdcStream).DeleteMany(ctx, bson.D{})
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
 		return
@@ -51,8 +51,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		// TODO: insert data in batch
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
-			srcColl := db.Database("twitter_data").Collection(backfillStreams[executionNumber-1])
-			destColl := db.Database("mongodb").Collection(cdcStream)
+			srcColl := db.Database(config.Database).Collection(backfillStreams[executionNumber-1])
+			destColl := db.Database(config.Database).Collection(cdcStream)
 
 			cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
 			if err != nil {
