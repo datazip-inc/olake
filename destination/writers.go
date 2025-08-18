@@ -20,10 +20,9 @@ type (
 	WriterOption   func(Writer) error
 
 	Options struct {
-		Identifier  string
-		Number      int64
-		Backfill    bool
-		CreateTable bool
+		Identifier string
+		Number     int64
+		Backfill   bool
 	}
 
 	ThreadOptions   func(opt *Options)
@@ -49,7 +48,7 @@ type (
 		buffer         []types.RawRecord
 		writer         Writer
 		stats          *Stats
-		batchSize      int64
+		batchSize      int
 		streamArtifact *StreamArtifacts
 	}
 )
@@ -81,7 +80,7 @@ func (t *ThreadEvent) Push(ctx context.Context, record types.RawRecord) error {
 	default:
 		t.stats.readCount.Add(1)
 		t.buffer = append(t.buffer, record)
-		if int64(len(t.buffer)) > t.batchSize {
+		if len(t.buffer) > t.batchSize {
 			err := t.flush(ctx, t.buffer)
 			if err != nil {
 				return fmt.Errorf("failed to flush data: %s", err)
@@ -103,7 +102,6 @@ func (t *ThreadEvent) Close(ctx context.Context) error {
 	t.streamArtifact.mutex.Lock()
 	defer t.streamArtifact.mutex.Unlock()
 
-	// use passed context as group context already done
 	return t.writer.Close(ctx)
 }
 
@@ -155,7 +153,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	rawStreamArtifact, ok := w.streamArtifacts.Load(stream.ID())
 	if !ok {
-		return nil, fmt.Errorf("failed to get stream lock for stream[%s]", stream.ID())
+		return nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", stream.ID())
 	}
 
 	streamArtifact, ok := rawStreamArtifact.(*StreamArtifacts)

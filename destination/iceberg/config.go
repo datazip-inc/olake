@@ -23,6 +23,7 @@ const (
 	RestCatalog CatalogType = "rest"
 )
 
+// TODO: add validation for each catalog properly
 type Config struct {
 	// S3-compatible Storage Configuration
 	Region             string `json:"aws_region,omitempty"`

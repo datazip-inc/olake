@@ -63,7 +63,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	upsertMode = upsertMode || !options.Backfill
 	server, err := newIcebergClient(i.config, i.partitionInfo, false, upsertMode)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start java server: %s", err)
+		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
 
 	// persist server details
@@ -112,7 +112,6 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 
 	if len(i.partitionInfo) > 0 {
 		// sort record based on partition order
-		// Note: OlakeTimestamp not present in records data (assuming it does not matter that much as the minimum granularity is HH)
 		sort.Slice(records, func(idx, jdx int) bool {
 			iRecord := records[idx].Data
 			jRecord := records[jdx].Data
@@ -124,16 +123,16 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 				if !iOk && !jOk {
 					continue // i == j
 				} else if !iOk {
-					return false // i < j
+					return true // i < j
 				} else if !jOk {
-					return true // i > j
+					return false // i > j
 				}
 
 				if cmp := utils.CompareInterfaceValue(iField, jField); cmp != 0 {
 					return cmp == -1 // i < j
 				}
 			}
-			return true
+			return true // i == j
 		})
 	}
 
@@ -277,7 +276,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Create a temporary setup for checking
 	server, err := newIcebergClient(i.config, []PartitionInfo{}, true, false)
 	if err != nil {
-		return fmt.Errorf("failed to setup java server: %s", err)
+		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
 	i.server = server // to close properly
 	defer func() {
@@ -449,7 +448,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 		return fmt.Errorf("failed to send records to evolve schema: %s", err)
 	}
 
-	logger.Debug("response received after schema evolution: %s", resp)
+	logger.Debugf("response received after schema evolution: %s", resp)
 	return nil
 }
 
@@ -517,7 +516,7 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 			continue
 		}
 
-		// Parse line like: "1: dispatching_base_num: optional string"
+		// Parse line like: "1: col_name: optional string"
 		parts := strings.SplitN(line, ":", 3)
 		if len(parts) < 3 {
 			continue
