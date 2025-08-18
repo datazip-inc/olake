@@ -48,6 +48,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 		totalRows := 15000000
 
+		// TODO: insert data in batch
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			srcColl := db.Database("twitter_data").Collection(backfillStreams[executionNumber-1])

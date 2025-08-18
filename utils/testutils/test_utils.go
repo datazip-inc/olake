@@ -142,7 +142,7 @@ func updateStreamsCommand(config TestConfig, namespace string, stream []string, 
 func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
 	backfillStreams := []string{}
 	for _, stream := range cdcStreams {
-		backfillStreams = append(backfillStreams, strings.Split(stream, "_")[0])
+		backfillStreams = append(backfillStreams, strings.TrimSuffix(stream, "_cdc"))
 	}
 	return backfillStreams
 }

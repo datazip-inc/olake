@@ -142,7 +142,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 			// mysql chunking strategy does not support 0 record sync
-			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s WHERE id > 20000000 LIMIT 1", backfillStreams[idx], cdcStream))
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s WHERE id > 15000000 LIMIT 1", cdcStream, backfillStreams[idx]))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
 		return
