@@ -8,6 +8,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -19,14 +20,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	var connStr string
 	if fileConfig {
-		var driver MySQL
-		utils.UnmarshalFile("./testdata/source.json", &driver.config, false)
+		var config Config
+		utils.UnmarshalFile("./testdata/source.json", &config, false)
 		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
-			driver.config.Username,
-			driver.config.Password,
-			driver.config.Host,
-			driver.config.Port,
-			driver.config.Database)
+			config.Username,
+			config.Password,
+			config.Host,
+			config.Port,
+			config.Database)
 	} else {
 		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
 	}
@@ -135,25 +136,22 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "setup_cdc":
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 		// truncate the cdc tables
-		for _, stream := range streams {
-			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
+		for idx, cdcStream := range streams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 			// mysql chunking strategy does not support 0 record sync
-			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s ORDER BY id LIMIT 1", stream, stream))
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s WHERE id > 20000000 LIMIT 1", backfillStreams[idx], cdcStream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
 		return
 
 	case "bulk_cdc_data_insert":
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 		// insert the data into the cdc tables concurrently
-		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, stream string, executionNumber int) error {
-			// truncate the inserted data during setup_cdc step
-			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
-			if err != nil {
-				return err
-			}
-			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s_cdc SELECT * FROM %s LIMIT 15000000", stream, stream))
+		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber-1]))
 			if err != nil {
 				return err
 			}

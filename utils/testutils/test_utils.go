@@ -138,6 +138,15 @@ func updateStreamsCommand(config TestConfig, namespace string, stream []string, 
 	return jqExpr
 }
 
+// to get backfill streams from cdc streams e.g. "demo_cdc" -> "demo"
+func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
+	backfillStreams := []string{}
+	for _, stream := range cdcStreams {
+		backfillStreams = append(backfillStreams, strings.Split(stream, "_")[0])
+	}
+	return backfillStreams
+}
+
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	ctx := context.Background()
 
@@ -516,7 +525,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Logf("(cdc) running performance test for %s", cfg.TestConfig.Driver)
 
 								t.Log("(cdc) setup cdc started")
-								cfg.ExecuteQuery(ctx, t, cfg.BackfillStreams, "setup_cdc", true)
+								cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "setup_cdc", true)
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) discover started")
@@ -539,7 +548,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) setup completed")
 
 								t.Log("(cdc) trigger cdc started")
-								cfg.ExecuteQuery(ctx, t, cfg.BackfillStreams, "bulk_cdc_data_insert", true)
+								cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "bulk_cdc_data_insert", true)
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) sync started")

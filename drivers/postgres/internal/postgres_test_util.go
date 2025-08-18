@@ -8,6 +8,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
@@ -17,14 +18,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	var connStr string
 	if fileConfig {
-		var driver Postgres
-		utils.UnmarshalFile("./testdata/source.json", &driver.config, false)
+		var config Config
+		utils.UnmarshalFile("./testdata/source.json", &config, false)
 		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
-			driver.config.Username,
-			driver.config.Password,
-			driver.config.Host,
-			driver.config.Port,
-			driver.config.Database,
+			config.Username,
+			config.Password,
+			config.Host,
+			config.Port,
+			config.Database,
 		)
 	} else {
 		connStr = "postgres://postgres@localhost:5433/postgres?sslmode=disable"
@@ -134,8 +135,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
 
 	case "setup_cdc":
-		for _, stream := range streams {
-			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s_cdc", stream))
+		for _, cdcStream := range streams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
 		return
@@ -144,18 +145,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		// insert records in batches
 		batchSize := 300_000
 		totalRows := 15_000_000
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 
-		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, stream string, executionNumber int) error {
+		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			for offset := 0; offset < totalRows; offset += batchSize {
 				query := fmt.Sprintf(
-					`INSERT INTO %s_cdc
+					`INSERT INTO %s
 					 SELECT * FROM %s
 					 ORDER BY id
 					 LIMIT %d OFFSET %d`,
-					stream, stream, batchSize, offset,
+					cdcStream, backfillStreams[executionNumber-1], batchSize, offset,
 				)
 				if _, err := db.ExecContext(ctx, query); err != nil {
-					return fmt.Errorf("stream: %s, offset: %d, error: %w", stream, offset, err)
+					return fmt.Errorf("stream: %s, offset: %d, error: %w", cdcStream, offset, err)
 				}
 			}
 			return nil
