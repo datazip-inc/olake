@@ -49,7 +49,7 @@
       "properties": {
         "mode": {
           "type": "string",
-          "title": "SSL mode",
+          "title": "SSL Mode",
           "description": "Database connection SSL configuration (e.g., SSL mode)",
           "default": "disable",
           "enum": [

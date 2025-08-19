@@ -39,12 +39,11 @@ const PostgresUISchema = `{
     { "username": 12, "password": 12 },
     { "port": 12, "jdbc_url_params": 12 },
     { "ssl": 12, "max_threads": 12 },
-    { "reader_batch_size": 12, "update_method": 12 }
+    { "retry_count": 12, "update_method": 12 }
   ],
   "ssl": {
     "ui:options": {
-      "title": false,
-      "description": false
+      "title": false
     }
   },
   "update_method": {
@@ -54,11 +53,8 @@ const PostgresUISchema = `{
     "ui:options": {
       "title": false,
       "description": false
-    },
-     "type": {
-      "ui:widget": "hidden"
     }
-  },
+  }
 }`
 
 const MySQLUISchema = `{
@@ -84,25 +80,25 @@ const MySQLUISchema = `{
 }`
 
 const OracleUISchema = `{
-    "ui:grid": [
-        { "host": 12, "username": 12 },
-        { "password": 12, "port": 12 },
-        { "connection_type": 12, "ssl": 12 },
-        { "max_threads": 12, "backoff_retry_count": 12 },
-        { "jdbc_url_params": 12 }
-    ],
-    "ssl": {
-        "ui:options": {
-            "title": false,
-            "description": false
-        }
-    },
-    "connection_type": {
-        "ui:options": {
-            "title": false,
-            "description": false
-        }
+  "ui:grid": [
+    { "host": 12, "username": 12 },
+    { "password": 12, "port": 12 },
+    { "connection_type": 12, "ssl": 12 },
+    { "sid": 12, "service_name": 12 },
+    { "max_threads": 12, "backoff_retry_count": 12 },
+    { "jdbc_url_params": 12 }
+  ],
+  "ssl": {
+    "ui:options": {
+      "title": false,
+      "description": false
     }
+  },
+  "connection_type": {
+    "ui:grid": [
+      { "sid": 12, "service_name": 12 }
+    ]
+  }
 }`
 
 const ParquetUISchema = `{
@@ -114,46 +110,37 @@ const ParquetUISchema = `{
 }`
 
 const IcebergUISchema = `{
-    "ui:grid": [
-        { "iceberg_s3_path": 12, "iceberg_db": 12 },
-        { "aws_access_key": 12, "aws_secret_key": 12 },
-        { "aws_region": 12 },
-        { "catalog_type": 24 }
-    ],
-    "catalog_type": {
-        "ui:grid": [
-            { "grpc_port": 12, "sink_rpc_server_host": 12 },
-            { "rest_catalog_url": 12, "token": 12 },
-            { "rest_auth_type": 12, "oauth2_uri": 12 },
-            { "credential": 12, "no_identifier_fields": 12 },
-            { "rest_signing_name": 12, "rest_signing_region": 12 },
-            { "rest_signing_v_4": 12 },
-            { "hive_uri": 12, "s3_use_ssl": 12 },
-            { "s3_path_style": 12, "hive_clients": 12 },
-            { "hive_sasl_enabled": 12 },
-            { "jdbc_url": 12, "jdbc_username": 12 },
-            { "jdbc_password": 12, "s3_endpoint": 12 }
-        ],
-        "ui:options": {
-            "title": false,
-            "description": false
-        },
-        "no_identifier_fields": {
-            "ui:widget": "boolean"
-        },
-        "rest_signing_v_4": {
-            "ui:widget": "boolean"
-        },
-        "s3_use_ssl": {
-            "ui:widget": "boolean"
-        },
-        "hive_sasl_enabled": {
-            "ui:widget": "boolean"
-        },
-        "s3_path_style": {
-            "ui:widget": "boolean"
-        }
-    }
+  "ui:grid": [
+    { "iceberg_s3_path": 12, "iceberg_db": 12 },
+    { "aws_access_key": 12, "aws_secret_key": 12 },
+    { "catalog_type": 12, "aws_region": 12 },
+    { "grpc_port": 12, "sink_rpc_server_host": 12 },
+    { "rest_catalog_url": 12, "token": 12 },
+    { "rest_auth_type": 12, "oauth2_uri": 12 },
+    { "credential": 12, "no_identifier_fields": 12 },
+    { "rest_signing_name": 12, "rest_signing_region": 12 },
+    { "rest_signing_v_4": 12, "scope": 12 },
+    { "hive_uri": 12, "s3_use_ssl": 12 },
+    { "s3_path_style": 12, "hive_clients": 12 },
+    { "hive_sasl_enabled": 12 },
+    { "jdbc_url": 12, "jdbc_username": 12 },
+    { "jdbc_password": 12, "s3_endpoint": 12 }
+  ],
+  "no_identifier_fields": {
+    "ui:widget": "boolean"
+  },
+  "rest_signing_v_4": {
+    "ui:widget": "boolean"
+  },
+  "s3_use_ssl": {
+    "ui:widget": "boolean"
+  },
+  "hive_sasl_enabled": {
+    "ui:widget": "boolean"
+  },
+  "s3_path_style": {
+    "ui:widget": "boolean"
+  }
 }`
 
 func LoadUISchema(schemaType string) (string, error) {
