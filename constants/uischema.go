@@ -59,20 +59,6 @@ const PostgresUISchema = `{
       "ui:widget": "hidden"
     }
   },
-  "ssl_schema": {
-    "type": "object",
-    "title": " ",
-    "properties": {
-      "mode": {
-        "default": "disable",
-        "enum": ["require", "disable", "verify-ca", "verify-full"],
-        "title": "SSL Mode",
-        "type": "string",
-        "description": "Database connection SSL configuration (e.g., SSL mode)"
-      }
-    },
-    "required": ["mode"]
-  }
 }`
 
 const MySQLUISchema = `{
@@ -175,6 +161,5 @@ func LoadUISchema(schemaType string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("schema not found")
 	}
-
 	return jsonStr, nil
 }

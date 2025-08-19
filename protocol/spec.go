@@ -25,7 +25,7 @@ var specCmd = &cobra.Command{
 			return fmt.Errorf("failed to read spec file %s: %v", specPath, err)
 		}
 
-		schemaType := utils.Ternary(destinationConfigPath == "not-set", connector.Type(), destinationConfigPath).(string)
+		schemaType := utils.Ternary(destinationType == "not-set", connector.Type(), destinationType).(string)
 		uiSchema, err := constants.LoadUISchema(schemaType)
 		if err != nil {
 			return fmt.Errorf("failed to get ui schema: %v", err)
@@ -42,17 +42,14 @@ var specCmd = &cobra.Command{
 }
 
 func resolveSpecPath() (string, error) {
+	// pwd is olake/drivers/(driver) or olake/destination/(destination)
 	pwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
+	// olakeRoot is olake's root path
 	olakeRoot := filepath.Join(pwd, "..", "..")
 	specPath := utils.Ternary(destinationType == "not-set", filepath.Join(olakeRoot, "drivers", connector.Type(), "resources/spec.json"), filepath.Join(olakeRoot, "destination", destinationType, "resources/spec.json")).(string)
-
-	// Check if the spec file exists
-	if _, err := os.Stat(specPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("spec file not found at %s", specPath)
-	}
 
 	return specPath, nil
 }
