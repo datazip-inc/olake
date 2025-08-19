@@ -140,6 +140,14 @@ const IcebergUISchema = `{
   },
   "s3_path_style": {
     "ui:widget": "boolean"
+  },
+  "catalog_type": {
+    "ui:enumNames": [
+      "AWS Glue",
+      "JDBC",
+      "Hive",
+      "REST"
+    ]
   }
 }`
 

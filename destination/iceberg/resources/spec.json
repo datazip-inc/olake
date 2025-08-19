@@ -3,19 +3,13 @@
     "properties": {
       "catalog_type": {
         "type": "string",
-        "enumNames": [
-          "AWS Glue",
-          "JDBC Catalog",
-          "Hive Catalog",
-          "REST Catalog"
-        ],
         "enum": [
           "glue",
           "jdbc",
           "hive",
           "rest"
         ],
-        "default": "AWS Glue",
+        "default": "glue",
         "title": "Catalog Type",
         "description": "Type of catalog to use"
       },
