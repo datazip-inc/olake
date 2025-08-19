@@ -26,6 +26,11 @@
         "title": "AWS Secret Key",
         "description": "The AWS secret key for S3 authentication—typically 40+ characters long",
         "format": "password"
+      },
+      "s3_endpoint": {
+        "type": "string",
+        "title": "S3 Endpoint",
+        "description": "Specify the S3 endpoint URL for the S3 service (e.g., MinIO, GCP, etc.)"
       }
     },
     "required": [
