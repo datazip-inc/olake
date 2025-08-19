@@ -55,12 +55,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 		}
 	}
 
-	upsertMode := true
-	if i.stream.Self().StreamMetadata.AppendMode {
-		// marking upsert mode to false
-		upsertMode = false
-	}
-	upsertMode = upsertMode || !options.Backfill
+	upsertMode := utils.Ternary(i.stream.Self().StreamMetadata.AppendMode, false, !options.Backfill).(bool)
 	server, err := newIcebergClient(i.config, i.partitionInfo, false, upsertMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
