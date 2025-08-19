@@ -7,21 +7,38 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
 
-func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
-	db, ok := sqlx.ConnectContext(ctx, "postgres",
-		"postgres://postgres@localhost:5433/postgres?sslmode=disable",
-	)
-	require.NoError(t, ok, "failed to connect to postgres")
 
-	var (
-		query string
-		err   error
-	)
+	var connStr string
+	if fileConfig {
+		var config Config
+		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
+			config.Username,
+			config.Password,
+			config.Host,
+			config.Port,
+			config.Database,
+		)
+	} else {
+		connStr = "postgres://postgres@localhost:5433/postgres?sslmode=disable"
+	}
+	db, ok := sqlx.ConnectContext(ctx, "postgres", connStr)
+	require.NoError(t, ok, "failed to connect to postgres")
+	defer func() {
+		require.NoError(t, db.Close(), "failed to close postgres connection")
+	}()
+
+	// integration test uses only one stream for testing
+	integrationTestTable := streams[0]
+	var query string
 
 	switch operation {
 	case "create":
@@ -53,16 +70,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 				col_varbit VARBIT(20),
 				col_xml XML,
 				CONSTRAINT unique_custom_key UNIQUE (col_bigserial)
-			)`, tableName)
+			)`, integrationTestTable)
 
 	case "drop":
-		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
 
 	case "clean":
-		query = fmt.Sprintf("DELETE FROM %s", tableName)
+		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
-		insertTestData(t, ctx, db, tableName)
+		insertTestData(t, ctx, db, integrationTestTable)
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
@@ -83,7 +100,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 				'2023-01-01 12:00:00', '2023-01-01 12:00:00+00',
 				'123e4567-e89b-12d3-a456-426614174000', B'101010',
 				'<tag>value</tag>'
-			)`, tableName)
+			)`, integrationTestTable)
 
 	case "update":
 		query = fmt.Sprintf(`
@@ -112,16 +129,47 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 				col_uuid = '00000000-0000-0000-0000-000000000000',
 				col_varbit = B'111000',
 				col_xml = '<updated>value</updated>'
-			WHERE col_bigserial = 1`, tableName)
+			WHERE col_bigserial = 1`, integrationTestTable)
 
 	case "delete":
-		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", tableName)
+		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
+
+	case "setup_cdc":
+		for _, cdcStream := range streams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		}
+		return
+
+	case "bulk_cdc_data_insert":
+		// insert records in batches
+		batchSize := 300_000
+		totalRows := 15_000_000
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+
+		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+			for offset := 0; offset < totalRows; offset += batchSize {
+				query := fmt.Sprintf(
+					`INSERT INTO %s
+					 SELECT * FROM %s
+					 ORDER BY id
+					 LIMIT %d OFFSET %d`,
+					cdcStream, backfillStreams[executionNumber-1], batchSize, offset,
+				)
+				if _, err := db.ExecContext(ctx, query); err != nil {
+					return fmt.Errorf("stream: %s, offset: %d, error: %s", cdcStream, offset, err)
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
 
-	_, err = db.ExecContext(ctx, query)
+	_, err := db.ExecContext(ctx, query)
 	require.NoError(t, err, "Failed to execute %s operation", operation)
 }
 
@@ -161,7 +209,7 @@ var ExpectedPostgresData = map[string]interface{}{
 	"col_character":         "char_val  ",
 	"col_character_varying": "varchar_val",
 	"col_date":              arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":           float32(123.45),
+	"col_decimal":           float64(123.45),
 	"col_double_precision":  123.456789,
 	"col_float4":            float32(123.45),
 	"col_int":               int32(123),
@@ -171,7 +219,7 @@ var ExpectedPostgresData = map[string]interface{}{
 	"col_json":              `{"key": "value"}`,
 	"col_jsonb":             `{"key": "value"}`,
 	"col_name":              "test_name",
-	"col_numeric":           float32(123.45),
+	"col_numeric":           float64(123.45),
 	"col_real":              float32(123.45),
 	"col_text":              "sample text",
 	"col_timestamp":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -188,7 +236,7 @@ var ExpectedUpdatedPostgresData = map[string]interface{}{
 	"col_character":         "updated__ ",
 	"col_character_varying": "updated val",
 	"col_date":              arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":           float32(543.21),
+	"col_decimal":           float64(543.21),
 	"col_double_precision":  987.654321,
 	"col_float4":            float32(543.21),
 	"col_int":               int32(321),
@@ -198,7 +246,7 @@ var ExpectedUpdatedPostgresData = map[string]interface{}{
 	"col_json":              `{"new": "json"}`,
 	"col_jsonb":             `{"new": "jsonb"}`,
 	"col_name":              "updated_name",
-	"col_numeric":           float32(321.00),
+	"col_numeric":           float64(321.00),
 	"col_real":              float32(321.00),
 	"col_text":              "updated text",
 	"col_timestamp":         arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -216,7 +264,7 @@ var PostgresToIcebergSchema = map[string]string{
 	"col_character":         "character",
 	"col_character_varying": "varchar",
 	"col_date":              "date",
-	"col_decimal":           "numeric",
+	"col_decimal":           "double",
 	"col_double_precision":  "double precision",
 	"col_float4":            "real",
 	"col_int":               "int",
@@ -226,7 +274,7 @@ var PostgresToIcebergSchema = map[string]string{
 	"col_json":              "json",
 	"col_jsonb":             "jsonb",
 	"col_name":              "name",
-	"col_numeric":           "numeric",
+	"col_numeric":           "double",
 	"col_real":              "real",
 	"col_text":              "text",
 	"col_timestamp":         "timestamp",
