@@ -157,7 +157,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					cdcStream, backfillStreams[executionNumber-1], batchSize, offset,
 				)
 				if _, err := db.ExecContext(ctx, query); err != nil {
-					return fmt.Errorf("stream: %s, offset: %d, error: %w", cdcStream, offset, err)
+					return fmt.Errorf("stream: %s, offset: %d, error: %s", cdcStream, offset, err)
 				}
 			}
 			return nil

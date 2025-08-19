@@ -56,7 +56,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 			cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
 			if err != nil {
-				return fmt.Errorf("stream: %s, error: %w", cdcStream, err)
+				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
 			}
 			defer cursor.Close(ctx)
 
@@ -76,7 +76,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			}
 			_, err = destColl.InsertMany(ctx, docs)
 			if err != nil {
-				return fmt.Errorf("stream: %s, error: %w", cdcStream, err)
+				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
 			}
 			return nil
 		})

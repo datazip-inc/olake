@@ -540,12 +540,12 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
 
-								t.Log("(cdc) setup started")
+								t.Log("(cdc) state creation started")
 								syncCmd := syncCommand(*cfg.TestConfig, false)
 								if code, output, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
-								t.Log("(cdc) setup completed")
+								t.Log("(cdc) state creation completed")
 
 								t.Log("(cdc) trigger cdc started")
 								cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "bulk_cdc_data_insert", true)
