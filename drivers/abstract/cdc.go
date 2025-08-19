@@ -57,11 +57,12 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			if isParallelChangeStream(a.driver.Type()) {
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-					errChan := make(chan error, 1)
-					inserter := pool.NewThread(ctx, streams[index], errChan)
+					inserter, err := pool.NewWriter(ctx, streams[index])
+					if err != nil {
+						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
+					}
 					defer func() {
-						inserter.Close()
-						if threadErr := <-errChan; threadErr != nil {
+						if threadErr := inserter.Close(ctx); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
 
@@ -76,14 +77,14 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						}
 					}()
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-						return a.driver.StreamChanges(ctx, streams[index], func(change CDCChange) error {
+						return a.driver.StreamChanges(ctx, streams[index], func(ctx context.Context, change CDCChange) error {
 							pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-							return inserter.Insert(types.CreateRawRecord(
+							return inserter.Push(ctx, types.CreateRawRecord(
 								utils.GetKeysHash(change.Data, pkFields...),
 								change.Data,
 								opType,
-								change.Timestamp.Time,
+								&change.Timestamp.Time,
 							))
 						})
 					})
@@ -101,19 +102,16 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream
 		inserters := make(map[types.StreamInterface]*destination.ThreadEvent)
-		errChans := make(map[types.StreamInterface]chan error)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
-			errChan := make(chan error, 1)
-			inserters[stream], errChans[stream] = pool.NewThread(ctx, stream, errChan), errChan
-			return nil
+			inserters[stream], err = pool.NewWriter(ctx, stream)
+			return err
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
 		defer func() {
 			for stream, insert := range inserters {
-				insert.Close()
-				if threadErr := <-errChans[stream]; threadErr != nil {
+				if threadErr := insert.Close(ctx); threadErr != nil {
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
@@ -129,14 +127,14 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.StreamChanges(ctx, nil, func(change CDCChange) error {
+			return a.driver.StreamChanges(ctx, nil, func(ctx context.Context, change CDCChange) error {
 				pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 				opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
-				return inserters[change.Stream].Insert(types.CreateRawRecord(
+				return inserters[change.Stream].Push(ctx, types.CreateRawRecord(
 					utils.GetKeysHash(change.Data, pkFields...),
 					change.Data,
 					opType,
-					change.Timestamp.Time,
+					&change.Timestamp.Time,
 				))
 			})
 		})

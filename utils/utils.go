@@ -20,10 +20,9 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
-	"github.com/testcontainers/testcontainers-go"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 var (

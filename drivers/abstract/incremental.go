@@ -60,11 +60,12 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				if err != nil {
 					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 				}
-				errChan := make(chan error, 1)
-				inserter := pool.NewThread(ctx, stream, errChan)
+				inserter, err := pool.NewWriter(ctx, stream)
+				if err != nil {
+					return fmt.Errorf("failed to create new writer thread: %s", err)
+				}
 				defer func() {
-					inserter.Close()
-					if threadErr := <-errChan; threadErr != nil {
+					if threadErr := inserter.Close(ctx); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 					}
 
@@ -80,11 +81,11 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
+					return a.driver.StreamIncrementalChanges(ctx, stream, func(ctx context.Context, record map[string]any) error {
 						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
-						return inserter.Insert(types.CreateRawRecord(id, record, "u", time.Unix(0, 0)))
+						return inserter.Push(ctx, types.CreateRawRecord(id, record, "u", nil))
 					})
 				})
 			})
@@ -122,12 +123,12 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 
 func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryCursor string, maxPrimaryCursorValue, maxSecondaryCursorValue any, data map[string]any) (any, any) {
 	primaryCursorValue := data[primaryCursor]
-	primaryCursorValue = utils.Ternary(typeutils.Compare(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
+	primaryCursorValue = utils.Ternary(utils.CompareInterfaceValue(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
 
 	var secondaryCursorValue any
 	if secondaryCursor != "" {
 		secondaryCursorValue = data[secondaryCursor]
-		secondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
+		secondaryCursorValue = utils.Ternary(utils.CompareInterfaceValue(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 	}
 	return primaryCursorValue, secondaryCursorValue
 }

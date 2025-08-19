@@ -129,7 +129,7 @@ func FileLogger(content any, fileName, fileExtension string) error {
 	return nil
 }
 
-func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
+func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int64)) {
 	startTime := time.Now()
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -140,10 +140,11 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
-				syncedRecords, runningThreads, recordsToSync := statsFunc()
+				syncedRecords, runningThreads, recordsToSync, readRecords := statsFunc()
 				memStats := new(runtime.MemStats)
 				runtime.ReadMemStats(memStats)
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
+				readSpeed := float64(readRecords) / time.Since(startTime).Seconds()
 				timeElapsed := time.Since(startTime).Seconds()
 				remainingRecords := recordsToSync - syncedRecords
 				estimatedSeconds := "Not Determined"
@@ -151,10 +152,11 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 					estimatedSeconds = fmt.Sprintf("%.2f s", float64(remainingRecords)/speed)
 				}
 				stats := map[string]interface{}{
-					"Running Threads":          runningThreads,
+					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
 					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
-					"Speed":                    fmt.Sprintf("%.2f rps", speed),
+					"Read Speed":               fmt.Sprintf("%.2f rps", readSpeed),
+					"Write Speed":              fmt.Sprintf("%.2f wps", speed),
 					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
 					"Estimated Remaining Time": estimatedSeconds,
 				}

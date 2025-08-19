@@ -1,0 +1,178 @@
+package io.debezium.server.iceberg;
+
+import java.util.Map;
+
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.Types.StructType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+import  io.debezium.server.iceberg.rpc.RecordIngest;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue;
+import io.debezium.server.iceberg.tableoperator.Operation;
+import io.debezium.server.iceberg.tableoperator.RecordWrapper;
+
+public class SchemaConvertor {
+  private final List<RecordIngest.IcebergPayload.SchemaField> schemaMetadata;
+  private final String primaryKey;
+  protected static final Logger LOGGER = LoggerFactory.getLogger(SchemaConvertor.class);
+
+  public static final List<String> TS_MS_FIELDS = List.of("_olake_timestamp", "_cdc_timestamp");
+
+  public SchemaConvertor(String pk, List<RecordIngest.IcebergPayload.SchemaField> schema) {
+    schemaMetadata = schema;
+    primaryKey = pk;
+  }
+
+  // currently implemented for primitive fields only
+  public Schema convertToIcebergSchema() {
+    RecordSchemaData schemaData = new RecordSchemaData();
+    for(RecordIngest.IcebergPayload.SchemaField rawField :  schemaMetadata){
+      String fieldName = rawField.getKey(); // field name 
+      String fieldType = rawField.getIceType();
+      Boolean isPkField = (fieldName.equals(primaryKey));
+      final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
+      schemaData.fields().add(field);
+      if (isPkField) schemaData.identifierFieldIds().add(field.fieldId());
+    }
+    return new Schema(schemaData.fields(), schemaData.identifierFieldIds());
+  }
+
+  public List<RecordWrapper> convert(Boolean upsert, Schema tableSchema, List<IceRecord> records) {
+      // Pre-compute schema information once
+      Map<String, Integer> fieldNameToIndexMap = new HashMap<>();
+      for (int index = 0; index < schemaMetadata.size(); index++) {
+          RecordIngest.IcebergPayload.SchemaField rawField = schemaMetadata.get(index);
+          String fieldName = rawField.getKey(); // or whatever method gives the field name
+          fieldNameToIndexMap.put(fieldName, index); // Map field name → index
+      }
+      // Pre-size the array list to avoid resizing
+      List<RecordWrapper> result = new ArrayList<>(records.size());
+      
+      StructType tableFields = tableSchema.asStruct();
+      for (IceRecord data : records) {
+          result.add(convertRecord(upsert, fieldNameToIndexMap, data, tableFields));
+      }
+      return result;
+  }
+
+  private RecordWrapper convertRecord(Boolean upsert, Map<String, Integer> fieldNameToIndexMap, IceRecord data, StructType tableFields) {
+      // Create record using first field's struct (optimization)
+      GenericRecord genericRow = GenericRecord.create(tableFields);
+      List<Types.NestedField> fields = tableFields.fields();
+     
+      // Process all fields 
+      for (Types.NestedField field : fields) {
+          String fieldName = field.name();
+          // Get field value - single map lookup
+          Integer idx = fieldNameToIndexMap.get(fieldName);
+          if (idx == null) {
+            genericRow.setField(fieldName, null);
+            continue;
+          }
+          FieldValue fieldValue = data.getFields(idx);
+          if (fieldValue == null) {
+              genericRow.setField(fieldName, null);
+              continue;
+          }
+          try {
+              Object convertedValue = fieldValuetoIceType(field, fieldValue);
+              genericRow.setField(fieldName, convertedValue);
+          } catch (RuntimeException e) {
+              throw new RuntimeException("Failed to parse JSON string for field "+ fieldName +" value "+ fieldValue + " exceptipn: " + e);
+          }
+      }
+      // check if it is append only or upsert
+      if(!upsert) { 
+        // TODO: need a discussion previously Operation.Insert was being used
+        return new RecordWrapper(genericRow, Operation.READ);
+      }
+      return new RecordWrapper(genericRow, cdcOpValue(data.getRecordType()));
+  }
+
+  private static Object fieldValuetoIceType(Types.NestedField field, FieldValue value) {
+      LOGGER.debug("Processing Field:{} Type:{} RawValue:{}", field.name(), field.type(), value);
+      if (value == null) {
+          return null;
+      }
+      try {
+          switch (field.type().typeId()) {
+              case INTEGER:
+                  return value.getIntValue();
+              case LONG:
+                  return value.getLongValue();
+              case FLOAT:
+                  return value.getFloatValue();
+              case DOUBLE:
+                  return value.getDoubleValue();
+              case BOOLEAN:
+                  return value.getBoolValue();
+              case STRING,UUID:
+                  return value.getStringValue();
+              case TIMESTAMP:
+                  return OffsetDateTime.ofInstant(Instant.ofEpochMilli(value.getLongValue()), ZoneOffset.UTC);
+              default:
+                  return value;
+          }
+      } catch (Exception e) {
+          throw new RuntimeException("Failed to parse value for field " + field.name() +
+                                    " as type " + field.type() +
+                                    ", raw value: " + value, e);
+      }
+  }
+
+  public Operation cdcOpValue(String cdcOpField) {
+    return switch (cdcOpField) {
+      case "u" -> Operation.UPDATE;
+      case "d" -> Operation.DELETE;
+      case "r" -> Operation.READ;
+      case "c" -> Operation.INSERT;
+      case "i" -> Operation.INSERT;
+      default ->
+          throw new RuntimeException("Unexpected `" + cdcOpField + "` operation value received, expecting one of ['u','d','r','c', 'i']");
+    };
+  }
+
+  private static Type.PrimitiveType icebergPrimitiveField(String fieldName, String fieldType) {
+    switch (fieldType) {
+      case "int": // int 4 bytes
+        return Types.IntegerType.get();
+      case "long": // long 8 bytes
+        if (TS_MS_FIELDS.contains(fieldName)) {
+          return Types.TimestampType.withZone();
+        } else {
+          return Types.LongType.get();
+        }
+      case "float": // float is represented in 32 bits,
+        return Types.FloatType.get();
+      case "double": // double is represented in 64 bits
+        return Types.DoubleType.get();
+      case "boolean":
+        return Types.BooleanType.get();
+      case "string":
+        return Types.StringType.get();
+      case "uuid":
+        return Types.UUIDType.get();
+      case "binary":
+        return Types.BinaryType.get();
+      case "timestamp":
+          return Types.TimestampType.withoutZone();
+      case "timestamptz":
+          return Types.TimestampType.withZone();
+      default:
+        // default to String type
+        return Types.StringType.get();
+    }
+  }
+}

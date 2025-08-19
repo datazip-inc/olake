@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
@@ -125,6 +126,19 @@ func (t *TypeSchema) ToParquet() *parquet.Schema {
 	})
 
 	return parquet.NewSchema("olake_schema", groupNode)
+}
+
+func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
+	var icebergFields []*proto.IcebergPayload_SchemaField
+	t.Properties.Range(func(key, value interface{}) bool {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: value.(*Property).DataType().ToIceberg(),
+			Key:     key.(string),
+		})
+		return true
+	})
+
+	return icebergFields
 }
 
 // Property is a dto for catalog properties representation

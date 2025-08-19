@@ -41,7 +41,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 			return fmt.Errorf("failed to scan record data as map: %s", err)
 		}
 
-		return OnMessage(record)
+		return OnMessage(ctx, record)
 	})
 }
 

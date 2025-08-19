@@ -46,7 +46,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 			return fmt.Errorf("decode error: %s", err)
 		}
 		filterMongoObject(doc)
-		if err := processFn(doc); err != nil {
+		if err := processFn(ctx, doc); err != nil {
 			return fmt.Errorf("process error: %s", err)
 		}
 	}
@@ -65,7 +65,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
 		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
 	}
-	
+
 	incrementalCondition := buildMongoCondition(types.Condition{
 		Column:   primaryCursor,
 		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
