@@ -71,7 +71,7 @@ type TestConfig struct {
 // for absolute benchmarks, please checkout olake docs: https://olake.io/docs/connectors/postgres/benchmarks
 var benchmarks = map[constants.DriverType]benchmarkStats{
 	constants.MySQL:    {Backfill: 15906.40, CDC: 15648.93},
-	constants.Postgres: {Backfill: 13475.41, CDC: 1404.78},
+	constants.Postgres: {Backfill: 12466.93, CDC: 2404.60},
 	constants.Oracle:   {Backfill: 3500, CDC: 0},
 	constants.MongoDB:  {Backfill: 0, CDC: 0},
 }
