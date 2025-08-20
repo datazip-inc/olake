@@ -429,9 +429,13 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 		})
 	}
 
+	// check for identifier fields setting
+	primaryKey := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+
 	req := proto.IcebergPayload{
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
+			PrimaryKey:    &primaryKey,
 			DestTableName: i.stream.Name(),
 			Schema:        schema,
 			ThreadId:      i.server.serverID,
