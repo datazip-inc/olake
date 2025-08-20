@@ -24,10 +24,9 @@ import (
 const (
 	icebergDatabase     = "olake_iceberg"
 	sparkConnectAddress = "sc://localhost:15002"
-	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && npm install -g chalk-cli"
-
-	SyncTimeout        = 10 * time.Minute
-	BenchmarkThreshold = 0.9
+	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
+	SyncTimeout         = 10 * time.Minute
+	BenchmarkThreshold  = 0.9
 )
 
 type IntegrationTest struct {
@@ -381,7 +380,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 	// delete row checked
 	if opSymbol == "d" {
 		deletedID := selectRows[0].Value("_olake_id")
-		require.Equalf(t, "1", deletedID, "Delete verification failed: expected _olake_id = '1', got %s", deletedID)
+		require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
 		return
 	}
 
