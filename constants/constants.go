@@ -22,8 +22,8 @@ const (
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
 	ConfigFolder           = "CONFIG_FOLDER"
-	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 4
-	EffectiveParquetSize = int64(512) * 1024 * 1024 * int64(4)
+	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
+	EffectiveParquetSize = int64(256) * 1024 * 1024 * int64(8)
 )
 
 type DriverType string
