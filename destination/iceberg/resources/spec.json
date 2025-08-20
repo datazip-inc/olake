@@ -33,12 +33,12 @@
       "iceberg_db": {
         "type": "string",
         "title": "Iceberg Database",
-        "description": "Specifies the name of the Iceberg database to be used in the destination"
+        "description": "Specifies the name of the database to be created in AWS Glue"
       },
       "iceberg_s3_path": {
         "type": "string",
         "title": "Iceberg S3 Path",
-        "description": "Specifies the S3 path in AWS where the iceberg data will be stored"
+        "description": "The S3 path or storage location for Iceberg data"
       }
     },
     "required": [
@@ -86,7 +86,7 @@
                 "type": "boolean",
                 "default": false,
                 "title": "Use SSL for S3",
-                "description": "Indicates if SSL is enabled for S3 connections; 'false' disables SSL"
+                "description": "Boolean flag indicating whether to use SSL when connecting to S3"
               }
             },
             "required": [
@@ -121,13 +121,13 @@
                 "type": "boolean",
                 "default": false,
                 "title": "Use Path Style for S3",
-                "description": "Specifies whether path-style access is used for S3; 'true' enables path-style addressing instead of the default virtual-hosted style"
+                "description": "Enables path-style addressing for S3 API requests"
               },
               "s3_use_ssl": {
                 "type": "boolean",
                 "default": false,
                 "title": "Use SSL for S3",
-                "description": "Indicates if SSL is enabled for S3 connections; 'false' disables SSL"
+                "description": "Boolean flag indicating whether to use SSL when connecting to S3"
               }
             },
             "required": [
@@ -192,6 +192,11 @@
                 "default": false,
                 "title": "Disable Identifier Table",
                 "description": "Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields"
+              },
+              "s3_endpoint": {
+                "type": "string",
+                "title": "S3 Endpoint",
+                "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
               }
             },
             "required": [
