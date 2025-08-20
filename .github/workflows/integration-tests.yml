@@ -97,8 +97,8 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 3 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... -tags=integration -timeout 0
-      
+        run: go test -v -p 3 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... -timeout 0 -run 'Integration'
+
       - name: Cleanup
         if: always()
         run: |

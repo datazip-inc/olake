@@ -3,10 +3,13 @@ package driver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -30,14 +33,26 @@ var (
 	}
 )
 
-// ExecuteQuery executes MongoDB operations for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, collectionName string, operation string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	// Connect to MongoDB
-	mongoURI := fmt.Sprintf("mongodb://%s:%s@localhost:%d/admin?replicaSet=%s&directConnection=true",
-		MongoDBAdminUser, MongoDBAdminPass, MongoDBPort, MongoDBReplicaSet)
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	var connStr string
+	var config Config
+	if fileConfig {
+		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		connStr = fmt.Sprintf(
+			"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s",
+			config.Username,
+			config.Password,
+			strings.Join(config.Hosts, ","),
+			config.AuthDB,
+			config.ReadPreference,
+		)
+	} else {
+		connStr = fmt.Sprintf("mongodb://%s:%s@localhost:%d/admin?replicaSet=%s&directConnection=true",
+			MongoDBAdminUser, MongoDBAdminPass, MongoDBPort, MongoDBReplicaSet)
+	}
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connStr))
 	require.NoError(t, err, "Failed to connect to MongoDB replica set at localhost:%d", MongoDBPort)
 	defer func() {
 		if err := client.Disconnect(ctx); err != nil {
@@ -45,8 +60,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, collectionName string, oper
 		}
 	}()
 
+	integrationTestCollection := streams[0]
 	db := client.Database(MongoDBDatabase)
-	collection := db.Collection(collectionName)
+	collection := db.Collection(integrationTestCollection)
 
 	switch operation {
 	case "create":
@@ -114,8 +130,52 @@ func ExecuteQuery(ctx context.Context, t *testing.T, collectionName string, oper
 		_, err := collection.DeleteOne(ctx, filter)
 		require.NoError(t, err, "Failed to delete document")
 
-	default:
-		t.Fatalf("Unknown operation: %s", operation)
+	case "setup_cdc":
+		// truncate the cdc tables
+		for _, cdcStream := range streams {
+			_, err := client.Database(config.Database).Collection(cdcStream).DeleteMany(ctx, bson.D{})
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		}
+		return
+
+	case "bulk_cdc_data_insert":
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		totalRows := 15000000
+
+		// TODO: insert data in batch
+		// insert the data into the cdc tables concurrently
+		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+			srcColl := client.Database(config.Database).Collection(backfillStreams[executionNumber-1])
+			destColl := client.Database(config.Database).Collection(cdcStream)
+
+			cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
+			if err != nil {
+				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
+			}
+			defer cursor.Close(ctx)
+
+			var docs []interface{}
+			for cursor.Next(ctx) {
+				var doc bson.M
+				if err := cursor.Decode(&doc); err != nil {
+					return err
+				}
+				docs = append(docs, doc)
+			}
+			if err := cursor.Err(); err != nil {
+				return err
+			}
+			if len(docs) == 0 {
+				return nil
+			}
+			_, err = destColl.InsertMany(ctx, docs)
+			if err != nil {
+				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
+			}
+			return nil
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
 	}
 }
 
