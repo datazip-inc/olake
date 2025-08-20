@@ -7,7 +7,7 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-func TestMySQLIntegration(t *testing.T) {
+func TestMongodbIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:         testutils.GetTestConfig(string(constants.MongoDB)),
