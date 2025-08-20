@@ -392,6 +392,9 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 					oldType, newType, fieldName,
 				)
 			}
+
+			// for evolution types schemachange is possible
+			schemaChange = (oldType != newType) || schemaChange
 		}
 
 		return schemaChange, nil
