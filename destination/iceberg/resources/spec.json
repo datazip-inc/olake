@@ -93,8 +93,7 @@
               "jdbc_url",
               "jdbc_username",
               "jdbc_password"
-            ],
-            "additionalProperties": false
+            ]
           },
           {
             "properties": {
@@ -132,8 +131,7 @@
             },
             "required": [
               "hive_uri"
-            ],
-            "additionalProperties": false
+            ]
           },
           {
             "properties": {
@@ -190,7 +188,7 @@
               "no_identifier_fields": {
                 "type": "boolean",
                 "default": false,
-                "title": "Disable Identifier Table",
+                "title": "Disable Primary Key",
                 "description": "Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields"
               },
               "s3_endpoint": {
@@ -201,8 +199,7 @@
             },
             "required": [
               "rest_catalog_url"
-            ],
-            "additionalProperties": false
+            ]
           },
           {
             "properties": {
@@ -225,8 +222,7 @@
             "required": [
               "sink_rpc_server_host",
               "grpc_port"
-            ],
-            "additionalProperties": false
+            ]
           }
         ]
       }

@@ -89,7 +89,6 @@
                             "description": "Slot to retain WAL logs for consistent replication"
                         }
                     },
-                    "additionalProperties": false,
                     "required": [
                         "type",
                         "replication_slot",
@@ -104,7 +103,6 @@
                             "const": "Standalone"
                         }
                     },
-                    "additionalProperties": false,
                     "required": [
                         "type"
                     ]
