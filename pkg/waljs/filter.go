@@ -2,7 +2,9 @@ package waljs
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
@@ -11,6 +13,23 @@ import (
 	"github.com/goccy/go-json"
 	"github.com/jackc/pglogrepl"
 )
+
+// Change represents a single WAL change record
+type Change struct {
+	Kind         string        `json:"kind"`
+	Schema       string        `json:"schema"`
+	Table        string        `json:"table"`
+	Columnnames  []string      `json:"columnnames"`
+	Columntypes  []string      `json:"columntypes"`
+	Columnvalues []interface{} `json:"columnvalues"`
+	Oldkeys      struct {
+		Keynames  []string      `json:"keynames"`
+		Keytypes  []string      `json:"keytypes"`
+		Keyvalues []interface{} `json:"keyvalues"`
+	} `json:"oldkeys"`
+}
+
+// WALMessage represents the structure of WAL messages
 
 type ChangeFilter struct {
 	tables    map[string]types.StreamInterface
@@ -25,6 +44,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 
 	for _, stream := range streams {
 		filter.tables[stream.ID()] = stream
+		// var changes WALMessage
 	}
 	return filter
 }
@@ -42,6 +62,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 	if len(changes.Change) == 0 {
 		return &nextLSN, 0, nil
 	}
+
 	buildChangesMap := func(values []interface{}, types []string, names []string) (map[string]any, error) {
 		data := make(map[string]any)
 		for i, val := range values {
@@ -54,13 +75,38 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 		}
 		return data, nil
 	}
-	rowsCount := 0
-	for _, ch := range changes.Change {
+
+	var rowsCount int64
+
+	changesList := make([]Change, len(changes.Change))
+	for i, ch := range changes.Change {
+		changesList[i] = Change{
+			Kind:         ch.Kind,
+			Schema:       ch.Schema,
+			Table:        ch.Table,
+			Columnnames:  ch.Columnnames,
+			Columntypes:  ch.Columntypes,
+			Columnvalues: ch.Columnvalues,
+			Oldkeys: struct {
+				Keynames  []string      `json:"keynames"`
+				Keytypes  []string      `json:"keytypes"`
+				Keyvalues []interface{} `json:"keyvalues"`
+			}{
+				Keynames:  ch.Oldkeys.Keynames,
+				Keytypes:  ch.Oldkeys.Keytypes,
+				Keyvalues: ch.Oldkeys.Keyvalues,
+			},
+		}
+	}
+
+	// Use utils.Concurrent to process changes in parallel
+	// Concurrency count of 10 is a reasonable default that can be made configurable if needed
+	err = utils.Concurrent(context.Background(), changesList, 10, func(_ context.Context, ch Change, _ int) error {
 		stream, exists := c.tables[utils.StreamIdentifier(ch.Table, ch.Schema)]
 		if !exists {
-			continue
+			return nil
 		}
-		rowsCount++
+
 		var changesMap map[string]any
 		var err error
 
@@ -71,7 +117,7 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 		}
 
 		if err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to convert change data: %s", err)
+			return fmt.Errorf("failed to convert change data: %s", err)
 		}
 
 		if err := OnFiltered(abstract.CDCChange{
@@ -80,8 +126,16 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 			Timestamp: changes.Timestamp,
 			Data:      changesMap,
 		}); err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)
+			return fmt.Errorf("failed to write filtered change: %s", err)
 		}
+
+		atomic.AddInt64(&rowsCount, 1)
+		return nil
+	})
+
+	if err != nil {
+		return nil, int(rowsCount), err
 	}
-	return &nextLSN, rowsCount, nil
+
+	return &nextLSN, int(rowsCount), nil
 }
