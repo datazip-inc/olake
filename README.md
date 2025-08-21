@@ -8,11 +8,21 @@
 <p align="center">The fastest open-source tool for replicating databases to Apache Iceberg. OLake, an easy-to-use web interface and a CLI for efficient, scalable, & real-time data ingestion. Visit <a href="https://olake.io/docs" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
 
 <p align="center">
-    <a href="https://github.com/datazip-inc/olake/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"/></a> <a href="https://olake.io/docs"><img alt="Documentation" height="22" src="https://img.shields.io/badge/view-Documentation-blue?style=for-the-badge"/></a>
-    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag"><img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/></a>
+    <a href="https://github.com/datazip-inc/olake/issues">
+    <img alt="GitHub issues" src="https://img.shields.io/github/issues/datazip-inc/olake"/>
+    </a> 
+    <a href="https://olake.io/docs">
+    <img alt="Documentation" src="https://img.shields.io/badge/view-Documentation-white"/>
+    </a>
+    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag">
+    <img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/>
+    </a>
+    <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
+        <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
+    </a>
 </p>
 
-## 🧊 TL;DR: OLake — Super-fast Sync to Apache Iceberg
+## OLake — Super-fast Sync to Apache Iceberg
 
 > **OLake** is an open-source connector for replicating data from transactional databases like **PostgreSQL, MySQL, MongoDB, Oracle & Kafka** to open data lakehouse formats like **Apache Iceberg** — at blazing speeds and minimal infrastructure cost.
 
@@ -62,7 +72,7 @@
 
 | Source        | Full Load    |  CDC          | Incremental       | Notes                       | Documentation               |
 |---------------|--------------|---------------|-------------------|-----------------------------|-----------------------------|
-| PostgreSQL    | ✅           | ✅ `wal2json` | WIP                |`pgoutput` support WIP       |[Postgres Docs](https://olake.io/docs/connectors/postgres/overview) |
+| PostgreSQL    | ✅           | ✅ `wal2json` | ✅                 |`pgoutput` support WIP       |[Postgres Docs](https://olake.io/docs/connectors/postgres/overview) |
 | MySQL         | ✅           | ✅            | ✅                | Binlog-based CDC            | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview) |
 | MongoDB       | ✅           | ✅            | ✅                | Oplog-based CDC             |[MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview) |
 | Oracle        | ✅           | WIP  | ✅                |  JDBC based Full Load & Incremental                |  [Oracle Docs](https://olake.io/docs/connectors/oracle/overview) |
@@ -168,12 +178,6 @@ Below are other different ways you can run OLake:
 
 ---
 
-### 📦 Architecture
-
-![OLake Architecture](https://olake.io/blog/olake-architecture-deep-dive)
-
----
-
 ### 🌍 Use Cases
 
 - ✅ Migrate from OLTP to Iceberg without Spark or Flink
@@ -202,7 +206,6 @@ We ❤️ contributions, big or small!
 
 Check out our [Bounty Program](https://olake.io/docs/community/issues-and-prs#goodies). A huge thanks to all our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors)
 
-* To contribute to the **OLake core**, see [CONTRIBUTING.md](https://www.google.com/search?q=CONTRIBUTING.md).
+* To contribute to the **OLake core**, see [CONTRIBUTING.md](https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md).
 * To contribute to the **UI**, visit the [OLake UI Repository](https://github.com/datazip-inc/olake-ui).
 * To contribute to our **website and documentation**, visit the [Olake Docs Repository](https://github.com/datazip-inc/olake-docs/).
-

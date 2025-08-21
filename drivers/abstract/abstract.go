@@ -28,9 +28,9 @@ type AbstractDriver struct { //nolint:gosec,revive
 
 var DefaultColumns = map[string]types.DataType{
 	constants.OlakeID:        types.String,
-	constants.OlakeTimestamp: types.Int64,
+	constants.OlakeTimestamp: types.TimestampMicro,
 	constants.OpType:         types.String,
-	constants.CdcTimestamp:   types.Int64,
+	constants.CdcTimestamp:   types.TimestampMicro,
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
@@ -89,16 +89,21 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		convStream.WithSyncMode(types.FULLREFRESH)
+		convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 		convStream.SyncMode = types.FULLREFRESH
+
+		// add default columns
+		for column, typ := range DefaultColumns {
+			convStream.UpsertField(column, typ, true)
+		}
 
 		// Add CDC columns if supported
 		if a.driver.CDCSupported() {
-			for column, typ := range DefaultColumns {
-				convStream.UpsertField(column, typ, true)
-			}
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
+		} else {
+			// remove cdc column as it is not supported
+			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
 		}
 		finalStreams = append(finalStreams, convStream)
 		return true

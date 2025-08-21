@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
@@ -58,7 +59,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
-	recordCount, err := m.totalCountInCollection(ctx, collection)
+	recordCount, storageSize, err := m.totalCountAndStorageSizeInCollection(ctx, collection)
 	if err != nil {
 		return nil, err
 	}
@@ -69,12 +70,6 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
 	pool.AddRecordsToSync(recordCount)
-
-	// build filter
-	filter, err := buildFilter(stream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
-	}
 
 	// check for _id type
 	isObjID, err := isObjectID(ctx, collection)
@@ -87,7 +82,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var retryErr error
 	var chunksArray []types.Chunk
 	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, filter, isObjID)
+		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, isObjID, storageSize)
 		return retryErr
 	})
 	if err != nil {
@@ -96,11 +91,11 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return types.NewSet(chunksArray...), nil
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, filter bson.D, isObjID bool) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, isObjID bool, storageSize float64) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
-			err := collection.FindOne(ctx, filter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+			err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
 			if err == mongo.ErrNoDocuments {
 				return primitive.NilObjectID, nil
 			}
@@ -130,9 +125,6 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				{Key: "maxChunkSize", Value: 1024},
 			}
 
-			if len(filter) > 0 {
-				cmd = append(cmd, bson.E{Key: "filter", Value: filter})
-			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
 				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
 			}
@@ -150,35 +142,32 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err != nil {
 			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
 		}
+		// Group every 8 splitVector chunks (~1GB each) into a single larger chunk (~8GB) for consistency with other chunking strategies
 		var chunks []types.Chunk
-		for i := 0; i < len(boundaries)-1; i++ {
+		boundaryLength := len(boundaries)
+		for idx := 0; idx < boundaryLength-1; idx += 8 {
+			var maxBoundary any
+			if idx < (boundaryLength - 9) {
+				maxBoundary = boundaries[idx+8].Hex()
+			}
 			chunks = append(chunks, types.Chunk{
-				Min: boundaries[i].Hex(),
-				Max: boundaries[i+1].Hex(),
-			})
-		}
-		if len(boundaries) > 0 {
-			chunks = append(chunks, types.Chunk{
-				Min: boundaries[len(boundaries)-1].Hex(),
-				Max: nil,
+				Min: boundaries[idx].Hex(),
+				Max: maxBoundary,
 			})
 		}
 		return chunks, nil
 	}
-	bucketAutoStrategy := func() ([]types.Chunk, error) {
+	bucketAutoStrategy := func(storageSize float64) ([]types.Chunk, error) {
 		logger.Infof("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
-		pipeline := mongo.Pipeline{}
-		if len(filter) > 0 {
-			pipeline = append(pipeline, bson.D{{Key: "$match", Value: filter}})
-		}
-		pipeline = append(pipeline,
-			bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
-			bson.D{{Key: "$bucketAuto", Value: bson.D{
+		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
+		pipeline := mongo.Pipeline{
+			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
+			{{Key: "$bucketAuto", Value: bson.D{
 				{Key: "groupBy", Value: "$_id"},
-				{Key: "buckets", Value: m.config.MaxThreads * 4},
+				{Key: "buckets", Value: numberOfBuckets},
 			}}},
-		)
+		}
 
 		cursor, err := collection.Aggregate(ctx, pipeline)
 		if err != nil {
@@ -199,29 +188,23 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		}
 
 		var chunks []types.Chunk
-		for _, bucket := range buckets {
+		for idx, bucket := range buckets {
 			// converts value according to _id string repr.
 			min, err := reformatID(bucket.ID.Min)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert bucket min value to required type: %s", err)
 			}
-			max, err := reformatID(bucket.ID.Max)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
+			var max interface{}
+			// for last bucket, max will be nil
+			if idx != len(buckets)-1 {
+				max, err = reformatID(bucket.ID.Max)
+				if err != nil {
+					return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
+				}
 			}
 			chunks = append(chunks, types.Chunk{
 				Min: min,
 				Max: max,
-			})
-		}
-		if len(buckets) > 0 {
-			max, err := reformatID(buckets[len(buckets)-1].ID.Max)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert last bucket max value to required type: %s", err)
-			}
-			chunks = append(chunks, types.Chunk{
-				Min: max,
-				Max: nil,
 			})
 		}
 
@@ -230,7 +213,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
-		first, last, err := m.fetchExtremes(ctx, collection, filter)
+		first, last, err := m.fetchExtremes(ctx, collection)
 		if err != nil {
 			return nil, err
 		}
@@ -270,7 +253,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return timestampStrategy()
 	default:
 		if !isObjID {
-			return bucketAutoStrategy()
+			return bucketAutoStrategy(storageSize)
 		}
 		// Not using splitVector strategy when _id is not an ObjectID:
 		// splitVector is designed to compute chunk boundaries based on the internal format of BSON ObjectIDs
@@ -282,32 +265,40 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
 			strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
 			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
-			return bucketAutoStrategy()
+			return bucketAutoStrategy(storageSize)
 		}
 		return chunks, err
 	}
 }
 
-func (m *Mongo) totalCountInCollection(ctx context.Context, collection *mongo.Collection) (int64, error) {
-	var countResult bson.M
+func (m *Mongo) totalCountAndStorageSizeInCollection(ctx context.Context, collection *mongo.Collection) (int64, float64, error) {
+	var statsResult bson.M
 	command := bson.D{{
 		Key:   "collStats",
 		Value: collection.Name(),
 	}}
 	// Select the database
-	err := collection.Database().RunCommand(ctx, command).Decode(&countResult)
+	err := collection.Database().RunCommand(ctx, command).Decode(&statsResult)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get total count: %s", err)
+		return 0, 0, fmt.Errorf("failed to fetch collection stats: %s", err)
 	}
-	return typeutils.ReformatInt64(countResult["count"])
+	count, err := typeutils.ReformatInt64(statsResult["count"])
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to reformat total count from %T to int64: %s", statsResult["count"], err)
+	}
+	storageSize, err := typeutils.ReformatFloat64(statsResult["storageSize"])
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to reformat storage size from %T to float64: %s", statsResult["storageSize"], err)
+	}
+	return count, storageSize, nil
 }
 
-func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection, filter bson.D) (time.Time, time.Time, error) {
+func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection) (time.Time, time.Time, error) {
 	extreme := func(sortby int) (time.Time, error) {
 		// Find the first document
 		var result bson.M
 		// Sort by _id ascending to get the first document
-		err := collection.FindOne(ctx, filter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: sortby}})).Decode(&result)
+		err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: sortby}})).Decode(&result)
 		if err != nil {
 			return time.Time{}, err
 		}
@@ -403,6 +394,7 @@ func buildMongoCondition(cond types.Condition) bson.D {
 		"=":  "$eq",
 		"!=": "$ne",
 	}
+	//TODO: take val as any type
 	value := func(field, val string) interface{} {
 		// Handle unquoted null
 		if val == "null" {

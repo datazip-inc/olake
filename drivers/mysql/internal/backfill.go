@@ -4,18 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
-
-const chunkSize int64 = 500000 // Default chunk size for MySQL
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
 	filter, err := jdbc.SQLFilter(stream, m.Type())
@@ -55,22 +56,24 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
-	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
-	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get approx row count: %s", err)
+	var avgRowSize any
+	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
+	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
+	if err != nil || avgRowSize == nil {
+		errorMsg := utils.Ternary(err != nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err), fmt.Errorf("either stats not populated for table[%s] or the table contains 0 records. (to populate stats run ANALYZE TABLE query)", stream.ID()))
+		return nil, errorMsg.(error)
 	}
 	pool.AddRecordsToSync(approxRowCount)
-
-	filter, err := jdbc.SQLFilter(stream, m.Type())
+	// avgRowSize is returned as []uint8 which is converted to float64
+	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sql filter during chunk splitting: %s", err)
+		return nil, fmt.Errorf("failed to get avg row size: %s", err)
 	}
-
+	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
-	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk], filter string) error {
+	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			// Get primary key column using the provided function
 			pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -79,7 +82,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			}
 			sort.Strings(pkColumns)
 			// Get table extremes
-			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx, filter)
+			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
 			}
@@ -94,7 +97,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
 
 			// Generate chunks based on range
-			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize, filter)
+			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
 			currentVal := minVal
 			for {
 				// Split the current value into parts
@@ -156,15 +159,15 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	if stream.GetStream().SourceDefinedPrimaryKey.Len() > 0 || chunkColumn != "" {
-		err = splitViaPrimaryKey(stream, chunks, filter)
+		err = splitViaPrimaryKey(stream, chunks)
 	} else {
 		err = limitOffsetChunking(chunks)
 	}
 	return chunks, err
 }
 
-func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx, filter string) (min, max any, err error) {
-	query := jdbc.MinMaxQueryMySQL(stream, pkColumns, filter)
+func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
 	err = tx.QueryRow(query).Scan(&min, &max)
 	return min, max, err
 }
