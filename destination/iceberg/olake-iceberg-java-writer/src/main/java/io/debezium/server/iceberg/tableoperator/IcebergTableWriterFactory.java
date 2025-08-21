@@ -1,7 +1,7 @@
 package io.debezium.server.iceberg.tableoperator;
 
 import io.debezium.server.iceberg.IcebergUtil;
-import jakarta.enterprise.context.Dependent;
+
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
@@ -10,7 +10,7 @@ import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.io.UnpartitionedWriter;
 import org.apache.iceberg.util.PropertyUtil;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,12 +22,9 @@ import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES_DE
 /**
  * Iceberg Table Writer Factory to get TaskWriter for the table. upsert modes used to return correct writer.
  */
-@Dependent
 public class IcebergTableWriterFactory {
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableWriterFactory.class);
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
   boolean upsert;
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-keep-deletes", defaultValue = "true")
   boolean keepDeletes;
 
   public BaseTaskWriter<Record> create(Table icebergTable) {

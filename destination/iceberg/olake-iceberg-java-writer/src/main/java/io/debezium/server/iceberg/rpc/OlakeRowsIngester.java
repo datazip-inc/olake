@@ -1,13 +1,13 @@
 package io.debezium.server.iceberg.rpc;
 
-import io.debezium.DebeziumException;
+
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
-import jakarta.enterprise.context.Dependent;
+
 
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Schema;
@@ -20,7 +20,6 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 
-@Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRowsIngester.class);
 
@@ -128,7 +127,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", 
                                                     tableId, e.getMessage());
                 LOGGER.error(errorMessage, e);
-                throw new DebeziumException(errorMessage, e);
+                throw new RuntimeException(errorMessage, e);
             }
         });
     }
