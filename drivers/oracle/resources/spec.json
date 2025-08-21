@@ -9,7 +9,7 @@
         "sid",
         "service_name"
       ],
-      "default": "Service Name"
+      "default": "service_name"
     },
     "host": {
       "type": "string",

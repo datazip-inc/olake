@@ -127,6 +127,11 @@
                 "default": false,
                 "title": "Use SSL for S3",
                 "description": "Boolean flag indicating whether to use SSL when connecting to S3"
+              },
+              "s3_endpoint": {
+                "type": "string",
+                "title": "S3 Endpoint",
+                "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
               }
             },
             "required": [

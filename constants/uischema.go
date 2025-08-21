@@ -114,24 +114,20 @@ const ParquetUISchema = `{
 }`
 
 const IcebergUISchema = `{
-  "ui:grid": [
-    { "catalog_type": 12 },
-    { "hive_uri": 12 },
-    { "hive_clients": 12, "hive_sasl_enabled": 12 },
-    { "rest_catalog_url": 12 },
-    { "rest_auth_type": 12, "token": 12},
-    { "oauth2_uri": 12, "credential": 12 },
-    { "no_identifier_fields": 12 },
-    { "rest_signing_name": 12, "rest_signing_region": 12 },
-    { "rest_signing_v_4": 12, "scope": 12 },
-    { "jdbc_url": 12 },
-    { "jdbc_username": 12, "jdbc_password": 12 },
-    { "s3_use_ssl": 12, "s3_path_style": 12},
-    { "iceberg_s3_path": 12, "iceberg_db": 12 },
-    { "grpc_port": 12, "sink_rpc_server_host": 12 },
-    { "s3_endpoint": 12 },
-    { "aws_access_key": 12, "aws_secret_key": 12 },
-    { "aws_region": 12 }
+  "ui:grid" : [
+    {"catalog_type": 12},
+    {"rest_catalog_url": 12, "hive_uri": 12},
+    {"jdbc_url": 12, "jdbc_username" :12, "jdbc_password" :12},
+    {"iceberg_s3_path": 12, "iceberg_db": 12},
+    {"hive_clients": 12, "s3_use_ssl": 12},
+    {"hive_sasl_enabled": 12, "s3_path_style": 12},
+    {"grpc_port": 12, "sink_rpc_server_host": 12},
+    {"rest_auth_type": 12, "token": 12},
+    {"oauth2_uri": 12, "credential": 12},
+    {"no_identifier_fields" :12, "rest_signing_name" :12},
+    {"rest_signing_region" :12, "rest_signing_v_4" :12, "scope": 12},
+    {"s3_endpoint": 12, "aws_access_key": 12},
+    {"aws_secret_key": 12, "aws_region": 12},
   ],
   "no_identifier_fields": {
     "ui:widget": "boolean"
