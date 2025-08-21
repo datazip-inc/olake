@@ -37,6 +37,13 @@ func (s *ConfiguredStream) Name() string {
 	return s.Stream.Name
 }
 
+func (s *ConfiguredStream) TargetName() string {
+	if s.StreamMetadata.TargetName != "" {
+		return s.StreamMetadata.TargetName
+	}
+	return s.StreamMetadata.StreamName
+}
+
 func (s *ConfiguredStream) GetStream() *Stream {
 	return s.Stream
 }

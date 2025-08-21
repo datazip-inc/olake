@@ -4,6 +4,7 @@ type StreamInterface interface {
 	ID() string
 	Self() *ConfiguredStream
 	Name() string
+	TargetName() string
 	Namespace() string
 	Schema() *TypeSchema
 	GetStream() *Stream
