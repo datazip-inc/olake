@@ -3,37 +3,33 @@ package io.debezium.server.iceberg;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
-import io.debezium.serde.DebeziumSerdes;
+
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
-import jakarta.enterprise.context.Dependent;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.kafka.common.serialization.Deserializer;
-import org.apache.kafka.common.serialization.Serde;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
+
 import java.util.Map;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.ArrayList;
 
-@Dependent
 public class OlakeRpcServer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRpcServer.class);
     
-    protected static final Serde<JsonNode> valSerde = DebeziumSerdes.payloadJson(JsonNode.class);
-    protected static final Serde<JsonNode> keySerde = DebeziumSerdes.payloadJson(JsonNode.class);
+
     final static Configuration hadoopConf = new Configuration();
     final static Map<String, String> icebergProperties = new ConcurrentHashMap<>();
     static Catalog icebergCatalog;
-    static Deserializer<JsonNode> valDeserializer;
-    static Deserializer<JsonNode> keyDeserializer;
+
     static boolean upsert_records = true;
     static boolean createIdFields = true;
     // List to store partition fields and their transforms - preserves order and allows duplicates
@@ -100,12 +96,7 @@ public class OlakeRpcServer {
 
         icebergCatalog = CatalogUtil.buildIcebergCatalog(catalogName, icebergProperties, hadoopConf);
 
-        // configure and set
-        valSerde.configure(Collections.emptyMap(), false);
-        valDeserializer = valSerde.deserializer();
-        // configure and set
-        keySerde.configure(Collections.emptyMap(), true);
-        keyDeserializer = keySerde.deserializer();
+
 
         OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms);
 
