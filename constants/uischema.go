@@ -48,7 +48,7 @@ const PostgresUISchema = `{
   },
   "update_method": {
     "ui:grid": [
-      { "initial_wait_time": 12, "replication_slot": 12 }
+      { "replication_slot": 12, "initial_wait_time": 12 }
     ],
     "ui:options": {
       "title": false,
@@ -81,12 +81,11 @@ const MySQLUISchema = `{
 
 const OracleUISchema = `{
   "ui:grid": [
-    { "host": 12, "username": 12 },
+    { "host": 12, "connection_type": 12 },
+    { "username": 12, "sid": 12, "service_name": 12 },
     { "password": 12, "port": 12 },
-    { "connection_type": 12, "ssl": 12 },
-    { "sid": 12, "service_name": 12 },
-    { "max_threads": 12, "backoff_retry_count": 12 },
-    { "jdbc_url_params": 12 }
+    { "jdbc_url_params": 12, "ssl": 12 },
+    { "max_threads": 12, "backoff_retry_count": 12 }
   ],
   "ssl": {
     "ui:options": {
@@ -127,7 +126,7 @@ const IcebergUISchema = `{
     {"no_identifier_fields" :12, "rest_signing_name" :12},
     {"rest_signing_region" :12, "rest_signing_v_4" :12, "scope": 12},
     {"s3_endpoint": 12, "aws_access_key": 12},
-    {"aws_secret_key": 12, "aws_region": 12},
+    {"aws_secret_key": 12, "aws_region": 12}
   ],
   "no_identifier_fields": {
     "ui:widget": "boolean"
