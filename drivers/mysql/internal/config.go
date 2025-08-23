@@ -10,13 +10,14 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
+// Config represents the configuration for connecting to a MySQL database
 type Config struct {
 	Host          string      `json:"hosts"`
 	Username      string      `json:"username"`
 	Password      string      `json:"password"`
 	Database      string      `json:"database"`
 	Port          int         `json:"port"`
-	TLSSkipVerify bool        `json:"tls_skip_verify"`
+	TLSSkipVerify bool        `json:"tls_skip_verify"` // Add this field
 	UpdateMethod  interface{} `json:"update_method"`
 	MaxThreads    int         `json:"max_threads"`
 	RetryCount    int         `json:"backoff_retry_count"`
