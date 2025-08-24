@@ -1,57 +1,71 @@
 # Trino + OLake Integration Guide
 
-This guide explains how to run Trino with the OLake Docker stack to query Iceberg tables.
+This guide explains how to run Trino with Iceberg tables using Docker Compose.
 
-## 1. Prerequisites
-Ensure the following before you begin:
+## Prerequisites
 
-- The OLake Docker stack is running.
-- The `iceberg-rest` and `minio` services are healthy.
-- Iceberg tables exist with sample data.
+- Docker and Docker Compose installed
+- All configuration files in place (see file structure below)
 
-## 2. Start the Trino container
-From the OLake project root (`olake/`), start Trino with:
-
-```bash
-docker run -d \
-  --name olake-trino-coordinator \
-  --network app-network \
-  -p 8888:8080 \
-  -v "$(pwd)/examples/trino/etc:/opt/trino-server/etc" \
-  trinodb/trino:latest
-
-  # Verify startup (wait 30 seconds)
-curl -I http://localhost:8888/v1/info
+## File Structure
+```
+trino/
+├── docker-compose.yml
+├── README.md
+└── etc/
+    ├── config.properties
+    ├── node.properties
+    ├── jvm.config
+    ├── log.properties
+    └── catalog/
+        ├── iceberg.properties
+        ├── jmx.properties
+        └── tpch.properties
 ```
 
-## 3. Run Queries using a Client
+## Quick Start
 
-Connect to the Trino server at [http://localhost:8888](http://localhost:8888)(user: admin, no password)
+1. **Start the stack:**
+   ```bash
+   docker-compose up -d
+   ```
 
-Use the Trino CLI for a quick start, or DBeaver for a richer user interface.
+2. **Verify services are running:**
+   ```bash
+   docker-compose ps
+   curl http://localhost:8080/v1/info
+   ```
 
-- For DBeaver: Follow the [DBeaver Official Guide](https://dbeaver.com/docs/dbeaver/Database-driver-Trino/) to connect to localhost:8888.  
+3. **Connect to Trino:**
+   ```bash
+   # Using Trino CLI
+   docker exec -it trino-trino-coordinator-1 trino
+   
+   # Or use DBeaver/other SQL clients:
+   # Host: localhost, Port: 8080, User: admin (no password)
+   # DBeaver setup: https://dbeaver.com/docs/dbeaver/Database-driver-Trino/
+   ```
 
-- For Trino CLI: Run `docker exec -it olake-trino-coordinator trino` to start querying.
+## Example Queries
 
-
-#### Example Queries
-
-```
+```sql
 SHOW CATALOGS;
-SHOW SCHEMAS IN iceberg;
-SELECT * FROM iceberg.weather.weather LIMIT 10;
+SHOW SCHEMAS IN tpch;
+SELECT * FROM tpch.tiny.nation LIMIT 5;
 ```
 
-## 5. Troubleshooting
-Check Trino logs:
+## Service URLs
+
+- **Trino**: http://localhost:8080
+- **MinIO Console**: http://localhost:9001 (minio/minio_password)
+
+## Troubleshooting
+
 ```bash
-# Check logs
-docker logs -f olake-trino-coordinator
+# Check logs if something fails
+docker logs trino-trino-coordinator-1
 
-# Verify network
-docker network inspect app-network
-
-# Restart if needed
-docker restart olake-trino-coordinator
+# Restart everything
+docker-compose down
+docker-compose up -d
 ```
