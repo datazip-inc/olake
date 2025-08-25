@@ -58,6 +58,10 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
+func (a *AbstractDriver) GetSourceDatabase() string {
+	return a.driver.GetSourceDatabase()
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	discoverCtx, cancel := context.WithTimeout(ctx, constants.DefaultDiscoverTimeout)
 	defer cancel()

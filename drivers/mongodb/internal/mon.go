@@ -40,6 +40,9 @@ func (m *Mongo) GetConfigRef() abstract.Config {
 func (m *Mongo) Spec() any {
 	return Config{}
 }
+func (m *Mongo) GetSourceDatabase() string {
+	return ""
+}
 
 func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport

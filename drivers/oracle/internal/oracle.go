@@ -72,6 +72,9 @@ func (o *Oracle) Close() error {
 func (o *Oracle) Type() string {
 	return string(constants.Oracle)
 }
+func (o *Oracle) GetSourceDatabase() string {
+	return ""
+}
 
 // MaxConnections returns the maximum number of connections
 func (o *Oracle) MaxConnections() int {

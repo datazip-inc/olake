@@ -44,7 +44,7 @@ var discoverCmd = &cobra.Command{
 		if len(streams) == 0 {
 			return errors.New("no streams found in connector")
 		}
-		types.LogCatalog(streams, catalog, connector.Type())
+		types.LogCatalog(streams, catalog, connector.Type(), connector.GetSourceDatabase())
 
 		// Discover Telemetry Tracking
 		defer func() {

@@ -56,7 +56,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	}
 
 	upsertMode := utils.Ternary(i.stream.Self().StreamMetadata.AppendMode, false, !options.Backfill).(bool)
-	server, err := newIcebergClient(i.config, i.partitionInfo, false, upsertMode)
+	server, err := newIcebergClient(i.config, i.partitionInfo, false, upsertMode, i.stream.Self().StreamMetadata.TargetDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
@@ -269,7 +269,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 
 func (i *Iceberg) Check(ctx context.Context) error {
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, true, false)
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, true, false, "test_olake")
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
