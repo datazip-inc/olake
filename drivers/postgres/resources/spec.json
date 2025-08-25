@@ -67,7 +67,7 @@
         },
         "update_method": {
             "title": "Update Method",
-            "description": "Method to use for updates (CDC - Change Data Capture or Full Refresh)",
+            "description": "Define how OLake captures data updates from your source",
             "oneOf": [
                 {
                     "type": "object",
