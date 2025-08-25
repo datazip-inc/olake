@@ -71,6 +71,18 @@
             "oneOf": [
                 {
                     "type": "object",
+                    "title": "Standalone",
+                    "properties": {
+                        "type": {
+                            "const": "Standalone"
+                        }
+                    },
+                    "required": [
+                        "type"
+                    ]
+                },
+                {
+                    "type": "object",
                     "title": "CDC",
                     "properties": {
                         "type": {
@@ -92,18 +104,6 @@
                     "required": [
                         "type",
                         "replication_slot"
-                    ]
-                },
-                {
-                    "type": "object",
-                    "title": "Standalone",
-                    "properties": {
-                        "type": {
-                            "const": "Standalone"
-                        }
-                    },
-                    "required": [
-                        "type"
                     ]
                 }
             ]

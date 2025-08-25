@@ -46,6 +46,18 @@
       "oneOf": [
         {
           "type": "object",
+          "title": "Standalone",
+          "properties": {
+            "type": {
+              "const": "Standalone"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
           "title": "CDC",
           "properties": {
             "initial_wait_time": {
@@ -62,18 +74,6 @@
             "initial_wait_time"
           ],
           "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "title": "Standalone",
-          "properties": {
-            "type": {
-              "const": "Standalone"
-            }
-          },
-          "required": [
-            "type"
-          ]
         }
       ]
     },
