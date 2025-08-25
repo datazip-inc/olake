@@ -101,6 +101,9 @@ func (m *MySQL) Setup(ctx context.Context) error {
 func (m *MySQL) Type() string {
 	return string(constants.MySQL)
 }
+func (m *MySQL) GetSourceDatabase() string {
+	return ""
+}
 
 // set state to mysql
 func (m *MySQL) SetupState(state *types.State) {

@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
@@ -45,6 +47,15 @@ type StreamMetadata struct {
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
 	Filter         string `json:"filter,omitempty"`
+	TargetDatabase string `json:"target_database,omitempty"`
+	TargetTable    string `json:"target_table,omitempty"`
+}
+
+// DatabaseNamingConfig is a dto for database naming configuration for iceberg
+type DatabaseNamingConfig struct {
+	ConnectorName  string
+	SourceDatabase string
+	SourceSchema   string
 }
 
 // ConfiguredCatalog is a dto for formatted airbyte catalog serialization
@@ -53,7 +64,7 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driver string, sourceDatabase string) *Catalog {
 	// Whether the source is a relational driver or not
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
@@ -73,6 +84,12 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			PartitionRegex: "",
 			AppendMode:     false,
 			Normalization:  isRelational,
+			TargetDatabase: GenerateDefaultIcebergDatabase(&DatabaseNamingConfig{
+				ConnectorName:  driver,
+				SourceDatabase: sourceDatabase,
+				SourceSchema:   stream.Namespace,
+			}),
+			TargetTable: NormalizeIdentifier(stream.Name),
 		})
 	}
 
@@ -126,4 +143,41 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	})
 
 	return newCatalog
+}
+
+// NormalizeIdentifier normalizes the identifier by converting it to lowercase, replacing invalid characters with underscores,
+// trimming leading/trailing underscores, and squashing duplicate underscores
+func NormalizeIdentifier(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+
+	// Replace invalid characters with underscores
+	reg := regexp.MustCompile(`[^a-z0-9_]+`)
+	name = reg.ReplaceAllString(name, "_")
+
+	// Trim leading/trailing underscores
+	name = strings.Trim(name, "_")
+
+	// Squash duplicate underscores
+	reg = regexp.MustCompile(`_+`)
+	name = reg.ReplaceAllString(name, "_")
+
+	return name
+}
+
+// GenerateDefaultIcebergDatabase creates default Iceberg DB name
+func GenerateDefaultIcebergDatabase(config *DatabaseNamingConfig) string {
+	parts := []string{}
+
+	if config.ConnectorName != "" {
+		parts = append(parts, NormalizeIdentifier(config.ConnectorName))
+	}
+	if config.SourceDatabase != "" {
+		parts = append(parts, NormalizeIdentifier(config.SourceDatabase))
+	}
+	if config.SourceSchema != "" {
+		parts = append(parts, NormalizeIdentifier(config.SourceSchema))
+	}
+
+	return strings.Join(parts, "_")
 }

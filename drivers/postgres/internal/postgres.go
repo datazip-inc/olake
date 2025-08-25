@@ -199,6 +199,9 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 func (p *Postgres) Type() string {
 	return string(constants.Postgres)
 }
+func (p *Postgres) GetSourceDatabase() string {
+	return p.config.Database
+}
 
 func (p *Postgres) MaxConnections() int {
 	return p.config.MaxThreads
