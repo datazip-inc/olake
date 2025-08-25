@@ -65,7 +65,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
 		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
 	}
-	
+
 	incrementalCondition := buildMongoCondition(types.Condition{
 		Column:   primaryCursor,
 		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
@@ -92,4 +92,8 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 	}
 
 	return incrementalCondition, nil
+}
+
+func (m *Mongo) PostIncremental(_ context.Context, stream types.StreamInterface, noErr bool) error {
+	return fmt.Errorf("post incremental not supported for oracle")
 }
