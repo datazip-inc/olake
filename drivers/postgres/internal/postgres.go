@@ -178,7 +178,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				datatype = types.String
 			}
 
-			stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
+			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
 		}
 
 		// add primary keys for stream

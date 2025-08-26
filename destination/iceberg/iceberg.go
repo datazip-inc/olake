@@ -68,13 +68,18 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	primaryKey := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 
 	if createOrLoadSchema {
+		targetTable := i.stream.Self().StreamMetadata.TargetTable
+		if !utils.IsValidIdentifier(targetTable) {
+			targetTable = utils.NormalizeIdentifier(targetTable)
+			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Self().StreamMetadata.TargetTable, targetTable)
+		}
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
 				Schema:        iceSchema,
-				DestTableName: i.stream.Name(),
+				DestTableName: targetTable,
 				ThreadId:      i.server.serverID,
 				PrimaryKey:    &primaryKey,
 			},
@@ -210,7 +215,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: i.stream.Name(),
+			DestTableName: utils.NormalizeIdentifier(i.stream.Self().StreamMetadata.StreamName),
 			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
@@ -254,7 +259,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
-			DestTableName: i.stream.Name(),
+			DestTableName: utils.NormalizeIdentifier(i.stream.Self().StreamMetadata.StreamName),
 		},
 	}
 	res, err := i.server.sendClientRequest(ctx, req)
@@ -439,7 +444,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			PrimaryKey:    &primaryKey,
-			DestTableName: i.stream.Name(),
+			DestTableName: utils.NormalizeIdentifier(i.stream.Self().StreamMetadata.TargetTable),
 			Schema:        schema,
 			ThreadId:      i.server.serverID,
 		},

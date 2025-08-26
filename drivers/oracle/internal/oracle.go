@@ -145,7 +145,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 			datatype = types.String
 		}
 
-		stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("Y", isNullable))
+		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable))
 	}
 
 	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)

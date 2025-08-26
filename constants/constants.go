@@ -35,4 +35,11 @@ const (
 	Oracle   DriverType = "oracle"
 )
 
+// DatabaseNamingConfig is a dto for database naming configuration for iceberg
+type DatabaseNamingConfig struct {
+	ConnectorName  string
+	SourceDatabase string
+	SourceSchema   string
+}
+
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}

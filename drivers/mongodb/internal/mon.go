@@ -196,7 +196,6 @@ func filterMongoObject(doc bson.M) {
 	for key, value := range doc {
 		// first make key small case as data being typeresolved with small case keys
 		delete(doc, key)
-		key = typeutils.Reformat(key)
 		switch value := value.(type) {
 		case primitive.Timestamp:
 			doc[key] = value.T

@@ -2,6 +2,8 @@ package utils
 
 import (
 	"context"
+	"regexp"
+
 	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
@@ -437,4 +439,48 @@ func NormalizedEqual(strune1, strune2 string) bool {
 	sort.Slice(rune1, func(i, j int) bool { return rune1[i] < rune1[j] })
 	sort.Slice(rune2, func(i, j int) bool { return rune2[i] < rune2[j] })
 	return string(rune1) == string(rune2)
+}
+
+// NormalizeIdentifier normalizes the identifier by converting it to lowercase, replacing invalid characters with underscores,
+// trimming leading/trailing underscores, and squashing duplicate underscores
+func NormalizeIdentifier(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+
+	// Replace invalid characters with underscores
+	reg := regexp.MustCompile(`[^a-z0-9_]+`)
+	name = reg.ReplaceAllString(name, "_")
+
+	// Trim leading/trailing underscores
+	name = strings.Trim(name, "_")
+
+	// Squash duplicate underscores
+	reg = regexp.MustCompile(`_+`)
+	name = reg.ReplaceAllString(name, "_")
+
+	return name
+}
+
+// GenerateDefaultIcebergDatabase creates default Iceberg DB name
+func GenerateDefaultIcebergDatabase(config *constants.DatabaseNamingConfig) string {
+	parts := []string{}
+
+	if config.ConnectorName != "" {
+		parts = append(parts, NormalizeIdentifier(config.ConnectorName))
+	}
+	if config.SourceDatabase != "" {
+		parts = append(parts, NormalizeIdentifier(config.SourceDatabase))
+	}
+	if config.SourceSchema != "" {
+		parts = append(parts, NormalizeIdentifier(config.SourceSchema))
+	}
+
+	return strings.Join(parts, "_")
+}
+
+// IsValidIdentifier checks if an identifier is valid according to our rules.
+func IsValidIdentifier(name string) bool {
+	// Allowed: letters, numbers, and underscores. Must start with a letter or underscore.
+	validNameRegex := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	return validNameRegex.MatchString(name)
 }

@@ -100,7 +100,8 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 	p, found := t.Properties.Load(column)
 	if !found {
 		t.Properties.Store(column, &Property{
-			Type: NewSet(types...),
+			Type:             NewSet(types...),
+			TargetColumnName: utils.NormalizeIdentifier(column),
 		})
 		return
 	}
@@ -121,7 +122,7 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 func (t *TypeSchema) ToParquet() *parquet.Schema {
 	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
-		groupNode[key.(string)] = value.(*Property).DataType().ToNewParquet()
+		groupNode[value.(*Property).TargetColumnName] = value.(*Property).DataType().ToNewParquet()
 		return true
 	})
 
@@ -133,7 +134,7 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 	t.Properties.Range(func(key, value interface{}) bool {
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: value.(*Property).DataType().ToIceberg(),
-			Key:     key.(string),
+			Key:     value.(*Property).TargetColumnName,
 		})
 		return true
 	})
@@ -146,6 +147,7 @@ type Property struct {
 	Type *Set[DataType] `json:"type,omitempty"`
 	// TODO: Decide to keep in the Protocol Or Not
 	// Format string     `json:"format,omitempty"`
+	TargetColumnName string `json:"target_column_name,omitempty"`
 }
 
 // returns datatype according to typecast tree if multiple type present

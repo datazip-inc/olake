@@ -168,7 +168,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String
 			}
-			stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("yes", isNullable))
+			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable))
 
 			// Mark primary keys
 			if columnKey == "PRI" {
