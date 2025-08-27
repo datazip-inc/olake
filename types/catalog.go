@@ -5,6 +5,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/spf13/viper"
 )
 
 // Message is a dto for olake output row representation
@@ -76,7 +77,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, sourceDatabase string) 
 			AppendMode:     false,
 			Normalization:  isRelational,
 			TargetDatabase: utils.GenerateDefaultIcebergDatabase(&constants.DatabaseNamingConfig{
-				ConnectorName:  utils.Ternary(constants.SyncID == "", driver, constants.SyncID).(string),
+				ConnectorName:  utils.Ternary(constants.SyncID == "", driver, viper.GetString(constants.SyncID)).(string),
 				SourceDatabase: sourceDatabase,
 				SourceSchema:   stream.Namespace,
 			}),
