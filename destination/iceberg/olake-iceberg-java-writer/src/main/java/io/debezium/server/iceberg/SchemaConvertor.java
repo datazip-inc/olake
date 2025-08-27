@@ -25,14 +25,14 @@ import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 
 public class SchemaConvertor {
   private final List<RecordIngest.IcebergPayload.SchemaField> schemaMetadata;
-  private final String primaryKey;
+  private final String identifierField;
   protected static final Logger LOGGER = LoggerFactory.getLogger(SchemaConvertor.class);
 
   public static final List<String> TS_MS_FIELDS = List.of("_olake_timestamp", "_cdc_timestamp");
 
   public SchemaConvertor(String pk, List<RecordIngest.IcebergPayload.SchemaField> schema) {
     schemaMetadata = schema;
-    primaryKey = pk;
+    identifierField = pk;
   }
 
   // currently implemented for primitive fields only
@@ -41,7 +41,7 @@ public class SchemaConvertor {
     for(RecordIngest.IcebergPayload.SchemaField rawField :  schemaMetadata){
       String fieldName = rawField.getKey(); // field name 
       String fieldType = rawField.getIceType();
-      Boolean isPkField = (fieldName.equals(primaryKey));
+      Boolean isPkField = (fieldName.equals(identifierField));
       final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
       schemaData.fields().add(field);
       if (isPkField) schemaData.identifierFieldIds().add(field.fieldId());
@@ -57,14 +57,8 @@ public class SchemaConvertor {
           String fieldName = rawField.getKey(); // or whatever method gives the field name
           fieldNameToIndexMap.put(fieldName, index); // Map field name → index
       }
-      // Pre-size the array list to avoid resizing
-      List<RecordWrapper> result = new ArrayList<>(records.size());
       
-      StructType tableFields = tableSchema.asStruct();
-      for (IceRecord data : records) {
-          result.add(convertRecord(upsert, fieldNameToIndexMap, data, tableFields));
-      }
-      return result;
+      return records.parallelStream().map(data -> convertRecord(upsert, fieldNameToIndexMap, data, tableSchema.asStruct())).toList();
   }
 
   private RecordWrapper convertRecord(Boolean upsert, Map<String, Integer> fieldNameToIndexMap, IceRecord data, StructType tableFields) {

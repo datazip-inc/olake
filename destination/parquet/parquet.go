@@ -212,7 +212,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) Close(_ context.Context) error {
+func (p *Parquet) closePqFiles() error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -279,12 +279,17 @@ func (p *Parquet) Close(_ context.Context) error {
 	return nil
 }
 
+func (p *Parquet) Close(_ context.Context) error {
+	return p.closePqFiles()
+}
+
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, nil, nil
 	}
 
+	// TODO: check if stream schema changed and prev thread had opted it.
 	schema, ok := pastSchema.(typeutils.Fields)
 	if !ok {
 		return false, nil, fmt.Errorf("failed to typecast schema[%T] into (typeutils.Fields)", pastSchema)
@@ -317,7 +322,7 @@ func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord)
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
-func (p *Parquet) EvolveSchema(ctx context.Context, newSchema any) error {
+func (p *Parquet) EvolveSchema(_ context.Context, newSchema any) error {
 	if !p.stream.NormalizationEnabled() {
 		return nil
 	}
@@ -330,7 +335,7 @@ func (p *Parquet) EvolveSchema(ctx context.Context, newSchema any) error {
 
 	// TODO: can we implement something https://github.com/parquet-go/parquet-go?tab=readme-ov-file#evolving-parquet-schemas-parquetconvert
 	// close prev files as change detected (new files will be created with new schema)
-	return p.Close(ctx)
+	return p.closePqFiles()
 }
 
 // Type returns the type of the writer.

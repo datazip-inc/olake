@@ -79,7 +79,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		}
 		change := abstract.CDCChange{
 			Stream:    stream,
-			Timestamp: typeutils.Time{Time: time.Unix(int64(ev.Header.Timestamp), 0)},
+			Timestamp: time.Unix(int64(ev.Header.Timestamp), 0),
 			Kind:      operationType,
 			Data:      record,
 		}

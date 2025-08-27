@@ -50,7 +50,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             IcebergPayload.Metadata metadata = request.getMetadata();
             String threadId = metadata.getThreadId();
             String destTableName = metadata.getDestTableName();
-            String primaryKey = metadata.getPrimaryKey();
+            String identifierField = metadata.getIdentifierField();
             List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
             if (threadId == null || threadId.isEmpty()) {
                 // file references are being stored through thread id
@@ -61,7 +61,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             }
 
             if (this.icebergTable == null) {
-                SchemaConvertor schemaConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
+                SchemaConvertor schemaConvertor = new SchemaConvertor(identifierField, schemaMetadata);
                 this.icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
                                         schemaConvertor.convertToIcebergSchema());
             }
@@ -75,7 +75,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
                     
                 case EVOLVE_SCHEMA:
-                    SchemaConvertor convertor = new SchemaConvertor(primaryKey, schemaMetadata);
+                    SchemaConvertor convertor = new SchemaConvertor(identifierField, schemaMetadata);
                     icebergTableOperator.applyFieldAddition(this.icebergTable, convertor.convertToIcebergSchema());
                     sendResponse(responseObserver, "schema evolution applied");
                     LOGGER.info("{} Successfully applied schema evolution for table: {}", requestId, destTableName);
@@ -88,7 +88,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
                 case RECORDS:
                     LOGGER.info("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
-                    SchemaConvertor recordsConvertor = new SchemaConvertor(primaryKey, schemaMetadata);
+                    SchemaConvertor recordsConvertor = new SchemaConvertor(identifierField, schemaMetadata);
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(upsertRecords, this.icebergTable.schema(), request.getRecordsList());
                     icebergTableOperator.addToTablePerSchema(threadId, this.icebergTable, finalRecords);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());

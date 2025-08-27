@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
@@ -92,7 +93,7 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 			return nil, fmt.Errorf("failed to split batch size chunks: %s", err)
 		}
 
-		for utils.CompareInterfaceValue(chunkEnd, max) <= 0 {
+		for typeutils.Compare(chunkEnd, max) <= 0 {
 			splits.Insert(types.Chunk{Min: chunkStart, Max: chunkEnd})
 			chunkStart = chunkEnd
 			newChunkEnd, err := utils.AddConstantToInterface(chunkEnd, dynamicChunkSize)

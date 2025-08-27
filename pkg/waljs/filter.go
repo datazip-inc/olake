@@ -78,7 +78,7 @@ func (c ChangeFilter) FilterChange(ctx context.Context, change []byte, OnFiltere
 		if err := OnFiltered(ctx, abstract.CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,
-			Timestamp: changes.Timestamp,
+			Timestamp: changes.Timestamp.Time,
 			Data:      changesMap,
 		}); err != nil {
 			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)

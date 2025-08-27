@@ -60,10 +60,12 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				if err != nil {
 					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 				}
-				inserter, err := pool.NewWriter(ctx, stream)
+				threadID := utils.ULID()
+				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
 				if err != nil {
 					return fmt.Errorf("failed to create new writer thread: %s", err)
 				}
+				logger.Infof("created incremental writer with threadID[%s] for stream %s", threadID, streams[index].ID())
 				defer func() {
 					if threadErr := inserter.Close(ctx); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
@@ -123,12 +125,12 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 
 func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryCursor string, maxPrimaryCursorValue, maxSecondaryCursorValue any, data map[string]any) (any, any) {
 	primaryCursorValue := data[primaryCursor]
-	primaryCursorValue = utils.Ternary(utils.CompareInterfaceValue(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
+	primaryCursorValue = utils.Ternary(typeutils.Compare(primaryCursorValue, maxPrimaryCursorValue) == 1, primaryCursorValue, maxPrimaryCursorValue)
 
 	var secondaryCursorValue any
 	if secondaryCursor != "" {
 		secondaryCursorValue = data[secondaryCursor]
-		secondaryCursorValue = utils.Ternary(utils.CompareInterfaceValue(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
+		secondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 	}
 	return primaryCursorValue, secondaryCursorValue
 }
