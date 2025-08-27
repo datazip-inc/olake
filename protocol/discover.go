@@ -40,11 +40,11 @@ var discoverCmd = &cobra.Command{
 		}
 
 		// build discover ctx
-		discvoerTimeout := utils.Ternary(timeout == -1, constants.DefaultDiscoverTimeout, time.Duration(timeout*int64(time.Second))).(time.Duration)
-		discvoerCtx, cancel := context.WithTimeout(cmd.Context(), discvoerTimeout)
+		discoverTimeout := utils.Ternary(timeout == -1, constants.DefaultDiscoverTimeout, time.Duration(timeout)*time.Second).(time.Duration)
+		discoverCtx, cancel := context.WithTimeout(cmd.Context(), discoverTimeout)
 		defer cancel()
 
-		streams, err := connector.Discover(discvoerCtx)
+		streams, err := connector.Discover(discoverCtx)
 		if err != nil {
 			return err
 		}
