@@ -77,7 +77,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, sourceDatabase string) 
 			AppendMode:     false,
 			Normalization:  isRelational,
 			TargetDatabase: utils.GenerateDefaultIcebergDatabase(&constants.DatabaseNamingConfig{
-				ConnectorName:  utils.Ternary(constants.SyncID == "", driver, viper.GetString(constants.SyncID)).(string),
+				ConnectorName:  utils.Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
 				SourceDatabase: sourceDatabase,
 				SourceSchema:   stream.Namespace,
 			}),
