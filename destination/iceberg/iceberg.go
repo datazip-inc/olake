@@ -202,7 +202,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	}
 
 	if len(protoRecords) == 0 {
-		logger.Debug("no record found in batch")
+		logger.Debugf("Thread[%s]: no record found in batch", i.options.ThreadID)
 		return nil
 	}
 
@@ -223,11 +223,10 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	// Send the batch to the server
 	res, err := i.server.sendClientRequest(reqCtx, req)
 	if err != nil {
-		logger.Errorf("failed to send batch: %s", err)
-		return err
+		return fmt.Errorf("failed to send batch: %s", err)
 	}
 
-	logger.Infof("Sent batch to Iceberg server, response: %s", res)
+	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", i.options.ThreadID, res)
 	return nil
 }
 
@@ -239,10 +238,10 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		}
 		err := i.server.closeIcebergClient(i.server)
 		if err != nil {
-			logger.Errorf("thread id %s: Error closing Iceberg client: %s", i.server.serverID, err)
+			logger.Errorf("Thread[%s]: error closing Iceberg client: %s", i.options.ThreadID, err)
 		}
 	}()
-	
+
 	// Send commit request for this thread using a special message format
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
@@ -256,21 +255,25 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	}
 	res, err := i.server.sendClientRequest(ctx, req)
 	if err != nil {
-		logger.Errorf("thread id %s: Error sending commit message on close: %s", i.server.serverID, err)
-		return fmt.Errorf("thread id %s: failed to send commit message: %s", i.server.serverID, err)
+		return fmt.Errorf("failed to send commit message: %s", err)
 	}
 
-	logger.Infof("thread id %s: Sent commit message: %s", i.server.serverID, res)
+	logger.Debugf("Thread[%s]: Sent commit message: %s", i.options.ThreadID, res)
 	return nil
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
+	i.options = &destination.Options{
+		ThreadID: "test_iceberg_destination",
+	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, "testing_thread", true, false)
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
-	i.server = server // to close properly
+
+	// to close client properly
+	i.server = server
 	defer func() {
 		i.Close(ctx)
 	}()
@@ -292,7 +295,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create or get table: %s", err)
 	}
-	logger.Infof("table created or loaded test olake: %s", res)
+
+	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.options.ThreadID, res)
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
@@ -320,12 +324,25 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		return fmt.Errorf("failed to insert request: %s", err)
 	}
 
-	logger.Infof("record inserted successfully: %s", resInsert)
+	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.options.ThreadID, resInsert)
 	return nil
 }
 
 func (i *Iceberg) Type() string {
 	return string(types.Iceberg)
+}
+
+// returns a new copy of schema
+func (i *Iceberg) CloneSchema(rawSchema any) (any, error) {
+	copySchema := make(map[string]string)
+	schema, ok := rawSchema.(map[string]string)
+	if !ok {
+		return nil, fmt.Errorf("failed to typecast schema of type[%T] into map[string]string", rawSchema)
+	}
+	for key, value := range schema {
+		copySchema[key] = value
+	}
+	return copySchema, nil
 }
 
 // validate schema change & evolution and removes null records
@@ -430,7 +447,7 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 	}
 
 	// only dedup if it is upsert mode
-	if !isUpsertMode(i.stream, i.options.Backfill) {
+	if isUpsertMode(i.stream, i.options.Backfill) {
 		records = dedupRecords(records)
 	}
 
@@ -484,7 +501,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 		return fmt.Errorf("failed to send records to evolve schema: %s", err)
 	}
 
-	logger.Debugf("response received after schema evolution: %s", resp)
+	logger.Debugf("Thread[%s]: response received after schema evolution: %s", i.options.ThreadID, resp)
 	return nil
 }
 

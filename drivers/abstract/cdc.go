@@ -57,7 +57,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			if isParallelChangeStream(a.driver.Type()) {
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-					threadID := utils.ULID()
+					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
 					inserter, err := pool.NewWriter(ctx, streams[index], destination.WithThreadID(threadID))
 					if err != nil {
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
@@ -76,6 +76,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+						}
+
+						if err != nil {
+							err = fmt.Errorf("Thread[%s]: %s", threadID, err)
 						}
 					}()
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
@@ -105,7 +109,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		// Set up inserters for each stream
 		inserters := make(map[types.StreamInterface]*destination.WriterThread)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
-			threadID := utils.ULID()
+			threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
 			inserters[stream], err = pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
 			if err != nil {
 				logger.Infof("created cdc writer with threadID[%s] for stream %s", threadID, stream.ID())

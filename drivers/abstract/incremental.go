@@ -60,7 +60,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				if err != nil {
 					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 				}
-				threadID := utils.ULID()
+				threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
 				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
 				if err != nil {
 					return fmt.Errorf("failed to create new writer thread: %s", err)
@@ -80,6 +80,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					if err == nil {
 						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+					} else {
+						err = fmt.Errorf("Thread[%s]: %s", threadID, err)
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {

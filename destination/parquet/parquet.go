@@ -96,9 +96,9 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy), pqgo.MaxRowsPerRowGroup(10000))
+			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy), pqgo.MaxRowsPerRowGroup(10000))
+		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
@@ -107,6 +107,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		writer:   writer,
 	}
 
+	logger.Infof("Thread[%s]: created new partition file[%s]", p.options.ThreadID, filePath)
 	return nil
 }
 
@@ -170,6 +171,10 @@ func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) err
 
 // Check validates local paths and S3 credentials if applicable.
 func (p *Parquet) Check(_ context.Context) error {
+	p.options = &destination.Options{
+		ThreadID: "test_parquet_destination",
+	}
+
 	// check for s3 writer configuration
 	err := p.initS3Writer()
 	if err != nil {
@@ -190,11 +195,11 @@ func (p *Parquet) Check(_ context.Context) error {
 		p.config.Path = os.TempDir()
 		// trim '/' from prefix path
 		p.config.Prefix = strings.Trim(p.config.Prefix, "/")
-		logger.Info("s3 writer configuration found")
+		logger.Infof("Thread[%s]: s3 writer configuration found in threadID[%s]", p.options.ThreadID)
 	} else if p.config.Path != "" {
-		logger.Infof("local writer configuration found, writing at location[%s]", p.config.Path)
+		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
 	} else {
-		return fmt.Errorf("invalid configuration found")
+		return fmt.Errorf("Thread[%s]: invalid configuration found", p.options.ThreadID)
 	}
 
 	// Create the directory if it doesn't exist
@@ -216,10 +221,10 @@ func (p *Parquet) closePqFiles() error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
-			logger.Warnf("Failed to delete file [%s], reason (%s): %s", filePath, reason, err)
+			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (%s): %s", p.options.ThreadID, filePath, reason, err)
 			return
 		}
-		logger.Debugf("Deleted file [%s], reason (%s).", filePath, reason)
+		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
 	}
 
 	for basePath, parquetFile := range p.partitionedFiles {
@@ -242,7 +247,7 @@ func (p *Parquet) closePqFiles() error {
 			return fmt.Errorf("failed to close file: %s", err)
 		}
 
-		logger.Infof("Finished writing file [%s].", filePath)
+		logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, filePath)
 
 		if p.s3Client != nil {
 			// Open file for S3 upload
@@ -271,7 +276,7 @@ func (p *Parquet) closePqFiles() error {
 
 			// Remove local file after successful upload
 			removeLocalFile(filePath, "uploaded to S3")
-			logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, s3KeyPath)
+			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3KeyPath)
 		}
 	}
 	// make map empty
@@ -281,6 +286,16 @@ func (p *Parquet) closePqFiles() error {
 
 func (p *Parquet) Close(_ context.Context) error {
 	return p.closePqFiles()
+}
+
+// returns a new copy of schema
+func (p *Parquet) CloneSchema(rawSchema any) (any, error) {
+	schema, ok := rawSchema.(typeutils.Fields)
+	if !ok {
+		return nil, fmt.Errorf("failed to type cast schema of type[%T] into typeutils.fields", rawSchema)
+	}
+
+	return schema.Clone(), nil
 }
 
 // validate schema change & evolution and removes null records
@@ -389,7 +404,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 						}
 					}
 				} else {
-					logger.Debugf("Failed to convert value to timestamp: %s", err)
+					logger.Debugf("Thread[%s]: failed to convert value to timestamp: %s", p.options.ThreadID, err)
 				}
 			}
 			return fmt.Sprintf("%v", value)
@@ -413,11 +428,11 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 
 func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) error {
 	if len(selectedStreams) == 0 {
-		logger.Info("No streams selected for clearing, skipping clear operation")
+		logger.Infof("Thread[%s]: no streams selected for clearing, skipping clear operation", p.options.ThreadID)
 		return nil
 	}
 
-	logger.Infof("Clearing destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+	logger.Infof("Thread[%s]: clearing destination for %d selected streams: %v", p.options.ThreadID, len(selectedStreams), selectedStreams)
 
 	if p.s3Client == nil {
 		if err := p.clearLocalFiles(selectedStreams); err != nil {
@@ -429,7 +444,7 @@ func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) err
 		}
 	}
 
-	logger.Info("Successfully cleared destination for selected streams")
+	logger.Infof("Thread[%s]: successfully cleared destination for selected streams", p.options.ThreadID)
 	return nil
 }
 
@@ -437,17 +452,17 @@ func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
 	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
-			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
 			continue
 		}
 
 		namespace, streamName := parts[0], parts[1]
 		streamPath := filepath.Join(p.config.Path, namespace, streamName)
 
-		logger.Infof("Clearing local path: %s", streamPath)
+		logger.Infof("Thread[%s]: clearing local path: %s", p.options.ThreadID, streamPath)
 
 		if _, err := os.Stat(streamPath); os.IsNotExist(err) {
-			logger.Debugf("Local path does not exist, skipping: %s", streamPath)
+			logger.Debugf("Thread[%s]: local path does not exist, skipping: %s", p.options.ThreadID, streamPath)
 			continue
 		}
 
@@ -455,7 +470,7 @@ func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
 			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
 		}
 
-		logger.Debugf("Successfully cleared local path: %s", streamPath)
+		logger.Debugf("Thread[%s]: successfully cleared local path: %s", p.options.ThreadID, streamPath)
 	}
 
 	return nil
@@ -477,18 +492,18 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
-			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
 			continue
 		}
 
 		namespace, streamName := parts[0], parts[1]
 		s3TablePath := filepath.Join(p.config.Prefix, namespace, streamName, "/")
-		logger.Debugf("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
+		logger.Debugf("Thread[%s]: clearing S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
 		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
 			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
 		}
 
-		logger.Debugf("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
+		logger.Debugf("Thread[%s]: successfully cleared S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
 	}
 	return nil
 }

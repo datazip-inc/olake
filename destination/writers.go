@@ -39,6 +39,7 @@ type (
 	}
 
 	WriterPool struct {
+		configMutex     sync.Mutex
 		stats           *Stats
 		config          any
 		init            NewFunc
@@ -49,6 +50,7 @@ type (
 	WriterThread struct {
 		stats          *Stats
 		buffer         []types.RawRecord
+		threadID       string
 		writer         Writer
 		batchSize      int
 		streamArtifact *StreamArtifacts
@@ -152,13 +154,18 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	var writerThread Writer
 	err := func() error {
-		streamArtifact.mutex.Lock()
-		defer streamArtifact.mutex.Unlock()
-
+		// init writer with configurations
+		w.configMutex.Lock()
 		writerThread = w.init()
-		if err := utils.Unmarshal(w.config, writerThread.GetConfigRef()); err != nil {
+		err := utils.Unmarshal(w.config, writerThread.GetConfigRef())
+		w.configMutex.Unlock()
+		if err != nil {
 			return err
 		}
+
+		// setup table and schema
+		streamArtifact.mutex.Lock()
+		defer streamArtifact.mutex.Unlock()
 
 		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema == nil, opts)
 		if err != nil {
@@ -178,6 +185,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
 		batchSize:      10000,
+		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,
 		streamArtifact: streamArtifact,
@@ -191,7 +199,7 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 	default:
 		go wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
-		if len(wt.buffer) > wt.batchSize {
+		if len(wt.buffer) >= wt.batchSize {
 			err := wt.flush(ctx, wt.buffer)
 			if err != nil {
 				return fmt.Errorf("failed to flush data: %s", err)
@@ -213,9 +221,13 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// clone schema so that while flattening no underlying reference get used
 	wt.streamArtifact.mutex.RLock()
-	cachedSchema := wt.streamArtifact.schema
+	cachedSchema, err := wt.writer.CloneSchema(wt.streamArtifact.schema)
 	wt.streamArtifact.mutex.RUnlock()
+	if err != nil {
+		return fmt.Errorf("failed to clone schema: %s", err)
+	}
 
 	schemaEvolution, newSchema, err := wt.writer.FlattenAndCleanData(cachedSchema, buf)
 	if err != nil {
@@ -223,20 +235,27 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	}
 	// TODO: after flattening record type raw_record not make sense
 	if schemaEvolution {
+		logger.Debugf("Thread[%s]: schema evolution detected", wt.threadID)
+
+		// clone schema as it is required for write
+		cachedSchema, err = wt.writer.CloneSchema(newSchema)
+		if err != nil {
+			return fmt.Errorf("failed to clone new schema: %s", err)
+		}
+
 		wt.streamArtifact.mutex.Lock()
 		wt.streamArtifact.schema = newSchema
 		wt.streamArtifact.mutex.Unlock()
 		if err := wt.writer.EvolveSchema(flushCtx, newSchema); err != nil {
 			return fmt.Errorf("failed to evolve schema: %s", err)
 		}
-		cachedSchema = newSchema
 	}
 
 	if err := wt.writer.Write(flushCtx, cachedSchema, buf); err != nil {
 		return fmt.Errorf("failed to write records: %s", err)
 	}
 
-	logger.Infof("Successfully wrote %d records", len(buf))
+	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
 	return nil
 }
 

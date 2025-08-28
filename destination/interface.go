@@ -26,6 +26,8 @@ type Writer interface {
 	Setup(ctx context.Context, stream types.StreamInterface, createOrLoadSchema bool, opts *Options) (any, error)
 	// Write function being used by drivers
 	Write(ctx context.Context, schema any, record []types.RawRecord) error
+	// clone schema -> deep copy schema to new instance
+	CloneSchema(schema any) (any, error)
 	// flatten data and validates past schema
 	FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error)
 	// EvolveSchema updates the schema based on changes.

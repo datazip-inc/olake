@@ -172,7 +172,7 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
 		state.LogWithLock()
-		logger.Infof("Total records read: %d", pool.GetStats().ReadCount)
+		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
 		return nil
 	},
 }

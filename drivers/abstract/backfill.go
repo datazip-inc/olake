@@ -41,12 +41,12 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxPrimaryCursorValue, maxSecondaryCursorValue any
 		primaryCursor, secondaryCursor := stream.Cursor()
-		threadID := utils.ULID()
+		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
 		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
-		logger.Infof("created writer with threadID[%s] for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
+		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		defer func() {
 			// wait for chunk completion
 			if writerErr := inserter.Close(ctx); writerErr != nil {
@@ -79,6 +79,8 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 					}
 				}
+			} else {
+				err = fmt.Errorf("Thread[%s]: %s", threadID, err)
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
