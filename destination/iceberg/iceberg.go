@@ -68,10 +68,10 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	primaryKey := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 
 	if createOrLoadSchema {
-		targetTable := i.stream.Self().StreamMetadata.TargetTable
+		targetTable := i.stream.Name()
 		if targetTable != "" && !utils.IsValidIdentifier(targetTable) {
 			targetTable = utils.NormalizeIdentifier(targetTable)
-			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Self().StreamMetadata.TargetTable, targetTable)
+			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Name(), targetTable)
 		}
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
