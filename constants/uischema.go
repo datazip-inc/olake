@@ -47,7 +47,7 @@ const PostgresUISchema = `{
     }
   },
   "update_method": {
-    "ui:widget": "radio",
+    "ui:widget": "CustomRadioWidget",
     "ui:grid": [
       { "replication_slot": 12, "initial_wait_time": 12 }
     ],
@@ -70,7 +70,7 @@ const MySQLUISchema = `{
     "ui:widget": "boolean"
   },
   "update_method": {
-    "ui:widget": "radio",
+    "ui:widget": "CustomRadioWidget",
     "ui:options": {
       "title": false,
       "description": false

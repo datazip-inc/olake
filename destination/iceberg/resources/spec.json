@@ -193,7 +193,7 @@
               "no_identifier_fields": {
                 "type": "boolean",
                 "default": false,
-                "title": "Disable Primary Key",
+                "title": "Disable Identifier Fields",
                 "description": "Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields"
               },
               "s3_endpoint": {
