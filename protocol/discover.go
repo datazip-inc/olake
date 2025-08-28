@@ -1,10 +1,12 @@
 package protocol
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -36,7 +38,13 @@ var discoverCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		streams, err := connector.Discover(cmd.Context())
+
+		// build discover ctx
+		discoverTimeout := utils.Ternary(timeout == -1, constants.DefaultDiscoverTimeout, time.Duration(timeout)*time.Second).(time.Duration)
+		discoverCtx, cancel := context.WithTimeout(cmd.Context(), discoverTimeout)
+		defer cancel()
+
+		streams, err := connector.Discover(discoverCtx)
 		if err != nil {
 			return err
 		}
