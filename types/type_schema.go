@@ -122,7 +122,7 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 func (t *TypeSchema) ToParquet() *parquet.Schema {
 	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
-		groupNode[value.(*Property).TargetColumnName] = value.(*Property).DataType().ToNewParquet()
+		groupNode[utils.Ternary(value.(*Property).TargetColumnName != "", value.(*Property).TargetColumnName, key.(string)).(string)] = value.(*Property).DataType().ToNewParquet()
 		return true
 	})
 
@@ -134,7 +134,7 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 	t.Properties.Range(func(key, value interface{}) bool {
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: value.(*Property).DataType().ToIceberg(),
-			Key:     value.(*Property).TargetColumnName,
+			Key:     utils.Ternary(value.(*Property).TargetColumnName != "", value.(*Property).TargetColumnName, key.(string)).(string),
 		})
 		return true
 	})

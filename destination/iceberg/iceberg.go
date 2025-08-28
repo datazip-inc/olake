@@ -69,7 +69,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 
 	if createOrLoadSchema {
 		targetTable := i.stream.Self().StreamMetadata.TargetTable
-		if !utils.IsValidIdentifier(targetTable) {
+		if targetTable != "" && !utils.IsValidIdentifier(targetTable) {
 			targetTable = utils.NormalizeIdentifier(targetTable)
 			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Self().StreamMetadata.TargetTable, targetTable)
 		}
@@ -79,7 +79,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
 				Schema:        iceSchema,
-				DestTableName: targetTable,
+				DestTableName: utils.Ternary(targetTable != "", targetTable, i.stream.Name()).(string),
 				ThreadId:      i.server.serverID,
 				PrimaryKey:    &primaryKey,
 			},
@@ -215,7 +215,7 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: utils.NormalizeIdentifier(i.stream.Self().StreamMetadata.StreamName),
+			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
 			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
@@ -259,7 +259,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
-			DestTableName: utils.NormalizeIdentifier(i.stream.Self().StreamMetadata.StreamName),
+			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
 		},
 	}
 	res, err := i.server.sendClientRequest(ctx, req)
@@ -444,7 +444,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			PrimaryKey:    &primaryKey,
-			DestTableName: utils.NormalizeIdentifier(i.stream.Self().StreamMetadata.TargetTable),
+			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
 			Schema:        schema,
 			ThreadId:      i.server.serverID,
 		},

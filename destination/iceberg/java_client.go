@@ -31,7 +31,7 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
 		"warehouse":                config.IcebergS3Path,
-		"table-namespace":          targetDatabase,
+		"table-namespace":          utils.Ternary(config.IcebergDatabase != "", config.IcebergDatabase, targetDatabase).(string),
 		"catalog-name":             "olake_iceberg",
 		"table-prefix":             "",
 		"create-identifier-fields": !config.NoIdentifierFields,
