@@ -59,15 +59,12 @@ func (a *AbstractDriver) Type() string {
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	discoverCtx, cancel := context.WithTimeout(ctx, constants.DefaultDiscoverTimeout)
-	defer cancel()
-
 	// set max connections
 	if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(discoverCtx, a.driver.MaxConnections())
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	streams, err := a.driver.GetStreamNames(discoverCtx)
+	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
 	}
@@ -92,13 +89,18 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 		convStream.SyncMode = types.FULLREFRESH
 
+		// add default columns
+		for column, typ := range DefaultColumns {
+			convStream.UpsertField(column, typ, true)
+		}
+
 		// Add CDC columns if supported
 		if a.driver.CDCSupported() {
-			for column, typ := range DefaultColumns {
-				convStream.UpsertField(column, typ, true)
-			}
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
+		} else {
+			// remove cdc column as it is not supported
+			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
 		}
 		finalStreams = append(finalStreams, convStream)
 		return true
