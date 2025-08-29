@@ -155,8 +155,8 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	var writerThread Writer
 	err := func() error {
 		// init writer with configurations
-		w.configMutex.Lock()
 		writerThread = w.init()
+		w.configMutex.Lock()
 		err := utils.Unmarshal(w.config, writerThread.GetConfigRef())
 		w.configMutex.Unlock()
 		if err != nil {

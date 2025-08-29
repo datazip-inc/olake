@@ -204,17 +204,17 @@ func (s *serverInstance) sendClientRequest(ctx context.Context, reqPayload *prot
 }
 
 // closeIcebergClient closes the connection to the Iceberg server
-func (s *serverInstance) closeIcebergClient(server *serverInstance) error {
+func (s *serverInstance) closeIcebergClient() error {
 	// If this was the last reference, shut down the server
-	logger.Infof("Thread[%s]: shutting down Iceberg server on port %d", server.serverID, server.port)
-	server.conn.Close()
-	if server.cmd != nil && server.cmd.Process != nil {
-		err := server.cmd.Process.Kill()
+	logger.Infof("Thread[%s]: shutting down Iceberg server on port %d", s.serverID, s.port)
+	s.conn.Close()
+	if s.cmd != nil && s.cmd.Process != nil {
+		err := s.cmd.Process.Kill()
 		if err != nil {
-			logger.Errorf("Thread[%s]: Failed to kill Iceberg server: %s", server.serverID, err)
+			logger.Errorf("Thread[%s]: Failed to kill Iceberg server: %s", s.serverID, err)
 		}
 	}
-	portMap.Delete(server.port)
+	portMap.Delete(s.port)
 	return nil
 }
 

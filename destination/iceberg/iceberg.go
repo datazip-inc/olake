@@ -91,7 +91,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		var ok bool
 		schema, ok = globalSchema.(map[string]string)
 		if !ok {
-			return false, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", schema)
+			return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
 		}
 	}
 
@@ -242,7 +242,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		if i.server == nil {
 			return
 		}
-		err := i.server.closeIcebergClient(i.server)
+		err := i.server.closeIcebergClient()
 		if err != nil {
 			logger.Errorf("Thread[%s]: error closing Iceberg client: %s", i.options.ThreadID, err)
 		}
@@ -442,24 +442,28 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 	logger.Infof("Thread[%s]: schema evolution detected", i.options.ThreadID)
 	globalSchemaMap, ok := globalSchema.(map[string]string)
 	if !ok {
-		return false, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+		return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
 	}
 
 	newSchemaMap, ok := newRawSchema.(map[string]string)
 	if !ok {
-		return false, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", newRawSchema)
 	}
 
+	// update schema in current thread
+	i.setSchema(newSchemaMap)
+
+	// check if table need to be promoted or not
 	if promote, err := compareSchema(globalSchemaMap, newSchemaMap); err != nil {
-		return false, fmt.Errorf("failed to compare schema: %s", err)
+		return nil, fmt.Errorf("failed to compare schema: %s", err)
 	} else if !promote {
-		return false, nil
+		return globalSchemaMap, nil
 	}
 
 	logger.Infof("Thread[%s]: evolving schema in iceberg table")
 
 	var schema []*proto.IcebergPayload_SchemaField
-	for field, fieldType := range i.schema {
+	for field, fieldType := range newSchemaMap {
 		schema = append(schema, &proto.IcebergPayload_SchemaField{
 			Key:     field,
 			IceType: fieldType,
@@ -484,11 +488,8 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 		return false, fmt.Errorf("failed to send records to evolve schema: %s", err)
 	}
 
-	// update schema in current thread after evolution
-	i.setSchema(newSchemaMap)
-
 	logger.Debugf("Thread[%s]: response received after schema evolution: %s", i.options.ThreadID, resp)
-	return i.schema, nil
+	return newSchemaMap, nil
 }
 
 // return if old type can be evolved to new type as well as if promotion required or not
