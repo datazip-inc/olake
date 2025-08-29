@@ -14,16 +14,12 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, OnMessage abstract.BackfillMsgFn) error {
 	filter, err := jdbc.SQLFilter(stream, p.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
-	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
 	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
@@ -43,6 +39,10 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 
 		return OnMessage(record)
 	})
+}
+
+func (p *Postgres) BeginBackfillTransaction(ctx context.Context) (*sql.Tx, error) {
+	return p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 }
 
 func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

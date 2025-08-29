@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math"
 	"strings"
@@ -21,7 +22,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, OnMessage abstract.BackfillMsgFn) (err error) {
+	// MongoDB doesn't use SQL transactions, so we ignore the tx parameter
+	// MongoDB uses read concerns for consistency instead
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
@@ -55,6 +58,12 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		}
 	}
 	return cursor.Err()
+}
+
+func (m *Mongo) BeginBackfillTransaction(ctx context.Context) (*sql.Tx, error) {
+	// MongoDB doesn't use SQL transactions, so we return nil
+	// MongoDB uses read concerns for consistency instead
+	return nil, nil
 }
 
 func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

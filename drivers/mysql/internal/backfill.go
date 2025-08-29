@@ -18,40 +18,42 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, OnMessage abstract.BackfillMsgFn) (err error) {
 	filter, err := jdbc.SQLFilter(stream, m.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
-	// Begin transaction with repeatable read isolation
-	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
-		// Build query for the chunk
-		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
-		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
-		sort.Strings(pkColumns)
-		// Get chunks from state or calculate new ones
-		stmt := ""
-		if chunkColumn != "" {
-			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
-		} else if len(pkColumns) > 0 {
-			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
-		} else {
-			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
-		}
-		logger.Debugf("Executing chunk query: %s", stmt)
-		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-			return tx.QueryContext(ctx, query, args...)
-		})
-		// Capture and process rows
-		return setter.Capture(func(rows *sql.Rows) error {
-			record := make(types.Record)
-			err := jdbc.MapScan(rows, record, m.dataTypeConverter)
-			if err != nil {
-				return fmt.Errorf("failed to scan record data as map: %s", err)
-			}
-			return OnMessage(record)
-		})
+	
+	// Build query for the chunk
+	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
+	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
+	sort.Strings(pkColumns)
+	// Get chunks from state or calculate new ones
+	stmt := ""
+	if chunkColumn != "" {
+		stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
+	} else if len(pkColumns) > 0 {
+		stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
+	} else {
+		stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
+	}
+	logger.Debugf("Executing chunk query: %s", stmt)
+	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		return tx.QueryContext(ctx, query, args...)
 	})
+	// Capture and process rows
+	return setter.Capture(func(rows *sql.Rows) error {
+		record := make(types.Record)
+		err := jdbc.MapScan(rows, record, m.dataTypeConverter)
+		if err != nil {
+			return fmt.Errorf("failed to scan record data as map: %s", err)
+		}
+		return OnMessage(record)
+	})
+}
+
+func (m *MySQL) BeginBackfillTransaction(ctx context.Context) (*sql.Tx, error) {
+	return m.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 }
 
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -29,7 +30,8 @@ type DriverInterface interface {
 	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
-	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
+	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error
+	BeginBackfillTransaction(ctx context.Context) (*sql.Tx, error)
 	//incremental specific
 	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
 	// specific to cdc

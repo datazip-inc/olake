@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"time"
@@ -38,6 +39,22 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
 	})
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
+
+	// Start a single transaction for the entire backfill to ensure consistency
+	tx, err := a.beginBackfillTransaction(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin backfill transaction: %s", err)
+	}
+
+	// Handle the case where transaction is nil (e.g., MongoDB)
+	if tx != nil {
+		defer func() {
+			if rerr := tx.Rollback(); rerr != nil && rerr != sql.ErrTxDone {
+				logger.Warnf("backfill transaction rollback failed: %s", rerr)
+			}
+		}()
+	}
+
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxPrimaryCursorValue, maxSecondaryCursorValue any
@@ -80,7 +97,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+			return a.driver.ChunkIterator(ctx, stream, chunk, tx, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
 					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
@@ -91,5 +108,18 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		})
 	}
 	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)
+
+	// Commit the transaction after all chunks are processed (only if transaction exists)
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit backfill transaction: %s", err)
+		}
+	}
+
 	return nil
+}
+
+// beginBackfillTransaction starts a transaction with appropriate isolation level for backfill
+func (a *AbstractDriver) beginBackfillTransaction(ctx context.Context) (*sql.Tx, error) {
+	return a.driver.BeginBackfillTransaction(ctx)
 }

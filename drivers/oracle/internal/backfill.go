@@ -16,19 +16,12 @@ import (
 )
 
 // ChunkIterator implements the abstract.DriverInterface
-func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, OnMessage abstract.BackfillMsgFn) error {
 	//TODO: Verify the requirement of Transaction in Oracle Sync and remove if not required
-	// Begin transaction with default isolation
 	filter, err := jdbc.SQLFilter(stream, o.Type())
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
-
-	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
-	}
-	defer tx.Rollback()
 
 	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
 	// Use transaction for queries
@@ -44,6 +37,10 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 		}
 		return OnMessage(record)
 	})
+}
+
+func (o *Oracle) BeginBackfillTransaction(ctx context.Context) (*sql.Tx, error) {
+	return o.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
