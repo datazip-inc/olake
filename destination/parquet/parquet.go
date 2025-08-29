@@ -39,6 +39,7 @@ type Parquet struct {
 	basePath         string                   // construct with streamNamespace/streamName
 	partitionedFiles map[string]*FileMetadata // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
+	schema           typeutils.Fields
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -96,7 +97,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
+			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
 		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
@@ -112,11 +113,13 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, createOrLoadSchema bool, options *destination.Options) (any, error) {
+func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string]*FileMetadata)
 	p.basePath = filepath.Join(p.stream.Namespace(), p.stream.Name())
+	p.schema = make(typeutils.Fields)
+
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
 		p.config.Path = os.TempDir()
@@ -127,17 +130,27 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, createO
 		return nil, err
 	}
 
-	if createOrLoadSchema && p.stream.NormalizationEnabled() {
-		fields := make(typeutils.Fields)
-		fields.FromSchema(stream.Schema())
+	if !p.stream.NormalizationEnabled() {
+		return p.schema, nil
+	}
+
+	if schema != nil {
+		fields, ok := schema.(typeutils.Fields)
+		if !ok {
+			return nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
+		}
+		p.schema = fields.Clone()
 		return fields, nil
 	}
-	// note: calling function variable only update if createOrLoadSchema is true
-	return types.RawSchema, nil
+
+	fields := make(typeutils.Fields)
+	fields.FromSchema(stream.Schema())
+	p.schema = fields.Clone() // update schema
+	return fields, nil
 }
 
 // Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) error {
+func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
@@ -288,26 +301,10 @@ func (p *Parquet) Close(_ context.Context) error {
 	return p.closePqFiles()
 }
 
-// returns a new copy of schema
-func (p *Parquet) CloneSchema(rawSchema any) (any, error) {
-	schema, ok := rawSchema.(typeutils.Fields)
-	if !ok {
-		return nil, fmt.Errorf("failed to type cast schema of type[%T] into typeutils.fields", rawSchema)
-	}
-
-	return schema.Clone(), nil
-}
-
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error) {
+func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, nil, nil
-	}
-
-	// TODO: check if stream schema changed and prev thread had opted it.
-	schema, ok := pastSchema.(typeutils.Fields)
-	if !ok {
-		return false, nil, fmt.Errorf("failed to typecast schema[%T] into (typeutils.Fields)", pastSchema)
 	}
 
 	schemaChange := false
@@ -317,40 +314,38 @@ func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord)
 		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
 		records[idx].Data[constants.OpType] = record.OperationType
 		if record.CdcTimestamp != nil {
-			records[idx].Data[constants.CdcTimestamp] = record.CdcTimestamp
+			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
 
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return false, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
 		}
-		change, typeChange, _ := schema.Process(flattenedRecord)
-		schemaChange = schemaChange || change || typeChange
-		err = typeutils.ReformatRecord(schema, flattenedRecord)
+
+		// just process the changes and upgrade new schema
+		change, typeChange, _ := p.schema.Process(flattenedRecord)
+		schemaChange = change || typeChange || schemaChange
+		err = typeutils.ReformatRecord(p.schema, flattenedRecord)
 		if err != nil {
 			return false, nil, fmt.Errorf("failed to reformat records: %s", err)
 		}
 		records[idx].Data = flattenedRecord // use idx to update slice record
 	}
 
-	return schemaChange, schema, nil
+	return schemaChange, p.schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
-func (p *Parquet) EvolveSchema(_ context.Context, newSchema any) error {
+func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return nil
+		return false, nil
 	}
-	// override new schema in streams
-	newFieldSchema, ok := newSchema.(typeutils.Fields)
-	if !ok {
-		return fmt.Errorf("failed to typecast new field schema[%T] into (typeutils.Fields)", newFieldSchema)
-	}
-	p.stream.Schema().Override(newFieldSchema.ToProperties())
+
+	logger.Infof("Thread[%s]: schema evolution detected", p.options.ThreadID)
 
 	// TODO: can we implement something https://github.com/parquet-go/parquet-go?tab=readme-ov-file#evolving-parquet-schemas-parquetconvert
 	// close prev files as change detected (new files will be created with new schema)
-	return p.closePqFiles()
+	return p.schema.Clone(), p.closePqFiles()
 }
 
 // Type returns the type of the writer.

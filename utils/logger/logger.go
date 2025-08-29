@@ -293,9 +293,9 @@ func (p *ProcessOutputReader) StartReading() {
 			}
 
 			if isErrorLine || isStackTraceLine || inStackTrace {
-				Error(fmt.Sprintf("[%s] %s", p.Name, line))
+				Error(fmt.Sprintf("%s %s", p.Name, line))
 			} else {
-				Info(fmt.Sprintf("[%s] %s", p.Name, line))
+				Info(fmt.Sprintf("%s %s", p.Name, line))
 			}
 		}
 	}()

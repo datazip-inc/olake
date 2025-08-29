@@ -166,7 +166,7 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 	addEnvIfSet("AWS_PROFILE", config.ProfileName)
 
 	// Set up and start the process with logging
-	if err := logger.SetupAndStartProcess(fmt.Sprintf("Java-Iceberg:%d", port), serverCmd); err != nil {
+	if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
 		return nil, fmt.Errorf("failed to setup logger: %s", err)
 	}
 
@@ -179,13 +179,13 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 		// If connection fails, clean up the process
 		if serverCmd != nil && serverCmd.Process != nil {
 			if killErr := serverCmd.Process.Kill(); killErr != nil {
-				logger.Errorf("thread id %s: Failed to kill process: %s", threadID, killErr)
+				logger.Errorf("Thread[%s]: Failed to kill process: %s", threadID, killErr)
 			}
 		}
 		return nil, fmt.Errorf("failed to create new grpc client: %s", err)
 	}
 
-	logger.Infof("thread id %s: Connected to new iceberg writer on port %d", threadID, port)
+	logger.Infof("Thread[%s]: Connected to new iceberg writer on port %d", threadID, port)
 	return &serverInstance{
 		port:     port,
 		cmd:      serverCmd,
@@ -206,12 +206,12 @@ func (s *serverInstance) sendClientRequest(ctx context.Context, reqPayload *prot
 // closeIcebergClient closes the connection to the Iceberg server
 func (s *serverInstance) closeIcebergClient(server *serverInstance) error {
 	// If this was the last reference, shut down the server
-	logger.Infof("thread id %s: shutting down Iceberg server on port %d", server.serverID, server.port)
+	logger.Infof("Thread[%s]: shutting down Iceberg server on port %d", server.serverID, server.port)
 	server.conn.Close()
 	if server.cmd != nil && server.cmd.Process != nil {
 		err := server.cmd.Process.Kill()
 		if err != nil {
-			logger.Errorf("thread id %s: Failed to kill Iceberg server: %s", server.serverID, err)
+			logger.Errorf("Thread[%s]: Failed to kill Iceberg server: %s", server.serverID, err)
 		}
 	}
 	portMap.Delete(server.port)

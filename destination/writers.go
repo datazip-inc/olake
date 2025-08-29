@@ -167,7 +167,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		streamArtifact.mutex.Lock()
 		defer streamArtifact.mutex.Unlock()
 
-		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema == nil, opts)
+		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
 			return fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
@@ -221,37 +221,25 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// clone schema so that while flattening no underlying reference get used
-	wt.streamArtifact.mutex.RLock()
-	cachedSchema, err := wt.writer.CloneSchema(wt.streamArtifact.schema)
-	wt.streamArtifact.mutex.RUnlock()
-	if err != nil {
-		return fmt.Errorf("failed to clone schema: %s", err)
-	}
-
-	schemaEvolution, newSchema, err := wt.writer.FlattenAndCleanData(cachedSchema, buf)
+	evolution, threadSchema, err := wt.writer.FlattenAndCleanData(buf)
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
+
 	// TODO: after flattening record type raw_record not make sense
-	if schemaEvolution {
-		logger.Debugf("Thread[%s]: schema evolution detected", wt.threadID)
-
-		// clone schema as it is required for write
-		cachedSchema, err = wt.writer.CloneSchema(newSchema)
-		if err != nil {
-			return fmt.Errorf("failed to clone new schema: %s", err)
-		}
-
+	if evolution {
 		wt.streamArtifact.mutex.Lock()
-		wt.streamArtifact.schema = newSchema
+		newSchema, err := wt.writer.EvolveSchema(flushCtx, threadSchema, wt.streamArtifact.schema)
+		if err == nil && newSchema != nil {
+			wt.streamArtifact.schema = newSchema
+		}
 		wt.streamArtifact.mutex.Unlock()
-		if err := wt.writer.EvolveSchema(flushCtx, newSchema); err != nil {
+		if err != nil {
 			return fmt.Errorf("failed to evolve schema: %s", err)
 		}
 	}
 
-	if err := wt.writer.Write(flushCtx, cachedSchema, buf); err != nil {
+	if err := wt.writer.Write(flushCtx, buf); err != nil {
 		return fmt.Errorf("failed to write records: %s", err)
 	}
 

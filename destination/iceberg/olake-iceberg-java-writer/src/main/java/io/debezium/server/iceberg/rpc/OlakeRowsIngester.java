@@ -68,10 +68,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             
             switch (request.getType()) {
                 case COMMIT:
-                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
+                    LOGGER.debug("{} Received commit request for thread: {}", requestId, threadId);
                     icebergTableOperator.commitThread(threadId, this.icebergTable);
                     sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
-                    LOGGER.info("{} Successfully committed data for thread: {}", requestId, threadId);
+                    LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
                     
                 case EVOLVE_SCHEMA:
@@ -87,12 +87,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
 
                 case RECORDS:
-                    LOGGER.info("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
+                    LOGGER.debug("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(identifierField, schemaMetadata);
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(upsertRecords, this.icebergTable.schema(), request.getRecordsList());
                     icebergTableOperator.addToTablePerSchema(threadId, this.icebergTable, finalRecords);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
-                    LOGGER.info("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
+                    LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     break;
                     
                 case DROP_TABLE:
