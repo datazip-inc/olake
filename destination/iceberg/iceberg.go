@@ -450,18 +450,37 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", newRawSchema)
 	}
 
-	// update schema in current thread
-	i.setSchema(newSchemaMap)
+	// check for identifier fields setting
+	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	req := proto.IcebergPayload{
+		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
+		Metadata: &proto.IcebergPayload_Metadata{
+			IdentifierField: &identifierField,
+			DestTableName:   i.stream.Name(),
+			ThreadId:        i.server.serverID,
+		},
+	}
 
 	// check if table need to be promoted or not
 	if promote, err := compareSchema(globalSchemaMap, newSchemaMap); err != nil {
 		return nil, fmt.Errorf("failed to compare schema: %s", err)
 	} else if !promote {
+		// Note: schema evolution is detected in thread but not in global schema
+		// So update current thread schema as well as java refresh java writer thread
+		i.setSchema(newSchemaMap)
+		req.Type = proto.IcebergPayload_REFRESH_TABLE_SCHEMA
+
+		resp, err := i.server.sendClientRequest(ctx, &req)
+		if err != nil {
+			return false, fmt.Errorf("failed to refresh schema: %s", err)
+		}
+		logger.Debugf("Thread[%s]: response received after schema refresh: %s", i.options.ThreadID, resp)
 		return globalSchemaMap, nil
 	}
 
 	logger.Infof("Thread[%s]: evolving schema in iceberg table")
 
+	// configure new schema in
 	var schema []*proto.IcebergPayload_SchemaField
 	for field, fieldType := range newSchemaMap {
 		schema = append(schema, &proto.IcebergPayload_SchemaField{
@@ -469,23 +488,11 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 			IceType: fieldType,
 		})
 	}
-
-	// check for identifier fields setting
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
-
-	req := proto.IcebergPayload{
-		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
-		Metadata: &proto.IcebergPayload_Metadata{
-			IdentifierField: &identifierField,
-			DestTableName:   i.stream.Name(),
-			Schema:          schema,
-			ThreadId:        i.server.serverID,
-		},
-	}
+	req.Metadata.Schema = schema
 
 	resp, err := i.server.sendClientRequest(ctx, &req)
 	if err != nil {
-		return false, fmt.Errorf("failed to send records to evolve schema: %s", err)
+		return false, fmt.Errorf("failed to evolve schema: %s", err)
 	}
 
 	logger.Debugf("Thread[%s]: response received after schema evolution: %s", i.options.ThreadID, resp)

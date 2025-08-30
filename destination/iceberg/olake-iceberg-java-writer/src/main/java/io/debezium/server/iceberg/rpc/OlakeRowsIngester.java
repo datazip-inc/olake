@@ -52,10 +52,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             String destTableName = metadata.getDestTableName();
             String identifierField = metadata.getIdentifierField();
             List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
+            
             if (threadId == null || threadId.isEmpty()) {
                 // file references are being stored through thread id
                 throw new Exception("Thread id not present in metadata");
             }
+
             if (destTableName == null || destTableName.isEmpty()) {
                 throw new Exception("Destination table name not present in metadata");
             }
@@ -80,7 +82,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, "schema evolution applied");
                     LOGGER.info("{} Successfully applied schema evolution for table: {}", requestId, destTableName);
                     break;
-                    
+                
+                case REFRESH_TABLE_SCHEMA:
+                    this.icebergTable.refresh();
+                    break;
+
                 case GET_OR_CREATE_TABLE:
                     sendResponse(responseObserver, this.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully returned iceberg table {}", requestId, destTableName);

@@ -24,11 +24,12 @@ const (
 type IcebergPayload_PayloadType int32
 
 const (
-	IcebergPayload_RECORDS             IcebergPayload_PayloadType = 0
-	IcebergPayload_COMMIT              IcebergPayload_PayloadType = 1
-	IcebergPayload_EVOLVE_SCHEMA       IcebergPayload_PayloadType = 2
-	IcebergPayload_DROP_TABLE          IcebergPayload_PayloadType = 3
-	IcebergPayload_GET_OR_CREATE_TABLE IcebergPayload_PayloadType = 4
+	IcebergPayload_RECORDS              IcebergPayload_PayloadType = 0
+	IcebergPayload_COMMIT               IcebergPayload_PayloadType = 1
+	IcebergPayload_EVOLVE_SCHEMA        IcebergPayload_PayloadType = 2
+	IcebergPayload_DROP_TABLE           IcebergPayload_PayloadType = 3
+	IcebergPayload_GET_OR_CREATE_TABLE  IcebergPayload_PayloadType = 4
+	IcebergPayload_REFRESH_TABLE_SCHEMA IcebergPayload_PayloadType = 5
 )
 
 // Enum value maps for IcebergPayload_PayloadType.
@@ -39,13 +40,15 @@ var (
 		2: "EVOLVE_SCHEMA",
 		3: "DROP_TABLE",
 		4: "GET_OR_CREATE_TABLE",
+		5: "REFRESH_TABLE_SCHEMA",
 	}
 	IcebergPayload_PayloadType_value = map[string]int32{
-		"RECORDS":             0,
-		"COMMIT":              1,
-		"EVOLVE_SCHEMA":       2,
-		"DROP_TABLE":          3,
-		"GET_OR_CREATE_TABLE": 4,
+		"RECORDS":              0,
+		"COMMIT":               1,
+		"EVOLVE_SCHEMA":        2,
+		"DROP_TABLE":           3,
+		"GET_OR_CREATE_TABLE":  4,
+		"REFRESH_TABLE_SCHEMA": 5,
 	}
 )
 
@@ -532,7 +535,7 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xa9\b\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xc3\b\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
@@ -563,7 +566,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
 	"bytesValueB\a\n" +
-	"\x05value\"b\n" +
+	"\x05value\"|\n" +
 	"\vPayloadType\x12\v\n" +
 	"\aRECORDS\x10\x00\x12\n" +
 	"\n" +
@@ -571,7 +574,8 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\rEVOLVE_SCHEMA\x10\x02\x12\x0e\n" +
 	"\n" +
 	"DROP_TABLE\x10\x03\x12\x17\n" +
-	"\x13GET_OR_CREATE_TABLE\x10\x04\"H\n" +
+	"\x13GET_OR_CREATE_TABLE\x10\x04\x12\x18\n" +
+	"\x14REFRESH_TABLE_SCHEMA\x10\x05\"H\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess2\x8a\x01\n" +

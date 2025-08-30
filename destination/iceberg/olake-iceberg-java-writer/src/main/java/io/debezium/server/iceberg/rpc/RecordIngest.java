@@ -135,6 +135,10 @@ public final class RecordIngest {
        * <code>GET_OR_CREATE_TABLE = 4;</code>
        */
       GET_OR_CREATE_TABLE(4),
+      /**
+       * <code>REFRESH_TABLE_SCHEMA = 5;</code>
+       */
+      REFRESH_TABLE_SCHEMA(5),
       UNRECOGNIZED(-1),
       ;
 
@@ -158,6 +162,10 @@ public final class RecordIngest {
        * <code>GET_OR_CREATE_TABLE = 4;</code>
        */
       public static final int GET_OR_CREATE_TABLE_VALUE = 4;
+      /**
+       * <code>REFRESH_TABLE_SCHEMA = 5;</code>
+       */
+      public static final int REFRESH_TABLE_SCHEMA_VALUE = 5;
 
 
       public final int getNumber() {
@@ -189,6 +197,7 @@ public final class RecordIngest {
           case 2: return EVOLVE_SCHEMA;
           case 3: return DROP_TABLE;
           case 4: return GET_OR_CREATE_TABLE;
+          case 5: return REFRESH_TABLE_SCHEMA;
           default: return null;
         }
       }
@@ -6160,7 +6169,7 @@ public final class RecordIngest {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\352\006\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\204\007\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
@@ -6179,15 +6188,16 @@ public final class RecordIngest {
       " \001(\tH\000\022\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_valu" +
       "e\030\003 \001(\003H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014doub" +
       "le_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025" +
-      "\n\013bytes_value\030\007 \001(\014H\000B\007\n\005value\"b\n\013Payloa" +
+      "\n\013bytes_value\030\007 \001(\014H\000B\007\n\005value\"|\n\013Payloa" +
       "dType\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE" +
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
-      "TE_TABLE\020\004\"7\n\024RecordIngestResponse\022\016\n\006re" +
-      "sult\030\001 \001(\t\022\017\n\007success\030\002 \001(\0102\212\001\n\023RecordIn" +
-      "gestService\022s\n\013SendRecords\022..io.debezium" +
-      ".server.iceberg.rpc.IcebergPayload\0324.io." +
-      "debezium.server.iceberg.rpc.RecordIngest" +
-      "Responseb\006proto3"
+      "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
+      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
+      "success\030\002 \001(\0102\212\001\n\023RecordIngestService\022s\n" +
+      "\013SendRecords\022..io.debezium.server.iceber" +
+      "g.rpc.IcebergPayload\0324.io.debezium.serve" +
+      "r.iceberg.rpc.RecordIngestResponseb\006prot" +
+      "o3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,

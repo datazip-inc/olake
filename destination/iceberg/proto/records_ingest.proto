@@ -15,6 +15,7 @@ message IcebergPayload {
     EVOLVE_SCHEMA = 2;
     DROP_TABLE = 3;
     GET_OR_CREATE_TABLE = 4;
+    REFRESH_TABLE_SCHEMA = 5;
   }
   
   PayloadType type = 1;
