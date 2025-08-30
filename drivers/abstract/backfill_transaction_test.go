@@ -37,11 +37,11 @@ func (m *MockDriver) Type() string {
 	return "mock"
 }
 
-func (m *MockDriver) Setup(ctx context.Context) error {
+func (m *MockDriver) Setup(_ context.Context) error {
 	return nil
 }
 
-func (m *MockDriver) SetupState(state *types.State) {}
+func (m *MockDriver) SetupState(_ *types.State) {}
 
 func (m *MockDriver) MaxConnections() int {
 	return 1
@@ -51,15 +51,15 @@ func (m *MockDriver) MaxRetries() int {
 	return 3
 }
 
-func (m *MockDriver) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *MockDriver) GetStreamNames(_ context.Context) ([]string, error) {
 	return []string{"test_stream"}, nil
 }
 
-func (m *MockDriver) ProduceSchema(ctx context.Context, stream string) (*types.Stream, error) {
+func (m *MockDriver) ProduceSchema(_ context.Context, stream string) (*types.Stream, error) {
 	return types.NewStream(stream, "test"), nil
 }
 
-func (m *MockDriver) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (m *MockDriver) GetOrSplitChunks(_ context.Context, _ *destination.WriterPool, _ types.StreamInterface) (*types.Set[types.Chunk], error) {
 	chunks := types.NewSet[types.Chunk]()
 	for _, chunk := range m.chunks {
 		chunks.Insert(chunk)
@@ -94,7 +94,7 @@ func (m *MockDriver) BeginBackfillTransaction(ctx context.Context) (*sql.Tx, err
 	return &sql.Tx{}, nil
 }
 
-func (m *MockDriver) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error {
+func (m *MockDriver) StreamIncrementalChanges(_ context.Context, _ types.StreamInterface, _ BackfillMsgFn) error {
 	return nil
 }
 
@@ -102,15 +102,15 @@ func (m *MockDriver) CDCSupported() bool {
 	return false
 }
 
-func (m *MockDriver) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+func (m *MockDriver) PreCDC(_ context.Context, _ []types.StreamInterface) error {
 	return nil
 }
 
-func (m *MockDriver) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error {
+func (m *MockDriver) StreamChanges(_ context.Context, _ types.StreamInterface, _ CDCMsgFn) error {
 	return nil
 }
 
-func (m *MockDriver) PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error {
+func (m *MockDriver) PostCDC(_ context.Context, _ types.StreamInterface, _ bool) error {
 	return nil
 }
 
@@ -164,7 +164,7 @@ func TestBackfillSharedTransaction(t *testing.T) {
 	}
 
 	// Override ChunkIterator to track records
-	mockDriver.chunkIteratorFn = func(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error {
+	mockDriver.chunkIteratorFn = func(_ context.Context, _ types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error {
 		// Verify that we're using the same transaction across chunks
 		if tx == nil {
 			t.Fatal("Transaction should not be nil")
@@ -237,7 +237,7 @@ func TestBackfillTransactionConsistency(t *testing.T) {
 	var mu sync.Mutex
 
 	// Override ChunkIterator to track cursor values
-	mockDriver.chunkIteratorFn = func(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error {
+	mockDriver.chunkIteratorFn = func(_ context.Context, _ types.StreamInterface, chunk types.Chunk, _ *sql.Tx, processFn BackfillMsgFn) error {
 		// Simulate different cursor values for each chunk
 		cursorValue := chunk.Min
 		if chunk.Min == 3 {
@@ -256,7 +256,7 @@ func TestBackfillTransactionConsistency(t *testing.T) {
 
 	// Process multiple chunks with the same transaction
 	for _, chunk := range mockDriver.chunks {
-		err = mockDriver.ChunkIterator(context.Background(), streamInterface, chunk, tx, func(data map[string]interface{}) error {
+		err = mockDriver.ChunkIterator(context.Background(), streamInterface, chunk, tx, func(_ map[string]interface{}) error {
 			return nil
 		})
 		require.NoError(t, err)
@@ -311,7 +311,7 @@ func TestBackfillTransactionTimeout(t *testing.T) {
 	}
 
 	// Override ChunkIterator to simulate slow processing
-	mockDriver.chunkIteratorFn = func(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error {
+	mockDriver.chunkIteratorFn = func(_ context.Context, _ types.StreamInterface, chunk types.Chunk, _ *sql.Tx, processFn BackfillMsgFn) error {
 		// Simulate slow processing
 		time.Sleep(100 * time.Millisecond)
 		return processFn(map[string]interface{}{
@@ -324,7 +324,7 @@ func TestBackfillTransactionTimeout(t *testing.T) {
 	defer cancel()
 
 	for _, chunk := range mockDriver.chunks {
-		err = mockDriver.ChunkIterator(ctx, streamInterface, chunk, tx, func(data map[string]interface{}) error {
+		err = mockDriver.ChunkIterator(ctx, streamInterface, chunk, tx, func(_ map[string]interface{}) error {
 			return nil
 		})
 		require.NoError(t, err)
@@ -411,7 +411,7 @@ func (m *MockStreamInterface) SupportedSyncModes() *types.Set[types.SyncMode] {
 	return types.NewSet[types.SyncMode]()
 }
 
-func (m *MockStreamInterface) Validate(source *types.Stream) error {
+func (m *MockStreamInterface) Validate(_ *types.Stream) error {
 	return nil
 }
 

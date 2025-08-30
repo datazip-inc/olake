@@ -62,7 +62,7 @@ func TestBackfillTransactionConsistencyIntegration(t *testing.T) {
 	var mu sync.Mutex
 
 	// Override ChunkIterator to track transaction usage
-	mockDriver.chunkIteratorFn = func(_ context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error {
+	mockDriver.chunkIteratorFn = func(_ context.Context, _ types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error {
 		mu.Lock()
 		if transactionUsed == nil {
 			transactionUsed = tx
@@ -150,7 +150,7 @@ func TestBackfillIncrementalCursorConsistency(t *testing.T) {
 	var mu sync.Mutex
 
 	// Override ChunkIterator to track cursor values
-	mockDriver.chunkIteratorFn = func(_ context.Context, stream types.StreamInterface, chunk types.Chunk, tx *sql.Tx, processFn BackfillMsgFn) error {
+	mockDriver.chunkIteratorFn = func(_ context.Context, _ types.StreamInterface, chunk types.Chunk, _ *sql.Tx, processFn BackfillMsgFn) error {
 		// Simulate cursor values that would be consistent within a transaction
 		cursorValue := chunk.Min
 

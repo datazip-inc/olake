@@ -15,7 +15,8 @@ linters-settings:
     lines: 100
     statements: 50
   gci:
-    local-prefixes: github.com/golangci/golangci-lint
+    sections:
+      - prefix(github.com/golangci/golangci-lint)
   goconst:
     min-len: 2
     min-occurrences: 2
@@ -35,7 +36,8 @@ linters-settings:
   gocyclo:
     min-complexity: 15
   goimports:
-    local-prefixes: github.com/golangci/golangci-lint
+    sections:
+      - prefix(github.com/golangci/golangci-lint)
   golint:
     min-confidence: 0
   gomnd:
@@ -51,7 +53,6 @@ linters-settings:
     excludes:
       - G204
   govet:
-    check-shadowing: false
     settings:
       printf:
         funcs:
@@ -99,6 +100,7 @@ linters:
     # - goprintffuncname
     - gosimple
     - govet
+    - predeclared
     - ineffassign
     # - interfacer
     - lll
@@ -144,8 +146,7 @@ issues:
         - gocritic
       text: "unnecessaryDefer:"
 
-run:
-  skip-dirs:
+  exclude-dirs:
     - test/testdata_etc
     - internal/cache
     - internal/renameio
@@ -156,6 +157,6 @@ run:
 # golangci.com configuration
 # https://github.com/golangci/golangci/wiki/Configuration
 service:
-  golangci-lint-version: 1.45.2 # use the fixed version to not introduce new linters unexpectedly
+  golangci-lint-version: latest # use the latest version
   prepare:
     - echo "here I can run custom commands, but no preparation needed for this repo"
