@@ -478,7 +478,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 		return globalSchemaMap, nil
 	}
 
-	logger.Infof("Thread[%s]: evolving schema in iceberg table")
+	logger.Infof("Thread[%s]: evolving schema in iceberg table", i.options.ThreadID)
 
 	// configure new schema in
 	var schema []*proto.IcebergPayload_SchemaField

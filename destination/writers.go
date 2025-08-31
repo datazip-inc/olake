@@ -26,9 +26,9 @@ type (
 		ThreadID   string
 	}
 
-	ThreadOptions   func(opt *Options)
-	StreamArtifacts struct {
-		mutex  sync.RWMutex
+	ThreadOptions func(opt *Options)
+	writerSchema  struct {
+		mu     sync.RWMutex
 		schema any
 	}
 
@@ -39,11 +39,11 @@ type (
 	}
 
 	WriterPool struct {
-		configMutex     sync.Mutex
-		stats           *Stats
-		config          any
-		init            NewFunc
-		streamArtifacts sync.Map
+		configMutex  sync.Mutex
+		stats        *Stats
+		config       any
+		init         NewFunc
+		writerSchema sync.Map
 	}
 
 	// writer thread used by reader
@@ -53,7 +53,7 @@ type (
 		threadID       string
 		writer         Writer
 		batchSize      int
-		streamArtifact *StreamArtifacts
+		streamArtifact *writerSchema
 	}
 )
 
@@ -116,8 +116,8 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 	}
 
 	for _, stream := range syncStreams {
-		pool.streamArtifacts.Store(stream, &StreamArtifacts{
-			mutex:  sync.RWMutex{},
+		pool.writerSchema.Store(stream, &writerSchema{
+			mu:     sync.RWMutex{},
 			schema: nil,
 		})
 	}
@@ -142,12 +142,12 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		one(opts)
 	}
 
-	rawStreamArtifact, ok := w.streamArtifacts.Load(stream.ID())
+	rawStreamArtifact, ok := w.writerSchema.Load(stream.ID())
 	if !ok {
 		return nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", stream.ID())
 	}
 
-	streamArtifact, ok := rawStreamArtifact.(*StreamArtifacts)
+	streamArtifact, ok := rawStreamArtifact.(*writerSchema)
 	if !ok {
 		return nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
 	}
@@ -164,8 +164,8 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		}
 
 		// setup table and schema
-		streamArtifact.mutex.Lock()
-		defer streamArtifact.mutex.Unlock()
+		streamArtifact.mu.Lock()
+		defer streamArtifact.mu.Unlock()
 
 		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
@@ -228,12 +228,12 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
-		wt.streamArtifact.mutex.Lock()
+		wt.streamArtifact.mu.Lock()
 		newSchema, err := wt.writer.EvolveSchema(flushCtx, threadSchema, wt.streamArtifact.schema)
 		if err == nil && newSchema != nil {
 			wt.streamArtifact.schema = newSchema
 		}
-		wt.streamArtifact.mutex.Unlock()
+		wt.streamArtifact.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("failed to evolve schema: %s", err)
 		}
@@ -258,8 +258,8 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
 
-		wt.streamArtifact.mutex.Lock()
-		defer wt.streamArtifact.mutex.Unlock()
+		wt.streamArtifact.mu.Lock()
+		defer wt.streamArtifact.mu.Unlock()
 
 		return wt.writer.Close(ctx)
 	}
