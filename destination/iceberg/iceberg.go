@@ -422,23 +422,20 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 	}
 
 	mergeSchema := func(newSchema map[string]string) map[string]string {
-		mergedSchema := make(map[string]string)
 		for col, typ := range i.schema {
 			newTyp, ok := newSchema[col]
 			if !ok {
-				mergedSchema[col] = typ
+				newSchema[col] = typ
 				continue
 			}
 
 			// if promotion of schema not required, merge it (so evolution will not happen)
 			if _, promotion := icebergEvolution(typ, newTyp); !promotion {
 				// Note: only for int -> long and float -> double
-				mergedSchema[col] = typ
-			} else {
-				mergedSchema[col] = newTyp
+				newSchema[col] = typ
 			}
 		}
-		return mergedSchema
+		return newSchema
 	}
 
 	// only dedup if it is upsert mode
@@ -456,9 +453,9 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 	mergedSchema := mergeSchema(newSchema)
 
 	// check with current thread schema
-	evolveSchema, err := compareSchema(i.schema, mergedSchema)
+	promoteEvolution, err := compareSchema(i.schema, mergedSchema)
 
-	return evolveSchema, records, mergedSchema, err
+	return promoteEvolution, records, mergedSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly
