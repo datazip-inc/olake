@@ -451,9 +451,6 @@ func NormalizeIdentifier(name string) string {
 	reg := regexp.MustCompile(`[^a-z0-9_]+`)
 	name = reg.ReplaceAllString(name, "_")
 
-	// Trim leading/trailing underscores
-	name = strings.Trim(name, "_")
-
 	// Squash duplicate underscores
 	reg = regexp.MustCompile(`_+`)
 	name = reg.ReplaceAllString(name, "_")
