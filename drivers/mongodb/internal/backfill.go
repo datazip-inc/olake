@@ -71,12 +71,6 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
 	pool.AddRecordsToSync(recordCount)
 
-	// build filter
-	filter, err := buildFilter(stream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse filter during chunk splitting: %s", err)
-	}
-
 	// check for _id type
 	isObjID, err := isObjectID(ctx, collection)
 	if err != nil {
@@ -88,7 +82,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var retryErr error
 	var chunksArray []types.Chunk
 	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, filter, isObjID, storageSize)
+		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, isObjID, storageSize)
 		return retryErr
 	})
 	if err != nil {
@@ -97,11 +91,11 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return types.NewSet(chunksArray...), nil
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, filter bson.D, isObjID bool, storageSize float64) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, isObjID bool, storageSize float64) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
-			err := collection.FindOne(ctx, filter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+			err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
 			if err == mongo.ErrNoDocuments {
 				return primitive.NilObjectID, nil
 			}
@@ -131,9 +125,6 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				{Key: "maxChunkSize", Value: 1024},
 			}
 
-			if len(filter) > 0 {
-				cmd = append(cmd, bson.E{Key: "filter", Value: filter})
-			}
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
 				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
 			}
@@ -169,19 +160,14 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	bucketAutoStrategy := func(storageSize float64) ([]types.Chunk, error) {
 		logger.Infof("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
-		pipeline := mongo.Pipeline{}
-		if len(filter) > 0 {
-			pipeline = append(pipeline, bson.D{{Key: "$match", Value: filter}})
-		}
-
 		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
-		pipeline = append(pipeline,
-			bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
-			bson.D{{Key: "$bucketAuto", Value: bson.D{
+		pipeline := mongo.Pipeline{
+			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
+			{{Key: "$bucketAuto", Value: bson.D{
 				{Key: "groupBy", Value: "$_id"},
 				{Key: "buckets", Value: numberOfBuckets},
 			}}},
-		)
+		}
 
 		cursor, err := collection.Aggregate(ctx, pipeline)
 		if err != nil {
@@ -227,7 +213,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
-		first, last, err := m.fetchExtremes(ctx, collection, filter)
+		first, last, err := m.fetchExtremes(ctx, collection)
 		if err != nil {
 			return nil, err
 		}
@@ -307,12 +293,12 @@ func (m *Mongo) totalCountAndStorageSizeInCollection(ctx context.Context, collec
 	return count, storageSize, nil
 }
 
-func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection, filter bson.D) (time.Time, time.Time, error) {
+func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection) (time.Time, time.Time, error) {
 	extreme := func(sortby int) (time.Time, error) {
 		// Find the first document
 		var result bson.M
 		// Sort by _id ascending to get the first document
-		err := collection.FindOne(ctx, filter, options.FindOne().SetSort(bson.D{{Key: "_id", Value: sortby}})).Decode(&result)
+		err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: sortby}})).Decode(&result)
 		if err != nil {
 			return time.Time{}, err
 		}
