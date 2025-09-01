@@ -162,10 +162,10 @@ For advanced users and automation, OLake's core logic is exposed via a powerful 
 Below are other different ways you can run OLake:
 
 1. [OLake UI (Recommended)](https://olake.io/docs/getting-started/olake-ui)
-2. [Standalone Docker container](https://olake.io/docs/install/docker)
-3. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2?utm_source=chatgpt.com)
-4. [Airflow on Kubernetes](https://olake.io/blog/olake-airflow)
-5. Kubernetes using Helm (Coming soon!)
+2. [Kubernetes using Helm](https://olake.io/docs/install/kubernetes)
+3. [Standalone Docker container](https://olake.io/docs/install/docker)
+4. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2?utm_source=chatgpt.com)
+5. [Airflow on Kubernetes](https://olake.io/blog/olake-airflow) 
 
 ---
 
