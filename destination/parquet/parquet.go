@@ -208,11 +208,11 @@ func (p *Parquet) Check(_ context.Context) error {
 		p.config.Path = os.TempDir()
 		// trim '/' from prefix path
 		p.config.Prefix = strings.Trim(p.config.Prefix, "/")
-		logger.Infof("Thread[%s]: s3 writer configuration found in threadID[%s]", p.options.ThreadID)
+		logger.Infof("Thread[%s]: s3 writer configuration found", p.options.ThreadID)
 	} else if p.config.Path != "" {
 		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
 	} else {
-		return fmt.Errorf("Thread[%s]: invalid configuration found", p.options.ThreadID)
+		return fmt.Errorf("invalid configuration found")
 	}
 
 	// Create the directory if it doesn't exist

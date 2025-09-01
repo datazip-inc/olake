@@ -81,7 +81,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 					} else {
-						err = fmt.Errorf("Thread[%s]: %s", threadID, err)
+						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {

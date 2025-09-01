@@ -85,7 +85,11 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
+
 		schema, err = parseSchema(resp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse iceberg schema: %s", err)
+		}
 	} else {
 		// set global schema for current thread
 		var ok bool
@@ -354,19 +358,20 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		keepIdx := make(map[string]int, len(records))
 
 		for idx, record := range records {
-			if existingIdx, ok := keepIdx[record.OlakeID]; !ok {
+			existingIdx, ok := keepIdx[record.OlakeID]
+			if ok {
 				keepIdx[record.OlakeID] = idx
 				continue
-			} else {
-				ex := records[existingIdx]
-				if record.CdcTimestamp == nil {
-					keepIdx[record.OlakeID] = idx // keep latest reord (in incremental)
-					continue
-				}
+			}
 
-				if ex.CdcTimestamp.Before(*record.CdcTimestamp) {
-					keepIdx[record.OlakeID] = idx // keep latest reord (w.r.t cdc timestamp)
-				}
+			ex := records[existingIdx]
+			if record.CdcTimestamp == nil {
+				keepIdx[record.OlakeID] = idx // keep latest reord (in incremental)
+				continue
+			}
+
+			if ex.CdcTimestamp.Before(*record.CdcTimestamp) {
+				keepIdx[record.OlakeID] = idx // keep latest reord (w.r.t cdc timestamp)
 			}
 		}
 
@@ -646,14 +651,15 @@ func compareSchema(oldSchema, newSchema map[string]string) (bool, error) {
 			continue
 		}
 
-		if validType, promotion := icebergEvolution(oldType, newType); !validType {
+		validType, promotion := icebergEvolution(oldType, newType)
+		if !validType {
 			return false, fmt.Errorf(
 				"different type detected in schema, old type: %s, new type: %s for field: %s",
 				oldType, newType, fieldName,
 			)
-		} else {
-			schemaChange = promotion || schemaChange
 		}
+
+		schemaChange = promotion || schemaChange
 	}
 
 	return schemaChange, nil

@@ -80,7 +80,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 					}
 				}
 			} else {
-				err = fmt.Errorf("Thread[%s]: %s", threadID, err)
+				err = fmt.Errorf("thread[%s]: %s", threadID, err)
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
