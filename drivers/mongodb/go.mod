@@ -82,3 +82,5 @@ require (
 	golang.org/x/tools v0.30.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+replace github.com/datazip-inc/olake => ../../

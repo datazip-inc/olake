@@ -25,6 +25,7 @@ type Filter struct {
 	LogicalOperator string      // condition[0] and/or condition[1], single and/or supported
 }
 
+// Q: should we also update this as well to return according to normalized namesapce and table name
 func (s *ConfiguredStream) ID() string {
 	return s.Stream.ID()
 }
