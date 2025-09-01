@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  trino-coordinator:
+    image: trinodb/trino:430
+    container_name: trino-coordinator
+    hostname: trino-coordinator
+    ports:
+      - "8080:8080"
+    volumes:
+      # This path now points to the 'etc' folder inside trino folder
+      - ./trino/etc:/etc/trino
+    networks:
+      # Connects to the main network defined in the original file
+      - app-network
+    depends_on:
+      trino-postgres:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/usr/lib/trino/bin/health-check"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  trino-postgres:
+    image: postgres:13
+    container_name: trino-postgres
+    environment:
+      POSTGRES_USER: trino
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: iceberg_metastore
+    ports:
+      # Mapped to 5433 to avoid conflict with the main postgresql service on 5432
+      - "5433:5432"
+    volumes:
+      - trino-postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trino"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  trino-postgres-data:
+
+networks:
+  app-network:
+    external: true
