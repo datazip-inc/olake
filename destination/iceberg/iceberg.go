@@ -359,11 +359,10 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 		for idx, record := range records {
 			existingIdx, ok := keepIdx[record.OlakeID]
-			if ok {
+			if !ok {
 				keepIdx[record.OlakeID] = idx
 				continue
 			}
-
 			ex := records[existingIdx]
 			if record.CdcTimestamp == nil {
 				keepIdx[record.OlakeID] = idx // keep latest reord (in incremental)
