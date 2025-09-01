@@ -70,7 +70,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             
             switch (request.getType()) {
                 case COMMIT:
-                    LOGGER.debug("{} Received commit request for thread: {}", requestId, threadId);
+                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
                     icebergTableOperator.commitThread(threadId, this.icebergTable);
                     sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
                     LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
@@ -85,6 +85,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 
                 case REFRESH_TABLE_SCHEMA:
                     this.icebergTable.refresh();
+                    sendResponse(responseObserver, "schema refreshed");
                     break;
 
                 case GET_OR_CREATE_TABLE:

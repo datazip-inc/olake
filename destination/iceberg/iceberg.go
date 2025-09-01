@@ -465,6 +465,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 	if promote, err := compareSchema(globalSchemaMap, newSchemaMap); err != nil {
 		return nil, fmt.Errorf("failed to compare schema: %s", err)
 	} else if !promote {
+		logger.Debugf("Thread[%s]: refreshing table schema", i.options.ThreadID)
 		// Note: schema evolution is detected in thread but not in global schema
 		// So update current thread schema as well as java refresh java writer thread
 		i.setSchema(newSchemaMap)
