@@ -65,7 +65,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				if err != nil {
 					return fmt.Errorf("failed to create new writer thread: %s", err)
 				}
-				logger.Infof("created incremental writer with threadID[%s] for stream %s", threadID, streams[index].ID())
+				logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
 				defer func() {
 					if threadErr := inserter.Close(ctx); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)

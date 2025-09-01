@@ -62,7 +62,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					if err != nil {
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
 					}
-					logger.Infof("created cdc writer with threadID[%s] for stream %s", threadID, streams[index].ID())
+					logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, streams[index].ID())
 					defer func() {
 						if threadErr := inserter.Close(ctx); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
@@ -112,7 +112,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
 			inserters[stream], err = pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
 			if err != nil {
-				logger.Infof("created cdc writer with threadID[%s] for stream %s", threadID, stream.ID())
+				logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, stream.ID())
 			}
 			return err
 		})

@@ -205,10 +205,6 @@ func filterMongoObject(doc bson.M) {
 			doc[key] = fmt.Sprintf("%x", value.Data)
 		case primitive.Decimal128:
 			doc[key] = value.String()
-		case primitive.M:
-			doc[key] = fmt.Sprintf("%v", value)
-		case primitive.A:
-			doc[key] = fmt.Sprintf("%v", value)
 		case primitive.ObjectID:
 			doc[key] = value.Hex()
 		case float64:

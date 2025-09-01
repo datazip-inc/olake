@@ -363,12 +363,12 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 				keepIdx[record.OlakeID] = idx
 				continue
 			}
-			ex := records[existingIdx]
 			if record.CdcTimestamp == nil {
 				keepIdx[record.OlakeID] = idx // keep latest reord (in incremental)
 				continue
 			}
 
+			ex := records[existingIdx]
 			if ex.CdcTimestamp.Before(*record.CdcTimestamp) {
 				keepIdx[record.OlakeID] = idx // keep latest reord (w.r.t cdc timestamp)
 			}
