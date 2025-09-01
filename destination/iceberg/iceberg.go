@@ -24,7 +24,7 @@ type Iceberg struct {
 	stream        types.StreamInterface
 	partitionInfo []PartitionInfo   // ordered slice to preserve partition column order
 	server        *serverInstance   // java server instance
-	schema        map[string]string // schema for current thread associated with java
+	schema        map[string]string // schema for current thread associated with java writer (col -> type)
 }
 
 // PartitionInfo represents a Iceberg partition column with its transform, preserving order
@@ -421,6 +421,26 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return newSchema, nil
 	}
 
+	mergeSchema := func(newSchema map[string]string) map[string]string {
+		mergedSchema := make(map[string]string)
+		for col, typ := range i.schema {
+			newTyp, ok := newSchema[col]
+			if !ok {
+				mergedSchema[col] = typ
+				continue
+			}
+
+			// if promotion of schema not required, merge it (so evolution will not happen)
+			if _, promotion := icebergEvolution(typ, newTyp); !promotion {
+				// Note: only for int -> long and float -> double
+				mergedSchema[col] = typ
+			} else {
+				mergedSchema[col] = newTyp
+			}
+		}
+		return mergedSchema
+	}
+
 	// only dedup if it is upsert mode
 	if isUpsertMode(i.stream, i.options.Backfill) {
 		records = dedupRecords(records)
@@ -431,10 +451,14 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return false, nil, nil, err
 	}
 
-	// check with current thread schema
-	evolveSchema, err := compareSchema(i.schema, newSchema)
+	// merge new schema with existing schema
+	// example case: detected type is int but iceberg table has long (which is valid and evolution should not happen)
+	mergedSchema := mergeSchema(newSchema)
 
-	return evolveSchema, records, newSchema, err
+	// check with current thread schema
+	evolveSchema, err := compareSchema(i.schema, mergedSchema)
+
+	return evolveSchema, records, mergedSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly
