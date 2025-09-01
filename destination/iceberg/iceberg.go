@@ -344,9 +344,9 @@ func (i *Iceberg) Type() string {
 }
 
 // validate schema change & evolution and removes null records
-func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, any, error) {
+func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !i.stream.NormalizationEnabled() {
-		return false, i.schema, nil
+		return false, records, i.schema, nil
 	}
 
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
@@ -371,9 +371,9 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, any, err
 		}
 
 		out := make([]types.RawRecord, 0, len(keepIdx))
-		for i, r := range records {
-			if idx, ok := keepIdx[r.OlakeID]; ok && idx == i {
-				out = append(out, r)
+		for rIdx, record := range records {
+			if idx, ok := keepIdx[record.OlakeID]; ok && idx == rIdx {
+				out = append(out, record)
 			}
 		}
 		return out
@@ -424,13 +424,13 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, any, err
 
 	newSchema, err := extractSchemaFromRecords(records)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 
 	// check with current thread schema
 	evolveSchema, err := compareSchema(i.schema, newSchema)
 
-	return evolveSchema, newSchema, err
+	return evolveSchema, records, newSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly
@@ -450,6 +450,9 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", newRawSchema)
 	}
 
+	// update current thread schema
+	i.setSchema(newSchemaMap)
+
 	// check for identifier fields setting
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	req := proto.IcebergPayload{
@@ -468,7 +471,6 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 		logger.Debugf("Thread[%s]: refreshing table schema", i.options.ThreadID)
 		// Note: schema evolution is detected in thread but not in global schema
 		// So update current thread schema as well as java refresh java writer thread
-		i.setSchema(newSchemaMap)
 		req.Type = proto.IcebergPayload_REFRESH_TABLE_SCHEMA
 
 		resp, err := i.server.sendClientRequest(ctx, &req)

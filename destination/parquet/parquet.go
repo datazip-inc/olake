@@ -302,9 +302,9 @@ func (p *Parquet) Close(_ context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, any, error) {
+func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return false, nil, nil
+		return false, records, nil, nil
 	}
 
 	schemaChange := false
@@ -319,7 +319,7 @@ func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, any, err
 
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
 		}
 
 		// just process the changes and upgrade new schema
@@ -327,12 +327,12 @@ func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, any, err
 		schemaChange = change || typeChange || schemaChange
 		err = typeutils.ReformatRecord(p.schema, flattenedRecord)
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to reformat records: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 		}
 		records[idx].Data = flattenedRecord // use idx to update slice record
 	}
 
-	return schemaChange, p.schema, nil
+	return schemaChange, records, p.schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
