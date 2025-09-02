@@ -30,7 +30,8 @@
       "type": "string",
       "title": "Password",
       "description": "Password for database authentication",
-      "format": "password"
+      "format": "password",
+      "minLength": 1
     },
     "max_threads": {
       "type": "integer",

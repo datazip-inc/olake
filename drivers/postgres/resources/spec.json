@@ -25,7 +25,8 @@
             "type": "string",
             "title": "Password",
             "description": "Password for database authentication",
-            "format": "password"
+            "format": "password",
+            "minLength": 1
         },
         "jdbc_url_params": {
             "type": "object",

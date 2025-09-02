@@ -1,41 +1,50 @@
 {
-    "type": "object",
-    "properties": {
-      "s3_access_key": {
-        "type": "string",
-        "title": "AWS Access Key",
-        "description": "The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string"
-      },
-      "s3_bucket": {
-        "type": "string",
-        "title": "S3 Bucket",
-        "description": "The name of an existing Amazon S3 bucket with appropriate access permissions to store output files"
-      },
-      "s3_path": {
-        "type": "string",
-        "title": "S3 Path",
-        "description": "Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')"
-      },
-      "s3_region": {
-        "type": "string",
-        "title": "S3 Region",
-        "description": "Specify the AWS region where the S3 bucket is hosted"
-      },
-      "s3_secret_key": {
-        "type": "string",
-        "title": "AWS Secret Key",
-        "description": "The AWS secret key for S3 authentication—typically 40+ characters long",
-        "format": "password"
-      },
-      "s3_endpoint": {
-        "type": "string",
-        "title": "S3 Endpoint",
-        "description": "Specify the S3 endpoint URL for the S3 service (e.g., MinIO, GCP, etc.)"
-      }
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "PARQUET"
     },
-    "required": [
-      "s3_bucket",
-      "s3_region",
-      "s3_path"
-    ]
+    "writer": {
+      "type": "object",
+      "properties": {
+        "s3_access_key": {
+          "type": "string",
+          "title": "AWS Access Key",
+          "description": "The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string"
+        },
+        "s3_bucket": {
+          "type": "string",
+          "title": "S3 Bucket",
+          "description": "The name of an existing Amazon S3 bucket with appropriate access permissions to store output files"
+        },
+        "s3_path": {
+          "type": "string",
+          "title": "S3 Path",
+          "description": "Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')"
+        },
+        "s3_region": {
+          "type": "string",
+          "title": "S3 Region",
+          "description": "Specify the AWS region where the S3 bucket is hosted"
+        },
+        "s3_secret_key": {
+          "type": "string",
+          "title": "AWS Secret Key",
+          "description": "The AWS secret key for S3 authentication—typically 40+ characters long",
+          "format": "password"
+        },
+        "s3_endpoint": {
+          "type": "string",
+          "title": "S3 Endpoint",
+          "description": "Specify the S3 endpoint URL for the S3 service (e.g., MinIO, GCP, etc.)"
+        }
+      },
+      "required": [
+        "s3_bucket",
+        "s3_region",
+        "s3_path"
+      ]
+    }
   }
+}

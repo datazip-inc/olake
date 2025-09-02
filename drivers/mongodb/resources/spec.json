@@ -47,7 +47,8 @@
             "type": "string",
             "title": "Password",
             "description": "Password with the username for authentication",
-            "format": "password"
+            "format": "password",
+            "minLength": 1
         },
         "read_preference": {
             "type": "string",

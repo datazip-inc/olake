@@ -1,235 +1,246 @@
 {
-    "type": "object",
-    "properties": {
-      "catalog_type": {
-        "type": "string",
-        "enum": [
-          "glue",
-          "jdbc",
-          "hive",
-          "rest"
-        ],
-        "default": "glue",
-        "title": "Catalog Type",
-        "description": "Type of catalog to use"
-      },
-      "aws_access_key": {
-        "type": "string",
-        "format": "password",
-        "title": "AWS Access Key",
-        "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
-      },
-      "aws_secret_key": {
-        "type": "string",
-        "format": "password",
-        "title": "AWS Secret Key",
-        "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
-      },
-      "aws_region": {
-        "type": "string",
-        "title": "AWS Region",
-        "description": "Specify the AWS region where the S3 bucket is hosted"
-      },
-      "iceberg_db": {
-        "type": "string",
-        "title": "Iceberg Database",
-        "description": "Specifies the name of the database to be created in AWS Glue"
-      },
-      "iceberg_s3_path": {
-        "type": "string",
-        "title": "Iceberg S3 Path",
-        "description": "The S3 path or storage location for Iceberg data"
-      }
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "ICEBERG"
     },
-    "required": [
-      "catalog_type",
-      "aws_region",
-      "iceberg_db",
-      "iceberg_s3_path"
-    ],
-    "dependencies": {
-      "catalog_type": {
-        "oneOf": [
-          {
-            "properties": {
-              "catalog_type": {
-                "const": "jdbc"
+    "writer": {
+      "type": "object",
+      "properties": {
+        "catalog_type": {
+          "type": "string",
+          "enum": [
+            "glue",
+            "jdbc",
+            "hive",
+            "rest"
+          ],
+          "default": "glue",
+          "title": "Catalog Type",
+          "description": "Type of catalog to use"
+        },
+        "aws_access_key": {
+          "type": "string",
+          "format": "password",
+          "title": "AWS Access Key",
+          "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
+        },
+        "aws_secret_key": {
+          "type": "string",
+          "format": "password",
+          "title": "AWS Secret Key",
+          "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
+        },
+        "aws_region": {
+          "type": "string",
+          "title": "AWS Region",
+          "description": "Specify the AWS region where the S3 bucket is hosted"
+        },
+        "iceberg_db": {
+          "type": "string",
+          "title": "Iceberg Database",
+          "description": "Specifies the name of the database to be created in AWS Glue"
+        },
+        "iceberg_s3_path": {
+          "type": "string",
+          "title": "Iceberg S3 Path",
+          "description": "The S3 path or storage location for Iceberg data"
+        }
+      },
+      "required": [
+        "catalog_type",
+        "aws_region",
+        "iceberg_db",
+        "iceberg_s3_path"
+      ],
+      "dependencies": {
+        "catalog_type": {
+          "oneOf": [
+            {
+              "properties": {
+                "catalog_type": {
+                  "const": "jdbc"
+                },
+                "jdbc_url": {
+                  "type": "string",
+                  "title": "JDBC URL",
+                  "description": "Specifies the JDBC URL used to connect to the PostgreSQL catalog"
+                },
+                "jdbc_username": {
+                  "type": "string",
+                  "title": "JDBC Username",
+                  "description": "Specifies the username used to authenticate with the PostgreSQL catalog"
+                },
+                "jdbc_password": {
+                  "type": "string",
+                  "format": "password",
+                  "minLength": 1,
+                  "title": "JDBC Password",
+                  "description": "Specifies the password used to authenticate with the PostgreSQL catalog"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
+                },
+                "s3_path_style": {
+                  "type": "boolean",
+                  "default": true,
+                  "title": "Use Path Style for S3",
+                  "description": "Specifies whether path-style access is used for S3; 'true' enables path-style addressing instead of the default virtual-hosted style"
+                },
+                "s3_use_ssl": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Use SSL for S3",
+                  "description": "Boolean flag indicating whether to use SSL when connecting to S3"
+                }
               },
-              "jdbc_url": {
-                "type": "string",
-                "title": "JDBC URL",
-                "description": "Specifies the JDBC URL used to connect to the PostgreSQL catalog"
-              },
-              "jdbc_username": {
-                "type": "string",
-                "title": "JDBC Username",
-                "description": "Specifies the username used to authenticate with the PostgreSQL catalog"
-              },
-              "jdbc_password": {
-                "type": "string",
-                "format": "password",
-                "title": "JDBC Password",
-                "description": "Specifies the password used to authenticate with the PostgreSQL catalog"
-              },
-              "s3_endpoint": {
-                "type": "string",
-                "title": "S3 Endpoint",
-                "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
-              },
-              "s3_path_style": {
-                "type": "boolean",
-                "default": true,
-                "title": "Use Path Style for S3",
-                "description": "Specifies whether path-style access is used for S3; 'true' enables path-style addressing instead of the default virtual-hosted style"
-              },
-              "s3_use_ssl": {
-                "type": "boolean",
-                "default": false,
-                "title": "Use SSL for S3",
-                "description": "Boolean flag indicating whether to use SSL when connecting to S3"
-              }
+              "required": [
+                "jdbc_url",
+                "jdbc_username",
+                "jdbc_password"
+              ]
             },
-            "required": [
-              "jdbc_url",
-              "jdbc_username",
-              "jdbc_password"
-            ]
-          },
-          {
-            "properties": {
-              "catalog_type": {
-                "const": "hive"
+            {
+              "properties": {
+                "catalog_type": {
+                  "const": "hive"
+                },
+                "hive_uri": {
+                  "type": "string",
+                  "title": "Hive URI",
+                  "description": "Specifies the URI of the Hive Metastore service used for catalog interactions by the writer"
+                },
+                "hive_clients": {
+                  "type": "integer",
+                  "title": "Hive Clients",
+                  "description": "Specifies the number of Hive clients allocated to handle interactions with the Hive Metastore"
+                },
+                "hive_sasl_enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Enable SASL for Hive",
+                  "description": "Indicates if SASL authentication is enabled for the Hive connection; 'false' means SASL is disabled"
+                },
+                "s3_path_style": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Use Path Style for S3",
+                  "description": "Enables path-style addressing for S3 API requests"
+                },
+                "s3_use_ssl": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Use SSL for S3",
+                  "description": "Boolean flag indicating whether to use SSL when connecting to S3"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
+                }
               },
-              "hive_uri": {
-                "type": "string",
-                "title": "Hive URI",
-                "description": "Specifies the URI of the Hive Metastore service used for catalog interactions by the writer"
-              },
-              "hive_clients": {
-                "type": "integer",
-                "title": "Hive Clients",
-                "description": "Specifies the number of Hive clients allocated to handle interactions with the Hive Metastore"
-              },
-              "hive_sasl_enabled": {
-                "type": "boolean",
-                "default": false,
-                "title": "Enable SASL for Hive",
-                "description": "Indicates if SASL authentication is enabled for the Hive connection; 'false' means SASL is disabled"
-              },
-              "s3_path_style": {
-                "type": "boolean",
-                "default": false,
-                "title": "Use Path Style for S3",
-                "description": "Enables path-style addressing for S3 API requests"
-              },
-              "s3_use_ssl": {
-                "type": "boolean",
-                "default": false,
-                "title": "Use SSL for S3",
-                "description": "Boolean flag indicating whether to use SSL when connecting to S3"
-              },
-              "s3_endpoint": {
-                "type": "string",
-                "title": "S3 Endpoint",
-                "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
-              }
+              "required": [
+                "hive_uri"
+              ]
             },
-            "required": [
-              "hive_uri"
-            ]
-          },
-          {
-            "properties": {
-              "catalog_type": {
-                "const": "rest"
+            {
+              "properties": {
+                "catalog_type": {
+                  "const": "rest"
+                },
+                "rest_catalog_url": {
+                  "type": "string",
+                  "title": "REST Catalog URI",
+                  "description": "Specifies the endpoint URI for the REST catalog service the writer will connect to"
+                },
+                "credential": {
+                  "type": "string",
+                  "title": "Credential (OAuth2)",
+                  "description": "Client secret or credential for OAuth2 (Usually id:secret)"
+                },
+                "oauth2_uri": {
+                  "type": "string",
+                  "title": "OAuth2 Auth URI",
+                  "description": "OAuth2 server URI for OAuth2 authentication"
+                },
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "REST Auth Type",
+                  "description": "Authentication type (e.g., 'oauth2')"
+                },
+                "rest_signing_name": {
+                  "type": "string",
+                  "title": "REST Signing Name",
+                  "description": "Service name for AWS Signature V4 (e.g., 's3tables')"
+                },
+                "rest_signing_region": {
+                  "type": "string",
+                  "title": "REST Signing Region",
+                  "description": "Region for AWS Signature V4 signing"
+                },
+                "rest_signing_v_4": {
+                  "type": "boolean",
+                  "title": "REST Enable Signature V4",
+                  "description": "Enable AWS Signature V4 signing (boolean)",
+                  "default": true
+                },
+                "scope": {
+                  "type": "string",
+                  "title": "Scope (OAuth2)",
+                  "description": "OAuth2 scopes (space-separated)"
+                },
+                "token": {
+                  "type": "string",
+                  "format": "password",
+                  "minLength": 1,
+                  "title": "Token",
+                  "description": "Bearer token for token-based authentication"
+                },
+                "no_identifier_fields": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Disable Identifier Fields",
+                  "description": "Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
+                }
               },
-              "rest_catalog_url": {
-                "type": "string",
-                "title": "REST Catalog URI",
-                "description": "Specifies the endpoint URI for the REST catalog service the writer will connect to"
-              },
-              "credential": {
-                "type": "string",
-                "title": "Credential (OAuth2)",
-                "description": "Client secret or credential for OAuth2 (Usually id:secret)"
-              },
-              "oauth2_uri": {
-                "type": "string",
-                "title": "OAuth2 Auth URI",
-                "description": "OAuth2 server URI for OAuth2 authentication"
-              },
-              "rest_auth_type": {
-                "type": "string",
-                "title": "REST Auth Type",
-                "description": "Authentication type (e.g., 'oauth2')"
-              },
-              "rest_signing_name": {
-                "type": "string",
-                "title": "REST Signing Name",
-                "description": "Service name for AWS Signature V4 (e.g., 's3tables')"
-              },
-              "rest_signing_region": {
-                "type": "string",
-                "title": "REST Signing Region",
-                "description": "Region for AWS Signature V4 signing"
-              },
-              "rest_signing_v_4": {
-                "type": "boolean",
-                "title": "REST Enable Signature V4",
-                "description": "Enable AWS Signature V4 signing (boolean)",
-                "default": true
-              },
-              "scope": {
-                "type": "string",
-                "title": "Scope (OAuth2)",
-                "description": "OAuth2 scopes (space-separated)"
-              },
-              "token": {
-                "type": "string",
-                "format": "password",
-                "title": "Token",
-                "description": "Bearer token for token-based authentication"
-              },
-              "no_identifier_fields": {
-                "type": "boolean",
-                "default": false,
-                "title": "Disable Identifier Fields",
-                "description": "Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields"
-              },
-              "s3_endpoint": {
-                "type": "string",
-                "title": "S3 Endpoint",
-                "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
-              }
+              "required": [
+                "rest_catalog_url"
+              ]
             },
-            "required": [
-              "rest_catalog_url"
-            ]
-          },
-          {
-            "properties": {
-              "catalog_type": {
-                "const": "glue"
+            {
+              "properties": {
+                "catalog_type": {
+                  "const": "glue"
+                },
+                "sink_rpc_server_host": {
+                  "type": "string",
+                  "default": "localhost",
+                  "title": "Server Host",
+                  "description": "Host address of the gRPC server"
+                },
+                "grpc_port": {
+                  "type": "integer",
+                  "default": 50051,
+                  "title": "gRPC Port",
+                  "description": "Port on which the gRPC server listens (mostly 50051)"
+                }
               },
-              "sink_rpc_server_host": {
-                "type": "string",
-                "default": "localhost",
-                "title": "Server Host",
-                "description": "Host address of the gRPC server"
-              },
-              "grpc_port": {
-                "type": "integer",
-                "default": 50051,
-                "title": "gRPC Port",
-                "description": "Port on which the gRPC server listens (mostly 50051)"
-              }
-            },
-            "required": [
-              "sink_rpc_server_host",
-              "grpc_port"
-            ]
-          }
-        ]
+              "required": [
+                "sink_rpc_server_host",
+                "grpc_port"
+              ]
+            }
+          ]
+        }
       }
     }
   }
+}
