@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -111,32 +110,6 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
 			Key:     field,
 			IceType: dType,
-		})
-	}
-
-	if len(i.partitionInfo) > 0 {
-		// sort record based on partition order
-		sort.Slice(records, func(idx, jdx int) bool {
-			iRecord := records[idx].Data
-			jRecord := records[jdx].Data
-
-			for _, partition := range i.partitionInfo {
-				iField, iOk := iRecord[partition.field]
-				jField, jOk := jRecord[partition.field]
-
-				if !iOk && !jOk {
-					continue // i == j
-				} else if !iOk {
-					return true // i < j
-				} else if !jOk {
-					return false // i > j
-				}
-
-				if cmp := typeutils.Compare(iField, jField); cmp != 0 {
-					return cmp == -1 // i < j
-				}
-			}
-			return true // i == j
 		})
 	}
 
@@ -407,11 +380,17 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 				detecteIceType := detectedType.ToIceberg()
 				if typeInNewSchema, exists := newSchema[key]; exists {
-					if valid, _ := icebergEvolution(typeInNewSchema, detecteIceType); !valid {
+					valid, promote := icebergEvolution(typeInNewSchema, detecteIceType)
+					if !valid {
 						return nil, fmt.Errorf(
 							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
 							typeInNewSchema, detecteIceType,
 						)
+					}
+
+					if !promote {
+						newSchema[key] = typeInNewSchema
+						continue
 					}
 				}
 				newSchema[key] = detecteIceType
