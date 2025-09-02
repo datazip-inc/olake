@@ -194,7 +194,6 @@ func (x *RecordIngestResponse) GetSuccess() bool {
 type IcebergPayload_Metadata struct {
 	state           protoimpl.MessageState        `protogen:"open.v1"`
 	DestTableName   string                        `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
-	ThreadId        string                        `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
 	IdentifierField *string                       `protobuf:"bytes,3,opt,name=identifier_field,json=identifierField,proto3,oneof" json:"identifier_field,omitempty"`
 	Schema          []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -234,13 +233,6 @@ func (*IcebergPayload_Metadata) Descriptor() ([]byte, []int) {
 func (x *IcebergPayload_Metadata) GetDestTableName() string {
 	if x != nil {
 		return x.DestTableName
-	}
-	return ""
-}
-
-func (x *IcebergPayload_Metadata) GetThreadId() string {
-	if x != nil {
-		return x.ThreadId
 	}
 	return ""
 }
@@ -535,14 +527,13 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xc3\b\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xa6\b\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
-	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xe8\x01\n" +
+	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xcb\x01\n" +
 	"\bMetadata\x12&\n" +
-	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
-	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12.\n" +
+	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12.\n" +
 	"\x10identifier_field\x18\x03 \x01(\tH\x00R\x0fidentifierField\x88\x01\x01\x12R\n" +
 	"\x06schema\x18\x04 \x03(\v2:.io.debezium.server.iceberg.rpc.IcebergPayload.SchemaFieldR\x06schemaB\x13\n" +
 	"\x11_identifier_field\x1a:\n" +

@@ -76,7 +76,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			Metadata: &proto.IcebergPayload_Metadata{
 				Schema:          iceSchema,
 				DestTableName:   i.stream.Name(),
-				ThreadId:        i.server.serverID,
 				IdentifierField: &identifierField,
 			},
 		}
@@ -220,7 +219,6 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: i.stream.Name(),
-			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
 		Records: protoRecords,
@@ -264,7 +262,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      i.server.serverID,
 			DestTableName: i.stream.Name(),
 		},
 	}
@@ -300,7 +297,6 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      server.serverID,
 			DestTableName: "test_olake",
 			Schema:        icebergRawSchema(),
 		},
@@ -324,7 +320,6 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	recrodInsertReq := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      server.serverID,
 			DestTableName: "test_olake",
 			Schema:        protoSchema,
 		},
@@ -383,7 +378,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return out
 	}
 
-	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
+	extractSchemaAndCleanRecords := func(records []types.RawRecord) (map[string]string, error) {
 		newSchema := make(map[string]string)
 		for idx, record := range records {
 			// TODO: normalized column names (remove from driver side)
@@ -407,13 +402,19 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 				detecteIceType := detectedType.ToIceberg()
 				if typeInNewSchema, exists := newSchema[key]; exists {
-					if valid, _ := icebergEvolution(typeInNewSchema, detecteIceType); !valid {
+					valid, promotion := icebergEvolution(typeInNewSchema, detecteIceType)
+					if valid {
 						return nil, fmt.Errorf(
 							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
 							typeInNewSchema, detecteIceType,
 						)
 					}
+					if !promotion {
+						newSchema[key] = typeInNewSchema
+						continue
+					}
 				}
+
 				newSchema[key] = detecteIceType
 			}
 		}
@@ -443,7 +444,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		records = dedupRecords(records)
 	}
 
-	newSchema, err := extractSchemaFromRecords(records)
+	newSchema, err := extractSchemaAndCleanRecords(records)
 	if err != nil {
 		return false, nil, nil, err
 	}
@@ -485,7 +486,6 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 		Metadata: &proto.IcebergPayload_Metadata{
 			IdentifierField: &identifierField,
 			DestTableName:   i.stream.Name(),
-			ThreadId:        i.server.serverID,
 		},
 	}
 

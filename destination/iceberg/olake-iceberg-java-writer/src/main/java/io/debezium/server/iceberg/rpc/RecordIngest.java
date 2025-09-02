@@ -271,18 +271,6 @@ public final class RecordIngest {
           getDestTableNameBytes();
 
       /**
-       * <code>string thread_id = 2;</code>
-       * @return The threadId.
-       */
-      java.lang.String getThreadId();
-      /**
-       * <code>string thread_id = 2;</code>
-       * @return The bytes for threadId.
-       */
-      com.google.protobuf.ByteString
-          getThreadIdBytes();
-
-      /**
        * <code>optional string identifier_field = 3;</code>
        * @return Whether the identifierField field is set.
        */
@@ -337,7 +325,6 @@ public final class RecordIngest {
       }
       private Metadata() {
         destTableName_ = "";
-        threadId_ = "";
         identifierField_ = "";
         schema_ = java.util.Collections.emptyList();
       }
@@ -401,45 +388,6 @@ public final class RecordIngest {
               com.google.protobuf.ByteString.copyFromUtf8(
                   (java.lang.String) ref);
           destTableName_ = b;
-          return b;
-        } else {
-          return (com.google.protobuf.ByteString) ref;
-        }
-      }
-
-      public static final int THREAD_ID_FIELD_NUMBER = 2;
-      @SuppressWarnings("serial")
-      private volatile java.lang.Object threadId_ = "";
-      /**
-       * <code>string thread_id = 2;</code>
-       * @return The threadId.
-       */
-      @java.lang.Override
-      public java.lang.String getThreadId() {
-        java.lang.Object ref = threadId_;
-        if (ref instanceof java.lang.String) {
-          return (java.lang.String) ref;
-        } else {
-          com.google.protobuf.ByteString bs = 
-              (com.google.protobuf.ByteString) ref;
-          java.lang.String s = bs.toStringUtf8();
-          threadId_ = s;
-          return s;
-        }
-      }
-      /**
-       * <code>string thread_id = 2;</code>
-       * @return The bytes for threadId.
-       */
-      @java.lang.Override
-      public com.google.protobuf.ByteString
-          getThreadIdBytes() {
-        java.lang.Object ref = threadId_;
-        if (ref instanceof java.lang.String) {
-          com.google.protobuf.ByteString b = 
-              com.google.protobuf.ByteString.copyFromUtf8(
-                  (java.lang.String) ref);
-          threadId_ = b;
           return b;
         } else {
           return (com.google.protobuf.ByteString) ref;
@@ -551,9 +499,6 @@ public final class RecordIngest {
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(destTableName_)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 1, destTableName_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(threadId_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, threadId_);
-        }
         if (((bitField0_ & 0x00000001) != 0)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 3, identifierField_);
         }
@@ -571,9 +516,6 @@ public final class RecordIngest {
         size = 0;
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(destTableName_)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, destTableName_);
-        }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(threadId_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, threadId_);
         }
         if (((bitField0_ & 0x00000001) != 0)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, identifierField_);
@@ -599,8 +541,6 @@ public final class RecordIngest {
 
         if (!getDestTableName()
             .equals(other.getDestTableName())) return false;
-        if (!getThreadId()
-            .equals(other.getThreadId())) return false;
         if (hasIdentifierField() != other.hasIdentifierField()) return false;
         if (hasIdentifierField()) {
           if (!getIdentifierField()
@@ -621,8 +561,6 @@ public final class RecordIngest {
         hash = (19 * hash) + getDescriptor().hashCode();
         hash = (37 * hash) + DEST_TABLE_NAME_FIELD_NUMBER;
         hash = (53 * hash) + getDestTableName().hashCode();
-        hash = (37 * hash) + THREAD_ID_FIELD_NUMBER;
-        hash = (53 * hash) + getThreadId().hashCode();
         if (hasIdentifierField()) {
           hash = (37 * hash) + IDENTIFIER_FIELD_FIELD_NUMBER;
           hash = (53 * hash) + getIdentifierField().hashCode();
@@ -761,7 +699,6 @@ public final class RecordIngest {
           super.clear();
           bitField0_ = 0;
           destTableName_ = "";
-          threadId_ = "";
           identifierField_ = "";
           if (schemaBuilder_ == null) {
             schema_ = java.util.Collections.emptyList();
@@ -769,7 +706,7 @@ public final class RecordIngest {
             schema_ = null;
             schemaBuilder_.clear();
           }
-          bitField0_ = (bitField0_ & ~0x00000008);
+          bitField0_ = (bitField0_ & ~0x00000004);
           return this;
         }
 
@@ -804,9 +741,9 @@ public final class RecordIngest {
 
         private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.Metadata result) {
           if (schemaBuilder_ == null) {
-            if (((bitField0_ & 0x00000008) != 0)) {
+            if (((bitField0_ & 0x00000004) != 0)) {
               schema_ = java.util.Collections.unmodifiableList(schema_);
-              bitField0_ = (bitField0_ & ~0x00000008);
+              bitField0_ = (bitField0_ & ~0x00000004);
             }
             result.schema_ = schema_;
           } else {
@@ -819,11 +756,8 @@ public final class RecordIngest {
           if (((from_bitField0_ & 0x00000001) != 0)) {
             result.destTableName_ = destTableName_;
           }
-          if (((from_bitField0_ & 0x00000002) != 0)) {
-            result.threadId_ = threadId_;
-          }
           int to_bitField0_ = 0;
-          if (((from_bitField0_ & 0x00000004) != 0)) {
+          if (((from_bitField0_ & 0x00000002) != 0)) {
             result.identifierField_ = identifierField_;
             to_bitField0_ |= 0x00000001;
           }
@@ -879,21 +813,16 @@ public final class RecordIngest {
             bitField0_ |= 0x00000001;
             onChanged();
           }
-          if (!other.getThreadId().isEmpty()) {
-            threadId_ = other.threadId_;
-            bitField0_ |= 0x00000002;
-            onChanged();
-          }
           if (other.hasIdentifierField()) {
             identifierField_ = other.identifierField_;
-            bitField0_ |= 0x00000004;
+            bitField0_ |= 0x00000002;
             onChanged();
           }
           if (schemaBuilder_ == null) {
             if (!other.schema_.isEmpty()) {
               if (schema_.isEmpty()) {
                 schema_ = other.schema_;
-                bitField0_ = (bitField0_ & ~0x00000008);
+                bitField0_ = (bitField0_ & ~0x00000004);
               } else {
                 ensureSchemaIsMutable();
                 schema_.addAll(other.schema_);
@@ -906,7 +835,7 @@ public final class RecordIngest {
                 schemaBuilder_.dispose();
                 schemaBuilder_ = null;
                 schema_ = other.schema_;
-                bitField0_ = (bitField0_ & ~0x00000008);
+                bitField0_ = (bitField0_ & ~0x00000004);
                 schemaBuilder_ = 
                   com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
                      getSchemaFieldBuilder() : null;
@@ -946,14 +875,9 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000001;
                   break;
                 } // case 10
-                case 18: {
-                  threadId_ = input.readStringRequireUtf8();
-                  bitField0_ |= 0x00000002;
-                  break;
-                } // case 18
                 case 26: {
                   identifierField_ = input.readStringRequireUtf8();
-                  bitField0_ |= 0x00000004;
+                  bitField0_ |= 0x00000002;
                   break;
                 } // case 26
                 case 34: {
@@ -1058,85 +982,13 @@ public final class RecordIngest {
           return this;
         }
 
-        private java.lang.Object threadId_ = "";
-        /**
-         * <code>string thread_id = 2;</code>
-         * @return The threadId.
-         */
-        public java.lang.String getThreadId() {
-          java.lang.Object ref = threadId_;
-          if (!(ref instanceof java.lang.String)) {
-            com.google.protobuf.ByteString bs =
-                (com.google.protobuf.ByteString) ref;
-            java.lang.String s = bs.toStringUtf8();
-            threadId_ = s;
-            return s;
-          } else {
-            return (java.lang.String) ref;
-          }
-        }
-        /**
-         * <code>string thread_id = 2;</code>
-         * @return The bytes for threadId.
-         */
-        public com.google.protobuf.ByteString
-            getThreadIdBytes() {
-          java.lang.Object ref = threadId_;
-          if (ref instanceof String) {
-            com.google.protobuf.ByteString b = 
-                com.google.protobuf.ByteString.copyFromUtf8(
-                    (java.lang.String) ref);
-            threadId_ = b;
-            return b;
-          } else {
-            return (com.google.protobuf.ByteString) ref;
-          }
-        }
-        /**
-         * <code>string thread_id = 2;</code>
-         * @param value The threadId to set.
-         * @return This builder for chaining.
-         */
-        public Builder setThreadId(
-            java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          threadId_ = value;
-          bitField0_ |= 0x00000002;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string thread_id = 2;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearThreadId() {
-          threadId_ = getDefaultInstance().getThreadId();
-          bitField0_ = (bitField0_ & ~0x00000002);
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string thread_id = 2;</code>
-         * @param value The bytes for threadId to set.
-         * @return This builder for chaining.
-         */
-        public Builder setThreadIdBytes(
-            com.google.protobuf.ByteString value) {
-          if (value == null) { throw new NullPointerException(); }
-          checkByteStringIsUtf8(value);
-          threadId_ = value;
-          bitField0_ |= 0x00000002;
-          onChanged();
-          return this;
-        }
-
         private java.lang.Object identifierField_ = "";
         /**
          * <code>optional string identifier_field = 3;</code>
          * @return Whether the identifierField field is set.
          */
         public boolean hasIdentifierField() {
-          return ((bitField0_ & 0x00000004) != 0);
+          return ((bitField0_ & 0x00000002) != 0);
         }
         /**
          * <code>optional string identifier_field = 3;</code>
@@ -1180,7 +1032,7 @@ public final class RecordIngest {
             java.lang.String value) {
           if (value == null) { throw new NullPointerException(); }
           identifierField_ = value;
-          bitField0_ |= 0x00000004;
+          bitField0_ |= 0x00000002;
           onChanged();
           return this;
         }
@@ -1190,7 +1042,7 @@ public final class RecordIngest {
          */
         public Builder clearIdentifierField() {
           identifierField_ = getDefaultInstance().getIdentifierField();
-          bitField0_ = (bitField0_ & ~0x00000004);
+          bitField0_ = (bitField0_ & ~0x00000002);
           onChanged();
           return this;
         }
@@ -1204,7 +1056,7 @@ public final class RecordIngest {
           if (value == null) { throw new NullPointerException(); }
           checkByteStringIsUtf8(value);
           identifierField_ = value;
-          bitField0_ |= 0x00000004;
+          bitField0_ |= 0x00000002;
           onChanged();
           return this;
         }
@@ -1212,9 +1064,9 @@ public final class RecordIngest {
         private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField> schema_ =
           java.util.Collections.emptyList();
         private void ensureSchemaIsMutable() {
-          if (!((bitField0_ & 0x00000008) != 0)) {
+          if (!((bitField0_ & 0x00000004) != 0)) {
             schema_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField>(schema_);
-            bitField0_ |= 0x00000008;
+            bitField0_ |= 0x00000004;
            }
         }
 
@@ -1364,7 +1216,7 @@ public final class RecordIngest {
         public Builder clearSchema() {
           if (schemaBuilder_ == null) {
             schema_ = java.util.Collections.emptyList();
-            bitField0_ = (bitField0_ & ~0x00000008);
+            bitField0_ = (bitField0_ & ~0x00000004);
             onChanged();
           } else {
             schemaBuilder_.clear();
@@ -1441,7 +1293,7 @@ public final class RecordIngest {
             schemaBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
                 io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaFieldOrBuilder>(
                     schema_,
-                    ((bitField0_ & 0x00000008) != 0),
+                    ((bitField0_ & 0x00000004) != 0),
                     getParentForChildren(),
                     isClean());
             schema_ = null;
@@ -6169,35 +6021,34 @@ public final class RecordIngest {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\204\007\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\361\006\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
       "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
       ".io.debezium.server.iceberg.rpc.IcebergP" +
-      "ayload.IceRecord\032\266\001\n\010Metadata\022\027\n\017dest_ta" +
-      "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\035\n\020ide" +
-      "ntifier_field\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\013" +
-      "2:.io.debezium.server.iceberg.rpc.Iceber" +
-      "gPayload.SchemaFieldB\023\n\021_identifier_fiel" +
-      "d\032,\n\013SchemaField\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003ke" +
-      "y\030\002 \001(\t\032\254\002\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C." +
-      "io.debezium.server.iceberg.rpc.IcebergPa" +
-      "yload.IceRecord.FieldValue\022\023\n\013record_typ" +
-      "e\030\002 \001(\t\032\264\001\n\nFieldValue\022\026\n\014string_value\030\001" +
-      " \001(\tH\000\022\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_valu" +
-      "e\030\003 \001(\003H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014doub" +
-      "le_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025" +
-      "\n\013bytes_value\030\007 \001(\014H\000B\007\n\005value\"|\n\013Payloa" +
-      "dType\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE" +
-      "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
-      "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
-      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\0102\212\001\n\023RecordIngestService\022s\n" +
-      "\013SendRecords\022..io.debezium.server.iceber" +
-      "g.rpc.IcebergPayload\0324.io.debezium.serve" +
-      "r.iceberg.rpc.RecordIngestResponseb\006prot" +
-      "o3"
+      "ayload.IceRecord\032\243\001\n\010Metadata\022\027\n\017dest_ta" +
+      "ble_name\030\001 \001(\t\022\035\n\020identifier_field\030\003 \001(\t" +
+      "H\000\210\001\001\022J\n\006schema\030\004 \003(\0132:.io.debezium.serv" +
+      "er.iceberg.rpc.IcebergPayload.SchemaFiel" +
+      "dB\023\n\021_identifier_field\032,\n\013SchemaField\022\020\n" +
+      "\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032\254\002\n\tIceReco" +
+      "rd\022S\n\006fields\030\001 \003(\0132C.io.debezium.server." +
+      "iceberg.rpc.IcebergPayload.IceRecord.Fie" +
+      "ldValue\022\023\n\013record_type\030\002 \001(\t\032\264\001\n\nFieldVa" +
+      "lue\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_value" +
+      "\030\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_" +
+      "value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n" +
+      "\nbool_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014" +
+      "H\000B\007\n\005value\"|\n\013PayloadType\022\013\n\007RECORDS\020\000\022" +
+      "\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_T" +
+      "ABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRE" +
+      "SH_TABLE_SCHEMA\020\005\"7\n\024RecordIngestRespons" +
+      "e\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\0102\212\001\n\023R" +
+      "ecordIngestService\022s\n\013SendRecords\022..io.d" +
+      "ebezium.server.iceberg.rpc.IcebergPayloa" +
+      "d\0324.io.debezium.server.iceberg.rpc.Recor" +
+      "dIngestResponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -6214,7 +6065,7 @@ public final class RecordIngest {
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "IdentifierField", });
+        new java.lang.String[] { "DestTableName", "IdentifierField", "Schema", "IdentifierField", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_fieldAccessorTable = new

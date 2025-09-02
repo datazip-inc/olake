@@ -22,7 +22,6 @@ message IcebergPayload {
 
   message Metadata {
     string dest_table_name = 1;
-    string thread_id = 2;
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
   }

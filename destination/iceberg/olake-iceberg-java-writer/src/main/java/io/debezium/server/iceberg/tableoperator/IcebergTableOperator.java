@@ -7,15 +7,17 @@
  */
 
 package io.debezium.server.iceberg.tableoperator;
-
 import com.google.common.collect.ImmutableMap;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.PartitionKey;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.io.FanoutDataWriter;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateSchema;
+import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.WriteResult;
@@ -26,6 +28,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * Wrapper to perform operations on iceberg tables
  *
@@ -35,8 +40,8 @@ import java.util.List;
 public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
-
-  BaseTaskWriter<Record> writer;
+  private static final String DEFAULT_WRITER_KEY = "default_writer";
+  private final Map<String, BaseTaskWriter<Record>> writerMap = new ConcurrentHashMap<>();
 
   public IcebergTableOperator(boolean upsert_records) {
     writerFactory2 = new IcebergTableWriterFactory();
@@ -64,6 +69,7 @@ public class IcebergTableOperator {
 
   @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
   boolean upsert;
+
   /**
    * If given schema contains new fields compared to target table schema then it
    * adds new fields to target iceberg
@@ -87,85 +93,90 @@ public class IcebergTableOperator {
       us.commit();
     }
   }
+
   /**
-   * Commits data files for a specific thread
-   * 
-   * @param threadId The thread ID to commit
+   * Commits data files 
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId, Table table) {
+  public void commitThread(Table table) {
+    if (table == null) {
+      throw new IllegalArgumentException("table cannot be null");
+    }
+
     try {
-      if (writer == null) {
-        LOGGER.warn("No writer found for thread: {}", threadId);
-        return;
+      // Refresh table before committing
+      table.refresh();
+
+      AppendFiles appendFiles = table.newAppend();
+      RowDelta rowDelta = table.newRowDelta();
+      int totalDataFiles = 0;
+      int totalDeleteFiles = 0;
+      boolean hasAnyDeleteFiles = false;
+
+      // Add all data and delete files from all WriteResults
+      for (BaseTaskWriter<Record> writer : writerMap.values()) {
+        if (writer == null) {
+          LOGGER.warn("skipping commit for writer: null writer found");
+        }
+
+        WriteResult writeResult;
+        try {
+          writeResult = writer.complete();
+        } catch (IOException e) {
+          LOGGER.error("Failed to complete writer", e);
+          throw new RuntimeException("Failed to complete writer", e);
+        }
+
+        totalDataFiles += writeResult.dataFiles().length;
+        totalDeleteFiles += writeResult.deleteFiles().length;
+
+        // Check if any writer has delete files
+        if (writeResult.deleteFiles().length > 0) {
+          hasAnyDeleteFiles = true;
+        }
+
+        Arrays.stream(writeResult.dataFiles()).forEach(dataFile -> {
+          appendFiles.appendFile(dataFile);
+          rowDelta.addRows(dataFile);
+        });
+        Arrays.stream(writeResult.deleteFiles()).forEach(rowDelta::addDeletes);
       }
-      WriteResult writeResult = writer.complete();
-      LOGGER.info("Writer for thread {} completed with {} data files and {} delete files",
-              threadId, writeResult.dataFiles().length, writeResult.deleteFiles().length);
-
-
-      if (table == null) {
-        LOGGER.warn("No table found for thread: {}", threadId);
-        return;
-      }
-
-      // Calculate total files across all WriteResults
-      int totalDataFiles = writeResult.dataFiles().length;
-      int totalDeleteFiles =writeResult.deleteFiles().length;
-
-      LOGGER.info("Committing {} data files and {} delete files for thread: {}",
-          totalDataFiles, totalDeleteFiles, threadId);
 
       // If no files were generated, nothing to commit
       if (totalDataFiles == 0 && totalDeleteFiles == 0) {
-        LOGGER.info("No files to commit for thread: {}", threadId);
+        LOGGER.info("No files to commit");
         return;
       }
 
-      // Commit the files
-      try {
-        // Refresh table before committing
-        table.refresh();
-
-        // Check if any WriteResult has delete files
-        boolean hasDeleteFiles = totalDeleteFiles>0;
-
-        if (hasDeleteFiles) {
-          RowDelta rowDelta = table.newRowDelta();
-          // Add all data and delete files from all WriteResults
-          Arrays.stream(writeResult.dataFiles()).forEach(rowDelta::addRows);
-          Arrays.stream(writeResult.deleteFiles()).forEach(rowDelta::addDeletes);
-          rowDelta.commit();
-        } else {
-          AppendFiles appendFiles = table.newAppend();
-          // Add all data files from all WriteResults
-          Arrays.stream(writeResult.dataFiles()).forEach(appendFiles::appendFile);
-          appendFiles.commit();
-        }
-
-        LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
-            totalDataFiles, totalDeleteFiles, threadId);
-      } catch (Exception e) {
-        String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
-        LOGGER.error(errorMsg, e);
-        throw new RuntimeException(errorMsg, e);
+      if (hasAnyDeleteFiles) {
+        rowDelta.commit();
+      } else {
+        appendFiles.commit();
       }
-    } catch (IOException e) {
-        LOGGER.error("Failed to complete writer for thread: {}", threadId, e);
-        throw new RuntimeException("Failed to complete writer for thread: " + threadId, e);
+
+      LOGGER.info("Successfully committed {} data files and {} delete files",
+          totalDataFiles, totalDeleteFiles);
+
+    } catch (Exception e) {
+      LOGGER.error("Failed to commit", e);
+      if (e instanceof RuntimeException) {
+        throw (RuntimeException) e;
+      }
+      throw new RuntimeException("Failed to commit", e);
     } finally {
-        // Close the writer
-        try {
-          if (writer != null) {
+      // Close all writers
+      for (BaseTaskWriter<Record> writer : writerMap.values()) {
+        if (writer != null) {
+          try {
             writer.close();
+          } catch (IOException e) {
+            LOGGER.warn("Failed to close writer", e);
           }
-        } catch (IOException e) {
-          LOGGER.warn("Failed to close writer for thread: {}", threadId, e);
         }
+      }
     }
   }
-  
-  
+
   /**
    * Adds list of change events to iceberg table. All the events are having same
    * schema.
@@ -173,36 +184,61 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
-    if (writer == null) {
-      writer = writerFactory2.create(icebergTable);
-    }
-
+  public void addToTablePerSchema(Table icebergTable, List<RecordWrapper> events) {
     try {
       for (RecordWrapper record : events) {
-        try{
-           writer.write(record);
-        }catch (Exception ex) {
-          LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
+        try {
+          if (icebergTable.spec().isUnpartitioned()) {
+            // for unpartitioned use default writer
+            BaseTaskWriter<Record> writer = writerMap.get(DEFAULT_WRITER_KEY);
+            if (writer == null) {
+              writer = writerFactory2.create(icebergTable);
+              writerMap.put(DEFAULT_WRITER_KEY, writer);
+            }
+            writer.write(record);
+          } else {
+            // get partition value hash
+            PartitionKey pk = new PartitionKey(icebergTable.spec(), icebergTable.schema());
+            InternalRecordWrapper wrapper = new InternalRecordWrapper(icebergTable.schema().asStruct());
+            pk.partition(wrapper.wrap(record));
+            int numFields = icebergTable.spec().fields().size();
+            String hash = "";
+            for (int idx = 0; idx < numFields; idx++) { // Note: assuming key comes in order (if not we might require to
+                                                        // sort them first)
+              Object v1 = pk.get(idx, Object.class);
+              hash = hash.concat(v1.toString());
+            }
+            BaseTaskWriter<Record> writer = writerMap.get(hash);
+            if (writer == null) {
+              writer = writerFactory2.create(icebergTable);
+              writerMap.put(hash, writer);
+            }
+            writer.write(record);
+          }
+        } catch (Exception ex) {
+          LOGGER.error("Failed to write data: {}, exception: {}", record, ex);
           throw ex;
         }
       }
-      LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadID);
+      LOGGER.info("Successfully wrote {} events", events.size());
 
     } catch (Exception ex) {
-      LOGGER.error("Failed to write data to table: {} for thread: {}, exception: {}", icebergTable.name(), threadID, ex);
-
+      LOGGER.error("Failed to write data to table: {}, exception: {}", icebergTable.name(), ex);
       // Clean up the writer
-      try {
-        writer.abort();
-      } catch (IOException abortEx) {
-        LOGGER.warn("Failed to abort writer", abortEx);
-      }
-      try {
-        writer.close();
-      } catch (IOException e) {
-        LOGGER.warn("Failed to close writer", e);
-      }
+      writerMap.values().forEach(writer -> {
+        try {
+          writer.abort();
+        } catch (Exception e) {
+          LOGGER.warn("Failed to abort writer", e);
+        } finally {
+          try {
+            writer.close();
+          } catch (IOException e) {
+            LOGGER.warn("Failed to close writer", e);
+          }
+        }
+      });
+      writerMap.clear();
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
     }
   }
