@@ -60,6 +60,8 @@ func (k *Kafka) SetupState(state *types.State) {
 }
 
 func (k *Kafka) Setup(ctx context.Context) error {
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
 	if err := k.config.Validate(); err != nil {
 		return fmt.Errorf("config validation failed: %v", err)
 	}
@@ -81,15 +83,11 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to ping Kafka brokers: %v", err)
 	}
-
-	k.mutex.Lock()
 	k.dialer = dialer
 	k.adminClient = adminClient
 	k.consumerGroups = make(map[string]*kafka.ConsumerGroup)
 	k.syncedTopics = make(map[string]bool)
 	k.offsetMap = make(map[string]map[int]int64)
-	k.mutex.Unlock()
-
 	return nil
 }
 
@@ -98,7 +96,7 @@ func (k *Kafka) Close(_ context.Context) error {
 	defer k.mutex.Unlock()
 	for topic, cg := range k.consumerGroups {
 		if err := cg.Close(); err != nil {
-			logger.Warnf("Failed to close consumer group for topic %s: %v", topic, err)
+			logger.Warnf("[KAFKA] failed to close consumer group for topic %s: %v", topic, err)
 		}
 	}
 	k.consumerGroups = nil
@@ -112,7 +110,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Kafka")
 	resp, err := k.adminClient.Metadata(ctx, &kafka.MetadataRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list topics: %v", err)
+		return nil, fmt.Errorf("[KAFKA] failed to list topics: %v", err)
 	}
 
 	var topicNames []string
@@ -123,9 +121,8 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 }
 
 func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
-	logger.Infof("Producing schema for topic [%s]", streamName)
-	stream := types.NewStream(streamName, "").WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-
+	logger.Infof("[KAFKA] producing schema for topic [%s]", streamName)
+	stream := types.NewStream(streamName, "")
 	schema := types.NewTypeSchema()
 	schema.AddTypes("message", types.String)  // Basic field for message payload
 	schema.AddTypes("key", types.String)      // Kafka message key

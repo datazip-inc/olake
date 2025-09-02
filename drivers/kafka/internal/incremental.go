@@ -11,6 +11,7 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
@@ -25,7 +26,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 	metadataResp, err := k.adminClient.Metadata(ctx, metadataReq)
 	if err != nil {
-		return fmt.Errorf("failed to fetch topic metadata: %v", err)
+		return fmt.Errorf("[KAFKA] failed to fetch topic metadata: %v", err)
 	}
 
 	var topicDetail kafka.Topic
@@ -36,7 +37,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		}
 	}
 	if topicDetail.Error != nil {
-		return fmt.Errorf("topic %s not found in metadata: %v", topic, topicDetail.Error)
+		return fmt.Errorf("[KAFKA] topic %s not found in metadata: %v", topic, topicDetail.Error)
 	}
 
 	// Get persisted state offsets, partitions
@@ -44,7 +45,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	if k.state != nil {
 		cursor := k.state.GetCursor(stream.Self(), "partitions")
 		if cursor != nil {
-			partitionMap, ok := cursor.(map[string]interface{})
+			partitionMap, ok := cursor.(map[string]any)
 			if ok {
 				for _, partition := range topicDetail.Partitions {
 					partitionID := fmt.Sprintf("%d", partition.ID)
@@ -61,7 +62,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	groupID := k.config.ConsumerGroup
 	if groupID == "" {
 		groupID = fmt.Sprintf("olake-consumer-incremental-%s-%d", stream.ID(), time.Now().Unix())
-		logger.Infof("No consumer group specified; using generated group ID: %s", groupID)
+		logger.Infof("[KAFKA] No consumer group specified; using generated group ID: %s", groupID)
 	}
 
 	// Create consumer group to handle partition assignment
@@ -71,13 +72,13 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		Topics:  []string{topic},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create consumer group for incremental sync: %v", err)
+		return fmt.Errorf("[KAFKA] failed to create consumer group for incremental sync: %v", err)
 	}
 
 	// Current generation (set of partition assignments) for the consumer group
 	consumerGen, err := consumerGroup.Next(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get consumer group generation: %v", err)
+		return fmt.Errorf("[KAFKA] failed to get consumer group generation: %v", err)
 	}
 
 	k.mutex.Lock()
@@ -85,135 +86,161 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	k.consumerGen = consumerGen
 	k.mutex.Unlock()
 
-	var wg sync.WaitGroup
 	offsetsLock := &sync.Mutex{}
 	lastProcessedOffsets := make(map[int]int64)
 
-	// Process each assigned partition concurrently
+	// Prepare partition data for concurrent processing
+	partitionData := make([]struct {
+		Partition   int
+		StartOffset int64
+	}, 0, len(consumerGen.Assignments[topic]))
+
+	// Building partition data first
 	for _, assignment := range consumerGen.Assignments[topic] {
 		partition := assignment.ID
 		startOffset := assignment.Offset
+
 		// If we have state for this partition, use it
 		if offset, exists := stateOffsets[partition]; exists && offset > 0 {
-			startOffset = offset
+			startOffset = offset + 1
 		}
-		wg.Add(1)
-		go func(partition int, startOffset int64) {
-			defer wg.Done()
+		partitionData = append(partitionData, struct {
+			Partition   int
+			StartOffset int64
+		}{
+			Partition:   partition,
+			StartOffset: startOffset,
+		})
+	}
 
-			// Partition specific-reader
-			reader := kafka.NewReader(kafka.ReaderConfig{
-				Brokers:   strings.Split(k.config.BootstrapServers, ","),
-				Topic:     topic,
-				Partition: partition,
-				MinBytes:  1,
-				MaxBytes:  10e6,
-				Dialer:    k.dialer,
-			})
-			defer reader.Close()
+	// Processing partitions concurrently
+	err = utils.Concurrent(ctx, partitionData, k.config.MaxThreads, func(ctx context.Context, data struct {
+		Partition   int
+		StartOffset int64
+	}, _ int) error {
+		partition := data.Partition
+		startOffset := data.StartOffset
 
-			// Set offset based on state or from beginning
-			if err := reader.SetOffset(startOffset); err != nil {
-				var kerr kafka.Error
-				// If offset is invalid, fallback to configured offset reset policy
-				if errors.Is(kerr, kafka.OffsetOutOfRange) {
-					logger.Warnf("Offset %d out of range for topic %s, partition %d, resetting to beginning", startOffset, topic, partition)
-					resetOffset, resetOffsetErr := ResolveOffset(k.config.AutoOffsetReset)
-					if resetOffsetErr != nil {
-						logger.Errorf("Invalid auto_offset_reset policy: %s", resetOffsetErr)
-					}
-					if setOffsetErr := reader.SetOffset(resetOffset); setOffsetErr != nil {
-						logger.Errorf("Failed to reset offset to %d for topic %s, partition %d: %s", resetOffset, topic, partition, setOffsetErr)
-					}
-				} else {
-					logger.Errorf("failed to set offset %d for topic %s, partition %d: %v", startOffset, topic, partition, err)
-					return
+		// Partition specific-reader
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:   strings.Split(k.config.BootstrapServers, ","),
+			Topic:     topic,
+			Partition: partition,
+			MinBytes:  1,
+			MaxBytes:  10e6,
+			Dialer:    k.dialer,
+		})
+		defer reader.Close()
+
+		// Set offset based on state or from beginning
+		if err := reader.SetOffset(startOffset); err != nil {
+			var kerr kafka.Error
+			// If offset is invalid, fallback to configured offset reset policy
+			if errors.Is(kerr, kafka.OffsetOutOfRange) {
+				logger.Warnf("[KAFKA] offset %d out of range for topic %s, partition %d, resetting to beginning", startOffset, topic, partition)
+				resetOffset, resetOffsetErr := ResolveOffset(k.config.AutoOffsetReset)
+				if resetOffsetErr != nil {
+					logger.Errorf("[KAFKA] invalid auto_offset_reset policy: %s", resetOffsetErr)
 				}
+				if setOffsetErr := reader.SetOffset(resetOffset); setOffsetErr != nil {
+					logger.Errorf("[KAFKA] failed to reset offset to %d for topic %s, partition %d: %s", resetOffset, topic, partition, setOffsetErr)
+				}
+			} else {
+				logger.Errorf("[KAFKA] failed to set offset %d for topic %s, partition %d: %v", startOffset, topic, partition, err)
+				return err
 			}
+		}
 
-			logger.Infof("Starting incremental sync for topic %s, partition %d", topic, partition)
+		logger.Infof("[KAFKA] starting incremental sync for topic %s, partition %d", topic, partition)
 
-			lastOffset := startOffset
-			processedAny := false
-			// safely store last processed offset
-			saveOffset := func() {
-				if processedAny {
+		lastOffset := startOffset
+		processedAny := false
+		// safely store last processed offset
+		saveOffset := func() {
+			if processedAny {
+				offsetsLock.Lock()
+				lastProcessedOffsets[partition] = lastOffset
+				offsetsLock.Unlock()
+			}
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Infof("[KAFKA] incremental sync stopped for topic %s, partition %d due to context cancellation", topic, partition)
+				saveOffset()
+				return ctx.Err()
+			default:
+				// Read message within user-provided deadline
+				remaining := time.Until(time.Now().Add(time.Duration(k.config.WaitTime) * time.Second))
+				if remaining <= 0 {
+					logger.Warnf("[KAFKA] wait time exhausted for topic %s, partition %d", topic, partition)
+					saveOffset()
+					return nil
+				}
+
+				fetchCtx, cancel := context.WithTimeout(ctx, remaining)
+				msg, err := reader.ReadMessage(fetchCtx)
+				cancel()
+
+				// Handle message read errors
+				if err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						// no data within wait time
+						logger.Infof("[KAFKA] no messages in topic %s, partition %d within remaining time", topic, partition)
+						saveOffset()
+						return nil
+					}
+					if errors.Is(err, kafka.ErrGenerationEnded) {
+						// current generation ended, rebalance happened
+						logger.Infof("[KAFKA] generation ended for partition %d", partition)
+						saveOffset()
+						return nil
+					}
+					if errors.Is(err, context.Canceled) {
+						// context canceled i.e. shutdown
+						logger.Infof("[KAFKA] context canceled for partition %d", partition)
+						return nil
+					}
+					// any failure during reading
+					logger.Errorf("[KAFKA] error reading message in incremental sync: %v", err)
+					saveOffset()
+					return err
+				}
+				data := func() map[string]any {
+					var result map[string]any
+					if msg.Value == nil {
+						logger.Warnf("[KAFKA] received nil message value at offset %d for topic %s, partition %d", msg.Offset, topic, partition)
+						return nil
+					}
+					if err := json.Unmarshal(msg.Value, &result); err != nil {
+						logger.Errorf("[KAFKA] failed to unmarshal message value: %v", err)
+						return nil
+					}
+					result["partition"] = msg.Partition
+					result["offset"] = msg.Offset
+					result["key"] = string(msg.Key)
+					result["kafka_timestamp"] = msg.Time.UnixMilli()
+					return result
+				}()
+
+				// Process message with provided function
+				if err := processFn(data); err != nil {
+					logger.Errorf("[KAFKA] failed to process message at offset %d: %v", msg.Offset, err)
 					offsetsLock.Lock()
 					lastProcessedOffsets[partition] = lastOffset
 					offsetsLock.Unlock()
+					return err
 				}
+				lastOffset = msg.Offset
+				processedAny = true
+				logger.Debugf("[KAFKA] processed incremental message at offset %d for topic %s, partition %d", msg.Offset, topic, partition)
 			}
-
-			for {
-				select {
-				case <-ctx.Done():
-					logger.Infof("Incremental sync stopped for topic %s, partition %d due to context cancellation", topic, partition)
-					saveOffset()
-					return
-				default:
-					// Read message within user-provided deadline
-					remaining := time.Until(time.Now().Add(time.Duration(k.config.WaitTime) * time.Second))
-					if remaining <= 0 {
-						logger.Debugf("Wait time exhausted for topic %s, partition %d", topic, partition)
-						saveOffset()
-						return
-					}
-
-					fetchCtx, cancel := context.WithTimeout(ctx, remaining)
-					msg, err := reader.ReadMessage(fetchCtx)
-					cancel()
-
-					// Handle message read errors
-					if err != nil {
-						if errors.Is(err, context.DeadlineExceeded) {
-							logger.Infof("No messages in topic %s, partition %d within remaining time", topic, partition)
-							saveOffset()
-							return
-						}
-						if errors.Is(err, kafka.ErrGenerationEnded) {
-							logger.Infof("Generation ended for partition %d", partition)
-							saveOffset()
-							return
-						}
-						if errors.Is(err, context.Canceled) {
-							logger.Infof("Context canceled for partition %d", partition)
-							return
-						}
-						logger.Errorf("error reading message in incremental sync: %v", err)
-						saveOffset()
-						return
-					}
-					data := func() map[string]interface{} {
-						var result map[string]interface{}
-						if err := json.Unmarshal(msg.Value, &result); err != nil {
-							logger.Errorf("Failed to unmarshal message value: %v", err)
-							return nil
-						}
-						result["partition"] = msg.Partition
-						result["offset"] = msg.Offset
-						result["key"] = string(msg.Key)
-						result["kafka_timestamp"] = msg.Time.UnixMilli()
-						return result
-					}()
-
-					// Process message with provided function
-					if err := processFn(data); err != nil {
-						logger.Errorf("Failed to process message at offset %d: %v", msg.Offset, err)
-						offsetsLock.Lock()
-						lastProcessedOffsets[partition] = lastOffset
-						offsetsLock.Unlock()
-						return
-					}
-					lastOffset = msg.Offset
-					processedAny = true
-					logger.Debugf("Processed incremental message at offset %d for topic %s, partition %d", msg.Offset, topic, partition)
-				}
-			}
-		}(partition, startOffset)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("[KAFKA] error during concurrent partition processing: %v", err)
 	}
-
-	// Wait for all partition workers
-	wg.Wait()
 
 	// save last offsets per partition for post commit
 	k.mutex.Lock()
@@ -233,13 +260,13 @@ func (k *Kafka) PostIncremental(_ context.Context, stream types.StreamInterface,
 		k.mutex.Lock()
 		defer k.mutex.Unlock()
 		if k.consumerGen == nil {
-			return fmt.Errorf("no active consumer generation for commit")
+			return fmt.Errorf("[KAFKA] no active consumer generation for commit")
 		}
 
 		topic := stream.Name()
 		offsets, ok := k.offsetMap[topic]
 		if !ok {
-			return fmt.Errorf("no offsets found for topic %s", topic)
+			return fmt.Errorf("[KAFKA] no offsets found for topic %s", topic)
 		}
 
 		partitionsState := map[string]int64{}
@@ -261,15 +288,15 @@ func (k *Kafka) PostIncremental(_ context.Context, stream types.StreamInterface,
 
 			// commit to kafka
 			if err := k.consumerGen.CommitOffsets(commitOffsets); err != nil {
-				return fmt.Errorf("failed to commit offsets to Kafka: %w", err)
+				return fmt.Errorf("[KAFKA] failed to commit offsets to Kafka: %w", err)
 			}
-			logger.Infof("Offsets committed for topic %s", topic)
+			logger.Infof("[KAFKA] offsets committed for topic %s", topic)
 		} else {
 			// Preserve existing state
 			if cursor := k.state.GetCursor(stream.Self(), "partitions"); cursor != nil {
 				k.state.SetCursor(stream.Self(), "partitions", cursor)
 			}
-			logger.Infof("No offsets to commit for topic %s", topic)
+			logger.Infof("[KAFKA] no offsets to commit for topic %s", topic)
 		}
 
 		k.syncedTopics[topic] = true
@@ -285,6 +312,6 @@ func ResolveOffset(policy string) (int64, error) {
 	case "latest":
 		return kafka.LastOffset, nil
 	default:
-		return 0, fmt.Errorf("invalid auto_offset_reset value: %q", policy)
+		return 0, fmt.Errorf("[KAFKA] invalid auto_offset_reset value: %q", policy)
 	}
 }

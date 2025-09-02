@@ -19,21 +19,25 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	defer close(backfillWaitChannel)
 
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		skipBackfill := false
 		if a.driver.Type() == string(constants.Kafka) {
 			kafkaCursor := a.state.GetCursor(stream.Self(), "partitions")
-			if a.state.HasCompletedBackfill(stream.Self()) && kafkaCursor != nil {
-				logger.Infof("Skipping backfill for stream[%s] due to Kafka state in 'paritions' cursor", stream.ID())
-				skipBackfill = true
+			if kafkaCursor != nil {
+				logger.Infof("[KAFKA] Skipping backfill for stream[%s], proceeding to incremental sync", stream.ID())
+			} else {
+				logger.Infof("[KAFKA] No previous state for stream[%s], starting incremental sync from beginning", stream.ID())
 			}
-		} else {
-			primaryCursor, secondaryCursor := stream.Cursor()
-			prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
-			prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
-			if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil && (secondaryCursor == "" || prevSecondaryCursor != nil)) {
-				logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
-				skipBackfill = true
-			}
+			backfillWaitChannel <- stream.ID()
+			return nil
+		}
+
+		// For non-Kafka drivers
+		skipBackfill := false
+		primaryCursor, secondaryCursor := stream.Cursor()
+		prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
+		prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
+		if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil && (secondaryCursor == "" || prevSecondaryCursor != nil)) {
+			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
+			skipBackfill = true
 		}
 		if skipBackfill {
 			backfillWaitChannel <- stream.ID()

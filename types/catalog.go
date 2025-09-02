@@ -58,6 +58,8 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
 	})
+	// for kafka, append mode will always be true
+	appendCheck := utils.Ternary(driver == string(constants.Kafka), true, false).(bool)
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -71,7 +73,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:     stream.Name,
 			PartitionRegex: "",
-			AppendMode:     false,
+			AppendMode:     appendCheck,
 			Normalization:  isRelational,
 		})
 	}
