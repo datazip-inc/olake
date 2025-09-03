@@ -1,6 +1,6 @@
 # Olake Examples
 
-This directory contains self-contained, end-to-end demo stacks for Olake. Each example is a complete combination of source database, storage, catalog, and query engine that runs alongside the [base OLake stack](https://raw.githubusercontent.com/datazip-inc/olake-ui/refs/heads/master/docker-compose.yml).
+This directory contains self-contained, end-to-end demo stacks for OLake. Each example is a complete combination of source database, storage, catalog, and query engine that runs alongside the [base OLake stack](https://raw.githubusercontent.com/datazip-inc/olake-ui/refs/heads/master/docker-compose.yml).
 
 ## How it works
 
@@ -9,7 +9,7 @@ This directory contains self-contained, end-to-end demo stacks for Olake. Each e
 
 ## Available examples
 
-- `presto-tabularest-minio-mysql/`  
+- `presto-tabularest-minio-mysql`  
   - MySQL → Olake → Iceberg (Tabular REST) on MinIO → Presto
 
 ## Quick start pattern
