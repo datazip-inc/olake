@@ -128,8 +128,8 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 			protoColumnsValue = protoCols
 		} else {
 			for _, field := range protoSchema {
-				val, ok := record.Data[field.Key]
-				if !ok {
+				val, exist := record.Data[field.Key]
+				if !exist {
 					protoColumnsValue = append(protoColumnsValue, nil)
 					continue
 				}
@@ -323,9 +323,13 @@ func (i *Iceberg) Type() string {
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
+		// only dedup if it is upsert mode
+		if !isUpsertMode(i.stream, i.options.Backfill) {
+			return records
+		}
+
 		// map olakeID -> index of record to keep (index into original slice)
 		keepIdx := make(map[string]int, len(records))
-
 		for idx, record := range records {
 			existingIdx, ok := keepIdx[record.OlakeID]
 			if !ok {
@@ -400,10 +404,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return diffThreadSchema, recordsSchema, nil
 	}
 
-	// only dedup if it is upsert mode
-	if isUpsertMode(i.stream, i.options.Backfill) {
-		records = dedupRecords(records)
-	}
+	records = dedupRecords(records)
 
 	if !i.stream.NormalizationEnabled() {
 		return false, records, i.schema, nil

@@ -99,22 +99,30 @@ public class SchemaConvertor {
       if (value == null) {
           return null;
       }
+      // NOTE: for conversion related json code (How we do previously for UUID, Map, Struct etc.) check: olake code on or before version v0.1.11
       try {
           switch (field.type().typeId()) {
               case INTEGER:
-                  return value.getIntValue();
+                  if (value.hasIntValue())  return value.getIntValue();
+                  return null;
               case LONG:
-                  return value.getLongValue();
+                  if (value.hasLongValue())  return value.getLongValue();
+                  return null;
               case FLOAT:
-                  return value.getFloatValue();
+                  if (value.hasFloatValue()) return value.getFloatValue();
+                  return null;
               case DOUBLE:
-                  return value.getDoubleValue();
+                  if (value.hasDoubleValue()) return value.getDoubleValue();
+                  return null;
               case BOOLEAN:
-                  return value.getBoolValue();
+                  if (value.hasBoolValue()) return value.getBoolValue();
+                  return null;
               case STRING,UUID:
-                  return value.getStringValue();
+                  if (value.hasStringValue()) return value.getStringValue();
+                  return null;
               case TIMESTAMP:
-                  return OffsetDateTime.ofInstant(Instant.ofEpochMilli(value.getLongValue()), ZoneOffset.UTC);
+                  if (value.hasLongValue()) return OffsetDateTime.ofInstant(Instant.ofEpochMilli(value.getLongValue()), ZoneOffset.UTC);
+                  return null;
               default:
                   return value;
           }
