@@ -13,7 +13,7 @@ services:
       CATALOG_WAREHOUSE: s3://warehouse/
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
       CATALOG_S3_ENDPOINT: http://minio:9090
-      CATALOG_URI: jdbc:postgresql://postgresql:5433/postgres
+      CATALOG_URI: jdbc:postgresql://postgresql:5432/postgres
       CATALOG_JDBC_USER: temporal
       CATALOG_JDBC_PASSWORD: temporal
     networks:

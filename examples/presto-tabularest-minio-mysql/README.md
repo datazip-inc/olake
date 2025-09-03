@@ -73,9 +73,9 @@ docker compose up -d
         * **Catalog:** `REST catalog`
         * **Name of your destination:** `olake_iceberg`
         * **Version:** chose the latest available version
-        * **Iceberg REST Catalog URL:** `http://host.docker.internal:8181`
-        * **Iceberg S3 Path (example):** `s3://warehouse/weather/`
-        * **Iceberg Database (example):** `weather`
+        * **Iceberg REST Catalog URI:** `http://host.docker.internal:8181`
+        * **Iceberg S3 Path:** `s3://warehouse/weather/`
+        * **Iceberg Database:** `weather`
         * **S3 Endpoint (for Iceberg data files written by Olake workers):** `http://host.docker.internal:9090`
         * **AWS Region:** `us-east-1`
         * **S3 Access Key:** `minio`
@@ -94,10 +94,10 @@ docker compose up -d
 
 ### 4. Query Data with Presto
 
-1. **Access Presto UI:** `http://localhost:80`
+1. **Access Presto UI:** [http://localhost:8088](http://localhost:8088)
 
 2. **Run Queries:**
-   - Click **SQL CLIENT**
+   - Click on **SQL CLIENT** at the top
    - Select **Catalog:** `iceberg`, **Schema:** `weather`
    - Query example:
      ```sql
@@ -108,28 +108,7 @@ docker compose up -d
      LIMIT 10;
      ```
 
-## Sample Queries
-
-Once data is synchronized, try these queries in Presto:
-
-### Basic Data Exploration
-```sql
--- Count total records
-SELECT COUNT(*) FROM iceberg.weather.weather;
-
--- Show table schema
-DESCRIBE iceberg.weather.weather;
-
--- Sample data
-SELECT * FROM iceberg.weather.weather LIMIT 10;
-```
-
 ## Troubleshooting
-
-### Check Service Status
-```bash
-docker compose ps
-```
 
 ### View Logs
 ```bash
@@ -153,7 +132,7 @@ SELECT * FROM weather LIMIT 5;
 ### Test Presto Connection
 ```bash
 # Check if Presto can see Iceberg tables
-docker exec -it olake-presto-coordinator presto --catalog iceberg --schema weather --execute "SHOW TABLES;"
+docker exec -it olake-presto-coordinator presto-cli --catalog iceberg --schema weather --execute "SHOW TABLES;"
 ```
 
 ### Common Issues
@@ -168,20 +147,20 @@ docker exec -it olake-presto-coordinator presto --catalog iceberg --schema weath
 - Check MySQL logs: `docker compose logs primary_mysql`
 
 **MinIO access issues:**
-- Check MinIO credentials in docker-compose.yml match Olake destination config
+- Check MinIO credentials in docker-compose.yml match OLake destination config
 - Verify bucket permissions in MinIO console
 
 ## Architecture
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│    MySQL    │───▶│    Olake    │───▶│   MinIO     │
+│    MySQL    │───▶│    OLake    │───▶│   MinIO     │
 │  (Source)   │    │ (Pipeline)  │    │ (Storage)   │
 └─────────────┘    └─────────────┘    └─────────────┘
                            │                  │
                            ▼                  │
                    ┌─────────────┐            │
-                   │  Iceberg    │◀───────────┘
+                   │ Iceberg     │◀───────────┘
                    │ REST Catalog│
                    └─────────────┘
                            │
