@@ -555,11 +555,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, selectedStreams []string) err
 			logger.Warnf("Invalid stream identifier: %s, skipping", streamID)
 			continue
 		}
-
-		namespace, tableName := parts[0], parts[1]
-		if namespace == "" {
-			namespace = i.config.IcebergDatabase
-		}
+		namespace, tableName := i.config.IcebergDatabase, parts[1]
 
 		logger.Infof("Dropping Iceberg table: %s.%s", namespace, tableName)
 
