@@ -534,7 +534,7 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	return nil
 }
 
-// drop streams required for clear destination -> deduplication
+// drop streams required for clear destination
 func (i *Iceberg) DropStreams(ctx context.Context, selectedStreams []string) error {
 	if len(selectedStreams) == 0 {
 		logger.Info("No streams selected for clearing Iceberg destination, skipping operation")
