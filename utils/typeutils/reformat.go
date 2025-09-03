@@ -242,7 +242,7 @@ func ReformatInt64(v any) (int64, error) {
 	case int64:
 		return int64(v), nil
 	case uint:
-		//nolint:gosec,G115
+		//nolint:gosec
 		return int64(v), nil
 	case uint8:
 		return int64(v), nil
@@ -251,7 +251,7 @@ func ReformatInt64(v any) (int64, error) {
 	case uint32:
 		return int64(v), nil
 	case uint64:
-		//nolint:gosec,G115
+		//nolint:gosec
 		return int64(v), nil
 	case bool:
 		if v {
@@ -278,7 +278,7 @@ func ReformatInt32(v any) (int32, error) {
 	case float64:
 		return int32(v), nil
 	case int:
-		//nolint:gosec,G115
+		//nolint:gosec
 		return int32(v), nil
 	case int8:
 		return int32(v), nil
@@ -287,20 +287,20 @@ func ReformatInt32(v any) (int32, error) {
 	case int32:
 		return v, nil
 	case int64:
-		//nolint:gosec,G115
+		//nolint:gosec
 		return int32(v), nil
 	case uint:
-		//nolint:gosec,G115
+		//nolint:gosec
 		return int32(v), nil
 	case uint8:
 		return int32(v), nil
 	case uint16:
 		return int32(v), nil
 	case uint32:
-		//nolint:gosec,G115
+		//nolint:gosec
 		return int32(v), nil
 	case uint64:
-		//nolint:gosec,G115
+		//nolint:gosec
 		return int32(v), nil
 	case bool:
 		if v {

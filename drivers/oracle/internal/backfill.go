@@ -40,7 +40,9 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 }
 
 func (o *Oracle) BeginBackfillTransaction(ctx context.Context) (*sql.Tx, error) {
-	return o.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	// Oracle uses default isolation level (READ COMMITTED) 
+	// Explicit isolation level setting can cause "only support default value for isolation" error
+	return o.client.BeginTx(ctx, nil)
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

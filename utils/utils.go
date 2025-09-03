@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	//nolint:gosec,G115
+	//nolint:gosec
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
@@ -268,7 +268,7 @@ func GetKeysHash(m map[string]interface{}, keys ...string) string {
 		str.WriteString(fmt.Sprint(m[k]))
 		str.WriteRune('|')
 	}
-	//nolint:gosec,G115
+	//nolint:gosec
 	return fmt.Sprintf("%x", md5.Sum([]byte(str.String())))
 }
 

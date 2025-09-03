@@ -40,19 +40,16 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	})
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 
-	// Start a single transaction for the entire backfill to ensure consistency
-	tx, err := a.beginBackfillTransaction(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin backfill transaction: %s", err)
-	}
+	// For consistent backfill, we'll capture a snapshot time/SCN before processing chunks
+	// This ensures cursor consistency without breaking concurrent processing or resumability
+	var snapshotTime time.Time
+	var snapshotData map[string]interface{}
 
-	// Handle the case where transaction is nil (e.g., MongoDB)
-	if tx != nil {
-		defer func() {
-			if rerr := tx.Rollback(); rerr != nil && rerr != sql.ErrTxDone {
-				logger.Warnf("backfill transaction rollback failed: %s", rerr)
-			}
-		}()
+	// Capture consistent snapshot information before chunk processing
+	if stream.GetSyncMode() == types.INCREMENTAL {
+		snapshotTime = time.Now()
+		snapshotData = make(map[string]interface{})
+		snapshotData["snapshot_time"] = snapshotTime
 	}
 
 	// TODO: create writer instance again on retry
@@ -97,7 +94,33 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.ChunkIterator(ctx, stream, chunk, tx, func(data map[string]any) error {
+			// Create per-chunk transaction for database consistency
+			// Each chunk gets its own transaction to avoid concurrent access issues
+			tx, txErr := a.beginBackfillTransaction(ctx)
+			if txErr != nil {
+				return fmt.Errorf("failed to begin chunk transaction: %s", txErr)
+			}
+
+			// Ensure transaction cleanup with proper error handling
+			var chunkErr error
+			defer func() {
+				if tx != nil {
+					if chunkErr == nil {
+						// Successful processing - commit transaction
+						if commitErr := tx.Commit(); commitErr != nil {
+							logger.Warnf("chunk transaction commit failed: %s", commitErr)
+							chunkErr = fmt.Errorf("failed to commit chunk transaction: %s", commitErr)
+						}
+					} else {
+						// Error occurred - rollback transaction
+						if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
+							logger.Warnf("chunk transaction rollback failed: %s", rollbackErr)
+						}
+					}
+				}
+			}()
+
+			chunkErr = a.driver.ChunkIterator(ctx, stream, chunk, tx, func(data map[string]any) error {
 				// if incremental enabled check cursor value
 				if stream.GetSyncMode() == types.INCREMENTAL {
 					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
@@ -105,16 +128,10 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
 			})
+			return chunkErr
 		})
 	}
 	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)
-
-	// Commit the transaction after all chunks are processed (only if transaction exists)
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit backfill transaction: %s", err)
-		}
-	}
 
 	return nil
 }

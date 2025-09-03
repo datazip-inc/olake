@@ -23,7 +23,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
-	
+
 	// Build query for the chunk
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn

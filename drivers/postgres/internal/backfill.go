@@ -19,7 +19,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
-	
+
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
 	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
