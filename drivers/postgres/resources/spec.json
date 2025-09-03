@@ -9,7 +9,8 @@
         "port": {
             "type": "integer",
             "title": "Postgres Port",
-            "description": "Database server listening port"
+            "description": "Database server listening port",
+            "default": 5432
         },
         "database": {
             "type": "string",

@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/spec"
 	"github.com/spf13/cobra"
 )
 
@@ -26,14 +26,14 @@ var specCmd = &cobra.Command{
 		}
 
 		schemaType := utils.Ternary(destinationType == "not-set", connector.Type(), destinationType).(string)
-		uiSchema, err := constants.LoadUISchema(schemaType)
+		uiSchema, err := spec.LoadUISchema(schemaType)
 		if err != nil {
 			return fmt.Errorf("failed to get ui schema: %v", err)
 		}
 
 		specSchema := map[string]interface{}{
-			"spec":     specData,
-			"uischema": uiSchema,
+			"jsonschema": specData,
+			"uischema":   uiSchema,
 		}
 
 		logger.Info(specSchema)

@@ -19,7 +19,8 @@
     "port": {
       "type": "integer",
       "title": "Port",
-      "description": "Database server listening port"
+      "description": "Database server listening port",
+      "default": 1521
     },
     "username": {
       "type": "string",

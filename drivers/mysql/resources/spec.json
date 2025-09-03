@@ -3,7 +3,7 @@
   "properties": {
     "backoff_retry_count": {
       "type": "integer",
-      "title": "Backoff Retry Count",
+      "title": "Retry Count",
       "description": "Number of sync retries (exponential backoff on failure)",
       "default": 3
     },
@@ -33,7 +33,8 @@
     "port": {
       "type": "integer",
       "title": "Port",
-      "description": "Database server listening port"
+      "description": "Database server listening port",
+      "default": 3306
     },
     "tls_skip_verify": {
       "type": "boolean",

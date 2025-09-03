@@ -1,5 +1,5 @@
 // uischema is used to serve the UI specifications of the jsonschema of all the drivers and destinations
-package constants
+package spec
 
 import (
 	"fmt"

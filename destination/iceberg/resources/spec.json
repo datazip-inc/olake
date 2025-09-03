@@ -39,12 +39,12 @@
         },
         "iceberg_db": {
           "type": "string",
-          "title": "Iceberg Database",
+          "title": "Database",
           "description": "Specifies the name of the database to be created in AWS Glue"
         },
         "iceberg_s3_path": {
           "type": "string",
-          "title": "Iceberg S3 Path",
+          "title": "S3 Path",
           "description": "The S3 path or storage location for Iceberg data"
         }
       },
@@ -82,7 +82,7 @@
                 "s3_endpoint": {
                   "type": "string",
                   "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 services (e.g., MinIO)"
+                  "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
                 },
                 "s3_path_style": {
                   "type": "boolean",
@@ -203,7 +203,7 @@
                   "type": "boolean",
                   "default": false,
                   "title": "Disable Identifier Fields",
-                  "description": "Needed to set true for Databricks Unity Catalog as it doesn't support identifier fields"
+                  "description": "To create iceberg table without identifier fields. (Unity catalog only support tables with no identifier)"
                 },
                 "s3_endpoint": {
                   "type": "string",
@@ -219,24 +219,8 @@
               "properties": {
                 "catalog_type": {
                   "const": "glue"
-                },
-                "sink_rpc_server_host": {
-                  "type": "string",
-                  "default": "localhost",
-                  "title": "Server Host",
-                  "description": "Host address of the gRPC server"
-                },
-                "grpc_port": {
-                  "type": "integer",
-                  "default": 50051,
-                  "title": "gRPC Port",
-                  "description": "Port on which the gRPC server listens (mostly 50051)"
                 }
-              },
-              "required": [
-                "sink_rpc_server_host",
-                "grpc_port"
-              ]
+              }
             }
           ]
         }
