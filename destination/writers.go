@@ -229,7 +229,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()
-		newSchema, err := wt.writer.EvolveSchema(flushCtx, threadSchema, wt.streamArtifact.schema)
+		newSchema, err := wt.writer.EvolveSchema(flushCtx, wt.streamArtifact.schema, threadSchema)
 		if err == nil && newSchema != nil {
 			wt.streamArtifact.schema = newSchema
 		}

@@ -80,14 +80,14 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			},
 		}
 
-		resp, err := i.server.sendClientRequest(ctx, &requestPayload)
+		response, err := i.server.sendClientRequest(ctx, &requestPayload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
 
-		schema, err = parseSchema(resp)
+		schema, err = parseSchema(response)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse iceberg schema: %s", err)
+			return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
 		}
 	} else {
 		// set global schema for current thread
@@ -99,7 +99,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	}
 
 	// set schema for current thread
-	i.setSchema(schema)
+	i.schema = copySchema(schema)
 	return schema, nil
 }
 
@@ -135,11 +135,11 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 				}
 				switch field.IceType {
 				case "boolean":
-					boolVal, err := typeutils.ReformatBool(val)
+					boolValue, err := typeutils.ReformatBool(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] as bool value: %s", val, err)
 					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolVal}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolValue}})
 				case "int":
 					intValue, err := typeutils.ReformatInt32(val)
 					if err != nil {
@@ -189,7 +189,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 		return nil
 	}
 
-	req := &proto.IcebergPayload{
+	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: i.stream.Name(),
@@ -204,7 +204,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	defer cancel()
 
 	// Send the batch to the server
-	res, err := i.server.sendClientRequest(reqCtx, req)
+	res, err := i.server.sendClientRequest(reqCtx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send batch: %s", err)
 	}
@@ -234,14 +234,14 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	req := &proto.IcebergPayload{
+	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
 			DestTableName: i.stream.Name(),
 		},
 	}
-	res, err := i.server.sendClientRequest(ctx, req)
+	res, err := i.server.sendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send commit message: %s", err)
 	}
@@ -270,7 +270,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	defer cancel()
 
 	// try to create table
-	req := &proto.IcebergPayload{
+	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
@@ -279,7 +279,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		},
 	}
 
-	res, err := server.sendClientRequest(ctx, req)
+	res, err := server.sendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to create or get table: %s", err)
 	}
@@ -294,7 +294,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
 	}
-	recrodInsertReq := &proto.IcebergPayload{
+	recrodInsertRequest := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
@@ -307,7 +307,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		}},
 	}
 
-	resInsert, err := server.sendClientRequest(ctx, recrodInsertReq)
+	resInsert, err := server.sendClientRequest(ctx, recrodInsertRequest)
 	if err != nil {
 		return fmt.Errorf("failed to insert request: %s", err)
 	}
@@ -322,10 +322,6 @@ func (i *Iceberg) Type() string {
 
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
-	if !i.stream.NormalizationEnabled() {
-		return false, records, i.schema, nil
-	}
-
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
 		// map olakeID -> index of record to keep (index into original slice)
 		keepIdx := make(map[string]int, len(records))
@@ -356,8 +352,10 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return out
 	}
 
-	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
-		newSchema := make(map[string]string)
+	extractSchemaFromRecords := func(records []types.RawRecord) (bool, map[string]string, error) {
+		// create new schema from already available schema
+		recordsSchema := copySchema(i.schema)
+		diffThreadSchema := false
 		for idx, record := range records {
 			// TODO: normalized column names (remove from driver side)
 
@@ -379,42 +377,27 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 				}
 
 				detecteIceType := detectedType.ToIceberg()
-				if typeInNewSchema, exists := newSchema[key]; exists {
-					valid, promote := icebergEvolution(typeInNewSchema, detecteIceType)
+				if typeInNewSchema, exists := recordsSchema[key]; exists {
+					valid := validIcebergType(typeInNewSchema, detecteIceType)
 					if !valid {
-						return nil, fmt.Errorf(
+						return false, nil, fmt.Errorf(
 							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
 							typeInNewSchema, detecteIceType,
 						)
 					}
 
-					if !promote {
-						newSchema[key] = typeInNewSchema
-						continue
+					if promotionRequired(typeInNewSchema, detecteIceType) {
+						recordsSchema[key] = detecteIceType
+						diffThreadSchema = true
 					}
+				} else {
+					diffThreadSchema = true
+					recordsSchema[key] = detecteIceType
 				}
-				newSchema[key] = detecteIceType
 			}
 		}
 
-		return newSchema, nil
-	}
-
-	mergeSchema := func(newSchema map[string]string) map[string]string {
-		for col, typ := range i.schema {
-			newTyp, ok := newSchema[col]
-			if !ok {
-				newSchema[col] = typ
-				continue
-			}
-
-			// if promotion of schema not required, merge it (so evolution will not happen)
-			if _, promotion := icebergEvolution(typ, newTyp); !promotion {
-				// Note: only for int -> long and float -> double
-				newSchema[col] = typ
-			}
-		}
-		return newSchema
+		return diffThreadSchema, recordsSchema, nil
 	}
 
 	// only dedup if it is upsert mode
@@ -422,44 +405,48 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		records = dedupRecords(records)
 	}
 
-	newSchema, err := extractSchemaFromRecords(records)
+	if !i.stream.NormalizationEnabled() {
+		return false, records, i.schema, nil
+	}
+
+	schemaDifference, recordsSchema, err := extractSchemaFromRecords(records)
 	if err != nil {
 		return false, nil, nil, err
 	}
 
-	// merge new schema with existing schema
-	// example case: detected type is int but iceberg table has long (which is valid and evolution should not happen)
-	mergedSchema := mergeSchema(newSchema)
-
-	// check with current thread schema
-	promoteEvolution, err := compareSchema(i.schema, mergedSchema)
-
-	return promoteEvolution, records, mergedSchema, err
+	return schemaDifference, records, recordsSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly
-func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema any) (any, error) {
+func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSchema any) (any, error) {
 	if !i.stream.NormalizationEnabled() {
 		return i.schema, nil
 	}
 
-	logger.Infof("Thread[%s]: schema evolution detected", i.options.ThreadID)
 	globalSchemaMap, ok := globalSchema.(map[string]string)
 	if !ok {
 		return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
 	}
 
-	newSchemaMap, ok := newRawSchema.(map[string]string)
+	recordsSchema, ok := recordsRawSchema.(map[string]string)
 	if !ok {
-		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", newRawSchema)
+		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", recordsRawSchema)
 	}
 
-	// update current thread schema
-	i.setSchema(newSchemaMap)
+	differentSchema := func(oldSchema, newSchema map[string]string) bool {
+		for fieldName, newType := range newSchema {
+			if oldType, exists := oldSchema[fieldName]; !exists {
+				return true
+			} else if promotionRequired(oldType, newType) {
+				return true
+			}
+		}
+		return false
+	}
 
 	// check for identifier fields setting
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
-	req := proto.IcebergPayload{
+	request := proto.IcebergPayload{
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			IdentifierField: &identifierField,
@@ -468,57 +455,62 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, newRawSchema, globalSchema a
 		},
 	}
 
-	// check if table need to be promoted or not
-	if promote, err := compareSchema(globalSchemaMap, newSchemaMap); err != nil {
-		return nil, fmt.Errorf("failed to compare schema: %s", err)
-	} else if !promote {
-		logger.Debugf("Thread[%s]: refreshing table schema", i.options.ThreadID)
-		// Note: schema evolution is detected in thread but not in global schema
-		// So update current thread schema as well as java refresh java writer thread
-		req.Type = proto.IcebergPayload_REFRESH_TABLE_SCHEMA
+	var response string
+	var err error
+	// check if table schema is different from global schema
+	if differentSchema(globalSchemaMap, recordsSchema) {
+		logger.Infof("Thread[%s]: evolving schema in iceberg table", i.options.ThreadID)
+		for field, fieldType := range recordsSchema {
+			request.Metadata.Schema = append(request.Metadata.Schema, &proto.IcebergPayload_SchemaField{
+				Key:     field,
+				IceType: fieldType,
+			})
+		}
 
-		resp, err := i.server.sendClientRequest(ctx, &req)
+		response, err = i.server.sendClientRequest(ctx, &request)
+		if err != nil {
+			return false, fmt.Errorf("failed to evolve schema: %s", err)
+		}
+	} else {
+		logger.Debugf("Thread[%s]: refreshing table schema", i.options.ThreadID)
+		request.Type = proto.IcebergPayload_REFRESH_TABLE_SCHEMA
+		response, err = i.server.sendClientRequest(ctx, &request)
 		if err != nil {
 			return false, fmt.Errorf("failed to refresh schema: %s", err)
 		}
-		logger.Debugf("Thread[%s]: response received after schema refresh: %s", i.options.ThreadID, resp)
-		return globalSchemaMap, nil
 	}
 
-	logger.Infof("Thread[%s]: evolving schema in iceberg table", i.options.ThreadID)
-
-	// configure new schema in
-	var schema []*proto.IcebergPayload_SchemaField
-	for field, fieldType := range newSchemaMap {
-		schema = append(schema, &proto.IcebergPayload_SchemaField{
-			Key:     field,
-			IceType: fieldType,
-		})
-	}
-	req.Metadata.Schema = schema
-
-	resp, err := i.server.sendClientRequest(ctx, &req)
+	// only refresh table schema
+	schemaAfterEvolution, err := parseSchema(response)
 	if err != nil {
-		return false, fmt.Errorf("failed to evolve schema: %s", err)
+		fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
 	}
 
-	logger.Debugf("Thread[%s]: response received after schema evolution: %s", i.options.ThreadID, resp)
-	return newSchemaMap, nil
+	i.schema = copySchema(schemaAfterEvolution)
+	return schemaAfterEvolution, nil
 }
 
-// return if old type can be evolved to new type as well as if promotion required or not
-func icebergEvolution(oldType, newType string) (bool, bool) {
+// return if evolution is valid or not
+func validIcebergType(oldType, newType string) bool {
 	if oldType == newType {
-		return true, false
+		return true
 	}
 
 	switch fmt.Sprintf("%s->%s", oldType, newType) {
-	case "int->long", "float->double":
-		return true, true // Promotion requires evolution
-	case "long->int", "double->float":
-		return true, false // Safe narrowing doesn't require evolution
+	case "int->long", "float->double", "long->int", "double->float":
+		return true
 	default:
-		return false, true
+		return false
+	}
+}
+
+// promotion only required from int -> long and float -> double
+func promotionRequired(oldType, newType string) bool {
+	switch fmt.Sprintf("%s->%s", oldType, newType) {
+	case "int->long", "float->double":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -561,12 +553,12 @@ func (i *Iceberg) DropStreams(_ context.Context, _ []string) error {
 }
 
 // returns a new copy of schema
-func (i *Iceberg) setSchema(schema map[string]string) {
+func copySchema(schema map[string]string) map[string]string {
 	copySchema := make(map[string]string)
 	for key, value := range schema {
 		copySchema[key] = value
 	}
-	i.schema = copySchema
+	return copySchema
 }
 
 func parseSchema(schemaStr string) (map[string]string, error) {
@@ -638,30 +630,6 @@ func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
 		})
 	}
 	return icebergFields
-}
-
-func compareSchema(oldSchema, newSchema map[string]string) (bool, error) {
-	schemaChange := false
-	for fieldName, newType := range newSchema {
-		oldType, exists := oldSchema[fieldName]
-
-		if !exists {
-			schemaChange = true
-			continue
-		}
-
-		validType, promotion := icebergEvolution(oldType, newType)
-		if !validType {
-			return false, fmt.Errorf(
-				"different type detected in schema, old type: %s, new type: %s for field: %s",
-				oldType, newType, fieldName,
-			)
-		}
-
-		schemaChange = promotion || schemaChange
-	}
-
-	return schemaChange, nil
 }
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
