@@ -125,7 +125,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 	return pool, nil
 }
 
-func (w *WriterPool) AddRecordsToSync(count int64) {
+func (w *WriterPool) AddRecordsToSyncStats(count int64) {
 	// go routine to avoid atomic bottlenecks
 	go w.stats.TotalRecordsToSync.Add(count)
 }

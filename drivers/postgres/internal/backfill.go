@@ -54,7 +54,7 @@ func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterP
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
-	pool.AddRecordsToSync(approxRowCount)
+	pool.AddRecordsToSyncStats(approxRowCount)
 	return p.splitTableIntoChunks(stream)
 }
 
