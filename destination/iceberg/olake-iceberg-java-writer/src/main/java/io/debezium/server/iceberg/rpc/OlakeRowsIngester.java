@@ -88,6 +88,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 
                 case REFRESH_TABLE_SCHEMA:
                     this.icebergTable.refresh();
+                    // complete current writer 
+                    icebergTableOperator.completeWriter();
                     sendResponse(responseObserver, this.icebergTable.schema().toString());
                     break;
 
