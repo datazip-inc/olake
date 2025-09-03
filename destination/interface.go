@@ -30,7 +30,7 @@ type Writer interface {
 	FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error)
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
-	EvolveSchema(ctx context.Context, schema any, globalSchema any) (any, error)
+	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
 	// DropStreams is used to clear the destination before re-writing the stream
 	DropStreams(ctx context.Context, selectedStream []string) error
 	Close(ctx context.Context) error

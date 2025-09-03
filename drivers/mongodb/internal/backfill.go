@@ -69,7 +69,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
-	pool.AddRecordsToSync(recordCount)
+	pool.AddRecordsToSyncStats(recordCount)
 
 	// check for _id type
 	isObjID, err := isObjectID(ctx, collection)

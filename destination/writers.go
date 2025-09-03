@@ -125,7 +125,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 	return pool, nil
 }
 
-func (w *WriterPool) AddRecordsToSync(count int64) {
+func (w *WriterPool) AddRecordsToSyncStats(count int64) {
 	// go routine to avoid atomic bottlenecks
 	go w.stats.TotalRecordsToSync.Add(count)
 }
@@ -229,7 +229,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()
-		newSchema, err := wt.writer.EvolveSchema(flushCtx, threadSchema, wt.streamArtifact.schema)
+		newSchema, err := wt.writer.EvolveSchema(flushCtx, wt.streamArtifact.schema, threadSchema)
 		if err == nil && newSchema != nil {
 			wt.streamArtifact.schema = newSchema
 		}
