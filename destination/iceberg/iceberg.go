@@ -380,23 +380,23 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					continue
 				}
 
-				detecteIceType := detectedType.ToIceberg()
+				detectedIcebergType := detectedType.ToIceberg()
 				if typeInNewSchema, exists := recordsSchema[key]; exists {
-					valid := validIcebergType(typeInNewSchema, detecteIceType)
+					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
 					if !valid {
 						return false, nil, fmt.Errorf(
 							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
-							typeInNewSchema, detecteIceType,
+							typeInNewSchema, detectedIcebergType,
 						)
 					}
 
-					if promotionRequired(typeInNewSchema, detecteIceType) {
-						recordsSchema[key] = detecteIceType
+					if promotionRequired(typeInNewSchema, detectedIcebergType) {
+						recordsSchema[key] = detectedIcebergType
 						diffThreadSchema = true
 					}
 				} else {
 					diffThreadSchema = true
-					recordsSchema[key] = detecteIceType
+					recordsSchema[key] = detectedIcebergType
 				}
 			}
 		}
@@ -484,7 +484,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	// only refresh table schema
 	schemaAfterEvolution, err := parseSchema(response)
 	if err != nil {
-		fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
+		return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
 	}
 
 	i.schema = copySchema(schemaAfterEvolution)
