@@ -260,11 +260,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
 
-	// to close client properly
 	i.server = server
-	defer func() {
-		i.Close(ctx)
-	}()
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -483,7 +479,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	// only refresh table schema
 	schemaAfterEvolution, err := parseSchema(response)
 	if err != nil {
-		fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
+		return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
 	}
 
 	i.schema = copySchema(schemaAfterEvolution)
@@ -538,17 +534,58 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	return nil
 }
 
-func (i *Iceberg) DropStreams(_ context.Context, _ []string) error {
-	logger.Info("iceberg destination not support clear destination, skipping clear operation")
+// drop streams required for clear destination -> deduplication
+func (i *Iceberg) DropStreams(ctx context.Context, selectedStreams []string) error {
+	if len(selectedStreams) == 0 {
+		logger.Info("No streams selected for clearing Iceberg destination, skipping operation")
+		return nil
+	}
 
-	// logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+	// to close client properly
+	defer func() {
+		i.Close(ctx)
+	}()
 
-	// TODO: Implement Iceberg table clearing logic
-	// 1. Connect to the Iceberg catalog
-	// 2. Use Iceberg's delete API or drop/recreate the table
-	// 3. Handle any Iceberg-specific cleanup
+	logger.Infof("Starting Clear Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
 
-	// logger.Info("Successfully cleared Iceberg destination for selected streams")
+	// process each stream
+	for _, streamID := range selectedStreams {
+		parts := strings.SplitN(streamID, ".", 2)
+		if len(parts) != 2 {
+			logger.Warnf("Invalid stream identifier: %s, skipping", streamID)
+			continue
+		}
+
+		namespace, tableName := parts[0], parts[1]
+		if namespace == "" {
+			namespace = i.config.IcebergDatabase
+		}
+
+		logger.Infof("Dropping Iceberg table: %s.%s", namespace, tableName)
+
+		request := proto.IcebergPayload{
+			Type: proto.IcebergPayload_DROP_TABLE,
+			Metadata: &proto.IcebergPayload_Metadata{
+				DestTableName: tableName,
+				ThreadId:      i.server.serverID,
+			},
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+		_, err := i.server.sendClientRequest(ctx, &request)
+		cancel()
+
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				logger.Infof("Table %s.%s does not exist, skipping drop", namespace, tableName)
+				continue
+			}
+			return fmt.Errorf("failed to drop table %s.%s: %s", namespace, tableName, err)
+		}
+		logger.Infof("Successfully dropped Iceberg table: %s.%s", namespace, tableName)
+	}
+
+	logger.Info("Successfully cleared Iceberg destination for selected streams")
 	return nil
 }
 
