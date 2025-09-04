@@ -57,10 +57,12 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			if isParallelChangeStream(a.driver.Type()) {
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-					inserter, err := pool.NewWriter(ctx, streams[index])
+					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
+					inserter, err := pool.NewWriter(ctx, streams[index], destination.WithThreadID(threadID))
 					if err != nil {
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
 					}
+					logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, streams[index].ID())
 					defer func() {
 						if threadErr := inserter.Close(ctx); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
@@ -75,6 +77,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
+
+						if err != nil {
+							err = fmt.Errorf("thread[%s]: %s", threadID, err)
+						}
 					}()
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 						return a.driver.StreamChanges(ctx, streams[index], func(ctx context.Context, change CDCChange) error {
@@ -84,7 +90,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 								utils.GetKeysHash(change.Data, pkFields...),
 								change.Data,
 								opType,
-								&change.Timestamp.Time,
+								&change.Timestamp,
 							))
 						})
 					})
@@ -101,9 +107,13 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream
-		inserters := make(map[types.StreamInterface]*destination.ThreadEvent)
+		inserters := make(map[types.StreamInterface]*destination.WriterThread)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
-			inserters[stream], err = pool.NewWriter(ctx, stream)
+			threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+			inserters[stream], err = pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+			if err != nil {
+				logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, stream.ID())
+			}
 			return err
 		})
 		if err != nil {
@@ -134,7 +144,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					utils.GetKeysHash(change.Data, pkFields...),
 					change.Data,
 					opType,
-					&change.Timestamp.Time,
+					&change.Timestamp,
 				))
 			})
 		})

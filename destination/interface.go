@@ -23,14 +23,14 @@ type Writer interface {
 	Check(ctx context.Context) error
 	// Setup sets up an Adapter for dedicated use for a stream
 	// avoiding the headover for different streams
-	Setup(ctx context.Context, stream types.StreamInterface, createOrLoadSchema bool, opts *Options) (any, error)
+	Setup(ctx context.Context, stream types.StreamInterface, schema any, opts *Options) (any, error)
 	// Write function being used by drivers
-	Write(ctx context.Context, schema any, record []types.RawRecord) error
-	// flatten data and validates past schema
-	FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error)
+	Write(ctx context.Context, record []types.RawRecord) error
+	// flatten data and validates thread schema (return true if thread schema is different w.r.t records)
+	FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error)
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
-	EvolveSchema(ctx context.Context, newSchema any) error
+	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
 	// DropStreams is used to clear the destination before re-writing the stream
 	DropStreams(ctx context.Context, selectedStream []string) error
 	Close(ctx context.Context) error

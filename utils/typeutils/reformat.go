@@ -126,7 +126,7 @@ func ReformatBool(v interface{}) (bool, error) {
 		case 1:
 			return true, nil
 		case 0:
-			return true, nil
+			return false, nil
 		default:
 			return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 		}

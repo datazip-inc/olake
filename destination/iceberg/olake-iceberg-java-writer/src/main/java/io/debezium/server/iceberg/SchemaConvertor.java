@@ -13,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
@@ -25,14 +24,14 @@ import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 
 public class SchemaConvertor {
   private final List<RecordIngest.IcebergPayload.SchemaField> schemaMetadata;
-  private final String primaryKey;
+  private final String identifierField;
   protected static final Logger LOGGER = LoggerFactory.getLogger(SchemaConvertor.class);
 
   public static final List<String> TS_MS_FIELDS = List.of("_olake_timestamp", "_cdc_timestamp");
 
   public SchemaConvertor(String pk, List<RecordIngest.IcebergPayload.SchemaField> schema) {
     schemaMetadata = schema;
-    primaryKey = pk;
+    identifierField = pk;
   }
 
   // currently implemented for primitive fields only
@@ -41,7 +40,7 @@ public class SchemaConvertor {
     for(RecordIngest.IcebergPayload.SchemaField rawField :  schemaMetadata){
       String fieldName = rawField.getKey(); // field name 
       String fieldType = rawField.getIceType();
-      Boolean isPkField = (fieldName.equals(primaryKey));
+      Boolean isPkField = (fieldName.equals(identifierField));
       final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
       schemaData.fields().add(field);
       if (isPkField) schemaData.identifierFieldIds().add(field.fieldId());
@@ -57,14 +56,8 @@ public class SchemaConvertor {
           String fieldName = rawField.getKey(); // or whatever method gives the field name
           fieldNameToIndexMap.put(fieldName, index); // Map field name → index
       }
-      // Pre-size the array list to avoid resizing
-      List<RecordWrapper> result = new ArrayList<>(records.size());
       
-      StructType tableFields = tableSchema.asStruct();
-      for (IceRecord data : records) {
-          result.add(convertRecord(upsert, fieldNameToIndexMap, data, tableFields));
-      }
-      return result;
+      return records.parallelStream().map(data -> convertRecord(upsert, fieldNameToIndexMap, data, tableSchema.asStruct())).toList();
   }
 
   private RecordWrapper convertRecord(Boolean upsert, Map<String, Integer> fieldNameToIndexMap, IceRecord data, StructType tableFields) {
@@ -106,22 +99,30 @@ public class SchemaConvertor {
       if (value == null) {
           return null;
       }
+      // NOTE: for conversion related json code (How we do previously for UUID, Map, Struct etc.) check: olake code on or before version v0.1.11
       try {
           switch (field.type().typeId()) {
               case INTEGER:
-                  return value.getIntValue();
+                  if (value.hasIntValue())  return value.getIntValue();
+                  return null;
               case LONG:
-                  return value.getLongValue();
+                  if (value.hasLongValue())  return value.getLongValue();
+                  return null;
               case FLOAT:
-                  return value.getFloatValue();
+                  if (value.hasFloatValue()) return value.getFloatValue();
+                  return null;
               case DOUBLE:
-                  return value.getDoubleValue();
+                  if (value.hasDoubleValue()) return value.getDoubleValue();
+                  return null;
               case BOOLEAN:
-                  return value.getBoolValue();
+                  if (value.hasBoolValue()) return value.getBoolValue();
+                  return null;
               case STRING,UUID:
-                  return value.getStringValue();
+                  if (value.hasStringValue()) return value.getStringValue();
+                  return null;
               case TIMESTAMP:
-                  return OffsetDateTime.ofInstant(Instant.ofEpochMilli(value.getLongValue()), ZoneOffset.UTC);
+                  if (value.hasLongValue()) return OffsetDateTime.ofInstant(Instant.ofEpochMilli(value.getLongValue()), ZoneOffset.UTC);
+                  return null;
               default:
                   return value;
           }

@@ -4,17 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 type CDCChange struct {
 	Stream    types.StreamInterface
-	Timestamp typeutils.Time
+	Timestamp time.Time
 	Kind      string
 	Data      map[string]interface{}
 }
@@ -63,15 +63,12 @@ func (a *AbstractDriver) GetSourceDatabase() string {
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	discoverCtx, cancel := context.WithTimeout(ctx, constants.DefaultDiscoverTimeout)
-	defer cancel()
-
 	// set max connections
 	if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(discoverCtx, a.driver.MaxConnections())
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	streams, err := a.driver.GetStreamNames(discoverCtx)
+	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
 	}
@@ -101,7 +98,6 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			convStream.UpsertField(column, typ, true)
 		}
 
-		// Add CDC columns if supported
 		if a.driver.CDCSupported() {
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC

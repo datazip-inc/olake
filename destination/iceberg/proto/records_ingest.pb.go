@@ -24,11 +24,12 @@ const (
 type IcebergPayload_PayloadType int32
 
 const (
-	IcebergPayload_RECORDS             IcebergPayload_PayloadType = 0
-	IcebergPayload_COMMIT              IcebergPayload_PayloadType = 1
-	IcebergPayload_EVOLVE_SCHEMA       IcebergPayload_PayloadType = 2
-	IcebergPayload_DROP_TABLE          IcebergPayload_PayloadType = 3
-	IcebergPayload_GET_OR_CREATE_TABLE IcebergPayload_PayloadType = 4
+	IcebergPayload_RECORDS              IcebergPayload_PayloadType = 0
+	IcebergPayload_COMMIT               IcebergPayload_PayloadType = 1
+	IcebergPayload_EVOLVE_SCHEMA        IcebergPayload_PayloadType = 2
+	IcebergPayload_DROP_TABLE           IcebergPayload_PayloadType = 3
+	IcebergPayload_GET_OR_CREATE_TABLE  IcebergPayload_PayloadType = 4
+	IcebergPayload_REFRESH_TABLE_SCHEMA IcebergPayload_PayloadType = 5
 )
 
 // Enum value maps for IcebergPayload_PayloadType.
@@ -39,13 +40,15 @@ var (
 		2: "EVOLVE_SCHEMA",
 		3: "DROP_TABLE",
 		4: "GET_OR_CREATE_TABLE",
+		5: "REFRESH_TABLE_SCHEMA",
 	}
 	IcebergPayload_PayloadType_value = map[string]int32{
-		"RECORDS":             0,
-		"COMMIT":              1,
-		"EVOLVE_SCHEMA":       2,
-		"DROP_TABLE":          3,
-		"GET_OR_CREATE_TABLE": 4,
+		"RECORDS":              0,
+		"COMMIT":               1,
+		"EVOLVE_SCHEMA":        2,
+		"DROP_TABLE":           3,
+		"GET_OR_CREATE_TABLE":  4,
+		"REFRESH_TABLE_SCHEMA": 5,
 	}
 )
 
@@ -189,13 +192,13 @@ func (x *RecordIngestResponse) GetSuccess() bool {
 }
 
 type IcebergPayload_Metadata struct {
-	state         protoimpl.MessageState        `protogen:"open.v1"`
-	DestTableName string                        `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
-	ThreadId      string                        `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	PrimaryKey    *string                       `protobuf:"bytes,3,opt,name=primary_key,json=primaryKey,proto3,oneof" json:"primary_key,omitempty"`
-	Schema        []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState        `protogen:"open.v1"`
+	DestTableName   string                        `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
+	ThreadId        string                        `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	IdentifierField *string                       `protobuf:"bytes,3,opt,name=identifier_field,json=identifierField,proto3,oneof" json:"identifier_field,omitempty"`
+	Schema          []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *IcebergPayload_Metadata) Reset() {
@@ -242,9 +245,9 @@ func (x *IcebergPayload_Metadata) GetThreadId() string {
 	return ""
 }
 
-func (x *IcebergPayload_Metadata) GetPrimaryKey() string {
-	if x != nil && x.PrimaryKey != nil {
-		return *x.PrimaryKey
+func (x *IcebergPayload_Metadata) GetIdentifierField() string {
+	if x != nil && x.IdentifierField != nil {
+		return *x.IdentifierField
 	}
 	return ""
 }
@@ -532,18 +535,17 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\x9a\b\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xc3\b\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
-	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xd9\x01\n" +
+	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xe8\x01\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
-	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12$\n" +
-	"\vprimary_key\x18\x03 \x01(\tH\x00R\n" +
-	"primaryKey\x88\x01\x01\x12R\n" +
-	"\x06schema\x18\x04 \x03(\v2:.io.debezium.server.iceberg.rpc.IcebergPayload.SchemaFieldR\x06schemaB\x0e\n" +
-	"\f_primary_key\x1a:\n" +
+	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12.\n" +
+	"\x10identifier_field\x18\x03 \x01(\tH\x00R\x0fidentifierField\x88\x01\x01\x12R\n" +
+	"\x06schema\x18\x04 \x03(\v2:.io.debezium.server.iceberg.rpc.IcebergPayload.SchemaFieldR\x06schemaB\x13\n" +
+	"\x11_identifier_field\x1a:\n" +
 	"\vSchemaField\x12\x19\n" +
 	"\bice_type\x18\x01 \x01(\tR\aiceType\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x1a\x92\x03\n" +
@@ -564,7 +566,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
 	"bytesValueB\a\n" +
-	"\x05value\"b\n" +
+	"\x05value\"|\n" +
 	"\vPayloadType\x12\v\n" +
 	"\aRECORDS\x10\x00\x12\n" +
 	"\n" +
@@ -572,7 +574,8 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\rEVOLVE_SCHEMA\x10\x02\x12\x0e\n" +
 	"\n" +
 	"DROP_TABLE\x10\x03\x12\x17\n" +
-	"\x13GET_OR_CREATE_TABLE\x10\x04\"H\n" +
+	"\x13GET_OR_CREATE_TABLE\x10\x04\x12\x18\n" +
+	"\x14REFRESH_TABLE_SCHEMA\x10\x05\"H\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess2\x8a\x01\n" +

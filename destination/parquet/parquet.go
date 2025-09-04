@@ -39,6 +39,7 @@ type Parquet struct {
 	basePath         string                   // construct with streamNamespace/streamName
 	partitionedFiles map[string]*FileMetadata // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
+	schema           typeutils.Fields
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -96,9 +97,9 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(), pqgo.Compression(&pqgo.Snappy), pqgo.MaxRowsPerRowGroup(10000))
+			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy), pqgo.MaxRowsPerRowGroup(10000))
+		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
@@ -107,15 +108,18 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		writer:   writer,
 	}
 
+	logger.Infof("Thread[%s]: created new partition file[%s]", p.options.ThreadID, filePath)
 	return nil
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, createOrLoadSchema bool, options *destination.Options) (any, error) {
+func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string]*FileMetadata)
 	p.basePath = filepath.Join(utils.Ternary(p.stream.Self().StreamMetadata.TargetDatabase != "", p.stream.Self().StreamMetadata.TargetDatabase, p.stream.Namespace()).(string), utils.Ternary(p.stream.Self().StreamMetadata.TargetTable != "", p.stream.Self().StreamMetadata.TargetTable, p.stream.Name()).(string))
+	p.schema = make(typeutils.Fields)
+
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
 		p.config.Path = os.TempDir()
@@ -126,17 +130,27 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, createO
 		return nil, err
 	}
 
-	if createOrLoadSchema && p.stream.NormalizationEnabled() {
-		fields := make(typeutils.Fields)
-		fields.FromSchema(stream.Schema())
+	if !p.stream.NormalizationEnabled() {
+		return p.schema, nil
+	}
+
+	if schema != nil {
+		fields, ok := schema.(typeutils.Fields)
+		if !ok {
+			return nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
+		}
+		p.schema = fields.Clone()
 		return fields, nil
 	}
-	// note: calling function variable only update if createOrLoadSchema is true
-	return types.RawSchema, nil
+
+	fields := make(typeutils.Fields)
+	fields.FromSchema(stream.Schema())
+	p.schema = fields.Clone() // update schema
+	return fields, nil
 }
 
 // Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) error {
+func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
@@ -170,6 +184,10 @@ func (p *Parquet) Write(_ context.Context, _ any, records []types.RawRecord) err
 
 // Check validates local paths and S3 credentials if applicable.
 func (p *Parquet) Check(_ context.Context) error {
+	p.options = &destination.Options{
+		ThreadID: "test_parquet_destination",
+	}
+
 	// check for s3 writer configuration
 	err := p.initS3Writer()
 	if err != nil {
@@ -190,9 +208,9 @@ func (p *Parquet) Check(_ context.Context) error {
 		p.config.Path = os.TempDir()
 		// trim '/' from prefix path
 		p.config.Prefix = strings.Trim(p.config.Prefix, "/")
-		logger.Info("s3 writer configuration found")
+		logger.Infof("Thread[%s]: s3 writer configuration found", p.options.ThreadID)
 	} else if p.config.Path != "" {
-		logger.Infof("local writer configuration found, writing at location[%s]", p.config.Path)
+		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
 	} else {
 		return fmt.Errorf("invalid configuration found")
 	}
@@ -212,14 +230,14 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) Close(_ context.Context) error {
+func (p *Parquet) closePqFiles() error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
-			logger.Warnf("Failed to delete file [%s], reason (%s): %s", filePath, reason, err)
+			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (%s): %s", p.options.ThreadID, filePath, reason, err)
 			return
 		}
-		logger.Debugf("Deleted file [%s], reason (%s).", filePath, reason)
+		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
 	}
 
 	for basePath, parquetFile := range p.partitionedFiles {
@@ -242,7 +260,7 @@ func (p *Parquet) Close(_ context.Context) error {
 			return fmt.Errorf("failed to close file: %s", err)
 		}
 
-		logger.Infof("Finished writing file [%s].", filePath)
+		logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, filePath)
 
 		if p.s3Client != nil {
 			// Open file for S3 upload
@@ -271,7 +289,7 @@ func (p *Parquet) Close(_ context.Context) error {
 
 			// Remove local file after successful upload
 			removeLocalFile(filePath, "uploaded to S3")
-			logger.Infof("Successfully uploaded file to S3: s3://%s/%s", p.config.Bucket, s3KeyPath)
+			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3KeyPath)
 		}
 	}
 	// make map empty
@@ -279,15 +297,14 @@ func (p *Parquet) Close(_ context.Context) error {
 	return nil
 }
 
-// validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord) (bool, any, error) {
-	if !p.stream.NormalizationEnabled() {
-		return false, nil, nil
-	}
+func (p *Parquet) Close(_ context.Context) error {
+	return p.closePqFiles()
+}
 
-	schema, ok := pastSchema.(typeutils.Fields)
-	if !ok {
-		return false, nil, fmt.Errorf("failed to typecast schema[%T] into (typeutils.Fields)", pastSchema)
+// validate schema change & evolution and removes null records
+func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+	if !p.stream.NormalizationEnabled() {
+		return false, records, nil, nil
 	}
 
 	schemaChange := false
@@ -297,40 +314,38 @@ func (p *Parquet) FlattenAndCleanData(pastSchema any, records []types.RawRecord)
 		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
 		records[idx].Data[constants.OpType] = record.OperationType
 		if record.CdcTimestamp != nil {
-			records[idx].Data[constants.CdcTimestamp] = record.CdcTimestamp
+			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
 
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
 		}
-		change, typeChange, _ := schema.Process(flattenedRecord)
-		schemaChange = schemaChange || change || typeChange
-		err = typeutils.ReformatRecord(schema, flattenedRecord)
+
+		// just process the changes and upgrade new schema
+		change, typeChange, _ := p.schema.Process(flattenedRecord)
+		schemaChange = change || typeChange || schemaChange
+		err = typeutils.ReformatRecord(p.schema, flattenedRecord)
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to reformat records: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 		}
 		records[idx].Data = flattenedRecord // use idx to update slice record
 	}
 
-	return schemaChange, schema, nil
+	return schemaChange, records, p.schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
-func (p *Parquet) EvolveSchema(ctx context.Context, newSchema any) error {
+func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return nil
+		return false, nil
 	}
-	// override new schema in streams
-	newFieldSchema, ok := newSchema.(typeutils.Fields)
-	if !ok {
-		return fmt.Errorf("failed to typecast new field schema[%T] into (typeutils.Fields)", newFieldSchema)
-	}
-	p.stream.Schema().Override(newFieldSchema.ToProperties())
+
+	logger.Infof("Thread[%s]: schema evolution detected", p.options.ThreadID)
 
 	// TODO: can we implement something https://github.com/parquet-go/parquet-go?tab=readme-ov-file#evolving-parquet-schemas-parquetconvert
 	// close prev files as change detected (new files will be created with new schema)
-	return p.Close(ctx)
+	return p.schema.Clone(), p.closePqFiles()
 }
 
 // Type returns the type of the writer.
@@ -384,7 +399,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 						}
 					}
 				} else {
-					logger.Debugf("Failed to convert value to timestamp: %s", err)
+					logger.Debugf("Thread[%s]: failed to convert value to timestamp: %s", p.options.ThreadID, err)
 				}
 			}
 			return fmt.Sprintf("%v", value)
@@ -408,11 +423,11 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 
 func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) error {
 	if len(selectedStreams) == 0 {
-		logger.Info("No streams selected for clearing, skipping clear operation")
+		logger.Infof("Thread[%s]: no streams selected for clearing, skipping clear operation", p.options.ThreadID)
 		return nil
 	}
 
-	logger.Infof("Clearing destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+	logger.Infof("Thread[%s]: clearing destination for %d selected streams: %v", p.options.ThreadID, len(selectedStreams), selectedStreams)
 
 	if p.s3Client == nil {
 		if err := p.clearLocalFiles(selectedStreams); err != nil {
@@ -424,7 +439,7 @@ func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) err
 		}
 	}
 
-	logger.Info("Successfully cleared destination for selected streams")
+	logger.Infof("Thread[%s]: successfully cleared destination for selected streams", p.options.ThreadID)
 	return nil
 }
 
@@ -432,17 +447,17 @@ func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
 	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
-			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
 			continue
 		}
 
 		namespace, streamName := parts[0], parts[1]
 		streamPath := filepath.Join(p.config.Path, namespace, streamName)
 
-		logger.Infof("Clearing local path: %s", streamPath)
+		logger.Infof("Thread[%s]: clearing local path: %s", p.options.ThreadID, streamPath)
 
 		if _, err := os.Stat(streamPath); os.IsNotExist(err) {
-			logger.Debugf("Local path does not exist, skipping: %s", streamPath)
+			logger.Debugf("Thread[%s]: local path does not exist, skipping: %s", p.options.ThreadID, streamPath)
 			continue
 		}
 
@@ -450,7 +465,7 @@ func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
 			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
 		}
 
-		logger.Debugf("Successfully cleared local path: %s", streamPath)
+		logger.Debugf("Thread[%s]: successfully cleared local path: %s", p.options.ThreadID, streamPath)
 	}
 
 	return nil
@@ -472,18 +487,18 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 	for _, streamID := range selectedStreams {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
-			logger.Warnf("Invalid stream ID format: %s, skipping", streamID)
+			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
 			continue
 		}
 
 		namespace, streamName := parts[0], parts[1]
 		s3TablePath := filepath.Join(p.config.Prefix, namespace, streamName, "/")
-		logger.Debugf("Clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
+		logger.Debugf("Thread[%s]: clearing S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
 		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
 			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
 		}
 
-		logger.Debugf("Successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
+		logger.Debugf("Thread[%s]: successfully cleared S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
 	}
 	return nil
 }

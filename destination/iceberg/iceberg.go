@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -22,8 +21,9 @@ type Iceberg struct {
 	options       *destination.Options
 	config        *Config
 	stream        types.StreamInterface
-	partitionInfo []PartitionInfo // ordered slice to preserve partition column order
-	server        *serverInstance // java server instance
+	partitionInfo []PartitionInfo   // ordered slice to preserve partition column order
+	server        *serverInstance   // java server instance
+	schema        map[string]string // schema for current thread associated with java writer (col -> type)
 }
 
 // PartitionInfo represents a Iceberg partition column with its transform, preserving order
@@ -41,11 +41,11 @@ func (i *Iceberg) Spec() any {
 	return Config{}
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, createOrLoadSchema bool, options *destination.Options) (any, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]PartitionInfo, 0)
-
+	i.schema = make(map[string]string)
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
 	if partitionRegex != "" {
@@ -55,8 +55,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 		}
 	}
 
-	upsertMode := utils.Ternary(i.stream.Self().StreamMetadata.AppendMode, false, !options.Backfill).(bool)
-	server, err := newIcebergClient(i.config, i.partitionInfo, false, upsertMode, i.stream.Self().StreamMetadata.TargetDatabase)
+	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.Self().StreamMetadata.TargetDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
@@ -65,9 +64,10 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 	i.server = server
 
 	// check for identifier fields setting
-	primaryKey := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	var schema map[string]string
 
-	if createOrLoadSchema {
+	if globalSchema == nil {
 		if !utils.IsValidIdentifier(i.stream.Name()) {
 			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Name(), i.stream.Self().StreamMetadata.TargetTable)
 		}
@@ -76,61 +76,43 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, creat
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:        iceSchema,
-				DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
-				ThreadId:      i.server.serverID,
-				PrimaryKey:    &primaryKey,
+				Schema:          iceSchema,
+				DestTableName:   utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
+				ThreadId:        i.server.serverID,
+				IdentifierField: &identifierField,
 			},
 		}
 
-		resp, err := i.server.sendClientRequest(ctx, &requestPayload)
+		response, err := i.server.sendClientRequest(ctx, &requestPayload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
-		return parseSchema(resp)
+
+		schema, err = parseSchema(response)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
+		}
+	} else {
+		// set global schema for current thread
+		var ok bool
+		schema, ok = globalSchema.(map[string]string)
+		if !ok {
+			return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+		}
 	}
-	// note: calling function variable only update if createOrLoadSchema is true
-	return icebergRawSchema(), nil
+
+	// set schema for current thread
+	i.schema = copySchema(schema)
+	return schema, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
-func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawRecord) error {
-	schemaMap, ok := schema.(map[string]string)
-	if !ok {
-		return fmt.Errorf("failed to convert schema map[%T] to map[string]string", schema)
-	}
-
-	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(schemaMap))
-	for field, dType := range schemaMap {
+func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
+	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(i.schema))
+	for field, dType := range i.schema {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
 			Key:     field,
 			IceType: dType,
-		})
-	}
-
-	if len(i.partitionInfo) > 0 {
-		// sort record based on partition order
-		sort.Slice(records, func(idx, jdx int) bool {
-			iRecord := records[idx].Data
-			jRecord := records[jdx].Data
-
-			for _, partition := range i.partitionInfo {
-				iField, iOk := iRecord[partition.field]
-				jField, jOk := jRecord[partition.field]
-
-				if !iOk && !jOk {
-					continue // i == j
-				} else if !iOk {
-					return true // i < j
-				} else if !jOk {
-					return false // i > j
-				}
-
-				if cmp := utils.CompareInterfaceValue(iField, jField); cmp != 0 {
-					return cmp == -1 // i < j
-				}
-			}
-			return true // i == j
 		})
 	}
 
@@ -140,77 +122,77 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 			continue
 		}
 
-		protoColumns := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
+		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 		if !i.stream.NormalizationEnabled() {
 			protoCols, err := rawDataColumnBuffer(record, protoSchema)
 			if err != nil {
-				return fmt.Errorf("failed to create raw data column buffer")
+				return fmt.Errorf("failed to create raw data column buffer: %s", err)
 			}
-			protoColumns = protoCols
+			protoColumnsValue = protoCols
 		} else {
 			for _, field := range protoSchema {
-				val, ok := record.Data[field.Key]
-				if !ok {
-					protoColumns = append(protoColumns, nil)
+				val, exist := record.Data[field.Key]
+				if !exist {
+					protoColumnsValue = append(protoColumnsValue, nil)
 					continue
 				}
 				switch field.IceType {
 				case "boolean":
-					boolVal, err := typeutils.ReformatBool(val)
+					boolValue, err := typeutils.ReformatBool(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] as bool value: %s", val, err)
 					}
-					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolVal}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolValue}})
 				case "int":
 					intValue, err := typeutils.ReformatInt32(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as int32 value: %s", val, val, err)
 					}
-					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: intValue}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: intValue}})
 				case "long":
 					longValue, err := typeutils.ReformatInt64(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as long value: %s", val, val, err)
 					}
-					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: longValue}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: longValue}})
 				case "float":
 					floatValue, err := typeutils.ReformatFloat32(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float32 value: %s", val, val, err)
 					}
-					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: floatValue}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: floatValue}})
 				case "double":
 					doubleValue, err := typeutils.ReformatFloat64(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float64 value: %s", val, val, err)
 					}
-					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}})
 				case "timestamptz":
 					timeValue, err := typeutils.ReformatDate(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as time value: %s", val, val, err)
 					}
-					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: timeValue.UnixMilli()}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: timeValue.UnixMilli()}})
 				default:
-					protoColumns = append(protoColumns, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", val)}})
+					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", val)}})
 				}
 			}
 		}
 
-		if len(protoColumns) > 0 {
+		if len(protoColumnsValue) > 0 {
 			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
-				Fields:     protoColumns,
+				Fields:     protoColumnsValue,
 				RecordType: record.OperationType,
 			})
 		}
 	}
 
 	if len(protoRecords) == 0 {
-		logger.Debug("no record found in batch")
+		logger.Debugf("Thread[%s]: no record found in batch", i.options.ThreadID)
 		return nil
 	}
 
-	req := &proto.IcebergPayload{
+	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
@@ -221,17 +203,16 @@ func (i *Iceberg) Write(ctx context.Context, schema any, records []types.RawReco
 	}
 
 	// Send to gRPC server with timeout
-	reqCtx, cancel := context.WithTimeout(ctx, 1000*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	// Send the batch to the server
-	res, err := i.server.sendClientRequest(reqCtx, req)
+	res, err := i.server.sendClientRequest(reqCtx, request)
 	if err != nil {
-		logger.Errorf("failed to send batch: %s", err)
-		return err
+		return fmt.Errorf("failed to send batch: %s", err)
 	}
 
-	logger.Infof("Sent batch to Iceberg server, response: %s", res)
+	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", i.options.ThreadID, res)
 	return nil
 }
 
@@ -241,42 +222,49 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		if i.server == nil {
 			return
 		}
-		err := i.server.closeIcebergClient(i.server)
+		err := i.server.closeIcebergClient()
 		if err != nil {
-			logger.Errorf("thread id %s: Error closing Iceberg client: %s", i.server.serverID, err)
+			logger.Errorf("Thread[%s]: error closing Iceberg client: %s", i.options.ThreadID, err)
 		}
 	}()
-	if ctx.Err() != nil {
+
+	if i.stream == nil {
+		// for check connection no commit will happen
 		return nil
 	}
+
 	// Send commit request for this thread using a special message format
-	ctx, cancel := context.WithTimeout(ctx, 1000*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	req := &proto.IcebergPayload{
+	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
 			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
 		},
 	}
-	res, err := i.server.sendClientRequest(ctx, req)
+	res, err := i.server.sendClientRequest(ctx, request)
 	if err != nil {
-		logger.Errorf("thread id %s: Error sending commit message on close: %s", i.server.serverID, err)
-		return fmt.Errorf("thread id %s: failed to send commit message: %s", i.server.serverID, err)
+		return fmt.Errorf("failed to send commit message: %s", err)
 	}
 
-	logger.Infof("thread id %s: Sent commit message: %s", i.server.serverID, res)
+	logger.Debugf("Thread[%s]: Sent commit message: %s", i.options.ThreadID, res)
 	return nil
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
+	i.options = &destination.Options{
+		ThreadID: "test_iceberg_destination",
+	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, true, false, "test_olake")
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
-	i.server = server // to close properly
+
+	// to close client properly
+	i.server = server
 	defer func() {
 		i.Close(ctx)
 	}()
@@ -285,7 +273,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	defer cancel()
 
 	// try to create table
-	req := &proto.IcebergPayload{
+	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
@@ -294,11 +282,12 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		},
 	}
 
-	res, err := server.sendClientRequest(ctx, req)
+	res, err := server.sendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to create or get table: %s", err)
 	}
-	logger.Infof("table created or loaded test olake: %s", res)
+
+	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.options.ThreadID, res)
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
@@ -308,7 +297,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
 	}
-	recrodInsertReq := &proto.IcebergPayload{
+	recrodInsertRequest := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
@@ -321,12 +310,12 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		}},
 	}
 
-	resInsert, err := server.sendClientRequest(ctx, recrodInsertReq)
+	resInsert, err := server.sendClientRequest(ctx, recrodInsertRequest)
 	if err != nil {
 		return fmt.Errorf("failed to insert request: %s", err)
 	}
 
-	logger.Infof("record inserted successfully: %s", resInsert)
+	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.options.ThreadID, resInsert)
 	return nil
 }
 
@@ -335,12 +324,45 @@ func (i *Iceberg) Type() string {
 }
 
 // validate schema change & evolution and removes null records
-func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecord) (bool, any, error) {
-	if !i.stream.NormalizationEnabled() {
-		return false, nil, nil
+func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
+		// only dedup if it is upsert mode
+		if !isUpsertMode(i.stream, i.options.Backfill) {
+			return records
+		}
+
+		// map olakeID -> index of record to keep (index into original slice)
+		keepIdx := make(map[string]int, len(records))
+		for idx, record := range records {
+			existingIdx, ok := keepIdx[record.OlakeID]
+			if !ok {
+				keepIdx[record.OlakeID] = idx
+				continue
+			}
+			if record.CdcTimestamp == nil {
+				keepIdx[record.OlakeID] = idx // keep latest reord (in incremental)
+				continue
+			}
+
+			ex := records[existingIdx]
+			if ex.CdcTimestamp.Before(*record.CdcTimestamp) {
+				keepIdx[record.OlakeID] = idx // keep latest reord (w.r.t cdc timestamp)
+			}
+		}
+
+		out := make([]types.RawRecord, 0, len(keepIdx))
+		for rIdx, record := range records {
+			if idx, ok := keepIdx[record.OlakeID]; ok && idx == rIdx {
+				out = append(out, record)
+			}
+		}
+		return out
 	}
-	extractSchemaFromRecords := func(records []types.RawRecord) (map[string]string, error) {
-		newSchema := make(map[string]string)
+
+	extractSchemaFromRecords := func(records []types.RawRecord) (bool, map[string]string, error) {
+		// create new schema from already available schema
+		recordsSchema := copySchema(i.schema)
+		diffThreadSchema := false
 		for idx, record := range records {
 			// TODO: normalized column names (remove from driver side)
 
@@ -361,111 +383,138 @@ func (i *Iceberg) FlattenAndCleanData(rawOldSchema any, records []types.RawRecor
 					continue
 				}
 
-				detecteIceType := detectedType.ToIceberg()
-				if persistedType, exists := newSchema[key]; exists && !isValidIcebergType(persistedType, detecteIceType) {
-					return nil, fmt.Errorf(
-						"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
-						persistedType, detecteIceType,
-					)
+				detectedIcebergType := detectedType.ToIceberg()
+				if typeInNewSchema, exists := recordsSchema[key]; exists {
+					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
+					if !valid {
+						return false, nil, fmt.Errorf(
+							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
+							typeInNewSchema, detectedIcebergType,
+						)
+					}
+
+					if promotionRequired(typeInNewSchema, detectedIcebergType) {
+						recordsSchema[key] = detectedIcebergType
+						diffThreadSchema = true
+					}
+				} else {
+					diffThreadSchema = true
+					recordsSchema[key] = detectedIcebergType
 				}
-				newSchema[key] = detecteIceType
 			}
 		}
 
-		return newSchema, nil
+		return diffThreadSchema, recordsSchema, nil
 	}
 
-	compareSchemas := func(oldSchema, newSchema map[string]string) (bool, error) {
-		schemaChange := false
+	records = dedupRecords(records)
 
-		for fieldName, newType := range newSchema {
-			oldType, exists := oldSchema[fieldName]
-
-			if !exists {
-				schemaChange = true
-				continue
-			}
-
-			// TODO: we can break on schema change detection but
-			// should we check for type conversion is possible or not according to tree (need a discussion)
-
-			if !isValidIcebergType(oldType, newType) {
-				return false, fmt.Errorf(
-					"different type detected in schema, old type: %s, new type: %s for field: %s",
-					oldType, newType, fieldName,
-				)
-			}
-
-			// for evolution types schemachange is possible
-			schemaChange = (oldType != newType) || schemaChange
-		}
-
-		return schemaChange, nil
+	if !i.stream.NormalizationEnabled() {
+		return false, records, i.schema, nil
 	}
 
-	oldSchema, ok := rawOldSchema.(map[string]string)
-	if !ok {
-		return false, nil, fmt.Errorf("failed to convert past schema of type[%T] to map[string]string", rawOldSchema)
-	}
-
-	newSchema, err := extractSchemaFromRecords(records)
+	schemaDifference, recordsSchema, err := extractSchemaFromRecords(records)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 
-	schemaChange, err := compareSchemas(oldSchema, newSchema)
-	if err != nil {
-		return false, nil, err
-	}
-
-	return schemaChange, newSchema, nil
+	return schemaDifference, records, recordsSchema, err
 }
 
-func (i *Iceberg) EvolveSchema(ctx context.Context, newSchema any) error {
-	newSchemaMap, ok := newSchema.(map[string]string)
-	if !ok {
-		return fmt.Errorf("failed to convert new schema of type %T to map[string]string", newSchema)
+// compares with global schema and update schema in destination accordingly
+func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSchema any) (any, error) {
+	if !i.stream.NormalizationEnabled() {
+		return i.schema, nil
 	}
 
-	var schema []*proto.IcebergPayload_SchemaField
-	for field, fieldType := range newSchemaMap {
-		schema = append(schema, &proto.IcebergPayload_SchemaField{
-			Key:     field,
-			IceType: fieldType,
-		})
+	globalSchemaMap, ok := globalSchema.(map[string]string)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+	}
+
+	recordsSchema, ok := recordsRawSchema.(map[string]string)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", recordsRawSchema)
+	}
+
+	differentSchema := func(oldSchema, newSchema map[string]string) bool {
+		for fieldName, newType := range newSchema {
+			if oldType, exists := oldSchema[fieldName]; !exists {
+				return true
+			} else if promotionRequired(oldType, newType) {
+				return true
+			}
+		}
+		return false
 	}
 
 	// check for identifier fields setting
-	primaryKey := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
-
-	req := proto.IcebergPayload{
+	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	request := proto.IcebergPayload{
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
-			PrimaryKey:    &primaryKey,
-			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
-			Schema:        schema,
-			ThreadId:      i.server.serverID,
+			IdentifierField: &identifierField,
+			DestTableName:   utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
+			ThreadId:        i.server.serverID,
 		},
 	}
 
-	resp, err := i.server.sendClientRequest(ctx, &req)
-	if err != nil {
-		return fmt.Errorf("failed to send records to evolve schema: %s", err)
+	var response string
+	var err error
+	// check if table schema is different from global schema
+	if differentSchema(globalSchemaMap, recordsSchema) {
+		logger.Infof("Thread[%s]: evolving schema in iceberg table", i.options.ThreadID)
+		for field, fieldType := range recordsSchema {
+			request.Metadata.Schema = append(request.Metadata.Schema, &proto.IcebergPayload_SchemaField{
+				Key:     field,
+				IceType: fieldType,
+			})
+		}
+
+		response, err = i.server.sendClientRequest(ctx, &request)
+		if err != nil {
+			return false, fmt.Errorf("failed to evolve schema: %s", err)
+		}
+	} else {
+		logger.Debugf("Thread[%s]: refreshing table schema", i.options.ThreadID)
+		request.Type = proto.IcebergPayload_REFRESH_TABLE_SCHEMA
+		response, err = i.server.sendClientRequest(ctx, &request)
+		if err != nil {
+			return false, fmt.Errorf("failed to refresh schema: %s", err)
+		}
 	}
 
-	logger.Debugf("response received after schema evolution: %s", resp)
-	return nil
+	// only refresh table schema
+	schemaAfterEvolution, err := parseSchema(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
+	}
+
+	i.schema = copySchema(schemaAfterEvolution)
+	return schemaAfterEvolution, nil
 }
 
-func isValidIcebergType(oldType, newType string) bool {
-	// Note: not added decimal precision as we not iceberg decimal type support as of now
-	switch oldType {
-	case "int":
-		return newType == "int" || newType == "long"
-	case "float":
-		return newType == "float" || newType == "double"
+// return if evolution is valid or not
+func validIcebergType(oldType, newType string) bool {
+	if oldType == newType {
+		return true
+	}
+
+	switch fmt.Sprintf("%s->%s", oldType, newType) {
+	case "int->long", "float->double", "long->int", "double->float":
+		return true
 	default:
-		return oldType == newType
+		return false
+	}
+}
+
+// promotion only required from int -> long and float -> double
+func promotionRequired(oldType, newType string) bool {
+	switch fmt.Sprintf("%s->%s", oldType, newType) {
+	case "int->long", "float->double":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -506,6 +555,16 @@ func (i *Iceberg) DropStreams(_ context.Context, _ []string) error {
 	// logger.Info("Successfully cleared Iceberg destination for selected streams")
 	return nil
 }
+
+// returns a new copy of schema
+func copySchema(schema map[string]string) map[string]string {
+	copySchema := make(map[string]string)
+	for key, value := range schema {
+		copySchema[key] = value
+	}
+	return copySchema
+}
+
 func parseSchema(schemaStr string) (map[string]string, error) {
 	// Remove the outer "table {" and "}"
 	schemaStr = strings.TrimPrefix(schemaStr, "table {")
@@ -539,7 +598,7 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 
 func rawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
 	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
-	protoColumns := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
+	protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 
 	dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OlakeID}}
 	dataMap[constants.OpType] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OperationType}}
@@ -557,12 +616,12 @@ func rawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 	for _, field := range protoSchema {
 		value, ok := dataMap[field.Key]
 		if !ok {
-			protoColumns = append(protoColumns, nil)
+			protoColumnsValue = append(protoColumnsValue, nil)
 			continue
 		}
-		protoColumns = append(protoColumns, value)
+		protoColumnsValue = append(protoColumnsValue, value)
 	}
-	return protoColumns, nil
+	return protoColumnsValue, nil
 }
 
 // returns raw schema in iceberg format
@@ -575,6 +634,10 @@ func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
 		})
 	}
 	return icebergFields
+}
+
+func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
+	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
 }
 
 func init() {

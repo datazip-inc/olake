@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
@@ -33,17 +34,19 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 
 	// Sort chunks by their minimum value
 	sort.Slice(chunks, func(i, j int) bool {
-		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
+		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		var maxPrimaryCursorValue, maxSecondaryCursorValue any
 		primaryCursor, secondaryCursor := stream.Cursor()
-		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true))
+		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
+		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		defer func() {
 			// wait for chunk completion
 			if writerErr := inserter.Close(ctx); writerErr != nil {
@@ -69,13 +72,15 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 						err = cursorErr
 						return
 					}
-					if utils.CompareInterfaceValue(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
+					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
 						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 					}
-					if utils.CompareInterfaceValue(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
+					if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
 						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 					}
 				}
+			} else {
+				err = fmt.Errorf("thread[%s]: %s", threadID, err)
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {

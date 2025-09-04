@@ -151,8 +151,9 @@ var syncCmd = &cobra.Command{
 		}
 
 		// start monitoring stats
-		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
-			return pool.SyncedRecords(), pool.GetWriterThreads(), pool.GetRecordsToSync(), pool.GetReadRecords()
+		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
+			stats := pool.GetStats()
+			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load()
 		})
 
 		// Setup State for Connector
@@ -160,7 +161,7 @@ var syncCmd = &cobra.Command{
 		// Sync Telemetry tracking
 		telemetry.TrackSyncStarted(syncID, streams, selectedStreams, cdcStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
-			telemetry.TrackSyncCompleted(err == nil, pool.SyncedRecords())
+			telemetry.TrackSyncCompleted(err == nil, pool.GetStats().ReadCount.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 			time.Sleep(5 * time.Second)
 		}()
@@ -171,7 +172,7 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
 		state.LogWithLock()
-		logger.Infof("Total records read: %d", pool.SyncedRecords())
+		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
 		return nil
 	},
 }
