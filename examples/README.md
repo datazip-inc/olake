@@ -12,6 +12,9 @@ This directory contains self-contained, end-to-end demo stacks for OLake. Each e
 - `presto-tabularest-minio-mysql`  
   - MySQL → Olake → Iceberg (Tabular REST) on MinIO → Presto
 
+- `trino-tablurarest-minio-mysql`  
+  - MySQL → Olake → Iceberg (Tabular REST) on MinIO → Trino
+
 ## Quick start pattern
 
 ```bash
