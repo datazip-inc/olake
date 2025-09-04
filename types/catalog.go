@@ -5,7 +5,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/spf13/viper"
 )
 
 // Message is a dto for olake output row representation
@@ -46,8 +45,6 @@ type StreamMetadata struct {
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
 	Filter         string `json:"filter,omitempty"`
-	TargetDatabase string `json:"target_database,omitempty"`
-	TargetTable    string `json:"target_table,omitempty"`
 }
 
 // ConfiguredCatalog is a dto for formatted airbyte catalog serialization
@@ -56,7 +53,7 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-func GetWrappedCatalog(streams []*Stream, driver string, sourceDatabase string) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	// Whether the source is a relational driver or not
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
@@ -76,12 +73,6 @@ func GetWrappedCatalog(streams []*Stream, driver string, sourceDatabase string) 
 			PartitionRegex: "",
 			AppendMode:     false,
 			Normalization:  isRelational,
-			TargetDatabase: utils.GenerateDefaultIcebergDatabase(&constants.DatabaseNamingConfig{
-				ConnectorName:  utils.Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
-				SourceDatabase: sourceDatabase,
-				SourceSchema:   stream.Namespace,
-			}),
-			TargetTable: utils.NormalizeIdentifier(stream.Name),
 		})
 	}
 

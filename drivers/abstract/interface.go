@@ -37,6 +37,4 @@ type DriverInterface interface {
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error
 	PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error // to save state
-	// source database
-	GetSourceDatabase() string
 }

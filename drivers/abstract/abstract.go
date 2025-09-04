@@ -58,10 +58,6 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) GetSourceDatabase() string {
-	return a.driver.GetSourceDatabase()
-}
-
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
 	if a.driver.MaxConnections() > 0 {

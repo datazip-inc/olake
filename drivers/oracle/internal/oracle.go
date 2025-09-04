@@ -72,9 +72,6 @@ func (o *Oracle) Close() error {
 func (o *Oracle) Type() string {
 	return string(constants.Oracle)
 }
-func (o *Oracle) GetSourceDatabase() string {
-	return ""
-}
 
 // MaxConnections returns the maximum number of connections
 func (o *Oracle) MaxConnections() int {
@@ -120,7 +117,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 	}
 	schemaName, tableName := parts[0], parts[1]
-	stream := types.NewStream(tableName, schemaName)
+	stream := types.NewStream(tableName, schemaName, o.Type(), "")
 
 	// Get column information
 	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)

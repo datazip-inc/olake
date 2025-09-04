@@ -2,7 +2,9 @@ package types
 
 import (
 	"github.com/goccy/go-json"
+	"github.com/spf13/viper"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -31,9 +33,12 @@ type Stream struct {
 	CursorField string `json:"cursor_field,omitempty"`
 	// Mode being used for syncing data
 	SyncMode SyncMode `json:"sync_mode,omitempty"`
+	// Normalized Destination Database and Table
+	DestinationDatabase string `json:"destination_database,omitempty"`
+	DestinationTable    string `json:"destination_table,omitempty"`
 }
 
-func NewStream(name, namespace string) *Stream {
+func NewStream(name, namespace, driver, sourceDatabase string) *Stream {
 	return &Stream{
 		Name:                    name,
 		Namespace:               namespace,
@@ -41,6 +46,12 @@ func NewStream(name, namespace string) *Stream {
 		SourceDefinedPrimaryKey: NewSet[string](),
 		AvailableCursorFields:   NewSet[string](),
 		Schema:                  NewTypeSchema(),
+		DestinationDatabase: utils.GenerateDefaultIcebergDatabase(&constants.DatabaseNamingConfig{
+			ConnectorName:  utils.Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
+			SourceDatabase: sourceDatabase,
+			SourceSchema:   utils.NormalizeIdentifier(namespace),
+		}),
+		DestinationTable: utils.NormalizeIdentifier(name),
 	}
 }
 
@@ -122,10 +133,10 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string, sourceDatabase string) {
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams, driver, sourceDatabase),
+		Catalog: GetWrappedCatalog(streams, driver),
 	}
 	logger.Info(message)
 	// write catalog to the specified file

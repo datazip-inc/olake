@@ -101,9 +101,6 @@ func (m *MySQL) Setup(ctx context.Context) error {
 func (m *MySQL) Type() string {
 	return string(constants.MySQL)
 }
-func (m *MySQL) GetSourceDatabase() string {
-	return ""
-}
 
 // set state to mysql
 func (m *MySQL) SetupState(state *types.State) {
@@ -146,7 +143,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 		}
 		schemaName, tableName := parts[0], parts[1]
-		stream := types.NewStream(tableName, schemaName)
+		stream := types.NewStream(tableName, schemaName, m.Type(), "")
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)

@@ -58,6 +58,14 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
+func (s *ConfiguredStream) GetDestinationDatabase() string {
+	return s.Stream.DestinationDatabase
+}
+
+func (s *ConfiguredStream) GetDestinationTable() string {
+	return s.Stream.DestinationTable
+}
+
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
 	cursorFields := strings.Split(s.Stream.CursorField, ":")

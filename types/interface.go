@@ -13,6 +13,8 @@ type StreamInterface interface {
 	Cursor() (string, string)
 	Validate(source *Stream) error
 	NormalizationEnabled() bool
+	GetDestinationDatabase() string
+	GetDestinationTable() string
 }
 
 type StateInterface interface {

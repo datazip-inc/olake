@@ -40,9 +40,6 @@ func (m *Mongo) GetConfigRef() abstract.Config {
 func (m *Mongo) Spec() any {
 	return Config{}
 }
-func (m *Mongo) GetSourceDatabase() string {
-	return ""
-}
 
 func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
@@ -128,7 +125,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name())
+		stream := types.NewStream(streamName, db.Name(), m.Type(), "")
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {

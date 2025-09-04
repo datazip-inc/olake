@@ -55,7 +55,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		}
 	}
 
-	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.Self().StreamMetadata.TargetDatabase)
+	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase())
 	if err != nil {
 		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
@@ -69,7 +69,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	if globalSchema == nil {
 		if !utils.IsValidIdentifier(i.stream.Name()) {
-			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Name(), i.stream.Self().StreamMetadata.TargetTable)
+			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Name(), i.stream.GetDestinationTable())
 		}
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
@@ -77,7 +77,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
 				Schema:          iceSchema,
-				DestTableName:   utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
+				DestTableName:   utils.Ternary(stream.GetDestinationTable() != "", stream.GetDestinationTable(), stream.Name()).(string),
 				ThreadId:        i.server.serverID,
 				IdentifierField: &identifierField,
 			},
@@ -195,7 +195,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
+			DestTableName: utils.Ternary(i.stream.GetDestinationTable() != "", i.stream.GetDestinationTable(), i.stream.Name()).(string),
 			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
@@ -241,7 +241,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
-			DestTableName: utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
+			DestTableName: utils.Ternary(i.stream.GetDestinationTable() != "", i.stream.GetDestinationTable(), i.stream.Name()).(string),
 		},
 	}
 	res, err := i.server.sendClientRequest(ctx, request)
@@ -375,6 +375,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 			}
 
 			for key, value := range record.Data {
+				key = utils.NormalizeIdentifier(key)
 				detectedType := typeutils.TypeFromValue(value)
 
 				if detectedType == types.Null {
@@ -454,7 +455,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			IdentifierField: &identifierField,
-			DestTableName:   utils.Ternary(i.stream.Self().StreamMetadata.TargetTable != "", i.stream.Self().StreamMetadata.TargetTable, i.stream.Name()).(string),
+			DestTableName:   utils.Ternary(i.stream.GetDestinationTable() != "", i.stream.GetDestinationTable(), i.stream.Name()).(string),
 			ThreadId:        i.server.serverID,
 		},
 	}
