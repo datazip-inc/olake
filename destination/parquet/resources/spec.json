@@ -37,7 +37,7 @@
         "s3_endpoint": {
           "type": "string",
           "title": "S3 Endpoint",
-          "description": "Specify the S3 endpoint URL for the S3 service (e.g., MinIO, GCP, etc.)"
+          "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
         }
       },
       "required": [
