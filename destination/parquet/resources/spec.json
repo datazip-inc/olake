@@ -46,5 +46,8 @@
         "s3_path"
       ]
     }
-  }
+  },
+  "required": [
+    "writer"
+  ]
 }

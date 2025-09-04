@@ -29,6 +29,7 @@ func (c *Config) connectionString() string {
 		urlOptions[k] = v
 	}
 
+	// Add sid if provided
 	if c.SID != "" {
 		urlOptions["sid"] = c.SID
 	}
@@ -65,7 +66,6 @@ func (c *Config) Validate() error {
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
 	}
-
 	if c.ServiceName == "" && c.SID == "" {
 		return fmt.Errorf("service_name or sid is required")
 	}

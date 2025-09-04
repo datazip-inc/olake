@@ -93,7 +93,7 @@
                         "initial_wait_time": {
                             "type": "integer",
                             "title": "Initial Wait Time",
-                            "description": "Idle timeout for WAL log reading",
+                            "description": "Idle timeout for wal catchup to Saved LSN, Range: (120,2400]",
                             "minimum": 120,
                             "maximum": 2400
                         },
