@@ -13,25 +13,23 @@ type Config struct {
 	Host             string            `json:"host"`
 	Username         string            `json:"username"`
 	Password         string            `json:"password"`
+	ServiceName      string            `json:"service_name"`
+	SID              string            `json:"sid"`
 	Port             int               `json:"port"`
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"backoff_retry_count"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
-	ConnectionType   string            `json:"connection_type"`
-	SID              string            `json:"sid"`
-	ServiceName      string            `json:"service_name"`
 }
 
-func (c *Config) connectionString() (string, error) {
+func (c *Config) connectionString() string {
 	urlOptions := make(map[string]string)
 	// Add JDBC-style URL params
 	for k, v := range c.JDBCURLParams {
 		urlOptions[k] = v
 	}
 
-	serviceName := c.ServiceName
-	if c.ConnectionType == "sid" {
+	if c.SID != "" {
 		urlOptions["SID"] = c.SID
 	}
 
@@ -48,8 +46,7 @@ func (c *Config) connectionString() (string, error) {
 	// Quote the username to handle case sensitivity
 	quotedUsername := fmt.Sprintf("%q", c.Username)
 
-	return go_ora.BuildUrl(c.Host, c.Port, serviceName, quotedUsername, c.Password, urlOptions), nil
-
+	return go_ora.BuildUrl(c.Host, c.Port, c.ServiceName, quotedUsername, c.Password, urlOptions)
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -69,11 +66,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("username is required")
 	}
 
-	if c.ConnectionType == "sid" && c.SID == "" {
-		return fmt.Errorf("sid is required")
-
-	} else if c.ConnectionType == "service_name" && c.ServiceName == "" {
-		return fmt.Errorf("service name is required")
+	if c.SID == "" && c.ServiceName == "" {
+		return fmt.Errorf("sid or service name is required")
 	}
 
 	// Set default number of threads if not provided
