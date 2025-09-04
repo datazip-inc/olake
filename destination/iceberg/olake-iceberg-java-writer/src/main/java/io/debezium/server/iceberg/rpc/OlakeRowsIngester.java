@@ -79,12 +79,17 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 case EVOLVE_SCHEMA:
                     SchemaConvertor convertor = new SchemaConvertor(identifierField, schemaMetadata);
                     icebergTableOperator.applyFieldAddition(this.icebergTable, convertor.convertToIcebergSchema());
+                    this.icebergTable.refresh();
+                    // complete current writer 
+                    icebergTableOperator.completeWriter();
                     sendResponse(responseObserver, this.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully applied schema evolution for table: {}", requestId, destTableName);
                     break;
                 
                 case REFRESH_TABLE_SCHEMA:
                     this.icebergTable.refresh();
+                    // complete current writer 
+                    icebergTableOperator.completeWriter();
                     sendResponse(responseObserver, this.icebergTable.schema().toString());
                     break;
 
