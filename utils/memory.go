@@ -1,6 +1,9 @@
 package utils
 
 import (
+	"errors"
+	"math"
+	"os"
 	"os/exec"
 	"reflect"
 	"runtime"
@@ -138,9 +141,34 @@ func sizeOf(v reflect.Value, cache map[uintptr]bool) int {
 	return -1
 }
 
-// DetermineSystemMemoryGB returns the total system memory in GB.
+// DetermineSystemMemoryGB returns the system memory in GB, checking cgroup limits first.
 // Returns -1 if unable to determine memory.
 func DetermineSystemMemoryGB() int64 {
+	// Try to read cgroup v2 memory limit first
+	if memBytes, err := readCgroupV2MemoryLimit(); err == nil && memBytes > 0 {
+		return memBytes / (1024 * 1024 * 1024) // Convert to GB
+	}
+
+	// Fall back to system memory if cgroups unavailable
+	return getSystemMemoryGB()
+}
+
+func readCgroupV2MemoryLimit() (int64, error) {
+	data, err := os.ReadFile("/sys/fs/cgroup/memory.max")
+	if err != nil {
+		return 0, err
+	}
+
+	limitStr := strings.TrimSpace(string(data))
+	if limitStr == "max" {
+		return 0, errors.New("no memory limit set")
+	}
+
+	return strconv.ParseInt(limitStr, 10, 64)
+}
+
+
+func getSystemMemoryGB() int64 {
 	var memCmd *exec.Cmd
 	var memOutput []byte
 	var err error
