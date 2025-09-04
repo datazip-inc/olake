@@ -30,7 +30,7 @@ func (c *Config) connectionString() string {
 	}
 
 	if c.SID != "" {
-		urlOptions["SID"] = c.SID
+		urlOptions["sid"] = c.SID
 	}
 
 	// Add SSL params if provided
@@ -66,8 +66,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("username is required")
 	}
 
-	if c.SID == "" && c.ServiceName == "" {
-		return fmt.Errorf("sid or service name is required")
+	if c.ServiceName == "" && c.SID == "" {
+		return fmt.Errorf("service_name or sid is required")
 	}
 
 	// Set default number of threads if not provided
