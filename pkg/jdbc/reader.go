@@ -80,6 +80,7 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	}
 
 	for i, col := range columns {
+		//todo: backward compatibility check
 		col = utils.NormalizeIdentifier(col)
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
