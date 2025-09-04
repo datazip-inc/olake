@@ -10,6 +10,7 @@ This example demonstrates an end-to-end data lakehouse pipeline:
 * **Port Availability:** The following ports must be available on your system:
    - **8000** - OLake UI
    - **8088** - Trino query engine UI
+   - **3000** - SQLPad UI
    - **3306** - MySQL database
    - **8181** - Iceberg REST catalog API  
    - **8443** - MinIO console UI
@@ -91,15 +92,13 @@ docker compose up -d
 
 ### 4. Query Data with Trino
 
-1. **Access Trino UI:** [http://localhost:8088](http://localhost:8088)
+1. **Access SQLPad UI:** [http://localhost:3000](http://localhost:3000)
 
-2. **Run Queries via CLI:**
-   ```bash
-   docker run --rm -it --network olake-network trinodb/trino:latest trino \
-     --server http://trino:8080 \
-     --catalog iceberg --schema weather \
-     --execute "SHOW TABLES;"
-   ```
+2. **Run Queries via SQLPad UI:**
+    * On the top left, select **OLake Demo** as the database
+    * Click on the **refresh button** to reload the database schemas
+    * Click on **weather** schema and the **weather** table under it will be listed
+    * Enter below SQL Query on the Text Box and click **Run** to execute the query
 
 3. **Query example:**
      ```sql
@@ -110,15 +109,12 @@ docker compose up -d
      LIMIT 10;
      ```
 
-## Services & Ports
-
-| Service | URL | Description |
-|---------|-----|-------------|
-| OLake UI | `http://localhost:8000` | Data pipeline management |
-| Trino UI | `http://localhost:8088` | Query interface |
-| MinIO Console | `http://localhost:8443` | Object storage management |
-| MySQL | `localhost:3306` | Source database |
-| Iceberg REST | `http://localhost:8181` | Catalog API |
+4. **(Optional) Run Queries via Trino CLI:**
+   ```bash
+    docker exec -it olake-trino-coordinator trino \
+        --catalog iceberg --schema weather \
+        --execute "SELECT * from weather LIMIT 10;"
+   ```
 
 ## Troubleshooting
 
@@ -149,8 +145,7 @@ SELECT * FROM weather LIMIT 5;
 ### Test Trino Connection
 ```bash
 # Check if Trino can see Iceberg tables
-docker run --rm -it --network olake-network trinodb/trino:latest trino \
-  --server http://olake-trino-coordinator:8080 \
+docker exec -it olake-trino-coordinator trino \
   --catalog iceberg --schema weather \
   --execute "SHOW TABLES;"
 ```

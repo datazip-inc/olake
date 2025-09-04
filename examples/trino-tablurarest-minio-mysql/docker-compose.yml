@@ -151,7 +151,7 @@ services:
 
   trino:
     image: trinodb/trino:latest
-    container_name: trino
+    container_name: olake-trino-coordinator
     ports:
       - "8088:8080"
     volumes:
@@ -162,6 +162,27 @@ services:
     depends_on:
       - rest
       - minio
+    restart: unless-stopped
+
+  sqlpad:
+    image: sqlpad/sqlpad:latest
+    container_name: sqlpad-trino
+    ports:
+      - "3000:3000"
+    environment:
+      SQLPAD_ADMIN: 'admin'
+      SQLPAD_ADMIN_PASSWORD: 'password'
+      SQLPAD_CONNECTIONS__olake__name: OLake Demo
+      SQLPAD_CONNECTIONS__olake__driver: trino
+      SQLPAD_CONNECTIONS__olake__host: host.docker.internal
+      SQLPAD_CONNECTIONS__olake__port: 8088
+      SQLPAD_CONNECTIONS__olake__username: admin
+      SQLPAD_CONNECTIONS__olake__catalog: iceberg
+      SQLPAD_CONNECTIONS__olake__schema: weather
+    networks:
+      - olake-network
+    depends_on:
+      - trino
     restart: unless-stopped
 
 volumes:
