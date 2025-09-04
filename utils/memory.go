@@ -2,7 +2,6 @@ package utils
 
 import (
 	"errors"
-	"math"
 	"os"
 	"os/exec"
 	"reflect"
@@ -166,7 +165,6 @@ func readCgroupV2MemoryLimit() (int64, error) {
 
 	return strconv.ParseInt(limitStr, 10, 64)
 }
-
 
 func getSystemMemoryGB() int64 {
 	var memCmd *exec.Cmd
