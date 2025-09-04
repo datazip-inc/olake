@@ -201,8 +201,8 @@
                 },
                 "no_identifier_fields": {
                   "type": "boolean",
-                  "default": false,
-                  "title": "Disable Identifier Fields",
+                  "default": true,
+                  "title": "Identifier Fields In Table",
                   "description": "To create iceberg table without identifier fields. (Unity catalog only support tables with no identifier)"
                 },
                 "s3_endpoint": {
