@@ -373,9 +373,9 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 			if record.CdcTimestamp != nil {
 				records[idx].Data[constants.CdcTimestamp] = record.CdcTimestamp
 			}
-
+			normalizedData := make(map[string]interface{}) // stroring normalized keys
 			for key, value := range record.Data {
-				key = utils.NormalizeIdentifier(key)
+				normalizedKey := utils.NormalizeIdentifier(key)
 				detectedType := typeutils.TypeFromValue(value)
 
 				if detectedType == types.Null {
@@ -383,9 +383,10 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					delete(record.Data, key)
 					continue
 				}
+				normalizedData[normalizedKey] = value
 
 				detectedIcebergType := detectedType.ToIceberg()
-				if typeInNewSchema, exists := recordsSchema[key]; exists {
+				if typeInNewSchema, exists := recordsSchema[normalizedKey]; exists {
 					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
 					if !valid {
 						return false, nil, fmt.Errorf(
@@ -395,14 +396,16 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					}
 
 					if promotionRequired(typeInNewSchema, detectedIcebergType) {
-						recordsSchema[key] = detectedIcebergType
+						recordsSchema[normalizedKey] = detectedIcebergType
 						diffThreadSchema = true
 					}
 				} else {
 					diffThreadSchema = true
-					recordsSchema[key] = detectedIcebergType
+					recordsSchema[normalizedKey] = detectedIcebergType
 				}
 			}
+			// override original data with normalized one
+			records[idx].Data = normalizedData
 		}
 
 		return diffThreadSchema, recordsSchema, nil
