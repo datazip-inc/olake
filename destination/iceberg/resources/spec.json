@@ -158,12 +158,12 @@
                 },
                 "credential": {
                   "type": "string",
-                  "title": "Credential (OAuth2)",
+                  "title": "REST Credential",
                   "description": "Client secret or credential for OAuth2 (Usually id:secret)"
                 },
                 "oauth2_uri": {
                   "type": "string",
-                  "title": "OAuth2 Auth URI",
+                  "title": "REST Auth URI",
                   "description": "OAuth2 server URI for OAuth2 authentication"
                 },
                 "rest_auth_type": {
@@ -189,14 +189,14 @@
                 },
                 "scope": {
                   "type": "string",
-                  "title": "Scope (OAuth2)",
+                  "title": "REST Scope",
                   "description": "OAuth2 scopes (space-separated)"
                 },
                 "token": {
                   "type": "string",
                   "format": "password",
                   "minLength": 1,
-                  "title": "Token",
+                  "title": "REST Token",
                   "description": "Bearer token for token-based authentication"
                 },
                 "no_identifier_fields": {
