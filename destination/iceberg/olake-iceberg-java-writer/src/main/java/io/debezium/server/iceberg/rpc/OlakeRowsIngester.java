@@ -68,6 +68,9 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                                         schemaConvertor.convertToIcebergSchema());
             }
             
+            // NOTE: on EVOLVE_SCHEMA and REFRESH_TABLE_SCHEMA we need to complete writer as schema is updated in iceberg table instance
+            // but the writer instance still using schema when it got created
+
             switch (request.getType()) {
                 case COMMIT:
                     LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);

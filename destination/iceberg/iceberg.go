@@ -24,6 +24,9 @@ type Iceberg struct {
 	partitionInfo []PartitionInfo   // ordered slice to preserve partition column order
 	server        *serverInstance   // java server instance
 	schema        map[string]string // schema for current thread associated with java writer (col -> type)
+	// Why Schema On Thread Level ?
+	// Schema on thread level is identical to writer instance that is available in java server
+	// It tells when to complete java writer and when to evolve schema.
 }
 
 // PartitionInfo represents a Iceberg partition column with its transform, preserving order
@@ -359,6 +362,8 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return out
 	}
 
+	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
+	// Also extracts current batch schema
 	extractSchemaFromRecords := func(records []types.RawRecord) (bool, map[string]string, error) {
 		// create new schema from already available schema
 		recordsSchema := copySchema(i.schema)
@@ -430,6 +435,13 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	if !i.stream.NormalizationEnabled() {
 		return i.schema, nil
 	}
+
+	// cases as local thread schema has detected changes w.r.t. batch records schema
+	//  	i.  iceberg table already have changes (i.e. no difference with global schema), in this case
+	//		    only refresh table in iceberg for this thread.
+	// 		ii. Schema difference is detected w.r.t. iceberg table (i.e. global schema), in this case
+	// 			we need to evolve schema in iceberg table
+	// NOTE: All the above cases will also complete current writer (java writer instance) as schema change in thread detected
 
 	globalSchemaMap, ok := globalSchema.(map[string]string)
 	if !ok {

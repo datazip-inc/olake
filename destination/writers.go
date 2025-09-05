@@ -126,8 +126,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 }
 
 func (w *WriterPool) AddRecordsToSyncStats(count int64) {
-	// go routine to avoid atomic bottlenecks
-	go w.stats.TotalRecordsToSync.Add(count)
+	w.stats.TotalRecordsToSync.Add(count)
 }
 
 func (w *WriterPool) GetStats() *Stats {
@@ -135,7 +134,7 @@ func (w *WriterPool) GetStats() *Stats {
 }
 
 func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, error) {
-	go w.stats.ThreadCount.Add(1)
+	w.stats.ThreadCount.Add(1)
 
 	opts := &Options{}
 	for _, one := range options {
@@ -197,7 +196,7 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 	case <-ctx.Done():
 		return fmt.Errorf("context closed")
 	default:
-		go wt.stats.ReadCount.Add(1)
+		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
 		if len(wt.buffer) >= wt.batchSize {
 			err := wt.flush(ctx, wt.buffer)
