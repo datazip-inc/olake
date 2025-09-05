@@ -16,17 +16,20 @@
         "s3_bucket": {
           "type": "string",
           "title": "S3 Bucket",
-          "description": "The name of an existing Amazon S3 bucket with appropriate access permissions to store output files"
+          "description": "The name of an existing Amazon S3 bucket with appropriate access permissions to store output files",
+          "minLength": 1
         },
         "s3_path": {
           "type": "string",
           "title": "S3 Path",
-          "description": "Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')"
+          "description": "Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')",
+          "minLength": 1
         },
         "s3_region": {
           "type": "string",
           "title": "S3 Region",
-          "description": "Specify the AWS region where the S3 bucket is hosted"
+          "description": "Specify the AWS region where the S3 bucket is hosted",
+          "minLength": 1
         },
         "s3_secret_key": {
           "type": "string",
