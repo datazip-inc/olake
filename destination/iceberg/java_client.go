@@ -151,19 +151,76 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
 	}
 
-	// Get current environment
-	serverCmd.Env = utils.Ternary(serverCmd.Env == nil, []string{}, serverCmd.Env).([]string)
+	// Create a map to hold the final environment variables for the subcommand.
+	envMap := make(map[string]string)
 
-	addEnvIfSet := func(key, value string) {
-		if value != "" {
-			serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
+	// Define allowed environment variable prefixes for security
+	allowedEnvPrefixes := []string{
+		"AWS_",        // AWS credentials and configuration
+		"JAVA_",       // Java runtime options
+		"PATH",        // System PATH
+		"HOME",        // User home directory
+		"USER",        // Current user
+		"TZ",          // Timezone
+		"LANG",        // Language settings
+		"LC_",         // Locale settings
+		"SSL_CERT_",   // SSL certificate paths
+		"CA_BUNDLE",   // Certificate authority bundle
+		"HTTPS_PROXY", // Proxy settings
+		"HTTP_PROXY",  // Proxy settings
+		"NO_PROXY",    // Proxy exclusions
+	}
+
+	// Filter and inherit parent environment variables
+	for _, envVar := range os.Environ() {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) >= 1 {
+			envKey := parts[0]
+			envValue := ""
+			if len(parts) == 2 {
+				envValue = parts[1]
+			}
+
+			// Check if this environment variable is allowed
+			allowed := false
+			for _, prefix := range allowedEnvPrefixes {
+				if envKey == prefix || strings.HasPrefix(envKey, prefix) {
+					allowed = true
+					break
+				}
+			}
+
+			if allowed {
+				envMap[envKey] = envValue
+			}
 		}
 	}
-	addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
-	addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
-	addEnvIfSet("AWS_REGION", config.Region)
-	addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
-	addEnvIfSet("AWS_PROFILE", config.ProfileName)
+
+	// Override with static credentials from config if they are set.
+	// This ensures that values from your config file take precedence.
+	if config.AccessKey != "" {
+		envMap["AWS_ACCESS_KEY_ID"] = config.AccessKey
+	}
+	if config.SecretKey != "" {
+		envMap["AWS_SECRET_ACCESS_KEY"] = config.SecretKey
+	}
+	if config.Region != "" {
+		envMap["AWS_REGION"] = config.Region
+	}
+	if config.SessionToken != "" {
+		envMap["AWS_SESSION_TOKEN"] = config.SessionToken
+	}
+	if config.ProfileName != "" {
+		envMap["AWS_PROFILE"] = config.ProfileName
+	}
+
+	envSlice := make([]string, 0, len(envMap))
+	for key, val := range envMap {
+		envSlice = append(envSlice, key+"="+val)
+	}
+
+	// Assign the correctly merged environment to the command.
+	serverCmd.Env = envSlice
 
 	// Set up and start the process with logging
 	if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
