@@ -77,8 +77,7 @@
     "connection_type",
     "host",
     "port",
-    "username",
-    "password"
+    "username"
   ],
   "dependencies": {
     "connection_type": {
