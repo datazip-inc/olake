@@ -195,7 +195,6 @@
                 "token": {
                   "type": "string",
                   "format": "password",
-                  "minLength": 1,
                   "title": "REST Token",
                   "description": "Bearer token for token-based authentication"
                 },
