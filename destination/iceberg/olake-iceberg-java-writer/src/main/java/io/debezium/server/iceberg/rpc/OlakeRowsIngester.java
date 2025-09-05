@@ -111,8 +111,15 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
                     
                 case DROP_TABLE:
-                    LOGGER.warn("{} Table {} not dropped, drop table not implemented", requestId, destTableName);
-                    sendResponse(responseObserver, "Drop table not implemented");
+                    LOGGER.warn("{} Dropping table {}.{}", requestId, icebergNamespace, destTableName);
+                    boolean dropped = IcebergUtil.dropIcebergTable(icebergNamespace, destTableName, icebergCatalog);
+                    if (dropped) {
+                        sendResponse(responseObserver, "Successfully dropped table " + destTableName);
+                        LOGGER.info("{} Table {} dropped", requestId, destTableName);
+                    } else {
+                        sendResponse(responseObserver, "Table " + destTableName + " does not exist");
+                        LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, destTableName);
+                    }
                     break;
                 
                 default:
