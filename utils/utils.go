@@ -392,7 +392,7 @@ func NormalizeIdentifier(name string) string {
 	return name
 }
 
-// GenerateDefaultIcebergDatabase creates default Iceberg DB name
+// GenerateDefaultIcebergDatabase creates default Iceberg DB name with optional namespace
 func GenerateDefaultIcebergDatabase(config *constants.DatabaseNamingConfig) string {
 	parts := []string{}
 
@@ -402,11 +402,15 @@ func GenerateDefaultIcebergDatabase(config *constants.DatabaseNamingConfig) stri
 	if config.SourceDatabase != "" {
 		parts = append(parts, NormalizeIdentifier(config.SourceDatabase))
 	}
+	// Join main DB name parts
+	dbName := strings.Join(parts, "_")
+
+	// Append namespace if provided
 	if config.SourceSchema != "" {
-		parts = append(parts, NormalizeIdentifier(config.SourceSchema))
+		dbName = fmt.Sprintf("%s:%s", dbName, NormalizeIdentifier(config.SourceSchema))
 	}
 
-	return strings.Join(parts, "_")
+	return dbName
 }
 
 // IsValidIdentifier checks if an identifier is valid according to our rules.

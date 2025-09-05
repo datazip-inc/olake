@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/datazip-inc/olake/utils"
 )
 
 // Input/Processed object for Stream
@@ -59,7 +61,7 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 }
 
 func (s *ConfiguredStream) GetDestinationDatabase() string {
-	return s.Stream.DestinationDatabase
+	return utils.NormalizeIdentifier(s.Stream.DestinationDatabase)
 }
 
 func (s *ConfiguredStream) GetDestinationTable() string {
