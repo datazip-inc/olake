@@ -118,7 +118,7 @@ var syncCmd = &cobra.Command{
 
 			selectedStreams = append(selectedStreams, elem.ID())
 			switch elem.Stream.SyncMode {
-			case types.CDC, types.STRICTCDC:
+			case types.CDC, types.STRICTCDC, types.CONTINUOUS:
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {

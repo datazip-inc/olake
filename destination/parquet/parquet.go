@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -40,6 +42,12 @@ type Parquet struct {
 	partitionedFiles map[string]*FileMetadata // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
 	schema           typeutils.Fields
+	mu               sync.Mutex
+	lastFlushAt      time.Time
+	targetBytes      int64
+	maxLatency       time.Duration
+	flushTicker      *time.Ticker
+	stopCh           chan struct{}
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -119,6 +127,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	p.partitionedFiles = make(map[string]*FileMetadata)
 	p.basePath = filepath.Join(p.stream.Namespace(), p.stream.Name())
 	p.schema = make(typeutils.Fields)
+	p.stopCh = make(chan struct{})
 
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
@@ -128,6 +137,19 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	err := p.initS3Writer()
 	if err != nil {
 		return nil, err
+	}
+
+	// configure continuous thresholds and start background flusher if enabled
+	if p.config.TargetFileSizeMB > 0 {
+		p.targetBytes = int64(p.config.TargetFileSizeMB) * 1024 * 1024
+	}
+	if p.config.MaxLatencySeconds > 0 {
+		p.maxLatency = time.Duration(p.config.MaxLatencySeconds) * time.Second
+	}
+	if p.targetBytes > 0 || p.maxLatency > 0 {
+		p.lastFlushAt = time.Now()
+		p.flushTicker = time.NewTicker(time.Second)
+		go p.backgroundFlusher()
 	}
 
 	if !p.stream.NormalizationEnabled() {
@@ -155,16 +177,19 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
+		p.mu.Lock()
 		partitionFile, exists := p.partitionedFiles[partitionedPath]
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
 			if err != nil {
+				p.mu.Unlock()
 				return fmt.Errorf("failed to create parititon file: %s", err)
 			}
 			partitionFile = p.partitionedFiles[partitionedPath]
 		}
 
 		if partitionFile == nil {
+			p.mu.Unlock()
 			return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
 		}
 
@@ -174,6 +199,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		} else {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
 		}
+		p.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
 		}
@@ -240,6 +266,8 @@ func (p *Parquet) closePqFiles() error {
 		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for basePath, parquetFile := range p.partitionedFiles {
 		// construct full file path
 		filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
@@ -298,6 +326,12 @@ func (p *Parquet) closePqFiles() error {
 }
 
 func (p *Parquet) Close(_ context.Context) error {
+	if p.flushTicker != nil {
+		p.flushTicker.Stop()
+	}
+	if p.stopCh != nil {
+		close(p.stopCh)
+	}
 	return p.closePqFiles()
 }
 
@@ -506,5 +540,39 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 func init() {
 	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
 		return new(Parquet)
+	}
+}
+
+// backgroundFlusher periodically checks size and latency thresholds to rotate files.
+func (p *Parquet) backgroundFlusher() {
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-p.flushTicker.C:
+			shouldFlush := false
+			if p.maxLatency > 0 && time.Since(p.lastFlushAt) >= p.maxLatency {
+				shouldFlush = true
+			}
+			if !shouldFlush && p.targetBytes > 0 {
+				p.mu.Lock()
+				for basePath, parquetFile := range p.partitionedFiles {
+					filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
+					info, err := os.Stat(filePath)
+					if err == nil && info.Size() >= p.targetBytes {
+						shouldFlush = true
+						break
+					}
+				}
+				p.mu.Unlock()
+			}
+			if shouldFlush {
+				if err := p.closePqFiles(); err != nil {
+					logger.Warnf("Thread[%s]: failed to flush parquet files: %s", p.options.ThreadID, err)
+					continue
+				}
+				p.lastFlushAt = time.Now()
+			}
+		}
 	}
 }
