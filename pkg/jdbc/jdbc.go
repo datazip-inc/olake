@@ -526,7 +526,7 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	case constants.Postgres:
 		{
 			placeholder = func(i int) string { return fmt.Sprintf("$%d", i) }
-			quoteIdentifier = func(identifier string) string { return identifier } // postgres doesn't require quotes
+			quoteIdentifier = func(identifier string) string { return fmt.Sprintf("\"%s\"", identifier) } // postgres doesn't require quotes
 		}
 	case constants.Oracle:
 		{
