@@ -1,9 +1,7 @@
-# Define the services that will run as containers, the networks they use, and shared volumes.
 services:
-  # Service to initialize the MongoDB keyfile.
   init-keyfile:
-    image: mongo:8.0                                 # Use MongoDB version 8.0 as the base image.
-    container_name: init_keyfile                     # Explicit container name for easier identification.
+    image: mongo:8.0   
+    container_name: init_keyfile                    
     command: >
       sh -c "
       mkdir -p /etc/mongodb/pki &&
@@ -18,37 +16,34 @@ services:
     volumes:
       - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume that stores the keyfile.
     networks:
-      - mongo-cluster                                 # Connect this container to the defined mongo-cluster network.
-    restart: "on-failure"                                     # This container should not restart automatically.
+      - mongo-cluster                                 
+    restart: "on-failure"                                     
 
   # Primary MongoDB container that sets up a replica set and creates an admin user.
   primary_mongo:
-    container_name: primary_mongo                     # Set an explicit name for the primary MongoDB container.
-    image: mongo:8.0                                  # Use MongoDB version 8.0 as the container image.
-    hostname: primary_mongo                           # Set the hostname within the container network.
+    container_name: primary_mongo                     
+    image: mongo:8.0
+    hostname: primary_mongo                           
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "27017:27017"                                 # Expose port 27017 for MongoDB connections (host:container mapping).
+      - "27017:27017"                                 
     depends_on:
-      - init-keyfile                                  # Ensure the keyfile initialization service runs before this service.
+      - init-keyfile                                  
     volumes:
-      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume to share the generated keyfile.
-      - ./mongodb-init.sh:/mongodb-init.sh:ro         # Mount the initialization script as read-only.
-    command: ["bash", "/mongodb-init.sh"]             # Execute the initialization script.
+      - mongo-keyfile-vol:/etc/mongodb/pki            
+      - ./mongodb-init.sh:/mongodb-init.sh:ro         
+    command: ["bash", "/mongodb-init.sh"]             
     healthcheck:
-      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]  # Healthcheck command to verify MongoDB is reachable.
-      interval: 10s                                   # Check health status every 10 seconds.
-      timeout: 10s                                    # Timeout if no response is received within 10 seconds.
-      retries: 10                                     # Attempt up to 10 retries before marking the container as unhealthy.
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"] 
+      interval: 10s                                  
+      timeout: 10s                                   
+      retries: 10                                     
     networks:
-      - mongo-cluster                                 # Connect this container to the mongo-cluster network.
+      - mongo-cluster                                
 
-
-# Define a network named 'mongo-cluster' for the services to communicate.
 networks:
   mongo-cluster:
 
-# Define a volume to persist the MongoDB keyfile across container restarts and share it among containers.
 volumes:
   mongo-keyfile-vol:
