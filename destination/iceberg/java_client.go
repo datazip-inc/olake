@@ -157,10 +157,10 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 	addEnvIfSet := func(key, value string) {
 		if value != "" {
 			keyPrefix := fmt.Sprintf("%s=", key)
-			for i := range serverCmd.Env {
+			for idx := range serverCmd.Env {
 				// if prefix exist through env, override it with config
-				if strings.HasPrefix(serverCmd.Env[i], keyPrefix) {
-					serverCmd.Env[i] = fmt.Sprintf("%s=%s", key, value)
+				if strings.HasPrefix(serverCmd.Env[idx], keyPrefix) {
+					serverCmd.Env[idx] = fmt.Sprintf("%s=%s", key, value)
 					return
 				}
 			}
