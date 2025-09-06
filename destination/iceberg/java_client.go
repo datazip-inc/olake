@@ -155,17 +155,18 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 	serverCmd.Env = os.Environ()
 
 	addEnvIfSet := func(key, value string) {
-		if value == "" {
-			return
-		}
-		prefix := key + "="
-		for i := range serverCmd.Env {
-			if strings.HasPrefix(serverCmd.Env[i], prefix) {
-				serverCmd.Env[i] = prefix + value
-				return
+		if value != "" {
+			keyPrefix := fmt.Sprintf("%s=", key)
+			for i := range serverCmd.Env {
+				// if prefix exist through env, override it with config
+				if strings.HasPrefix(serverCmd.Env[i], keyPrefix) {
+					serverCmd.Env[i] = fmt.Sprintf("%s=%s", key, value)
+					return
+				}
 			}
+			// if prefix does not exist add it
+			serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
 		}
-		serverCmd.Env = append(serverCmd.Env, prefix+value)
 	}
 	addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
 	addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
