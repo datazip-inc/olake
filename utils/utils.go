@@ -403,8 +403,8 @@ func IsLetterOrNumber(symbol int32) bool {
 func GenerateDefaultIcebergDatabase(config *constants.DestinationDatabaseNamingConfig) string {
 	parts := []string{}
 
-	if config.ConnectorName != "" {
-		parts = append(parts, Reformat(config.ConnectorName))
+	if config.JobName != "" {
+		parts = append(parts, Reformat(config.JobName))
 	}
 	if config.SourceDatabase != "" {
 		parts = append(parts, Reformat(config.SourceDatabase))
@@ -430,7 +430,7 @@ func IsValidIdentifier(name string) bool {
 // GenerateDestinationDetails creates the default destination DB and table names for Iceberg.
 func GenerateDestinationDetails(driver, namespace, name, sourceDatabase string) (string, string) {
 	dbName := GenerateDefaultIcebergDatabase(&constants.DestinationDatabaseNamingConfig{
-		ConnectorName:  Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
+		JobName:        Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
 		SourceDatabase: sourceDatabase,
 		SourceSchema:   Reformat(namespace),
 	})
