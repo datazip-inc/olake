@@ -393,7 +393,7 @@ func NormalizeIdentifier(name string) string {
 }
 
 // GenerateDefaultIcebergDatabase creates default Iceberg DB name with optional namespace
-func GenerateDefaultIcebergDatabase(config *constants.DatabaseNamingConfig) string {
+func GenerateDefaultIcebergDatabase(config *constants.DestinationDatabaseNamingConfig) string {
 	parts := []string{}
 
 	if config.ConnectorName != "" {
@@ -418,4 +418,17 @@ func IsValidIdentifier(name string) bool {
 	// Allowed: letters, numbers, and underscores. Must start with a letter or underscore.
 	validNameRegex := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 	return validNameRegex.MatchString(name)
+}
+
+// GenerateDestinationDetails creates the default destination DB and table names for Iceberg.
+func GenerateDestinationDetails(driver, namespace, name, sourceDatabase string) (string, string) {
+	dbName := GenerateDefaultIcebergDatabase(&constants.DestinationDatabaseNamingConfig{
+		ConnectorName:  Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
+		SourceDatabase: sourceDatabase,
+		SourceSchema:   NormalizeIdentifier(namespace),
+	})
+
+	tableName := NormalizeIdentifier(name)
+
+	return dbName, tableName
 }

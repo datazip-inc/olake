@@ -37,7 +37,7 @@ const (
 )
 
 // DatabaseNamingConfig is a dto for database naming configuration for iceberg
-type DatabaseNamingConfig struct {
+type DestinationDatabaseNamingConfig struct {
 	ConnectorName  string
 	SourceDatabase string
 	SourceSchema   string

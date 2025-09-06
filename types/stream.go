@@ -2,9 +2,7 @@ package types
 
 import (
 	"github.com/goccy/go-json"
-	"github.com/spf13/viper"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/jsonschema/schema"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -39,6 +37,7 @@ type Stream struct {
 }
 
 func NewStream(name, namespace, driver, sourceDatabase string) *Stream {
+	DestDatabase, DestTable := utils.GenerateDestinationDetails(driver, namespace, name, sourceDatabase)
 	return &Stream{
 		Name:                    name,
 		Namespace:               namespace,
@@ -46,12 +45,8 @@ func NewStream(name, namespace, driver, sourceDatabase string) *Stream {
 		SourceDefinedPrimaryKey: NewSet[string](),
 		AvailableCursorFields:   NewSet[string](),
 		Schema:                  NewTypeSchema(),
-		DestinationDatabase: utils.GenerateDefaultIcebergDatabase(&constants.DatabaseNamingConfig{
-			ConnectorName:  utils.Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
-			SourceDatabase: sourceDatabase,
-			SourceSchema:   utils.NormalizeIdentifier(namespace),
-		}),
-		DestinationTable: utils.NormalizeIdentifier(name),
+		DestinationDatabase:     DestDatabase,
+		DestinationTable:        DestTable,
 	}
 }
 

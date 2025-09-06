@@ -80,7 +80,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
 				Schema:          iceSchema,
-				DestTableName:   utils.Ternary(stream.GetDestinationTable() != "", stream.GetDestinationTable(), stream.Name()).(string),
+				DestTableName:   i.stream.GetDestinationTable(),
 				ThreadId:        i.server.serverID,
 				IdentifierField: &identifierField,
 			},
@@ -198,7 +198,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: utils.Ternary(i.stream.GetDestinationTable() != "", i.stream.GetDestinationTable(), i.stream.Name()).(string),
+			DestTableName: i.stream.GetDestinationTable(),
 			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
@@ -244,7 +244,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
-			DestTableName: utils.Ternary(i.stream.GetDestinationTable() != "", i.stream.GetDestinationTable(), i.stream.Name()).(string),
+			DestTableName: i.stream.GetDestinationTable(),
 		},
 	}
 	res, err := i.server.sendClientRequest(ctx, request)
@@ -470,7 +470,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			IdentifierField: &identifierField,
-			DestTableName:   utils.Ternary(i.stream.GetDestinationTable() != "", i.stream.GetDestinationTable(), i.stream.Name()).(string),
+			DestTableName:   i.stream.GetDestinationTable(),
 			ThreadId:        i.server.serverID,
 		},
 	}

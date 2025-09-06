@@ -65,7 +65,7 @@ func (s *ConfiguredStream) GetDestinationDatabase() string {
 }
 
 func (s *ConfiguredStream) GetDestinationTable() string {
-	return s.Stream.DestinationTable
+	return utils.Ternary(s.Stream.DestinationTable == "", s.Stream.Name, s.Stream.DestinationTable).(string)
 }
 
 // returns primary and secondary cursor
