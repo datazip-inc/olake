@@ -134,7 +134,6 @@ const IcebergUISchema = `{
       { "iceberg_s3_path": 12, "iceberg_db": 12 },
       { "hive_clients": 12, "s3_use_ssl": 12 },
       { "hive_sasl_enabled": 12, "s3_path_style": 12 },
-      { "grpc_port": 12, "sink_rpc_server_host": 12 },
       { "rest_auth_type": 12, "token": 12 },
       { "oauth2_uri": 12, "credential": 12 },
       { "no_identifier_fields": 12, "rest_signing_name": 12 },
