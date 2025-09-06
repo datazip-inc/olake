@@ -101,7 +101,7 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 	if !found {
 		t.Properties.Store(column, &Property{
 			Type:             NewSet(types...),
-			TargetColumnName: utils.NormalizeIdentifier(column),
+			TargetColumnName: utils.Reformat(column),
 		})
 		return
 	}

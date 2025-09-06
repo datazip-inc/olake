@@ -61,7 +61,7 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 }
 
 func (s *ConfiguredStream) GetDestinationDatabase() string {
-	return utils.NormalizeIdentifier(s.Stream.DestinationDatabase)
+	return utils.Reformat(s.Stream.DestinationDatabase)
 }
 
 func (s *ConfiguredStream) GetDestinationTable() string {

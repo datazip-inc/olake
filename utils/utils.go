@@ -375,21 +375,28 @@ func NormalizedEqual(strune1, strune2 string) bool {
 	return string(rune1) == string(rune2)
 }
 
-// NormalizeIdentifier normalizes the identifier by converting it to lowercase, replacing invalid characters with underscores,
-// trimming leading/trailing underscores, and squashing duplicate underscores
-func NormalizeIdentifier(name string) string {
-	// Convert to lowercase
-	name = strings.ToLower(name)
+// Reformat makes all keys to lower case and replaces all special symbols with '_'
+func Reformat(key string) string {
+	key = strings.ToLower(key)
+	var result strings.Builder
+	for _, symbol := range key {
+		if IsLetterOrNumber(symbol) {
+			result.WriteByte(byte(symbol))
+		} else {
+			result.WriteRune('_')
+		}
+	}
+	return result.String()
+}
 
-	// Replace invalid characters with underscores
-	reg := regexp.MustCompile(`[^a-z0-9_]+`)
-	name = reg.ReplaceAllString(name, "_")
-
-	// Squash duplicate underscores
-	reg = regexp.MustCompile(`_+`)
-	name = reg.ReplaceAllString(name, "_")
-
-	return name
+// IsLetterOrNumber returns true if input symbol is:
+//
+//	A - Z: 65-90
+//	a - z: 97-122
+func IsLetterOrNumber(symbol int32) bool {
+	return ('a' <= symbol && symbol <= 'z') ||
+		('A' <= symbol && symbol <= 'Z') ||
+		('0' <= symbol && symbol <= '9')
 }
 
 // GenerateDefaultIcebergDatabase creates default Iceberg DB name with optional namespace
@@ -397,17 +404,17 @@ func GenerateDefaultIcebergDatabase(config *constants.DestinationDatabaseNamingC
 	parts := []string{}
 
 	if config.ConnectorName != "" {
-		parts = append(parts, NormalizeIdentifier(config.ConnectorName))
+		parts = append(parts, Reformat(config.ConnectorName))
 	}
 	if config.SourceDatabase != "" {
-		parts = append(parts, NormalizeIdentifier(config.SourceDatabase))
+		parts = append(parts, Reformat(config.SourceDatabase))
 	}
 	// Join main DB name parts
 	dbName := strings.Join(parts, "_")
 
 	// Append namespace if provided
 	if config.SourceSchema != "" {
-		dbName = fmt.Sprintf("%s:%s", dbName, NormalizeIdentifier(config.SourceSchema))
+		dbName = fmt.Sprintf("%s:%s", dbName, Reformat(config.SourceSchema))
 	}
 
 	return dbName
@@ -425,10 +432,10 @@ func GenerateDestinationDetails(driver, namespace, name, sourceDatabase string) 
 	dbName := GenerateDefaultIcebergDatabase(&constants.DestinationDatabaseNamingConfig{
 		ConnectorName:  Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
 		SourceDatabase: sourceDatabase,
-		SourceSchema:   NormalizeIdentifier(namespace),
+		SourceSchema:   Reformat(namespace),
 	})
 
-	tableName := NormalizeIdentifier(name)
+	tableName := Reformat(name)
 
 	return dbName, tableName
 }
