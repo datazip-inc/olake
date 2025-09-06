@@ -376,11 +376,16 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
 			records[idx].Data[constants.OpType] = record.OperationType
 			if record.CdcTimestamp != nil {
-				records[idx].Data[constants.CdcTimestamp] = record.CdcTimestamp
+				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
-			normalizedData := make(map[string]interface{}) // stroring normalized keys
+
+			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			if err != nil {
+				return false, nil, fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
+			}
+			records[idx].Data = flattenedRecord
+
 			for key, value := range record.Data {
-				normalizedKey := utils.NormalizeIdentifier(key)
 				detectedType := typeutils.TypeFromValue(value)
 
 				if detectedType == types.Null {
@@ -388,29 +393,26 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					delete(record.Data, key)
 					continue
 				}
-				normalizedData[normalizedKey] = value
 
 				detectedIcebergType := detectedType.ToIceberg()
-				if typeInNewSchema, exists := recordsSchema[normalizedKey]; exists {
+				if typeInNewSchema, exists := recordsSchema[key]; exists {
 					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
 					if !valid {
 						return false, nil, fmt.Errorf(
-							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
-							typeInNewSchema, detectedIcebergType,
+							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+							key, typeInNewSchema, detectedIcebergType,
 						)
 					}
 
 					if promotionRequired(typeInNewSchema, detectedIcebergType) {
-						recordsSchema[normalizedKey] = detectedIcebergType
+						recordsSchema[key] = detectedIcebergType
 						diffThreadSchema = true
 					}
 				} else {
 					diffThreadSchema = true
-					recordsSchema[normalizedKey] = detectedIcebergType
+					recordsSchema[key] = detectedIcebergType
 				}
 			}
-			// override original data with normalized one
-			records[idx].Data = normalizedData
 		}
 
 		return diffThreadSchema, recordsSchema, nil
