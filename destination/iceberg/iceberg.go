@@ -384,8 +384,9 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 				return false, nil, fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
 			records[idx].Data = flattenedRecord
-
+			normalizedData := make(map[string]interface{}) // stroring normalized keys
 			for key, value := range record.Data {
+				normalizedKey := utils.Reformat(key)
 				detectedType := typeutils.TypeFromValue(value)
 
 				if detectedType == types.Null {
@@ -393,26 +394,29 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					delete(record.Data, key)
 					continue
 				}
+				normalizedData[normalizedKey] = value
 
 				detectedIcebergType := detectedType.ToIceberg()
-				if typeInNewSchema, exists := recordsSchema[key]; exists {
+				if typeInNewSchema, exists := recordsSchema[normalizedKey]; exists {
 					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
 					if !valid {
 						return false, nil, fmt.Errorf(
-							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
-							key, typeInNewSchema, detectedIcebergType,
+							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
+							typeInNewSchema, detectedIcebergType,
 						)
 					}
 
 					if promotionRequired(typeInNewSchema, detectedIcebergType) {
-						recordsSchema[key] = detectedIcebergType
+						recordsSchema[normalizedKey] = detectedIcebergType
 						diffThreadSchema = true
 					}
 				} else {
 					diffThreadSchema = true
-					recordsSchema[key] = detectedIcebergType
+					recordsSchema[normalizedKey] = detectedIcebergType
 				}
 			}
+			// override original data with normalized one
+			records[idx].Data = normalizedData
 		}
 
 		return diffThreadSchema, recordsSchema, nil
