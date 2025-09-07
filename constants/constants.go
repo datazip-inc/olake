@@ -22,7 +22,7 @@ const (
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
 	ConfigFolder           = "CONFIG_FOLDER"
-	SyncID                 = "SYNC_ID"
+	JobName                = "JOB_NAME"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
 	EffectiveParquetSize = int64(256) * 1024 * 1024 * int64(8)
 )
@@ -35,12 +35,5 @@ const (
 	MySQL    DriverType = "mysql"
 	Oracle   DriverType = "oracle"
 )
-
-// DatabaseNamingConfig is a dto for database naming configuration for iceberg
-type DestinationDatabaseNamingConfig struct {
-	JobName        string
-	SourceDatabase string
-	SourceSchema   string
-}
 
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}

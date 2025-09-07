@@ -117,7 +117,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string]*FileMetadata)
-	p.basePath = filepath.Join(utils.Ternary(p.stream.GetDestinationDatabase() != "", p.stream.GetDestinationDatabase(), p.stream.Namespace()).(string), p.stream.GetDestinationTable())
+	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(""), p.stream.GetDestinationTable())
 	p.schema = make(typeutils.Fields)
 
 	// for s3 p.config.path may not be provided

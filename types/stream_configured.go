@@ -27,7 +27,6 @@ type Filter struct {
 	LogicalOperator string      // condition[0] and/or condition[1], single and/or supported
 }
 
-// Q: should we also update this as well to return according to normalized namesapce and table name
 func (s *ConfiguredStream) ID() string {
 	return s.Stream.ID()
 }
@@ -60,8 +59,14 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
-func (s *ConfiguredStream) GetDestinationDatabase() string {
-	return utils.Reformat(s.Stream.DestinationDatabase)
+func (s *ConfiguredStream) GetDestinationDatabase(icebergDb string) string {
+	if s.Stream.DestinationDatabase != "" {
+		return utils.Reformat(s.Stream.DestinationDatabase)
+	}
+	if icebergDb != "" {
+		return icebergDb
+	}
+	return s.Stream.Namespace
 }
 
 func (s *ConfiguredStream) GetDestinationTable() string {

@@ -26,8 +26,8 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
-		if syncID != "" {
-			viper.Set(constants.SyncID, syncID)
+		if jobName != "" {
+			viper.Set(constants.JobName, jobName)
 		}
 		if streamsPath != "" {
 			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {

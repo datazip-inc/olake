@@ -100,8 +100,8 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 	p, found := t.Properties.Load(column)
 	if !found {
 		t.Properties.Store(column, &Property{
-			Type:             NewSet(types...),
-			TargetColumnName: utils.Reformat(column),
+			Type:                  NewSet(types...),
+			destinationColumnName: utils.Reformat(column),
 		})
 		return
 	}
@@ -122,7 +122,8 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 func (t *TypeSchema) ToParquet() *parquet.Schema {
 	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
-		groupNode[utils.Ternary(value.(*Property).TargetColumnName != "", value.(*Property).TargetColumnName, key.(string)).(string)] = value.(*Property).DataType().ToNewParquet()
+		prop := value.(*Property)
+		groupNode[getDestinationColumnName(prop, key.(string))] = prop.DataType().ToNewParquet()
 		return true
 	})
 
@@ -132,9 +133,10 @@ func (t *TypeSchema) ToParquet() *parquet.Schema {
 func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
 	t.Properties.Range(func(key, value interface{}) bool {
+		prop := value.(*Property)
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-			IceType: value.(*Property).DataType().ToIceberg(),
-			Key:     utils.Ternary(value.(*Property).TargetColumnName != "", value.(*Property).TargetColumnName, key.(string)).(string),
+			IceType: prop.DataType().ToIceberg(),
+			Key:     getDestinationColumnName(prop, key.(string)),
 		})
 		return true
 	})
@@ -147,7 +149,7 @@ type Property struct {
 	Type *Set[DataType] `json:"type,omitempty"`
 	// TODO: Decide to keep in the Protocol Or Not
 	// Format string     `json:"format,omitempty"`
-	TargetColumnName string `json:"target_column_name,omitempty"`
+	destinationColumnName string `json:"destination_column_name,omitempty"`
 }
 
 // returns datatype according to typecast tree if multiple type present
@@ -258,4 +260,11 @@ func lowestCommonAncestor(
 		}
 	}
 	return Unknown
+}
+
+func getDestinationColumnName(prop *Property, key string) string {
+	if prop.destinationColumnName != "" {
+		return prop.destinationColumnName
+	}
+	return key
 }

@@ -400,21 +400,21 @@ func IsLetterOrNumber(symbol int32) bool {
 }
 
 // GenerateDefaultIcebergDatabase creates default Iceberg DB name with optional namespace
-func GenerateDefaultIcebergDatabase(config *constants.DestinationDatabaseNamingConfig) string {
+func GenerateDefaultIcebergDatabase(jobName, sourceDatabase, namespace string) string {
 	parts := []string{}
 
-	if config.JobName != "" {
-		parts = append(parts, Reformat(config.JobName))
+	if jobName != "" {
+		parts = append(parts, Reformat(jobName))
 	}
-	if config.SourceDatabase != "" {
-		parts = append(parts, Reformat(config.SourceDatabase))
+	if sourceDatabase != "" {
+		parts = append(parts, Reformat(sourceDatabase))
 	}
 	// Join main DB name parts
 	dbName := strings.Join(parts, "_")
 
 	// Append namespace if provided
-	if config.SourceSchema != "" {
-		dbName = fmt.Sprintf("%s:%s", dbName, Reformat(config.SourceSchema))
+	if namespace != "" {
+		dbName = fmt.Sprintf("%s:%s", dbName, Reformat(namespace))
 	}
 
 	return dbName
@@ -429,11 +429,8 @@ func IsValidIdentifier(name string) bool {
 
 // GenerateDestinationDetails creates the default destination DB and table names for Iceberg.
 func GenerateDestinationDetails(driver, namespace, name, sourceDatabase string) (string, string) {
-	dbName := GenerateDefaultIcebergDatabase(&constants.DestinationDatabaseNamingConfig{
-		JobName:        Ternary(viper.GetString(constants.SyncID) == "", driver, viper.GetString(constants.SyncID)).(string),
-		SourceDatabase: sourceDatabase,
-		SourceSchema:   Reformat(namespace),
-	})
+	jobName := Ternary(viper.GetString(constants.JobName) == "", driver, viper.GetString(constants.JobName)).(string)
+	dbName := GenerateDefaultIcebergDatabase(jobName, sourceDatabase, namespace)
 
 	tableName := Reformat(name)
 
