@@ -18,11 +18,12 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	DBName                 = "_db"
+	StringifiedData        = "data"
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
 	ConfigFolder           = "CONFIG_FOLDER"
-	// EffectiveParquetSize is the effective size in bytes considering 512MB targeted parquet size, compression ratio as 8 and chunk inflation factor as 2
-	EffectiveParquetSize = int64(512) * 1024 * 1024 * int64(8) * int64(2)
+	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
+	EffectiveParquetSize = int64(256) * 1024 * 1024 * int64(8)
 )
 
 type DriverType string

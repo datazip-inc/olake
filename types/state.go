@@ -253,12 +253,12 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) int {
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {
-	if s.isZero() {
-		return json.Marshal(nil)
-	}
-
 	type Alias State
 	p := Alias(*s)
+
+	if s.isZero() {
+		return json.Marshal(p)
+	}
 
 	populatedStreams := []*StreamState{}
 	for _, stream := range p.Streams {
