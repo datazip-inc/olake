@@ -3,7 +3,7 @@ name: Performance Tests
 on:
   push:
     branches:
-    - "*" # change after testing
+    - "*"    # change after testing
     paths:
     - '**/*.go'
     - '**/*.java'
