@@ -34,7 +34,7 @@ Add MySql credentials in following format in `config.json` file. [More details.]
     "database": "mysql-database",
     "port": 3306,
     "update_method": {
-      "intial_wait_time": 10
+      "initial_wait_time": 10
      },
     "tls_skip_verify": true,
     "max_threads":10,
