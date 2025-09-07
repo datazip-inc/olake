@@ -39,7 +39,7 @@
       "description": "Maximum concurrent threads for data sync",
       "default": 3
     },
-    "retry_count": {
+    "backoff_retry_count": {
       "type": "integer",
       "title": "Retry Count",
       "description": "Number of sync retries (exponential backoff on failure)",
