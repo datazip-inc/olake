@@ -1,0 +1,117 @@
+{
+  "type": "object",
+  "properties": {
+    "connection_type": {
+      "type": "string",
+      "title": "Connection Type",
+      "description": "Method used to establish a connection between the Oracle database server",
+      "enum": [
+        "sid",
+        "service_name"
+      ],
+      "default": "service_name"
+    },
+    "host": {
+      "type": "string",
+      "title": "Host",
+      "description": "Database host addresses for connection"
+    },
+    "port": {
+      "type": "integer",
+      "title": "Port",
+      "description": "Database server listening port",
+      "default": 1521
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Username used to authenticate with the database"
+    },
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "Password for database authentication",
+      "format": "password"
+    },
+    "max_threads": {
+      "type": "integer",
+      "title": "Max Threads",
+      "description": "Maximum concurrent threads for data sync",
+      "default": 3
+    },
+    "backoff_retry_count": {
+      "type": "integer",
+      "title": "Retry Count",
+      "description": "Number of sync retries (exponential backoff on failure)",
+      "default": 3
+    },
+    "ssl": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "SSL Mode",
+          "description": "Database connection SSL configuration (e.g., SSL mode)",
+          "default": "disable",
+          "enum": [
+            "require",
+            "disable",
+            "verify-ca",
+            "verify-full"
+          ]
+        }
+      },
+      "required": [
+        "mode"
+      ]
+    },
+    "jdbc_url_params": {
+      "type": "object",
+      "title": "JDBC URL Parameters",
+      "description": "Additional JDBC URL parameters for connection tuning",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "connection_type",
+    "host",
+    "port",
+    "username"
+  ],
+  "dependencies": {
+    "connection_type": {
+      "oneOf": [
+        {
+          "properties": {
+            "connection_type": {
+              "const": "sid"
+            },
+            "sid": {
+              "type": "string",
+              "title": "SID",
+              "description": "Unique name that identifies an instance of an Oracle database"
+            }
+          },
+          "required": [
+            "sid"
+          ]
+        },
+        {
+          "properties": {
+            "connection_type": {
+              "const": "service_name"
+            },
+            "service_name": {
+              "type": "string",
+              "title": "Service Name",
+              "description": "A logical database service to connect to"
+            }
+          },
+          "required": [
+            "service_name"
+          ]
+        }
+      ]
+    }
+  }
+}
