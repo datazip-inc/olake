@@ -513,6 +513,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 // return if evolution is valid or not
 func validIcebergType(oldType, newType string) bool {
+	// TODO: add check for passing greater hierarchy datatypes, e.g. oldType: string, float | newType: int -> pass
 	if oldType == newType {
 		return true
 	}
