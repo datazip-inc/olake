@@ -459,6 +459,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		code, output, err := utils.ExecCommand(timedCtx, c, cmd)
 		// check if sync was canceled due to timeout (expected)
 		if timedCtx.Err() == context.DeadlineExceeded {
+			killCmd := "pkill -9 -f 'olake.*sync' || true"
+			_, _, _ = utils.ExecCommand(ctx, c, killCmd)
 			return output, nil
 		}
 		if err != nil || code != 0 {
