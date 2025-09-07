@@ -59,12 +59,12 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
-func (s *ConfiguredStream) GetDestinationDatabase(icebergDb string) string {
+func (s *ConfiguredStream) GetDestinationDatabase(icebergDB string) string {
 	if s.Stream.DestinationDatabase != "" {
 		return utils.Reformat(s.Stream.DestinationDatabase)
 	}
-	if icebergDb != "" {
-		return icebergDb
+	if icebergDB != "" {
+		return icebergDB
 	}
 	return s.Stream.Namespace
 }

@@ -101,7 +101,7 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 	if !found {
 		t.Properties.Store(column, &Property{
 			Type:                  NewSet(types...),
-			destinationColumnName: utils.Reformat(column),
+			DestinationColumnName: utils.Reformat(column),
 		})
 		return
 	}
@@ -149,7 +149,7 @@ type Property struct {
 	Type *Set[DataType] `json:"type,omitempty"`
 	// TODO: Decide to keep in the Protocol Or Not
 	// Format string     `json:"format,omitempty"`
-	destinationColumnName string `json:"destination_column_name,omitempty"`
+	DestinationColumnName string `json:"destination_column_name,omitempty"`
 }
 
 // returns datatype according to typecast tree if multiple type present
@@ -263,8 +263,8 @@ func lowestCommonAncestor(
 }
 
 func getDestinationColumnName(prop *Property, key string) string {
-	if prop.destinationColumnName != "" {
-		return prop.destinationColumnName
+	if prop.DestinationColumnName != "" {
+		return prop.DestinationColumnName
 	}
 	return key
 }

@@ -13,7 +13,7 @@ type StreamInterface interface {
 	Cursor() (string, string)
 	Validate(source *Stream) error
 	NormalizationEnabled() bool
-	GetDestinationDatabase(icebergDb string) string
+	GetDestinationDatabase(icebergDB string) string
 	GetDestinationTable() string
 }
 
