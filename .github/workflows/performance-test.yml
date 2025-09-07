@@ -7,6 +7,9 @@ on:
     # paths:
     # - '**/*.go'
     # - '**/*.java'
+  pull_request:
+    branches:
+    - "*" #
 
 permissions:
   id-token: write
