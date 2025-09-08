@@ -97,7 +97,6 @@ func TrackDiscover(streamCount int, sourceType string) {
 		if telemetry == nil {
 			return
 		}
-		// defer telemetry.client.Close()
 		props := map[string]interface{}{
 			"stream_count": streamCount,
 			"source_type":  sourceType,
@@ -141,7 +140,6 @@ func TrackSyncCompleted(status bool, records int64) {
 		if telemetry == nil {
 			return
 		}
-		// defer telemetry.client.Close()
 		props := map[string]interface{}{
 			"sync_end":       time.Now(),
 			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
@@ -170,9 +168,9 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	props["service"] = t.serviceName
 	props["ip_address"] = t.ipAddress
 	props["location"] = t.locationInfo
-	props["distinct_id"] = t.userID // Mixpanel expects this key
-	props["time"] = time.Now().Unix()
 	props["distinct_id"] = t.userID
+	props["time"] = time.Now().Unix()
+	props["event_original_name"] = eventName
 
 	body := map[string]interface{}{
 		"event":      eventName,
