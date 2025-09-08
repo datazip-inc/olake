@@ -72,7 +72,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	if globalSchema == nil {
 		if !utils.IsValidIdentifier(i.stream.Name()) {
-			logger.Warnf("Identifier '%s' is not normalized. Normalized to '%s'.", i.stream.Name(), i.stream.GetDestinationTable())
+			logger.Warnf("Table '%s' is not normalized. Normalized to '%s'.", i.stream.Name(), i.stream.GetDestinationTable())
 		}
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)

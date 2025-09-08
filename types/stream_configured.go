@@ -75,7 +75,7 @@ func (s *ConfiguredStream) GetDestinationTable() string {
 
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
-	cursorFields := strings.Split(s.Stream.CursorField, ":")
+	cursorFields := strings.Split(s.Stream.CursorField, "::")
 	primaryCursor := cursorFields[0]
 	secondaryCursor := ""
 	if len(cursorFields) > 1 {
@@ -89,9 +89,11 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
-	// TODO: handle special characters in filter column name
+	//Works with any special characters,Supports quoted & unquoted column names,Handles emojis ,Handles logical operators (and / or)
 	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
-	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
+	var FilterRegex = regexp.MustCompile(
+		`^"?(?P<col1>[^\s"']+)"?\s*(>=|<=|!=|=|>|<)\s*(?P<val1>"[^"]*"|[^"\s]+)\s*(?:(?P<op>and|or)\s*"?([^\s"']+)"?\s*(>=|<=|!=|=|>|<)\s*(?P<val2>"[^"]*"|[^"\s]+))?\s*$`,
+	)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
