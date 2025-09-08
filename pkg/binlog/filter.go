@@ -1,6 +1,7 @@
 package binlog
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -31,7 +32,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
-func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn) error {
+func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn) error {
 	schemaName := string(e.Table.Schema)
 	tableName := string(e.Table.Table)
 	stream, exists := f.streams[schemaName+"."+tableName]
@@ -78,11 +79,11 @@ func (f ChangeFilter) FilterRowsEvent(e *replication.RowsEvent, ev *replication.
 		}
 		change := abstract.CDCChange{
 			Stream:    stream,
-			Timestamp: typeutils.Time{Time: time.Unix(int64(ev.Header.Timestamp), 0)},
+			Timestamp: time.Unix(int64(ev.Header.Timestamp), 0),
 			Kind:      operationType,
 			Data:      record,
 		}
-		if err := callback(change); err != nil {
+		if err := callback(ctx, change); err != nil {
 			return err
 		}
 	}

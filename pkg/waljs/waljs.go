@@ -216,7 +216,7 @@ func (s *Socket) StreamMessages(ctx context.Context, db *sqlx.DB, callback abstr
 					return fmt.Errorf("failed to parse XLogData: %s", err)
 				}
 				// Process change with the provided callback.
-				nextLSN, records, err := s.changeFilter.FilterChange(xld.WALData, callback)
+				nextLSN, records, err := s.changeFilter.FilterChange(ctx, xld.WALData, callback)
 				if err != nil {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}

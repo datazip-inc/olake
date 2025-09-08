@@ -85,7 +85,7 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 
 			case *replication.RowsEvent:
 				startTime = time.Now()
-				if err := c.changeFilter.FilterRowsEvent(e, ev, callback); err != nil {
+				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, callback); err != nil {
 					return err
 				}
 			}
