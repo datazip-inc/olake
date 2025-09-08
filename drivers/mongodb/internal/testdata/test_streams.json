@@ -1,1 +1,212 @@
-{"selected_streams":{"olake_mongodb_test":[{"partition_regex":"","stream_name":"test_collection","normalization":false},{"partition_regex":"","stream_name":"mongodb_test_table_olake","normalization":false}]},"streams":[{"stream":{"name":"test_collection","namespace":"olake_mongodb_test","type_schema":{"properties":{"_cdc_timestamp":{"type":["timestamp_micro","null"]},"_olake_id":{"type":["string","null"]},"_olake_timestamp":{"type":["null","timestamp_micro"]},"_op_type":{"type":["string","null"]}}},"supported_sync_modes":["full_refresh","incremental","cdc","strict_cdc"],"source_defined_primary_key":["_id"],"available_cursor_fields":[],"sync_mode":"cdc"}},{"stream":{"name":"mongodb_test_table_olake","namespace":"olake_mongodb_test","type_schema":{"properties":{"_cdc_timestamp":{"type":["timestamp_micro","null"]},"_id":{"type":["string"]},"_olake_id":{"type":["string","null"]},"_olake_timestamp":{"type":["timestamp_micro","null"]},"_op_type":{"type":["string","null"]},"created_timestamp":{"type":["integer_small"]},"id_bigint":{"type":["integer"]},"id_bool":{"type":["boolean"]},"id_double":{"type":["number"]},"id_int":{"type":["integer_small"]},"id_maxkey":{"type":["unknown"]},"id_minkey":{"type":["unknown"]},"id_nested":{"type":["object"]},"id_nil":{"type":["null"]},"id_regex":{"type":["unknown"]},"id_timestamp":{"type":["timestamp"]},"name_varchar":{"type":["string"]}}},"supported_sync_modes":["full_refresh","incremental","cdc","strict_cdc"],"source_defined_primary_key":["_id"],"available_cursor_fields":["id_bool","name_varchar","_id","id_double","id_regex","id_nested","id_nil","id_minkey","id_bigint","created_timestamp","id_maxkey","id_timestamp","id_int"],"sync_mode":"cdc"}}]}
+{
+    "selected_streams": {
+        "olake_mongodb_test": [
+            {
+                "partition_regex": "",
+                "stream_name": "mongodb_test_table_olake",
+                "normalization": false
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "test_collection",
+                "normalization": false
+            }
+        ]
+    },
+    "streams": [
+        {
+            "stream": {
+                "name": "mongodb_test_table_olake",
+                "namespace": "olake_mongodb_test",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_id": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "_id"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "created_timestamp": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "created_timestamp"
+                        },
+                        "id_bigint": {
+                            "type": [
+                                "integer"
+                            ],
+                            "destination_column_name": "id_bigint"
+                        },
+                        "id_bool": {
+                            "type": [
+                                "boolean"
+                            ],
+                            "destination_column_name": "id_bool"
+                        },
+                        "id_double": {
+                            "type": [
+                                "number"
+                            ],
+                            "destination_column_name": "id_double"
+                        },
+                        "id_int": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "id_int"
+                        },
+                        "id_maxkey": {
+                            "type": [
+                                "unknown"
+                            ],
+                            "destination_column_name": "id_maxkey"
+                        },
+                        "id_minkey": {
+                            "type": [
+                                "unknown"
+                            ],
+                            "destination_column_name": "id_minkey"
+                        },
+                        "id_nested": {
+                            "type": [
+                                "object"
+                            ],
+                            "destination_column_name": "id_nested"
+                        },
+                        "id_nil": {
+                            "type": [
+                                "null"
+                            ],
+                            "destination_column_name": "id_nil"
+                        },
+                        "id_regex": {
+                            "type": [
+                                "unknown"
+                            ],
+                            "destination_column_name": "id_regex"
+                        },
+                        "id_timestamp": {
+                            "type": [
+                                "timestamp"
+                            ],
+                            "destination_column_name": "id_timestamp"
+                        },
+                        "name_varchar": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "name_varchar"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "strict_cdc",
+                    "full_refresh",
+                    "incremental",
+                    "cdc"
+                ],
+                "source_defined_primary_key": [
+                    "_id"
+                ],
+                "available_cursor_fields": [
+                    "id_maxkey",
+                    "id_minkey",
+                    "_id",
+                    "id_nested",
+                    "id_nil",
+                    "id_timestamp",
+                    "id_bigint",
+                    "created_timestamp",
+                    "id_int",
+                    "id_double",
+                    "id_regex",
+                    "name_varchar",
+                    "id_bool"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mongodb:olake_mongodb_test",
+                "destination_table": "mongodb_test_table_olake"
+            }
+        },
+        {
+            "stream": {
+                "name": "test_collection",
+                "namespace": "olake_mongodb_test",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "strict_cdc",
+                    "full_refresh",
+                    "incremental",
+                    "cdc"
+                ],
+                "source_defined_primary_key": [
+                    "_id"
+                ],
+                "available_cursor_fields": [],
+                "sync_mode": "cdc",
+                "destination_database": "mongodb:olake_mongodb_test",
+                "destination_table": "test_collection"
+            }
+        }
+    ]
+}
