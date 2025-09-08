@@ -384,6 +384,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 				return false, nil, fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
 			records[idx].Data = flattenedRecord
+
 			for key, value := range flattenedRecord {
 				detectedType := typeutils.TypeFromValue(value)
 
@@ -398,8 +399,8 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
 					if !valid {
 						return false, nil, fmt.Errorf(
-							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
-							typeInNewSchema, detectedIcebergType,
+							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+							key, typeInNewSchema, detectedIcebergType,
 						)
 					}
 
