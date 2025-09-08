@@ -70,7 +70,8 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if err := client.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
-	found, _ := utils.IsOfType(m.config.UpdateMethod, "intial_wait_time")
+	// TODO: If CDC config exists and permission check fails, fail the setup
+	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
 		cdc := &CDC{}

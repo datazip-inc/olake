@@ -379,7 +379,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 			}
 			records[idx].Data = flattenedRecord
 
-			for key, value := range record.Data {
+			for key, value := range flattenedRecord {
 				detectedType := typeutils.TypeFromValue(value)
 
 				if detectedType == types.Null {
@@ -508,6 +508,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 // return if evolution is valid or not
 func validIcebergType(oldType, newType string) bool {
+	// TODO: add check for passing greater hierarchy datatypes, e.g. oldType: string, float | newType: int -> pass
 	if oldType == newType {
 		return true
 	}
