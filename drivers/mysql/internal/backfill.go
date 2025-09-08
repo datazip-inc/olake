@@ -4,20 +4,25 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-const chunkSize int64 = 500000 // Default chunk size for MySQL
-
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+	filter, err := jdbc.SQLFilter(stream, m.Type())
+	if err != nil {
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+	}
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 		// Build query for the chunk
@@ -25,7 +30,14 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 		sort.Strings(pkColumns)
 		// Get chunks from state or calculate new ones
-		stmt := utils.Ternary(chunkColumn != "", jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk), utils.Ternary(len(pkColumns) > 0, jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk), jdbc.MysqlLimitOffsetScanQuery(stream, chunk))).(string)
+		stmt := ""
+		if chunkColumn != "" {
+			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
+		} else if len(pkColumns) > 0 {
+			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
+		} else {
+			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
+		}
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
@@ -44,13 +56,20 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
-	approxRowCountQuery := jdbc.MySQLTableRowsQuery()
-	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get approx row count: %s", err)
+	var avgRowSize any
+	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
+	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
+	if err != nil || avgRowSize == nil {
+		errorMsg := utils.Ternary(err != nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err), fmt.Errorf("either stats not populated for table[%s] or the table contains 0 records. (to populate stats run ANALYZE TABLE query)", stream.ID()))
+		return nil, errorMsg.(error)
 	}
 	pool.AddRecordsToSync(approxRowCount)
-
+	// avgRowSize is returned as []uint8 which is converted to float64
+	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get avg row size: %s", err)
+	}
+	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
@@ -79,7 +98,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			// Generate chunks based on range
 			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
-
 			currentVal := minVal
 			for {
 				// Split the current value into parts
@@ -98,7 +116,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				if err == sql.ErrNoRows || nextValRaw == nil {
 					break
 				} else if err != nil {
-					return fmt.Errorf("failed to get next chunk end: %w", err)
+					return fmt.Errorf("failed to get next chunk end: %s", err)
 				}
 				if currentVal != nil && nextValRaw != nil {
 					chunks.Insert(types.Chunk{

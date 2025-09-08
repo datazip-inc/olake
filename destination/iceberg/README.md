@@ -24,6 +24,21 @@ Important reason why we are using Java to write is, current Golang-iceberg proje
 
 Its based in the directory olake-iceberg-java-writer. Read more ./olake-iceberg-java-writer/README.md on how to run it in standalone mode and test.
 
+## Environment Variables
+
+### OLAKE_DEBUG_MODE
+
+Set this environment variable to enable debug mode for the Java Iceberg writer. When enabled, the Java process will start with remote debugging options, allowing you to attach a debugger on port 5005.
+
+**Note:** Debug mode is only enabled during sync operations (not during check operations) to avoid blocking the connection check process.
+
+```bash
+# Enable debug mode
+export OLAKE_DEBUG_MODE=1
+
+# Run your sync command
+olake sync --config source.json --destination destination.json --catalog catalog.json
+```
 
 ## How to run 
 
@@ -114,6 +129,16 @@ Create a json for writer config (writer.json)
 }
 ```
 
+**Authentication Fields (optional):**
+- `token` - Bearer token for token-based authentication
+- `oauth2_uri` - OAuth2 server URI for OAuth2 authentication
+- `rest_auth_type` - Authentication type (e.g., "oauth2")
+- `credential` - Client secret or credential for OAuth2 (Usually id:secret)
+- `scope` - OAuth2 scopes (space-separated)
+- `rest_signing_name` - Service name for AWS Signature V4 (e.g., "s3tables")
+- `rest_signing_region` - Region for AWS Signature V4 signing
+- `rest_signing_v_4` - Enable AWS Signature V4 signing (boolean)
+
 ### S3 Table Bucket
 Create a json for writer config (writer.json)
 ```json
@@ -140,6 +165,31 @@ change the placeholders with actual values
 * `ACCOUNT_ID` -> AWS account identifier
 * `BUCKET_NAME` -> Table Bucket Name
 
+### Unity Catalog support (Rest)
+```json
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "rest",
+    "normalization": true,
+    "rest_catalog_url": "https://<DATABRICK_WORKSPACE_URL>/api/2.1/unity-catalog/iceberg-rest",
+    "iceberg_s3_path": "<CATALOG_NAME>",
+    "iceberg_db": "<NAMESPACE>",
+    "token": "<DATABRICK_USER_PERSONAL_ACCESS_TOKEN>",
+    "no_identifier_fields": true
+  }
+}
+```
+
+change the placeholders with actual values
+* `DATABRICK_WORKSPACE_URL` -> Databricks workplace URL (URL that you used to access your Databricks console)
+* `CATALOG_NAME` -> Catalog name (ex, workspace)
+* `NAMESPACE` -> Namespace name inside catalog (ex, default)
+* `DATABRICK_USER_PERSONAL_ACCESS_TOKEN` -> Go to settings > developer > create PAT
+* no_identifier_fields -> true (This is needed for environments which doesn't support Equality delete based updates. Ex Databricks Unity managed iceberg tables)
+
+Note : Auth can be done using Oauth2 as well.
+
 ### Hive Catalog
 Create a json for writer config (writer.json)
 ```json
@@ -159,6 +209,22 @@ Create a json for writer config (writer.json)
         "hive_sasl_enabled": false,
         "iceberg_db": "olake_iceberg"
     }
+}
+```
+
+To use Iceberg with GCP, configure the writer to connect to a Hive Metastore hosted on Dataproc Metastore and write data to Dataproc generated bucket
+```json
+{
+  "type": "ICEBERG",
+  "writer": {
+      "catalog_type": "hive",
+      "hive_uri": "thrift://<hive-dataproc-metastore-ip>:9083",
+      "hive_clients": 10,
+      "hive_sasl_enabled": false,
+      "iceberg_db": "olake_iceberg",
+      "iceberg_s3_path": "gs://gcp-Dataproc-bucket/hive-warehouse",
+      "aws_region": "us-central1"
+  }
 }
 ```
 

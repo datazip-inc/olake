@@ -150,9 +150,14 @@ func (g *CxGroup) Block() error {
 
 func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx context.Context, one T) error) {
 	for _, one := range array {
-		// schedule an execution
-		group.Add(func(ctx context.Context) error {
-			return execute(ctx, one)
-		})
+		select {
+		case <-group.ctx.Done():
+			break
+		default:
+			// schedule an execution
+			group.Add(func(ctx context.Context) error {
+				return execute(ctx, one)
+			})
+		}
 	}
 }

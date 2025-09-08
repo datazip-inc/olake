@@ -2,7 +2,7 @@
 
 This Docker Compose setup provides a comprehensive environment for demonstrating and exploring Olake's capabilities. It includes a pre-configured MySQL database with the "weather" sample dataset, MinIO for S3-compatible storage, an Iceberg REST catalog, Temporal for workflow management, and the Olake application itself.
 
-## Features
+## Components
 
 * **Olake Application (`olake-app`):** The core application for defining and managing data pipelines.
 * **MySQL (`primary_mysql`):**
@@ -53,16 +53,26 @@ Once the stack is up and running (especially after `init-mysql-tasks` and `olake
 ## Interacting with Olake
 
 1.  Log in to the Olake UI at `http://localhost:8000` using the default credentials.
-2.  **Configure Data Source and Destination:**
 
-    * Set up a **Source** connection to the `primary_mysql` database within Olake:
+2.  **Create and Configure a Job:**
+    Create a Job to define and run the data pipeline:
+    * On the main page, click on the **"Create your first Job"** button.
+
+    * **Set up the Source:**
+        * **Connector:** `MySQL`
+        * **Version:** chose the latest available version
+        * **Name of your source:** `olake_mysql`
         * **Host:** `host.docker.internal`
         * **Port:** `3306`
         * **Database:** `weather`
-        * **User:** `root`
+        * **Username:** `root`
         * **Password:** `password`
 
-    * Set up a **Destination** connection for Apache Iceberg within Olake:
+    * **Set up the Destination:**
+        * **Connector:** `Apache Iceberg`
+        * **Catalog:** `REST catalog`
+        * **Name of your destination:** `olake_iceberg`
+        * **Version:** chose the latest available version
         * **Iceberg REST Catalog URL:** `http://host.docker.internal:8181`
         * **Iceberg S3 Path (example):** `s3://warehouse/weather/`
         * **Iceberg Database (example):** `weather`
@@ -70,17 +80,6 @@ Once the stack is up and running (especially after `init-mysql-tasks` and `olake
         * **AWS Region:** `us-east-1`
         * **S3 Access Key:** `minio`
         * **S3 Secret Key:** `minio123`
-
-3.  **Create and Configure a Job:**
-    Once the Source (MySQL) and Destination (Iceberg) are successfully configured and tested in Olake, create a Job to define and run the data pipeline:
-    * Navigate to the **"Jobs"** tab in the Olake UI.
-    * Click on the **"Create Job"** button.
-
-    * **Set up the Source:**
-        * Use and existing source -> Connector: MySQL -> Select the source from the dropdown list -> Next.
-
-    * **Set up the Destination:**
-        * Use and existing destination -> Conector: Apache Iceberg -> Catalog: REST Catalog -> Select the destination from the dropdown list -> Next.
     
     * **Select Streams to sync:**
         * Select the weather table using checkbox to sync from Source to Destination.
@@ -133,6 +132,24 @@ x-app-defaults:
   host_persistence_path: &hostPersistencePath /alternate/host/path
 ```
 Make sure the directory exists and is writable by the user running Docker (see how to change [file permissions for Linux/macOS](https://wiki.archlinux.org/title/File_permissions_and_attributes#Changing_permissions)).
+
+**Encryption Key:**
+
+The stack allows you to configure an optional encryption key for securing sensitive data. By default, the encryption key is empty (no encryption). To enable encryption, edit the `x-encryption` section in `docker-compose.yml`:
+
+```yaml
+x-encryption:
+  key: &encryptionKey "your-secret-encryption-key-here"
+```
+
+You can also use an AWS KMS ARN for enhanced security:
+
+```yaml
+x-encryption:
+  key: &encryptionKey "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+```
+
+**Important:** Use a strong, randomly generated key for production environments. When using AWS KMS, ensure your environment has proper AWS credentials and permissions to access the KMS key. Keep encryption keys secure as they will be needed to decrypt your data.
 
 ## Troubleshooting
 

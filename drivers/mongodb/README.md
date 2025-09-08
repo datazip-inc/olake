@@ -10,6 +10,8 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
    Tracks and syncs incremental changes from MongoDB in real time.
 3. **Strict CDC (Change Data Capture)**
    Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
+4. **Incremental**
+   Syncs only new or modified records which have cursor value greater than or equal to the saved position.
 
 ---
 
@@ -67,7 +69,8 @@ After executing the Discover command, a formatted response will look like this:
                   "partition_regex": "",
                   "stream_name": "incr",
                   "normalization": false,
-                  "append_only": false
+                  "append_mode": false,
+                  "filter": "id > 1"
                }
          ]
       },
@@ -97,11 +100,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "sync_mode": "cdc",
       ```
-   - Specify the cursor field (only for incremental syncs):
-      ```json
-      "cursor_field": "<cursor field from available_cursor_fields>"
-      ```
-   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration.
+   - To enable `append_mode` mode, explicitly set it to `true` in the selected stream configuration.
       ```json
          "selected_streams": {
             "namespace": [
@@ -109,15 +108,37 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "incr",
                      "normalization": false,
-                     "append_only": false
+                     "append_mode": false
                   }
             ]
          },
       ```
 
+   - Add `cursor_field` from set of `available_cursor_fields` in case of incremental sync. This column will be used to track which rows from the table must be synced. If the primary cursor field is expected to contain `null` values, a fallback cursor field can be specified after the primary cursor field using a colon separator. The system will use the fallback cursor when the primary cursor is `null`.
+        > **Note**: For incremental sync to work correctly, the primary cursor field (and fallback cursor field if defined) must contain at least one non-null value. Defined cursor fields cannot be entirely null.
+      ```json
+         "sync_mode": "incremental",
+         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be skipped if the primary cursor is not expected to contain null values)
+      ```
+
+   - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "incr",
+                     "normalization": false,
+                     "filter": "_id > 6835a56c558d36492e3c39e2 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
+                  }
+            ]
+         },
+      ```
+      For primitive types like _id, directly provide the value without using any quotes.
+
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
-<br> The `append_only` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow) <br>
+<br> The `append_mode` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow) <br>
    ```json
    {
       "selected_streams": {
@@ -126,7 +147,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "partition_regex": "",
                   "stream_name": "incr",
                   "normalization": false,
-                  "append_only": false
+                  "append_mode": false
                }
          ]
       },

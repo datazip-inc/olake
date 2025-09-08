@@ -2,20 +2,33 @@ package driver
 
 import (
 	"testing"
+
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/testutils"
+	_ "github.com/lib/pq"
 )
 
-// Test functions using base utilities
-func TestPostgresSetup(t *testing.T) {
-	_, absDriver := testPostgresClient(t)
-	absDriver.TestSetup(t)
+func TestPostgresIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		TestConfig:         testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:          "public",
+		ExpectedData:       ExpectedPostgresData,
+		ExpectedUpdateData: ExpectedUpdatedPostgresData,
+		DataTypeSchema:     PostgresToIcebergSchema,
+		ExecuteQuery:       ExecuteQuery,
+	}
+	testConfig.TestIntegration(t)
 }
 
-func TestPostgresDiscover(t *testing.T) {
-	client, absDriver := testPostgresClient(t)
-	absDriver.TestDiscover(t, client, ExecuteQuery)
-}
+func TestPostgresPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:      testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:       "public",
+		BackfillStreams: []string{"trips", "fhv_trips"},
+		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:    ExecuteQuery,
+	}
 
-func TestPostgresRead(t *testing.T) {
-	client, absDriver := testPostgresClient(t)
-	absDriver.TestRead(t, client, ExecuteQuery)
+	config.TestPerformance(t)
 }

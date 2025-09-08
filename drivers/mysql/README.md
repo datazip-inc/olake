@@ -10,6 +10,8 @@ The MySql Driver enables data synchronization from MySql to your desired destina
    Tracks and syncs incremental changes from MySql in real time.
 3. **Strict CDC (Change Data Capture)**
    Tracks only new changes from the current position in the MySQL binlog, without performing an initial backfill.
+4. **Incremental**
+   Syncs only new or modified records which have cursor value greater than or equal to the saved position.
 
 ---
 
@@ -65,6 +67,8 @@ After executing the Discover command, a formatted response will look like this:
                   "partition_regex": "",
                   "stream_name": "table_1",
                   "normalization": false,
+                  "append_mode": false,
+                  "filter": "id > 1"
                }
          ]
       },
@@ -98,7 +102,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
-   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration. \
+   - To enable `append_mode` mode, explicitly set it to `true` in the selected stream configuration. \
       Similarly, for `chunk_column`, ensure it is defined in the stream settings as required.
       ```json
          "selected_streams": {
@@ -107,8 +111,43 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "table_1",
                      "normalization": false,
-                     "append_only": false,
+                     "append_mode": false,
                      "chunk_column":""
+                  }
+            ]
+         },
+      ```
+      
+   - Add `cursor_field` from set of `available_cursor_fields` in case of incremental sync. This column will be used to track which rows from the table must be synced. If the primary cursor field is expected to contain `null` values, a fallback cursor field can be specified after the primary cursor field using a colon separator. The system will use the fallback cursor when the primary cursor is `null`.
+        > **Note**: For incremental sync to work correctly, the primary cursor field (and fallback cursor field if defined) must contain at least one non-null value. Defined cursor fields cannot be entirely null.
+      ```json
+         "sync_mode": "incremental",
+         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be skipped if the primary cursor is not expected to contain null values)
+      ```
+
+   - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "incr",
+                     "normalization": false,
+                     "filter": "id > 123 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
+                  }
+            ]
+         },
+      ```
+      For primitive types like _id, directly provide the value without using any quotes.
+   - The `filter` mode under selected_streams allows you to define precise criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "table_1",
+                     "normalization": false,
+                     "filter": "id > 1 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
                   }
             ]
          },
@@ -116,7 +155,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
 
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
-<br> The `append_only` flag determines whether records can be written to th iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow)<br>
+<br> The `append_mode` flag determines whether records can be written to th iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow)<br>
 <br>The `chunk_column` used to divide data into chunks for efficient parallel querying and extraction from the database.<br>
    ```json
    {
@@ -126,7 +165,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "partition_regex": "",
                   "stream_name": "table_1",
                   "normalization": false,
-                  "append_only": false,
+                  "append_mode": false,
                   "chunk_column":""
                }
          ]
@@ -209,6 +248,8 @@ Find more about writer docs [here.](https://olake.io/docs/category/destinations-
 
 ### Sync Command
 The *Sync* command fetches data from MySql and ingests it into the destination.
+
+> Note: For sync command to run properly and without errors or stale statistics, it's recommended to run ANALYZE TABLE to update the table statistics in INFORMATION_SCHEMA.TABLES. `ANALYZE TABLE <table_namespace>.<table_name>;`
 
 ```bash
 ./build.sh driver-mysql sync --config /mysql/examples/config.json --catalog /mysql/examples/streams.json --destination /mysql/examples/write.json

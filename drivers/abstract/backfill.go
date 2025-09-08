@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
@@ -39,6 +40,8 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
+		var maxPrimaryCursorValue, maxSecondaryCursorValue any
+		primaryCursor, secondaryCursor := stream.Cursor()
 		errorChannel := make(chan error, 1)
 		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
 		defer func() {
@@ -48,16 +51,40 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
 			}
 
+			// check for panics before saving state
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic recovered in backfill: %v, prev error: %s", r, err)
+			}
+
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
+
+				// if it is incremental update the max cursor value received in chunk
+				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
+					prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
+					if cursorErr != nil {
+						err = cursorErr
+						return
+					}
+					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+					}
+					if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+					}
+				}
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+				// if incremental enabled check cursor value
+				if stream.GetSyncMode() == types.INCREMENTAL {
+					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
+				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
 			})

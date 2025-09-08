@@ -1,10 +1,14 @@
 package utils
 
 import (
+	"context"
 	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -12,11 +16,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -60,7 +67,7 @@ func ArrayContains[T any](set []T, match func(elem T) bool) (int, bool) {
 	return -1, false
 }
 
-// returns cond ? a ; b
+// returns cond ? a ; b (note: it is not function ternary)
 func Ternary(cond bool, a, b any) any {
 	if cond {
 		return a
@@ -148,21 +155,27 @@ func CheckIfFilesExists(files ...string) error {
 // 	return content
 // }
 
-func UnmarshalFile(file string, dest any) error {
+func UnmarshalFile(file string, dest any, credsFile bool) error {
 	if err := CheckIfFilesExists(file); err != nil {
 		return err
 	}
-
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("file not found : %s", err)
 	}
-
-	err = json.Unmarshal(data, dest)
+	decryptedJSON := data
+	// Use the encryption package to decrypt JSON
+	if credsFile && viper.GetString(constants.EncryptionKey) != "" {
+		dConfig, err := Decrypt(string(data))
+		if err != nil {
+			return fmt.Errorf("failed to decrypt config file[%s]: %s", file, err)
+		}
+		decryptedJSON = []byte(dConfig)
+	}
+	err = json.Unmarshal(decryptedJSON, dest)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
 	}
-
 	return nil
 }
 
@@ -286,29 +299,70 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 
 // return 0 for equal, -1 if a < b else 1 if a>b
 func CompareInterfaceValue(a, b interface{}) int {
-	switch a.(type) {
-	case int, int64, float32, float64:
-		af := 0.0
-		if a != nil {
-			af = reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
-		}
-		bf := 0.0
-		if b != nil {
-			bf = reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
-		}
-		if af < bf {
+	// Handle nil cases first
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+
+	switch aVal := a.(type) {
+	case uint, uint8, uint16, uint32, uint64:
+		aUint := reflect.ValueOf(a).Convert(reflect.TypeOf(uint64(0))).Uint()
+		bUint := reflect.ValueOf(b).Convert(reflect.TypeOf(uint64(0))).Uint()
+		if aUint < bUint {
 			return -1
-		} else if af > bf {
+		} else if aUint > bUint {
 			return 1
 		}
-	case string:
-		if a != nil && b != nil {
-			return strings.Compare(a.(string), b.(string))
+		return 0
+	case int, int8, int16, int32, int64:
+		aInt := reflect.ValueOf(a).Convert(reflect.TypeOf(int64(0))).Int()
+		bInt := reflect.ValueOf(b).Convert(reflect.TypeOf(int64(0))).Int()
+		if aInt < bInt {
+			return -1
+		} else if aInt > bInt {
+			return 1
 		}
-		return Ternary(a == nil, -1, 1).(int)
+		return 0
+	case float32, float64:
+		aFloat := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
+		bFloat := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
+		if aFloat < bFloat {
+			return -1
+		} else if aFloat > bFloat {
+			return 1
+		}
+		return 0
+	case string:
+		return strings.Compare(aVal, b.(string))
+	case time.Time:
+		bTime := b.(time.Time)
+		if aVal.Before(bTime) {
+			return -1
+		} else if aVal.After(bTime) {
+			return 1
+		}
+		return 0
+	case bool:
+		bBool := b.(bool)
+		// false < true
+		if !aVal && bBool {
+			return -1
+		} else if aVal && !bBool {
+			return 1
+		}
+		return 0
+	default:
+		// For any other types, convert to string for comparison
+		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 	}
-	return 0
 }
+
 func ConvertToString(value interface{}) string {
 	switch v := value.(type) {
 	case []byte:
@@ -318,4 +372,70 @@ func ConvertToString(value interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v) // Fallback
 	}
+}
+
+func ComputeConfigHash(srcPath, destPath string) string {
+	if srcPath == "" || destPath == "" {
+		// no config or no destination → no meaningful hash
+		return ""
+	}
+	a, err := os.ReadFile(srcPath)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(destPath)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(append(a, b...))
+	return hex.EncodeToString(sum[:])
+}
+
+// Helper function to execute container commands
+func ExecCommand(
+	ctx context.Context,
+	c testcontainers.Container,
+	cmd string,
+) (int, []byte, error) {
+	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", cmd})
+	if err != nil {
+		return code, nil, err
+	}
+	output, _ := io.ReadAll(reader)
+	return code, output, nil
+}
+
+func NormalizedEqual(strune1, strune2 string) bool {
+	normalize := func(s string) (string, error) {
+		// Slice out exactly from the first '{' to the last '}'
+		start := strings.IndexRune(s, '{')
+		end := strings.LastIndex(s, "}")
+		if start < 0 || end < 0 || start > end {
+			return "", fmt.Errorf("no valid JSON object found")
+		}
+		core := s[start : end+1]
+		// remove whitespace
+		core = strings.ReplaceAll(core, " ", "")
+		core = strings.ReplaceAll(core, "\n", "")
+		core = strings.ReplaceAll(core, "\t", "")
+		return core, nil
+	}
+
+	c1, err := normalize(strune1)
+	if err != nil {
+		return false
+	}
+	c2, err := normalize(strune2)
+	if err != nil {
+		return false
+	}
+
+	rune1 := []rune(c1)
+	rune2 := []rune(c2)
+	if len(rune1) != len(rune2) {
+		return false
+	}
+	sort.Slice(rune1, func(i, j int) bool { return rune1[i] < rune1[j] })
+	sort.Slice(rune2, func(i, j int) bool { return rune2[i] < rune2[j] })
+	return string(rune1) == string(rune2)
 }

@@ -73,15 +73,21 @@ jobs:
       - name: Build Project
         run: go build -v ./...
 
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
       - name: Build Iceberg Sink
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
-      - name: Run MySQL Integration Tests
-        run: go test -v ./drivers/mysql/internal/... -tags=integration --timeout 0
-
-      - name: Run PostgreSQL Integration Tests
-        run: go test -v ./drivers/postgres/internal/... -tags=integration --timeout 0
+      - name: Run Integration Tests
+        run: go test -v -p 2 ./drivers/mysql/internal/... ./drivers/postgres/internal/... -timeout 0 -run 'Integration'
 
       - name: Cleanup
         if: always()

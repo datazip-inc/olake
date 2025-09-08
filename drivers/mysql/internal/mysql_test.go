@@ -2,21 +2,32 @@ package driver
 
 import (
 	"testing"
+
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-// Test functions using base utilities
-func TestMySQLSetup(t *testing.T) {
-	_, abstractDriver := testAndBuildAbstractDriver(t)
-	abstractDriver.TestSetup(t)
+func TestMySQLIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		TestConfig:         testutils.GetTestConfig(string(constants.MySQL)),
+		Namespace:          "olake_mysql_test",
+		ExpectedData:       ExpectedMySQLData,
+		ExpectedUpdateData: ExpectedUpdatedMySQLData,
+		DataTypeSchema:     MySQLToIcebergSchema,
+		ExecuteQuery:       ExecuteQuery,
+	}
+	testConfig.TestIntegration(t)
 }
 
-func TestMySQLDiscover(t *testing.T) {
-	conn, abstractDriver := testAndBuildAbstractDriver(t)
-	abstractDriver.TestDiscover(t, conn, ExecuteQuery)
-	// TODO : Add MySQL-specific schema verification if needed
-}
+func TestMySQLPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:      testutils.GetTestConfig(string(constants.MySQL)),
+		Namespace:       "benchmark",
+		BackfillStreams: []string{"trips", "fhv_trips"},
+		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:    ExecuteQuery,
+	}
 
-func TestMySQLRead(t *testing.T) {
-	conn, abstractDriver := testAndBuildAbstractDriver(t)
-	abstractDriver.TestRead(t, conn, ExecuteQuery)
+	config.TestPerformance(t)
 }

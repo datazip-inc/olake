@@ -60,7 +60,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	// Validate the connection by pinging the database
 	if err := conn.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("failed to connect to MongoDB: %w", err)
+		return fmt.Errorf("failed to connect to MongoDB: %s", err)
 	}
 
 	m.client = conn
@@ -125,7 +125,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+		stream := types.NewStream(streamName, db.Name())
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
@@ -178,6 +178,14 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
+
+	// Add all discovered fields as potential cursor fields
+	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+		if fieldName, ok := key.(string); ok {
+			stream.WithCursorField(fieldName)
+		}
+		return true
+	})
 	return stream, err
 }
 

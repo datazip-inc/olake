@@ -63,6 +63,9 @@ func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
 }
 
 func ReformatValue(dataType types.DataType, v any) (any, error) {
+	if v == nil {
+		return v, nil
+	}
 	switch dataType {
 	case types.Null:
 		return nil, ErrNullValue
@@ -95,7 +98,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		return ReformatInt64(v)
 	case types.Int32:
 		return ReformatInt32(v)
-	case types.Timestamp:
+	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		return ReformatDate(v)
 	case types.String:
 		switch v := v.(type) {
@@ -293,6 +296,9 @@ func ReformatInt32(v any) (int32, error) {
 		return int32(v), nil
 	case uint16:
 		return int32(v), nil
+	case uint32:
+		//nolint:gosec,G115
+		return int32(v), nil
 	case uint64:
 		//nolint:gosec,G115
 		return int32(v), nil
@@ -319,7 +325,7 @@ func ReformatInt32(v any) (int32, error) {
 	return int32(0), fmt.Errorf("failed to change %v (type:%T) to int32", v, v)
 }
 
-func ReformatFloat64(v interface{}) (interface{}, error) {
+func ReformatFloat64(v interface{}) (float64, error) {
 	switch v := v.(type) {
 	case []uint8:
 		// Convert byte slice to string first
@@ -369,7 +375,7 @@ func ReformatFloat64(v interface{}) (interface{}, error) {
 	return float64(0), fmt.Errorf("failed to change %v (type:%T) to float64", v, v)
 }
 
-func ReformatFloat32(v interface{}) (interface{}, error) {
+func ReformatFloat32(v interface{}) (float32, error) {
 	switch v := v.(type) {
 	case []uint8:
 		// Convert byte slice to string first
