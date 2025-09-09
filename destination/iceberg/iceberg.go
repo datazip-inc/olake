@@ -411,7 +411,6 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 						// if column not exist in iceberg table
 						recordsSchema[key] = getCommonAncestorType(typeInNewSchema, detectedIcebergType)
 					}
-
 				} else {
 					diffThreadSchema = true
 					recordsSchema[key] = detectedIcebergType
