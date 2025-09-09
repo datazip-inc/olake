@@ -58,7 +58,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		}
 	}
 
-	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill))
+	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
@@ -71,13 +71,15 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	var schema map[string]string
 
 	if globalSchema == nil {
+		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
+
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
 				Schema:          iceSchema,
-				DestTableName:   i.stream.Name(),
+				DestTableName:   i.stream.GetDestinationTable(),
 				ThreadId:        i.server.serverID,
 				IdentifierField: &identifierField,
 			},
@@ -195,7 +197,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: i.stream.Name(),
+			DestTableName: i.stream.GetDestinationTable(),
 			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
@@ -241,7 +243,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
-			DestTableName: i.stream.Name(),
+			DestTableName: i.stream.GetDestinationTable(),
 		},
 	}
 	res, err := i.server.sendClientRequest(ctx, request)
@@ -258,7 +260,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		ThreadID: "test_iceberg_destination",
 	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false)
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -475,7 +477,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			IdentifierField: &identifierField,
-			DestTableName:   i.stream.Name(),
+			DestTableName:   i.stream.GetDestinationTable(),
 			ThreadId:        i.server.serverID,
 		},
 	}
