@@ -3,7 +3,6 @@ package abstract
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -107,7 +106,7 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 		if cursorField == "" {
 			return cursorValue, nil
 		}
-		cursorColType, err := stream.Schema().GetType(strings.ToLower(cursorField))
+		cursorColType, err := stream.Schema().GetType(cursorField)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get cursor column type: %s", err)
 		}

@@ -144,7 +144,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 		}
 		schemaName, tableName := parts[0], parts[1]
-		stream := types.NewStream(tableName, schemaName)
+		stream := types.NewStream(tableName, schemaName, nil)
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -166,7 +166,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String
 			}
-			stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("yes", isNullable))
+			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable))
 
 			// Mark primary keys
 			if columnKey == "PRI" {
