@@ -63,7 +63,7 @@ func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 	if s.Stream.DestinationDatabase != "" {
 		return utils.Reformat(s.Stream.DestinationDatabase)
 	}
-	if icebergDB != nil {
+	if icebergDB != nil && *icebergDB != "" {
 		return *icebergDB
 	}
 	return s.Stream.Namespace
@@ -89,6 +89,7 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
+	// TODO: handle special characters in column name in filter
 	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
 	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)

@@ -71,7 +71,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	var schema map[string]string
 
 	if globalSchema == nil {
-		logger.Infof("Creating destination table '%s' in Iceberg database '%s'", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
+		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
@@ -513,7 +513,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 // return if evolution is valid or not
 func validIcebergType(oldType, newType string) bool {
-	if oldType == newType || types.GetCommonAncestorType(types.DataType(oldType), types.DataType(newType)) == types.DataType(oldType) {
+	if oldType == newType {
 		return true
 	}
 

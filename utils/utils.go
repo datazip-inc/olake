@@ -398,17 +398,22 @@ func IsLetterOrNumber(symbol int32) bool {
 		('0' <= symbol && symbol <= '9')
 }
 
-// GenerateDefaultIcebergDatabase creates default Iceberg DB name with optional namespace
-func GenerateDefaultIcebergDatabase(jobName, sourceDatabase, namespace string) string {
+// GenerateDestinationDetails creates the default Iceberg database and table names.
+// It combines prefix, source database, and namespace into a proper DB name.
+func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) (string, string) {
 	parts := []string{}
 
-	if jobName != "" {
-		parts = append(parts, Reformat(jobName))
+	// Add destination database prefix if available
+	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
+		parts = append(parts, Reformat(prefix))
 	}
-	if sourceDatabase != "" {
-		parts = append(parts, Reformat(sourceDatabase))
+
+	// Add source database if provided
+	if sourceDatabase != nil && *sourceDatabase != "" {
+		parts = append(parts, Reformat(*sourceDatabase))
 	}
-	// Join main DB name parts
+
+	// Join prefix + source database
 	dbName := strings.Join(parts, "_")
 
 	// Append namespace if provided
@@ -416,18 +421,6 @@ func GenerateDefaultIcebergDatabase(jobName, sourceDatabase, namespace string) s
 		dbName = fmt.Sprintf("%s:%s", dbName, Reformat(namespace))
 	}
 
-	return dbName
-}
-
-// GenerateDestinationDetails creates the default destination DB and table names for Iceberg.
-func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) (string, string) {
-	dbStr := ""
-	if sourceDatabase != nil && *sourceDatabase != "" {
-		dbStr = *sourceDatabase
-	}
-	return GenerateDefaultIcebergDatabase(
-		viper.GetString(constants.DestinationDatabasePrefix),
-		dbStr,
-		namespace,
-	), Reformat(name)
+	// Final table name is always reformatted
+	return dbName, Reformat(name)
 }
