@@ -161,16 +161,22 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	if props == nil {
 		props = make(map[string]interface{})
 	}
-	props["os"] = t.platform.OS
-	props["arch"] = t.platform.Arch
-	props["olake_version"] = t.platform.OlakeVersion
-	props["num_cpu"] = t.platform.DeviceCPU
-	props["service"] = t.serviceName
-	props["ip_address"] = t.ipAddress
-	props["location"] = t.locationInfo
-	props["distinct_id"] = t.userID
-	props["time"] = time.Now().Unix()
-	props["event_original_name"] = eventName
+	properties := map[string]interface{}{
+		"os":                  t.platform.OS,
+		"arch":                t.platform.Arch,
+		"olake_version":       t.platform.OlakeVersion,
+		"num_cpu":             t.platform.DeviceCPU,
+		"service":             t.serviceName,
+		"ip_address":          t.ipAddress,
+		"location":            t.locationInfo,
+		"distinct_id":         t.userID,
+		"time":                time.Now().Unix(),
+		"event_original_name": eventName,
+	}
+
+	for key, value := range properties {
+		props[key] = value
+	}
 
 	body := map[string]interface{}{
 		"event":      eventName,
