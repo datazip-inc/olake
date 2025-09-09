@@ -75,7 +75,7 @@ func (s *ConfiguredStream) GetDestinationTable() string {
 
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
-	cursorFields := strings.Split(s.Stream.CursorField, "::")
+	cursorFields := strings.Split(s.Stream.CursorField, ":")
 	primaryCursor := cursorFields[0]
 	secondaryCursor := ""
 	if len(cursorFields) > 1 {

@@ -23,7 +23,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	case constants.Postgres:
 		return fmt.Sprintf(`"%s"`, identifier)
 	case constants.Oracle:
-		return fmt.Sprintf(`"%s"`, identifier)
+		return fmt.Sprintf("%q", identifier)
 	default:
 		return identifier
 	}
@@ -135,11 +135,6 @@ func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string
 		quotedColumn, quotedColumn, quotedTable, baseCond, quotedColumn, batchSize)
 }
 
-// PostgresMinQuery returns the query to fetch the minimum value of a column in PostgreSQL
-func PostgresMinQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
-	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue)
-}
-
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
 func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk, filter string) string {
 	quotedColumn := QuoteIdentifier(filterColumn, constants.Postgres)
@@ -189,7 +184,8 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 
 // MysqlLimitOffsetScanQuery is used to get the rows
 func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s`", stream.Namespace(), stream.Name())
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	query := fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	query = utils.Ternary(filter == "", query, fmt.Sprintf("%s WHERE %s", query, filter)).(string)
 	if chunk.Min == nil {
 		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
@@ -416,7 +412,8 @@ func OracleCurrentSCNQuery() string {
 
 // OracleEmptyCheckQuery returns the query to check if a table is empty in OracleDB
 func OracleEmptyCheckQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf("SELECT 1 FROM %q.%q WHERE ROWNUM = 1", stream.Namespace(), stream.Name())
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Oracle)
+	return fmt.Sprintf("SELECT 1 FROM %s WHERE ROWNUM = 1", quotedTable)
 }
 
 // OracleTaskCreationQuery returns the query to create a task in OracleDB
@@ -472,10 +469,11 @@ func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, la
 		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
 	}
 	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
+	quotedCol := QuoteIdentifier(cursorField, constants.Oracle)
 	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
-		return fmt.Sprintf("%q >= CAST(%s AS TIMESTAMP)", cursorField, argumentPlaceholder), formattedValue, nil
+		return fmt.Sprintf("%s >= CAST(%s AS TIMESTAMP)", quotedCol, argumentPlaceholder), formattedValue, nil
 	}
-	return fmt.Sprintf("%q >= %s", cursorField, argumentPlaceholder), formattedValue, nil
+	return fmt.Sprintf("%s >= %s", quotedCol, argumentPlaceholder), formattedValue, nil
 }
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition

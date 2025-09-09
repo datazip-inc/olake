@@ -87,6 +87,7 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 }
 
 func (t *TypeSchema) GetType(column string) (DataType, error) {
+	column = utils.Ternary(t.HasDestinationColumnName(), column, utils.Reformat(column)).(string)
 	p, found := t.Properties.Load(column)
 	if !found {
 		return "", fmt.Errorf("column [%s] missing from type schema", column)
@@ -123,7 +124,7 @@ func (t *TypeSchema) ToParquet() *parquet.Schema {
 	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
-		groupNode[getDestinationColumnName(prop, key.(string))] = prop.DataType().ToNewParquet()
+		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
 		return true
 	})
 
@@ -136,7 +137,7 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 		prop := value.(*Property)
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     getDestinationColumnName(prop, key.(string)),
+			Key:     prop.getDestinationColumnName(key.(string)),
 		})
 		return true
 	})
@@ -262,9 +263,15 @@ func lowestCommonAncestor(
 	return Unknown
 }
 
-func getDestinationColumnName(prop *Property, key string) string {
-	if prop.DestinationColumnName != "" {
-		return prop.DestinationColumnName
+func (p *Property) getDestinationColumnName(key string) string {
+	if p.DestinationColumnName != "" {
+		return p.DestinationColumnName
 	}
 	return key
+}
+func (t *TypeSchema) HasDestinationColumnName() bool {
+	t.Properties.Range(func(_, value interface{}) bool {
+		return value.(*Property).DestinationColumnName != ""
+	})
+	return false
 }
