@@ -28,7 +28,7 @@ type Stream struct {
 	CursorField string `json:"cursor_field,omitempty"`
 	// Mode being used for syncing data
 	SyncMode SyncMode `json:"sync_mode,omitempty"`
-	// Normalized Destination Database and Table
+	// Normalized Destination Database and Table used as default values for destination database and table
 	DestinationDatabase string `json:"destination_database,omitempty"`
 	DestinationTable    string `json:"destination_table,omitempty"`
 }
