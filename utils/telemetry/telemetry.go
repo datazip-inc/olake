@@ -19,7 +19,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	analytics "github.com/segmentio/analytics-go/v3"
 	"github.com/spf13/viper"
 )
 
@@ -27,11 +26,11 @@ const (
 	userIDFile            = "user_id"
 	version               = "0.0.0"
 	ipNotFoundPlaceholder = "NA"
-	segmentAPIKey         = "AiWKKeaOKQvsOotHj5iGANpNhYG6OaM3" //nolint:gosec
+	proxTrackURL          = "https://analytics.olake.io/mp/track"
 )
 
 type Telemetry struct {
-	client       analytics.Client
+	httpClient   *http.Client
 	serviceName  string
 	platform     platformInfo
 	ipAddress    string
@@ -63,10 +62,9 @@ func Init() {
 		}
 
 		ip := getOutboundIP()
-		client := analytics.New(segmentAPIKey)
 		telemetry = &Telemetry{
-			client: client,
-			userID: getUserID(),
+			httpClient: &http.Client{Timeout: 5 * time.Second},
+			userID:     getUserID(),
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
@@ -99,7 +97,6 @@ func TrackDiscover(streamCount int, sourceType string) {
 		if telemetry == nil {
 			return
 		}
-		defer telemetry.client.Close()
 		props := map[string]interface{}{
 			"stream_count": streamCount,
 			"source_type":  sourceType,
@@ -143,7 +140,6 @@ func TrackSyncCompleted(status bool, records int64) {
 		if telemetry == nil {
 			return
 		}
-		defer telemetry.client.Close()
 		props := map[string]interface{}{
 			"sync_end":       time.Now(),
 			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
@@ -156,35 +152,61 @@ func TrackSyncCompleted(status bool, records int64) {
 	}()
 }
 
-func (t *Telemetry) sendEvent(eventName string, properties map[string]interface{}) error {
-	if t.client == nil {
+func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) error {
+	if t.httpClient == nil {
 		return fmt.Errorf("telemetry client is nil")
 	}
 
 	// Add common properties
-	if properties == nil {
-		properties = make(map[string]interface{})
+	if props == nil {
+		props = make(map[string]interface{})
+	}
+	properties := map[string]interface{}{
+		"os":                  t.platform.OS,
+		"arch":                t.platform.Arch,
+		"olake_version":       t.platform.OlakeVersion,
+		"num_cpu":             t.platform.DeviceCPU,
+		"service":             t.serviceName,
+		"ip_address":          t.ipAddress,
+		"location":            t.locationInfo,
+		"distinct_id":         t.userID,
+		"time":                time.Now().Unix(),
+		"event_original_name": eventName,
 	}
 
-	props := map[string]interface{}{
-		"os":            t.platform.OS,
-		"arch":          t.platform.Arch,
-		"olake_version": t.platform.OlakeVersion,
-		"num_cpu":       t.platform.DeviceCPU,
-		"service":       t.serviceName,
-		"ip_address":    t.ipAddress,
-		"location":      t.locationInfo,
+	for key, value := range properties {
+		props[key] = value
 	}
 
-	for k, v := range properties {
-		props[k] = v
+	body := map[string]interface{}{
+		"event":      eventName,
+		"properties": props,
+	}
+	propsBody, err := json.Marshal(body)
+	if err != nil {
+		return err
 	}
 
-	return t.client.Enqueue(analytics.Track{
-		UserId:     t.userID,
-		Event:      eventName,
-		Properties: props,
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", proxTrackURL, strings.NewReader(string(propsBody)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to send telemetry event, status: %s, response: %s", resp.Status, string(respBody))
+	}
+	return nil
 }
 
 func getOutboundIP() string {
