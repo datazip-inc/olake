@@ -393,18 +393,25 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 				detectedIcebergType := detectedType.ToIceberg()
 				if typeInNewSchema, exists := recordsSchema[key]; exists {
-					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
-					if !valid {
-						return false, nil, fmt.Errorf(
-							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
-							key, typeInNewSchema, detectedIcebergType,
-						)
+					// if column exist in iceberg table validate type
+					if _, exist := i.schema[key]; exist {
+						valid := validIcebergType(typeInNewSchema, detectedIcebergType)
+						if !valid {
+							return false, nil, fmt.Errorf(
+								"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+								key, typeInNewSchema, detectedIcebergType,
+							)
+						}
+
+						if promotionRequired(typeInNewSchema, detectedIcebergType) {
+							recordsSchema[key] = detectedIcebergType
+							diffThreadSchema = true
+						}
+					} else {
+						// if column not exist in iceberg table
+						recordsSchema[key] = getCommonAncestorType(typeInNewSchema, detectedIcebergType)
 					}
 
-					if promotionRequired(typeInNewSchema, detectedIcebergType) {
-						recordsSchema[key] = detectedIcebergType
-						diffThreadSchema = true
-					}
 				} else {
 					diffThreadSchema = true
 					recordsSchema[key] = detectedIcebergType
@@ -511,15 +518,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 // return if evolution is valid or not
 func validIcebergType(oldType, newType string) bool {
-	// TODO: add check for passing greater hierarchy datatypes, e.g. oldType: string, float | newType: int -> pass
-	if oldType == newType {
-		return true
-	}
-
-	// check according to typecast tree
-	oldDT := types.IcebergTypeToDatatype(oldType)
-	newDT := types.IcebergTypeToDatatype(newType)
-	if types.GetCommonAncestorType(oldDT, newDT) == oldDT {
+	if oldType == newType || getCommonAncestorType(oldType, newType) == oldType {
 		return true
 	}
 
@@ -657,6 +656,13 @@ func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
 		})
 	}
 	return icebergFields
+}
+
+func getCommonAncestorType(d1, d2 string) string {
+	// check according to typecast tree
+	oldDT := types.IcebergTypeToDatatype(d1)
+	newDT := types.IcebergTypeToDatatype(d2)
+	return types.GetCommonAncestorType(oldDT, newDT).ToIceberg()
 }
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
