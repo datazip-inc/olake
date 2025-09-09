@@ -410,7 +410,8 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 							diffThreadSchema = true
 						}
 					} else {
-						// if column not exist in iceberg table
+						// if column not exist in iceberg table use common ancestor
+						diffThreadSchema = true // (Note: adding just to maintain consistency)
 						recordsSchema[key] = getCommonAncestorType(typeInNewSchema, detectedIcebergType)
 					}
 				} else {
@@ -460,6 +461,10 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", recordsRawSchema)
 	}
 
+	// case handled:
+	// 1. returns true if promotion is possible or new column is added
+	// 2. in case of int(globalType) and string(threadType) it return false
+	//    and write method will try to parse the string (write will fail if not parsable)
 	differentSchema := func(oldSchema, newSchema map[string]string) bool {
 		for fieldName, newType := range newSchema {
 			if oldType, exists := oldSchema[fieldName]; !exists {
@@ -660,7 +665,12 @@ func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
 }
 
 func getCommonAncestorType(d1, d2 string) string {
-	// check according to typecast tree
+	// check for cases:
+	// d1: string d2: int  -> return string
+	// d1: float d2: int  -> return float
+	// d1: string d2: float  -> return string
+	// d1: string d2: timestamp  -> return string
+
 	oldDT := types.IcebergTypeToDatatype(d1)
 	newDT := types.IcebergTypeToDatatype(d2)
 	return types.GetCommonAncestorType(oldDT, newDT).ToIceberg()
