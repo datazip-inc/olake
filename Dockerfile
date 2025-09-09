@@ -18,12 +18,18 @@ RUN apk add --no-cache openjdk17
 # Copy the binary from the build stage
 COPY --from=base /olake /home/olake
 
+ARG DRIVER_VERSION=dev
+ARG DRIVER_NAME=olake
+
 # Copy the pre-built JAR file from Maven
 # First try to copy from the source location (works after Maven build)
 COPY destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
 
-ARG DRIVER_VERSION=dev
-ARG DRIVER_NAME=olake
+# Copy the spec files for driver and destinations
+COPY --from=base /home/app/drivers/${DRIVER_NAME}/resources/spec.json /drivers/${DRIVER_NAME}/resources/spec.json
+COPY --from=base /home/app/destination/iceberg/resources/spec.json /destination/iceberg/resources/spec.json
+COPY --from=base /home/app/destination/parquet/resources/spec.json /destination/parquet/resources/spec.json
+
 # Metadata
 LABEL io.eggwhite.version=${DRIVER_VERSION}
 LABEL io.eggwhite.name=olake/source-${DRIVER_NAME}
