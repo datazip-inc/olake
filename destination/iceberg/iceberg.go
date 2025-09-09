@@ -516,6 +516,13 @@ func validIcebergType(oldType, newType string) bool {
 		return true
 	}
 
+	// check according to typecast tree
+	oldDT := types.IcebergTypeToDatatype(oldType)
+	newDT := types.IcebergTypeToDatatype(newType)
+	if types.GetCommonAncestorType(oldDT, newDT) == oldDT {
+		return true
+	}
+
 	switch fmt.Sprintf("%s->%s", oldType, newType) {
 	case "int->long", "float->double", "long->int", "double->float":
 		return true
