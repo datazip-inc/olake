@@ -421,5 +421,13 @@ func GenerateDefaultIcebergDatabase(jobName, sourceDatabase, namespace string) s
 
 // GenerateDestinationDetails creates the default destination DB and table names for Iceberg.
 func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) (string, string) {
-	return GenerateDefaultIcebergDatabase(viper.GetString(constants.DestinationDatabasePrefix), Ternary(sourceDatabase != nil, *sourceDatabase, "").(string), namespace), Reformat(name)
+	dbStr := ""
+	if sourceDatabase != nil && *sourceDatabase != "" {
+		dbStr = *sourceDatabase
+	}
+	return GenerateDefaultIcebergDatabase(
+		viper.GetString(constants.DestinationDatabasePrefix),
+		dbStr,
+		namespace,
+	), Reformat(name)
 }
