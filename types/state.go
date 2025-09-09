@@ -5,9 +5,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
+	"github.com/spf13/viper"
 )
 
 type StateType string
@@ -62,6 +64,7 @@ func (s *State) initStreamState(stream *ConfiguredStream) *StreamState {
 // State is a dto for airbyte state serialization
 type State struct {
 	*sync.RWMutex `json:"-"`
+	NoSave        bool           `json:"-"`
 	Type          StateType      `json:"type"`
 	Global        *GlobalState   `json:"global,omitempty"`
 	Streams       []*StreamState `json:"streams,omitempty"` // TODO: make it set
@@ -284,6 +287,11 @@ func (s *State) LogState() {
 		return
 	}
 
+	if s.NoSave {
+		logger.Debug("skipping state file write due to --no-save flag")
+		return
+	}
+
 	// message := Message{
 	// 	Type:  StateMessage,
 	// 	State: s,
@@ -291,10 +299,10 @@ func (s *State) LogState() {
 	// TODO: Only Log in logs file, not in CLI
 	// logger.Info(message)
 
-	// log to state file
-	err := logger.FileLogger(s, "state", ".json")
+	statePath := viper.GetString(constants.StatePath)
+	err := logger.FileLoggerWithPath(s, "state", ".json", statePath)
 	if err != nil {
-		logger.Fatalf("failed to create state file: %s", err)
+		logger.Fatalf("failed to write state file: %s", err)
 	}
 }
 

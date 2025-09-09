@@ -100,18 +100,33 @@ func LogRequest(req *http.Request) {
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
 func FileLogger(content any, fileName, fileExtension string) error {
-	// get config folder
-	filePath := viper.GetString(constants.ConfigFolder)
-	if filePath == "" {
-		return fmt.Errorf("config folder is not set")
+	return FileLoggerWithPath(content, fileName, fileExtension, "")
+}
+
+func FileLoggerWithPath(content any, fileName, fileExtension, customPath string) error {
+	var fullPath string
+
+	if customPath != "" {
+		fullPath = customPath
+	} else {
+		filePath := viper.GetString(constants.ConfigFolder)
+		if filePath == "" {
+			return fmt.Errorf("config folder is not set")
+		}
+		fullPath = filepath.Join(filePath, fileName+fileExtension)
 	}
-	// Construct the full file path
+
+	// Ensure directory exists for custom paths
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	// Marshal content to JSON
 	contentBytes, err := json.Marshal(content)
 	if err != nil {
 		return fmt.Errorf("failed to marshal content: %s", err)
 	}
-
-	fullPath := filepath.Join(filePath, fileName+fileExtension)
 
 	// Create or truncate the file
 	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
