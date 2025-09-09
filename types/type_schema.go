@@ -269,9 +269,12 @@ func (p *Property) getDestinationColumnName(key string) string {
 	}
 	return key
 }
+
 func (t *TypeSchema) HasDestinationColumnName() bool {
+	found := false
 	t.Properties.Range(func(_, value interface{}) bool {
-		return value.(*Property).DestinationColumnName != ""
+		found = value.(*Property).DestinationColumnName != ""
+		return true
 	})
-	return false
+	return found
 }
