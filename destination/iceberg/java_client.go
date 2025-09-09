@@ -30,12 +30,12 @@ type serverInstance struct {
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int, upsert bool) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
 		"warehouse":                config.IcebergS3Path,
-		"table-namespace":          config.IcebergDatabase,
+		"table-namespace":          destinationDatabase,
 		"catalog-name":             "olake_iceberg",
 		"table-prefix":             "",
 		"create-identifier-fields": !config.NoIdentifierFields,
@@ -123,7 +123,7 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 }
 
 // setup java client
-func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID string, check, upsert bool) (*serverInstance, error) {
+func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
 	// validate configuration
 	err := config.Validate()
 	if err != nil {
@@ -137,7 +137,7 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 	}
 
 	// Get the server configuration JSON
-	configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert)
+	configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server config: %s", err)
 	}
