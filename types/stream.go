@@ -33,8 +33,8 @@ type Stream struct {
 	DestinationTable    string `json:"destination_table,omitempty"`
 }
 
-func NewStream(name, namespace, driver, sourceDatabase string) *Stream {
-	DestDatabase, DestTable := utils.GenerateDestinationDetails(driver, namespace, name, sourceDatabase)
+func NewStream(name, namespace string, sourceDatabase *string) *Stream {
+	DestDatabase, DestTable := utils.GenerateDestinationDetails(namespace, name, sourceDatabase)
 	return &Stream{
 		Name:                    name,
 		Namespace:               namespace,

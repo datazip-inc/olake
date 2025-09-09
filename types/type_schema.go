@@ -144,13 +144,19 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 
 	return icebergFields
 }
+func (t *TypeSchema) HasDestinationColumnName() bool {
+	found := false
+	t.Properties.Range(func(_, value interface{}) bool {
+		found = value.(*Property).DestinationColumnName != ""
+		return true
+	})
+	return found
+}
 
 // Property is a dto for catalog properties representation
 type Property struct {
-	Type *Set[DataType] `json:"type,omitempty"`
-	// TODO: Decide to keep in the Protocol Or Not
-	// Format string     `json:"format,omitempty"`
-	DestinationColumnName string `json:"destination_column_name,omitempty"`
+	Type                  *Set[DataType] `json:"type,omitempty"`
+	DestinationColumnName string         `json:"destination_column_name,omitempty"`
 }
 
 // returns datatype according to typecast tree if multiple type present
@@ -183,6 +189,10 @@ func (p *Property) Nullable() bool {
 	})
 
 	return found
+}
+
+func (p *Property) getDestinationColumnName(key string) string {
+	return utils.Ternary(p.DestinationColumnName != "", p.DestinationColumnName, key).(string)
 }
 
 // Tree that is being used for typecasting
@@ -261,20 +271,4 @@ func lowestCommonAncestor(
 		}
 	}
 	return Unknown
-}
-
-func (p *Property) getDestinationColumnName(key string) string {
-	if p.DestinationColumnName != "" {
-		return p.DestinationColumnName
-	}
-	return key
-}
-
-func (t *TypeSchema) HasDestinationColumnName() bool {
-	found := false
-	t.Properties.Range(func(_, value interface{}) bool {
-		found = value.(*Property).DestinationColumnName != ""
-		return true
-	})
-	return found
 }

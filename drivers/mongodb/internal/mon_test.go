@@ -16,6 +16,7 @@ func TestMongodbIntegration(t *testing.T) {
 		ExpectedUpdateData: ExpectedUpdatedMongoData,
 		DataTypeSchema:     MongoToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
+		IcebergDB:          "mongodb_olake_mongodb_test",
 	}
 	testConfig.TestIntegration(t)
 }

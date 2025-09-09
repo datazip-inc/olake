@@ -58,7 +58,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		}
 	}
 
-	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(i.config.IcebergDatabase))
+	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
@@ -71,9 +71,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	var schema map[string]string
 
 	if globalSchema == nil {
-		if !utils.IsValidIdentifier(i.stream.Name()) {
-			logger.Warnf("Table '%s' is not normalized. Normalized to '%s'.", i.stream.Name(), i.stream.GetDestinationTable())
-		}
+		logger.Infof("Creating destination table '%s' in Iceberg database '%s'", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
+
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
@@ -514,8 +513,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 // return if evolution is valid or not
 func validIcebergType(oldType, newType string) bool {
-	// TODO: add check for passing greater hierarchy datatypes, e.g. oldType: string, float | newType: int -> pass
-	if oldType == newType {
+	if oldType == newType || types.GetCommonAncestorType(types.DataType(oldType), types.DataType(newType)) == types.DataType(oldType) {
 		return true
 	}
 

@@ -59,12 +59,12 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
-func (s *ConfiguredStream) GetDestinationDatabase(icebergDB string) string {
+func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 	if s.Stream.DestinationDatabase != "" {
 		return utils.Reformat(s.Stream.DestinationDatabase)
 	}
-	if icebergDB != "" {
-		return icebergDB
+	if icebergDB != nil {
+		return *icebergDB
 	}
 	return s.Stream.Namespace
 }
@@ -89,11 +89,8 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
-	//Works with any special characters,Supports quoted & unquoted column names,Handles emojis ,Handles logical operators (and / or)
 	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
-	var FilterRegex = regexp.MustCompile(
-		`^"?(?P<col1>[^\s"']+)"?\s*(>=|<=|!=|=|>|<)\s*(?P<val1>"[^"]*"|[^"\s]+)\s*(?:(?P<op>and|or)\s*"?([^\s"']+)"?\s*(>=|<=|!=|=|>|<)\s*(?P<val2>"[^"]*"|[^"\s]+))?\s*$`,
-	)
+	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)

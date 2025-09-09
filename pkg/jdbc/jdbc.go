@@ -137,16 +137,16 @@ func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
 func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk, filter string) string {
-	quotedColumn := QuoteIdentifier(filterColumn, constants.Postgres)
+	quotedFilterColumn := QuoteIdentifier(filterColumn, constants.Postgres)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
 
 	chunkCond := ""
 	if chunk.Min != nil && chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", quotedColumn, chunk.Min, quotedColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", quotedFilterColumn, chunk.Min, quotedFilterColumn, chunk.Max)
 	} else if chunk.Min != nil {
-		chunkCond = fmt.Sprintf("%s >= %v", quotedColumn, chunk.Min)
+		chunkCond = fmt.Sprintf("%s >= %v", quotedFilterColumn, chunk.Min)
 	} else if chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s < %v", quotedColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s < %v", quotedFilterColumn, chunk.Max)
 	}
 
 	chunkCond = utils.Ternary(filter != "" && chunkCond != "", fmt.Sprintf("(%s) AND (%s)", chunkCond, filter), chunkCond).(string)
@@ -451,7 +451,6 @@ func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, la
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// remove cursorField conversion to lower case once column normalization is based on writer side
-	// todo: backward compatibility check
 	datatype, err := stream.Self().Stream.Schema.GetType(cursorField)
 	if err != nil {
 		return "", nil, fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)

@@ -29,13 +29,6 @@ const (
 	BenchmarkThreshold  = 0.9
 )
 
-// driver -> iceberg database mapping must be a variable
-var driverIcebergDB = map[string]string{
-	"mysql":    "mysql_olake_mysql_test",
-	"postgres": "postgres_postgres_public",
-	"mongodb":  "mongodb_olake_mongodb_test",
-}
-
 type IntegrationTest struct {
 	TestConfig         *TestConfig
 	ExpectedData       map[string]interface{}
@@ -43,6 +36,7 @@ type IntegrationTest struct {
 	DataTypeSchema     map[string]string
 	Namespace          string
 	ExecuteQuery       func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+	IcebergDB          string
 }
 
 type PerformanceTest struct {
@@ -323,7 +317,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
 								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
-								VerifyIcebergSync(t, currentTestTable, driverIcebergDB[cfg.TestConfig.Driver], cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
 								return nil
 							}
 

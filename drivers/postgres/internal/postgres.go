@@ -150,7 +150,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 	populateStream := func(streamName string) (*types.Stream, error) {
 		streamParts := strings.Split(streamName, ".")
 		schemaName, streamName := streamParts[0], streamParts[1]
-		stream := types.NewStream(streamName, schemaName, p.Type(), p.config.Database)
+		stream := types.NewStream(streamName, schemaName, &p.config.Database)
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {

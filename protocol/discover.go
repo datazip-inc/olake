@@ -26,9 +26,10 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
-		if jobName != "" {
-			viper.Set(constants.JobName, jobName)
+		if destinationDatabasePrefix == "" {
+			destinationDatabasePrefix = connector.Type()
 		}
+		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" {
 			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {
 				return fmt.Errorf("failed to read streams from %s: %s", streamsPath, err)

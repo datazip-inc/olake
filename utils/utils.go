@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"regexp"
 
 	//nolint:gosec,G115
 	"crypto/md5"
@@ -420,19 +419,7 @@ func GenerateDefaultIcebergDatabase(jobName, sourceDatabase, namespace string) s
 	return dbName
 }
 
-// IsValidIdentifier checks if an identifier is valid according to our rules.
-func IsValidIdentifier(name string) bool {
-	// Allowed: letters, numbers, and underscores. Must start with a letter or underscore.
-	validNameRegex := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-	return validNameRegex.MatchString(name)
-}
-
 // GenerateDestinationDetails creates the default destination DB and table names for Iceberg.
-func GenerateDestinationDetails(driver, namespace, name, sourceDatabase string) (string, string) {
-	jobName := Ternary(viper.GetString(constants.JobName) == "", driver, viper.GetString(constants.JobName)).(string)
-	dbName := GenerateDefaultIcebergDatabase(jobName, sourceDatabase, namespace)
-
-	tableName := Reformat(name)
-
-	return dbName, tableName
+func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) (string, string) {
+	return GenerateDefaultIcebergDatabase(viper.GetString(constants.DestinationDatabasePrefix), Ternary(sourceDatabase != nil, &sourceDatabase, "").(string), namespace), Reformat(name)
 }
