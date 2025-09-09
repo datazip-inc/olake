@@ -225,7 +225,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 				}()
 
 				// Process message with provided function
-				if err := processFn(data); err != nil {
+				if err := processFn(fetchCtx, data); err != nil {
 					logger.Errorf("[KAFKA] failed to process message at offset %d: %v", msg.Offset, err)
 					offsetsLock.Lock()
 					lastProcessedOffsets[partition] = lastOffset

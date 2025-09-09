@@ -2,18 +2,58 @@ syntax = "proto3";
 
 package io.debezium.server.iceberg.rpc;
 
-// The service definition.
 service RecordIngestService {
-  // Sends a string array and returns a simple response.
-  rpc SendRecords(RecordIngestRequest) returns (RecordIngestResponse);
+  rpc SendRecords(IcebergPayload) returns (RecordIngestResponse);
 }
 
-// The request message containing an array of strings.
-message RecordIngestRequest {
-  repeated string messages = 1;
+message IcebergPayload {
+  enum PayloadType {
+    RECORDS = 0;
+    COMMIT = 1;
+    EVOLVE_SCHEMA = 2;
+    DROP_TABLE = 3;
+    GET_OR_CREATE_TABLE = 4;
+    REFRESH_TABLE_SCHEMA = 5;
+  }
+  
+  PayloadType type = 1;
+
+  message Metadata {
+    string dest_table_name = 1;
+    string thread_id = 2;
+    optional string identifier_field = 3;
+    repeated SchemaField schema = 4;
+  }
+
+  message SchemaField {
+    string ice_type = 1;
+    string key = 2;
+  }
+
+  // OPTIMIZED: Replace google.protobuf.Value with typed fields
+  message IceRecord {
+    // Use oneof for efficient memory usage - only one field type active per record field
+    message FieldValue {
+      oneof value {
+        string string_value = 1;
+        int32 int_value = 2;
+        int64 long_value = 3;
+        float float_value = 4;
+        double double_value = 5;
+        bool bool_value = 6;
+        bytes bytes_value = 7;
+      }
+    }
+    
+    repeated FieldValue fields = 1;
+    string record_type = 2;  // "u", "c", "r"
+  }
+
+  Metadata metadata = 2;
+  repeated IceRecord records = 3;
 }
 
-// The response message with a confirmation string.
 message RecordIngestResponse {
   string result = 1;
+  bool success = 2;  // Adding success boolean for better error handling
 }

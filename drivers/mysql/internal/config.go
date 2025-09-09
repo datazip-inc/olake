@@ -22,8 +22,9 @@ type Config struct {
 	MaxThreads    int         `json:"max_threads"`
 	RetryCount    int         `json:"backoff_retry_count"`
 }
+
 type CDC struct {
-	InitialWaitTime int `json:"intial_wait_time"`
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
 // URI generates the connection URI for the MySQL database

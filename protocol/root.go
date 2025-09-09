@@ -24,6 +24,7 @@ var (
 	noSave                bool
 	clearDestinationFlag  bool
 	encryptionKey         string
+	destinationType       string
 	catalog               *types.Catalog
 	state                 *types.State
 	timeout               int64 // timeout in seconds
@@ -75,6 +76,7 @@ func init() {
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
+	RootCmd.PersistentFlags().StringVarP(&destinationType, "destination-type", "", "not-set", "Destination type for spec")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")

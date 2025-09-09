@@ -21,7 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (err error) {
+func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
@@ -50,7 +50,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		}
 		// filter mongo object
 		filterMongoObject(doc)
-		if err := OnMessage(doc); err != nil {
+		if err := OnMessage(ctx, doc); err != nil {
 			return fmt.Errorf("failed to send message to writer: %s", err)
 		}
 	}
@@ -69,7 +69,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
-	pool.AddRecordsToSync(recordCount)
+	pool.AddRecordsToSyncStats(recordCount)
 
 	// check for _id type
 	isObjID, err := isObjectID(ctx, collection)

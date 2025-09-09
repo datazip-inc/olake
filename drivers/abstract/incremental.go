@@ -76,11 +76,14 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				if err != nil {
 					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 				}
-				errChan := make(chan error, 1)
-				inserter := pool.NewThread(ctx, stream, errChan)
+				threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+				if err != nil {
+					return fmt.Errorf("failed to create new writer thread: %s", err)
+				}
+				logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
 				defer func() {
-					inserter.Close()
-					if threadErr := <-errChan; threadErr != nil {
+					if threadErr := inserter.Close(ctx); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 					}
 
@@ -100,14 +103,16 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 							a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 							a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 						}
+					} else {
+						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
 				}()
 				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-					return a.driver.StreamIncrementalChanges(ctx, stream, func(record map[string]any) error {
+					return a.driver.StreamIncrementalChanges(ctx, stream, func(ctx context.Context, record map[string]any) error {
 						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
-						return inserter.Insert(types.CreateRawRecord(id, record, "u", time.Unix(0, 0)))
+						return inserter.Push(ctx, types.CreateRawRecord(id, record, "u", nil))
 					})
 				})
 			})

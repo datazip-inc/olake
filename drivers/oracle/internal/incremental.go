@@ -41,7 +41,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
 
-		if err := processFn(record); err != nil {
+		if err := processFn(ctx, record); err != nil {
 			return fmt.Errorf("process error: %s", err)
 		}
 	}

@@ -107,7 +107,7 @@ public class OlakeRpcServer {
         keySerde.configure(Collections.emptyMap(), true);
         keyDeserializer = keySerde.deserializer();
 
-        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms, createIdFields);
+        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms);
 
         // Build the server to listen on port 50051
         int port = 50051; // Default port
@@ -115,8 +115,8 @@ public class OlakeRpcServer {
             port = Integer.parseInt(stringConfigMap.get("port"));
         }
         
-        // Get max message size from config or use a reasonable default (1024MB)
-        int maxMessageSize = 1024 * 1024 * 1024; // 1GB default
+        // Get max message size from config or use a reasonable default 1GB
+        int maxMessageSize =  1024 * 1024 * 1024;
         if (stringConfigMap.get("max-message-size") != null) {
             maxMessageSize = Integer.parseInt(stringConfigMap.get("max-message-size"));
         }
@@ -132,6 +132,4 @@ public class OlakeRpcServer {
                     port, (maxMessageSize / (1024 * 1024)));
         server.awaitTermination();
     }
-
-
 }
