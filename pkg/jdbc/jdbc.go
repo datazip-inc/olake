@@ -21,7 +21,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	case constants.MySQL:
 		return fmt.Sprintf("`%s`", identifier)
 	case constants.Postgres:
-		return fmt.Sprintf(`"%s"`, identifier)
+		return fmt.Sprintf("%q", identifier)
 	case constants.Oracle:
 		return fmt.Sprintf("%q", identifier)
 	default:
@@ -385,29 +385,23 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 
 // OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
 func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
+	chunkMin := chunk.Min.(string)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Oracle)
-	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
-	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
 
 	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
-		return fmt.Sprintf("SELECT * FROM %s AS OF SCN %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
-			quotedTable, currentSCN, chunkMin, chunkMax, filterClause)
+		return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
+			quotedTable, chunkMin, chunkMax, filterClause)
 	}
-	return fmt.Sprintf("SELECT * FROM %s AS OF SCN %s WHERE ROWID >= '%v' %s",
-		quotedTable, currentSCN, chunkMin, filterClause)
+	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
+		quotedTable, chunkMin, filterClause)
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
 func OracleBlockSizeQuery() string {
 	return `SELECT CEIL(BYTES / NULLIF(BLOCKS, 0)) FROM user_segments WHERE BLOCKS IS NOT NULL AND ROWNUM =1`
-}
-
-// OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
-func OracleCurrentSCNQuery() string {
-	return `SELECT TO_CHAR(DBMS_FLASHBACK.GET_SYSTEM_CHANGE_NUMBER) AS SCN_STR FROM DUAL`
 }
 
 // OracleEmptyCheckQuery returns the query to check if a table is empty in OracleDB
@@ -619,4 +613,54 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	incrementalQuery := fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, finalFilter)
 
 	return incrementalQuery, queryArgs, nil
+}
+
+func MaxCursorSetter(opts IncrementalConditionOptions) error {
+	primaryCursor, secondaryCursor := opts.Stream.Cursor()
+	quotedTable := QuoteTable(opts.Stream.Namespace(), opts.Stream.Name(), opts.Driver)
+
+	filter, err := SQLFilter(opts.Stream, string(opts.Driver))
+	if err != nil {
+		return fmt.Errorf("failed to parse stream filter: %s", err)
+	}
+	filterClause := utils.Ternary(filter == "", "", " WHERE ("+filter+")").(string)
+
+	primaryCursorQuoted := QuoteIdentifier(primaryCursor, opts.Driver)
+	secondaryCursorQuoted := QuoteIdentifier(secondaryCursor, opts.Driver)
+
+	var maxPrimaryCursorValue, maxSecondaryCursorValue any
+
+	bytesConverter := func(value any) any {
+		switch v := value.(type) {
+		case []byte:
+			return string(v)
+		default:
+			return v
+		}
+	}
+
+	cursorValueQuery := utils.Ternary(secondaryCursor == "",
+		fmt.Sprintf("SELECT MAX(%s) FROM %s %s", primaryCursorQuoted, quotedTable, filterClause),
+		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable, filterClause)).(string)
+
+	if secondaryCursor != "" {
+		err = opts.Client.QueryRow(cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		if err != nil {
+			return fmt.Errorf("failed to scan the cursor values: %s", err)
+		}
+		opts.State.SetCursor(opts.Stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxSecondaryCursorValue)))
+	} else {
+		err = opts.Client.QueryRow(cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		if err != nil {
+			return fmt.Errorf("failed to scan primary cursor value: %s", err)
+		}
+		opts.State.SetCursor(opts.Stream.Self(), primaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxPrimaryCursorValue)))
+	}
+
+	opts.State.SetCursor(opts.Stream.Self(), primaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxPrimaryCursorValue)))
+	if secondaryCursor != "" && maxSecondaryCursorValue != nil {
+		opts.State.SetCursor(opts.Stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxSecondaryCursorValue)))
+	}
+
+	return nil
 }

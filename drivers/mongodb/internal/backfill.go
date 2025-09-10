@@ -248,6 +248,55 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
+	if stream.GetSyncMode() == types.INCREMENTAL {
+		primaryCursor, secondaryCursor := stream.Cursor()
+		filter, err := buildFilter(stream)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build filter: %s", err)
+		}
+
+		groupStage := bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "maxPrimaryCursor", Value: bson.D{{Key: "$max", Value: "$" + primaryCursor}}},
+		}
+		if secondaryCursor != "" {
+			groupStage = append(groupStage, bson.E{
+				Key:   "maxSecondaryCursor",
+				Value: bson.D{{Key: "$max", Value: "$" + secondaryCursor}},
+			})
+		}
+
+		pipeline := mongo.Pipeline{
+			{{Key: "$match", Value: filter}},
+			{{Key: "$group", Value: groupStage}},
+		}
+
+		cursor, err := collection.Aggregate(ctx, pipeline)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute aggregate pipeline: %s", err)
+		}
+		defer cursor.Close(ctx)
+
+		if cursor.Next(ctx) {
+			var result bson.M
+			if err := cursor.Decode(&result); err != nil {
+				return nil, fmt.Errorf("failed to decode cursor result: %s", err)
+			}
+
+			filterMongoObject(result)
+			m.state.SetCursor(stream.Self(), primaryCursor, typeutils.ReformatCursorValue(result["maxPrimaryCursor"]))
+			if secondaryCursor != "" {
+				if maxSecondaryCursor, exists := result["maxSecondaryCursor"]; exists && maxSecondaryCursor != nil {
+					m.state.SetCursor(stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(maxSecondaryCursor))
+				}
+			}
+		}
+
+		if err := cursor.Err(); err != nil {
+			return nil, fmt.Errorf("cursor error: %s", err)
+		}
+	}
+
 	switch m.config.ChunkingStrategy {
 	case "timestamp":
 		return timestampStrategy()

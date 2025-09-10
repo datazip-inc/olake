@@ -125,6 +125,19 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 		return splits, nil
 	}
 
+	if stream.GetSyncMode() == types.INCREMENTAL {
+		opts := jdbc.IncrementalConditionOptions{
+			Driver: constants.Postgres,
+			Stream: stream,
+			Client: p.client,
+			State:  p.state,
+		}
+		err := jdbc.MaxCursorSetter(opts)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	if chunkColumn != "" {
 		var minValue, maxValue interface{}

@@ -158,6 +158,19 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 
+	if stream.GetSyncMode() == types.INCREMENTAL {
+		opts := jdbc.IncrementalConditionOptions{
+			Driver: constants.MySQL,
+			Stream: stream,
+			Client: m.client,
+			State:  m.state,
+		}
+		err = jdbc.MaxCursorSetter(opts)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if stream.GetStream().SourceDefinedPrimaryKey.Len() > 0 || chunkColumn != "" {
 		err = splitViaPrimaryKey(stream, chunks)
 	} else {
