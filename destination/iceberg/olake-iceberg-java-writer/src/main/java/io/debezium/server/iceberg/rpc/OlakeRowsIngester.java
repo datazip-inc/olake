@@ -1,24 +1,23 @@
 package io.debezium.server.iceberg.rpc;
 
+import java.util.List;
+import java.util.Map;
+
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
-import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.SchemaConvertor;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
-
-import org.apache.iceberg.Table;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.List;
-import java.util.Map;
 
 @Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
@@ -113,6 +112,17 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 case DROP_TABLE:
                     LOGGER.warn("{} Table {} not dropped, drop table not implemented", requestId, destTableName);
                     sendResponse(responseObserver, "Drop table not implemented");
+                    break;
+
+                case REGISTER:
+                    LOGGER.info("{} Received REGISTER request for thread: {}", requestId, threadId);
+                    List<String> filePaths = metadata.getFilePathsList();
+                    for (String filePath : filePaths) {
+                        LOGGER.info("{} Parquet file path: {}", requestId, filePath);
+                    }
+                    icebergTableOperator.registerDataFile(threadId, icebergTable, filePaths);
+                    sendResponse(responseObserver, "Successfully registered " + filePaths.size() + " parquet files for thread " + threadId);
+                    LOGGER.info("{} Successfully registered all parquet data files for thread: {}", requestId, threadId);
                     break;
                 
                 default:

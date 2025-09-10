@@ -183,7 +183,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
-		batchSize:      10000,
+		batchSize:      40000,
 		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,
@@ -238,9 +238,17 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 		}
 	}
 
-	if err := wt.writer.Write(flushCtx, buf); err != nil {
-		return fmt.Errorf("failed to write records: %s", err)
+	arrowWrites := true // TODO: have "arrow-writes" enable option
+	if arrowWrites {
+		if err := wt.writer.ArrowWrites(flushCtx, buf); err != nil {
+			return fmt.Errorf("failed to write arrow records: %s", err)
+		}
+	} else {
+		if err := wt.writer.Write(flushCtx, buf); err != nil {
+			return fmt.Errorf("failed to write records: %s", err)
+		}
 	}
+	
 
 	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
 	return nil

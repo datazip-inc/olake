@@ -139,6 +139,10 @@ public final class RecordIngest {
        * <code>REFRESH_TABLE_SCHEMA = 5;</code>
        */
       REFRESH_TABLE_SCHEMA(5),
+      /**
+       * <code>REGISTER = 6;</code>
+       */
+      REGISTER(6),
       UNRECOGNIZED(-1),
       ;
 
@@ -166,6 +170,10 @@ public final class RecordIngest {
        * <code>REFRESH_TABLE_SCHEMA = 5;</code>
        */
       public static final int REFRESH_TABLE_SCHEMA_VALUE = 5;
+      /**
+       * <code>REGISTER = 6;</code>
+       */
+      public static final int REGISTER_VALUE = 6;
 
 
       public final int getNumber() {
@@ -198,6 +206,7 @@ public final class RecordIngest {
           case 3: return DROP_TABLE;
           case 4: return GET_OR_CREATE_TABLE;
           case 5: return REFRESH_TABLE_SCHEMA;
+          case 6: return REGISTER;
           default: return null;
         }
       }
@@ -322,6 +331,31 @@ public final class RecordIngest {
        */
       io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaFieldOrBuilder getSchemaOrBuilder(
           int index);
+
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @return A list containing the filePaths.
+       */
+      java.util.List<java.lang.String>
+          getFilePathsList();
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @return The count of filePaths.
+       */
+      int getFilePathsCount();
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @param index The index of the element to return.
+       * @return The filePaths at the given index.
+       */
+      java.lang.String getFilePaths(int index);
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @param index The index of the value to return.
+       * @return The bytes of the filePaths at the given index.
+       */
+      com.google.protobuf.ByteString
+          getFilePathsBytes(int index);
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.Metadata}
@@ -340,6 +374,7 @@ public final class RecordIngest {
         threadId_ = "";
         identifierField_ = "";
         schema_ = java.util.Collections.emptyList();
+        filePaths_ = com.google.protobuf.LazyStringArrayList.EMPTY;
       }
 
       @java.lang.Override
@@ -534,6 +569,42 @@ public final class RecordIngest {
         return schema_.get(index);
       }
 
+      public static final int FILE_PATHS_FIELD_NUMBER = 5;
+      @SuppressWarnings("serial")
+      private com.google.protobuf.LazyStringList filePaths_;
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @return A list containing the filePaths.
+       */
+      public com.google.protobuf.ProtocolStringList
+          getFilePathsList() {
+        return filePaths_;
+      }
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @return The count of filePaths.
+       */
+      public int getFilePathsCount() {
+        return filePaths_.size();
+      }
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @param index The index of the element to return.
+       * @return The filePaths at the given index.
+       */
+      public java.lang.String getFilePaths(int index) {
+        return filePaths_.get(index);
+      }
+      /**
+       * <code>repeated string file_paths = 5;</code>
+       * @param index The index of the value to return.
+       * @return The bytes of the filePaths at the given index.
+       */
+      public com.google.protobuf.ByteString
+          getFilePathsBytes(int index) {
+        return filePaths_.getByteString(index);
+      }
+
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -560,6 +631,9 @@ public final class RecordIngest {
         for (int i = 0; i < schema_.size(); i++) {
           output.writeMessage(4, schema_.get(i));
         }
+        for (int i = 0; i < filePaths_.size(); i++) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 5, filePaths_.getRaw(i));
+        }
         getUnknownFields().writeTo(output);
       }
 
@@ -581,6 +655,14 @@ public final class RecordIngest {
         for (int i = 0; i < schema_.size(); i++) {
           size += com.google.protobuf.CodedOutputStream
             .computeMessageSize(4, schema_.get(i));
+        }
+        {
+          int dataSize = 0;
+          for (int i = 0; i < filePaths_.size(); i++) {
+            dataSize += computeStringSizeNoTag(filePaths_.getRaw(i));
+          }
+          size += dataSize;
+          size += 1 * getFilePathsList().size();
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -608,6 +690,8 @@ public final class RecordIngest {
         }
         if (!getSchemaList()
             .equals(other.getSchemaList())) return false;
+        if (!getFilePathsList()
+            .equals(other.getFilePathsList())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -630,6 +714,10 @@ public final class RecordIngest {
         if (getSchemaCount() > 0) {
           hash = (37 * hash) + SCHEMA_FIELD_NUMBER;
           hash = (53 * hash) + getSchemaList().hashCode();
+        }
+        if (getFilePathsCount() > 0) {
+          hash = (37 * hash) + FILE_PATHS_FIELD_NUMBER;
+          hash = (53 * hash) + getFilePathsList().hashCode();
         }
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
@@ -770,6 +858,8 @@ public final class RecordIngest {
             schemaBuilder_.clear();
           }
           bitField0_ = (bitField0_ & ~0x00000008);
+          filePaths_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+          bitField0_ = (bitField0_ & ~0x00000010);
           return this;
         }
 
@@ -812,6 +902,11 @@ public final class RecordIngest {
           } else {
             result.schema_ = schemaBuilder_.build();
           }
+          if (((bitField0_ & 0x00000010) != 0)) {
+            filePaths_ = filePaths_.getUnmodifiableView();
+            bitField0_ = (bitField0_ & ~0x00000010);
+          }
+          result.filePaths_ = filePaths_;
         }
 
         private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.Metadata result) {
@@ -915,6 +1010,16 @@ public final class RecordIngest {
               }
             }
           }
+          if (!other.filePaths_.isEmpty()) {
+            if (filePaths_.isEmpty()) {
+              filePaths_ = other.filePaths_;
+              bitField0_ = (bitField0_ & ~0x00000010);
+            } else {
+              ensureFilePathsIsMutable();
+              filePaths_.addAll(other.filePaths_);
+            }
+            onChanged();
+          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -969,6 +1074,12 @@ public final class RecordIngest {
                   }
                   break;
                 } // case 34
+                case 42: {
+                  java.lang.String s = input.readStringRequireUtf8();
+                  ensureFilePathsIsMutable();
+                  filePaths_.add(s);
+                  break;
+                } // case 42
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -1447,6 +1558,110 @@ public final class RecordIngest {
             schema_ = null;
           }
           return schemaBuilder_;
+        }
+
+        private com.google.protobuf.LazyStringList filePaths_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+        private void ensureFilePathsIsMutable() {
+          if (!((bitField0_ & 0x00000010) != 0)) {
+            filePaths_ = new com.google.protobuf.LazyStringArrayList(filePaths_);
+            bitField0_ |= 0x00000010;
+           }
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @return A list containing the filePaths.
+         */
+        public com.google.protobuf.ProtocolStringList
+            getFilePathsList() {
+          return filePaths_.getUnmodifiableView();
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @return The count of filePaths.
+         */
+        public int getFilePathsCount() {
+          return filePaths_.size();
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @param index The index of the element to return.
+         * @return The filePaths at the given index.
+         */
+        public java.lang.String getFilePaths(int index) {
+          return filePaths_.get(index);
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @param index The index of the value to return.
+         * @return The bytes of the filePaths at the given index.
+         */
+        public com.google.protobuf.ByteString
+            getFilePathsBytes(int index) {
+          return filePaths_.getByteString(index);
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @param index The index to set the value at.
+         * @param value The filePaths to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilePaths(
+            int index, java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          ensureFilePathsIsMutable();
+          filePaths_.set(index, value);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @param value The filePaths to add.
+         * @return This builder for chaining.
+         */
+        public Builder addFilePaths(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          ensureFilePathsIsMutable();
+          filePaths_.add(value);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @param values The filePaths to add.
+         * @return This builder for chaining.
+         */
+        public Builder addAllFilePaths(
+            java.lang.Iterable<java.lang.String> values) {
+          ensureFilePathsIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, filePaths_);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFilePaths() {
+          filePaths_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+          bitField0_ = (bitField0_ & ~0x00000010);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>repeated string file_paths = 5;</code>
+         * @param value The bytes of the filePaths to add.
+         * @return This builder for chaining.
+         */
+        public Builder addFilePathsBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          ensureFilePathsIsMutable();
+          filePaths_.add(value);
+          onChanged();
+          return this;
         }
         @java.lang.Override
         public final Builder setUnknownFields(
@@ -6169,35 +6384,35 @@ public final class RecordIngest {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\204\007\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\247\007\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
       "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
       ".io.debezium.server.iceberg.rpc.IcebergP" +
-      "ayload.IceRecord\032\266\001\n\010Metadata\022\027\n\017dest_ta" +
+      "ayload.IceRecord\032\312\001\n\010Metadata\022\027\n\017dest_ta" +
       "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\035\n\020ide" +
       "ntifier_field\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\013" +
       "2:.io.debezium.server.iceberg.rpc.Iceber" +
-      "gPayload.SchemaFieldB\023\n\021_identifier_fiel" +
-      "d\032,\n\013SchemaField\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003ke" +
-      "y\030\002 \001(\t\032\254\002\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C." +
-      "io.debezium.server.iceberg.rpc.IcebergPa" +
-      "yload.IceRecord.FieldValue\022\023\n\013record_typ" +
-      "e\030\002 \001(\t\032\264\001\n\nFieldValue\022\026\n\014string_value\030\001" +
-      " \001(\tH\000\022\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_valu" +
-      "e\030\003 \001(\003H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014doub" +
-      "le_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025" +
-      "\n\013bytes_value\030\007 \001(\014H\000B\007\n\005value\"|\n\013Payloa" +
-      "dType\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE" +
-      "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
-      "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
-      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\0102\212\001\n\023RecordIngestService\022s\n" +
-      "\013SendRecords\022..io.debezium.server.iceber" +
-      "g.rpc.IcebergPayload\0324.io.debezium.serve" +
-      "r.iceberg.rpc.RecordIngestResponseb\006prot" +
-      "o3"
+      "gPayload.SchemaField\022\022\n\nfile_paths\030\005 \003(\t" +
+      "B\023\n\021_identifier_field\032,\n\013SchemaField\022\020\n\010" +
+      "ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032\254\002\n\tIceRecor" +
+      "d\022S\n\006fields\030\001 \003(\0132C.io.debezium.server.i" +
+      "ceberg.rpc.IcebergPayload.IceRecord.Fiel" +
+      "dValue\022\023\n\013record_type\030\002 \001(\t\032\264\001\n\nFieldVal" +
+      "ue\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_value\030" +
+      "\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_v" +
+      "alue\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\n" +
+      "bool_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H" +
+      "\000B\007\n\005value\"\212\001\n\013PayloadType\022\013\n\007RECORDS\020\000\022" +
+      "\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_T" +
+      "ABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRE" +
+      "SH_TABLE_SCHEMA\020\005\022\014\n\010REGISTER\020\006\"7\n\024Recor" +
+      "dIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007succe" +
+      "ss\030\002 \001(\0102\212\001\n\023RecordIngestService\022s\n\013Send" +
+      "Records\022..io.debezium.server.iceberg.rpc" +
+      ".IcebergPayload\0324.io.debezium.server.ice" +
+      "berg.rpc.RecordIngestResponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -6214,7 +6429,7 @@ public final class RecordIngest {
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "IdentifierField", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "FilePaths", "IdentifierField", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_fieldAccessorTable = new

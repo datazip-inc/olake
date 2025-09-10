@@ -500,6 +500,12 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 
 		logger.Debugf("Thread[%s]: successfully cleared S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
 	}
+
+	return nil
+}
+
+func (p *Parquet) ArrowWrites(ctx context.Context, record []types.RawRecord) error {
+	
 	return nil
 }
 

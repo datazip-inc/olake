@@ -9,11 +9,17 @@
 package io.debezium.server.iceberg.tableoperator;
 
 import com.google.common.collect.ImmutableMap;
+
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
+
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.Metrics;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -21,6 +27,8 @@ import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.parquet.ParquetUtil;
+import org.apache.iceberg.io.InputFile;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +37,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+
+import org.apache.iceberg.io.FileIO;
 /**
  * Wrapper to perform operations on iceberg tables
  *
@@ -153,6 +163,55 @@ public class IcebergTableOperator {
     } catch (RuntimeException e) {
       throw new RuntimeException("Failed to commit", e);
     }
+  }
+
+  /**
+   * Registers parquet files for a specific thread
+   * 
+   * @param threadId The thread ID to register
+   * @param filePaths The data file paths to add into the iceberg table
+   * @throws RuntimeException if registering the parquet file fails
+   */
+  public void registerDataFile(String threadId, Table table, List<String> filePaths) {
+     if (table == null) {
+          LOGGER.warn("No table found for thread: {}", threadId);
+          return;
+     }
+
+     try {
+          completeWriter();
+
+          FileIO fileIO = table.io();
+          MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+
+          AppendFiles append = table.newAppend();
+
+          for (String filePath : filePaths) {
+               try {
+                    InputFile inputFile = fileIO.newInputFile(filePath);
+                    Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
+
+                    DataFile dataFile = DataFiles.builder(table.spec())
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(inputFile.getLength())
+                         .withMetrics(metrics)
+                         .build();
+
+                    append.appendFile(dataFile);
+                    LOGGER.info("Thread {}: registered parquet file {}", threadId, filePath);
+               } catch (Exception e) {
+                    LOGGER.info("Thread {}: failed to register file {}: {}", threadId, filePath, e.getMessage(), e);
+               }
+          }
+
+          append.commit();
+          LOGGER.info("Thread {}: successfully committed {} parquet files", threadId, filePaths.size());
+     } catch (Exception e) {
+          String errorMsg = String.format("Thread %s: failed to register parquet files: %s", threadId, e.getMessage());
+          LOGGER.error(errorMsg, e);
+          throw new RuntimeException(e);
+     }
   }
 
   public void completeWriter() {

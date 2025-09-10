@@ -18,12 +18,13 @@ import (
 )
 
 type Iceberg struct {
-	options       *destination.Options
-	config        *Config
-	stream        types.StreamInterface
-	partitionInfo []PartitionInfo   // ordered slice to preserve partition column order
-	server        *serverInstance   // java server instance
-	schema        map[string]string // schema for current thread associated with java writer (col -> type)
+	options         *destination.Options
+	config          *Config
+	stream          types.StreamInterface
+	partitionInfo   []PartitionInfo   // ordered slice to preserve partition column order
+	server          *serverInstance   // java server instance
+	schema          map[string]string // schema for current thread associated with java writer (col -> type)
+	createdFilePaths []string         // list of created parquet file paths
 	// Why Schema On Thread Level ?
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
@@ -239,13 +240,27 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_COMMIT,
-		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      i.server.serverID,
-			DestTableName: i.stream.GetDestinationTable(),
-		},
+	arrowEnabled := true // TODO: have "arrow-writes" enable option
+	var request *proto.IcebergPayload
+	if arrowEnabled {
+		request = &proto.IcebergPayload{
+			Type: proto.IcebergPayload_REGISTER,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId:      i.server.serverID,
+				DestTableName: i.stream.GetDestinationTable(),
+				FilePaths:     i.createdFilePaths,
+			},
+		}
+	} else {
+		request = &proto.IcebergPayload{
+			Type: proto.IcebergPayload_COMMIT,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId:      i.server.serverID,
+				DestTableName: i.stream.GetDestinationTable(),
+			},
+		}
 	}
+
 	res, err := i.server.sendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send commit message: %s", err)
