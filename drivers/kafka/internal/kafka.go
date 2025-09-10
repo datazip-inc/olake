@@ -122,7 +122,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 
 func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("[KAFKA] producing schema for topic [%s]", streamName)
-	stream := types.NewStream(streamName, "")
+	stream := types.NewStream(streamName, "", nil)
 	schema := types.NewTypeSchema()
 	schema.AddTypes("message", types.String)  // Basic field for message payload
 	schema.AddTypes("key", types.String)      // Kafka message key

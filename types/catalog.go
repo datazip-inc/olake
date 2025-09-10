@@ -124,6 +124,8 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		// not adding checks, let validation handle it
 		newStream.Stream.SyncMode = oldStream.Stream.SyncMode
 		newStream.Stream.CursorField = oldStream.Stream.CursorField
+		newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
+		newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 		return nil
 	})
 

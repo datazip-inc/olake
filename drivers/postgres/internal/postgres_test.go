@@ -17,6 +17,7 @@ func TestPostgresIntegration(t *testing.T) {
 		ExpectedUpdateData: ExpectedUpdatedPostgresData,
 		DataTypeSchema:     PostgresToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
+		IcebergDB:          "postgres_postgres_public",
 	}
 	testConfig.TestIntegration(t)
 }
