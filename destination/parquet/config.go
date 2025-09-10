@@ -14,8 +14,8 @@ type Config struct {
 	// S3 endpoint for custom S3-compatible services (like MinIO)
 	S3Endpoint string `json:"s3_endpoint,omitempty"`
 	// Continuous streaming thresholds
-	TargetFileSizeMB  int `json:"target_file_size_mb,omitempty"`
-	MaxLatencySeconds int `json:"max_latency_seconds,omitempty"`
+	TargetFileSizeMB  int `json:"target_file_size,omitempty"`
+	MaxLatencySeconds int `json:"max_latency,omitempty"`
 }
 
 func (c *Config) Validate() error {

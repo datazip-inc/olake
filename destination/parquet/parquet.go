@@ -140,8 +140,9 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	}
 
 	// configure continuous thresholds and start background flusher if enabled
+	// Note: target_file_size is provided in KB; convert to bytes
 	if p.config.TargetFileSizeMB > 0 {
-		p.targetBytes = int64(p.config.TargetFileSizeMB) * 1024 * 1024
+		p.targetBytes = int64(p.config.TargetFileSizeMB) * 1024
 	}
 	if p.config.MaxLatencySeconds > 0 {
 		p.maxLatency = time.Duration(p.config.MaxLatencySeconds) * time.Second
@@ -150,6 +151,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 		p.lastFlushAt = time.Now()
 		p.flushTicker = time.NewTicker(time.Second)
 		go p.backgroundFlusher()
+		logger.Infof("Thread[%s]: background flusher started (target_bytes=%d, max_latency=%s)", p.options.ThreadID, p.targetBytes, p.maxLatency)
 	}
 
 	if !p.stream.NormalizationEnabled() {
@@ -280,7 +282,7 @@ func (p *Parquet) closePqFiles() error {
 			err = parquetFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
 		}
 		if err != nil {
-			return fmt.Errorf("failed to close writer: %s", err)
+			logger.Warnf("Thread[%s]: Failed to close parquet writer: %s", p.options.ThreadID, err)
 		}
 
 		// Close file
@@ -321,7 +323,10 @@ func (p *Parquet) closePqFiles() error {
 		}
 	}
 	// make map empty
-	p.partitionedFiles = make(map[string]*FileMetadata)
+	// p.partitionedFiles = make(map[string]*FileMetadata)
+	for k := range p.partitionedFiles {
+		delete(p.partitionedFiles, k)
+	}
 	return nil
 }
 
@@ -544,6 +549,39 @@ func init() {
 }
 
 // backgroundFlusher periodically checks size and latency thresholds to rotate files.
+// func (p *Parquet) backgroundFlusher() {
+// 	for {
+// 		select {
+// 		case <-p.stopCh:
+// 			return
+// 		case <-p.flushTicker.C:
+// 			shouldFlush := false
+// 			if p.maxLatency > 0 && time.Since(p.lastFlushAt) >= p.maxLatency {
+// 				shouldFlush = true
+// 			}
+// 			if !shouldFlush && p.targetBytes > 0 {
+// 				p.mu.Lock()
+// 				for basePath, parquetFile := range p.partitionedFiles {
+// 					filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
+// 					info, err := os.Stat(filePath)
+// 					if err == nil && info.Size() >= p.targetBytes {
+// 						shouldFlush = true
+// 						break
+// 					}
+// 				}
+// 				p.mu.Unlock()
+// 			}
+// 			if shouldFlush {
+// 				if err := p.closePqFiles(); err != nil {
+// 					logger.Warnf("Thread[%s]: failed to flush parquet files: %s", p.options.ThreadID, err)
+// 					continue
+// 				}
+// 				p.lastFlushAt = time.Now()
+// 			}
+// 		}
+// 	}
+// }
+
 func (p *Parquet) backgroundFlusher() {
 	for {
 		select {
@@ -561,17 +599,21 @@ func (p *Parquet) backgroundFlusher() {
 					info, err := os.Stat(filePath)
 					if err == nil && info.Size() >= p.targetBytes {
 						shouldFlush = true
+						logger.Debugf("Thread[%s]: File size threshold reached (%d >= %d), should flush",
+							p.options.ThreadID, info.Size(), p.targetBytes)
 						break
 					}
 				}
 				p.mu.Unlock()
 			}
 			if shouldFlush {
+				logger.Infof("Thread[%s]: Flushing parquet files", p.options.ThreadID)
 				if err := p.closePqFiles(); err != nil {
 					logger.Warnf("Thread[%s]: failed to flush parquet files: %s", p.options.ThreadID, err)
 					continue
 				}
 				p.lastFlushAt = time.Now()
+				logger.Infof("Thread[%s]: background flusher rotated files", p.options.ThreadID)
 			}
 		}
 	}
