@@ -654,13 +654,9 @@ func MaxCursorSetter(opts IncrementalConditionOptions) error {
 		if err != nil {
 			return fmt.Errorf("failed to scan primary cursor value: %s", err)
 		}
-		opts.State.SetCursor(opts.Stream.Self(), primaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxPrimaryCursorValue)))
 	}
 
 	opts.State.SetCursor(opts.Stream.Self(), primaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxPrimaryCursorValue)))
-	if secondaryCursor != "" && maxSecondaryCursorValue != nil {
-		opts.State.SetCursor(opts.Stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxSecondaryCursorValue)))
-	}
 
 	return nil
 }
