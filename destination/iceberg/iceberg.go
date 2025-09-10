@@ -373,10 +373,16 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
 			records[idx].Data[constants.OpType] = record.OperationType
 			if record.CdcTimestamp != nil {
-				records[idx].Data[constants.CdcTimestamp] = record.CdcTimestamp
+				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
 
-			for key, value := range record.Data {
+			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			if err != nil {
+				return false, nil, fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
+			}
+			records[idx].Data = flattenedRecord
+
+			for key, value := range flattenedRecord {
 				detectedType := typeutils.TypeFromValue(value)
 
 				if detectedType == types.Null {
@@ -390,8 +396,8 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
 					if !valid {
 						return false, nil, fmt.Errorf(
-							"failed to validate schema (detected two different types in batch), expected type: %s, detected type: %s",
-							typeInNewSchema, detectedIcebergType,
+							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+							key, typeInNewSchema, detectedIcebergType,
 						)
 					}
 
@@ -505,6 +511,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 // return if evolution is valid or not
 func validIcebergType(oldType, newType string) bool {
+	// TODO: add check for passing greater hierarchy datatypes, e.g. oldType: string, float | newType: int -> pass
 	if oldType == newType {
 		return true
 	}

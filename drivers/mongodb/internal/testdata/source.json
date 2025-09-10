@@ -1,0 +1,13 @@
+{
+    "hosts": ["host.docker.internal:27017"],
+    "username": "mongodb",
+    "password": "secure_password123",
+    "authdb": "admin",
+    "replica-set": "rs0",
+    "read-preference": "secondaryPreferred",
+    "srv": false,
+    "server-ram": 16,
+    "database": "olake_mongodb_test",
+    "max_threads": 5,
+    "backoff_retry_count": 4
+  }
