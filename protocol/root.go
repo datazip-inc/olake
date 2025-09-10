@@ -44,6 +44,16 @@ var RootCmd = &cobra.Command{
 		// set global variables
 		if !noSave {
 			viper.Set(constants.ConfigFolder, utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
+		} else {
+			viper.Set(constants.NoSave, noSave)
+		}
+
+		if statePath != "" {
+			viper.Set(constants.StatePath, statePath)
+		}
+
+		if streamsPath != "" {
+			viper.Set(constants.StreamsPath, streamsPath)
 		}
 
 		if encryptionKey != "" {

@@ -22,7 +22,9 @@ const (
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
 	ConfigFolder           = "CONFIG_FOLDER"
+	NoSave                 = "NO_SAVE"
 	StatePath              = "STATE_PATH"
+	StreamsPath            = "STREAMS_PATH"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8

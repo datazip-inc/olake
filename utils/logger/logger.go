@@ -116,12 +116,6 @@ func FileLoggerWithPath(content any, fileName, fileExtension, customPath string)
 		fullPath = filepath.Join(filePath, fileName+fileExtension)
 	}
 
-	// Ensure directory exists for custom paths
-	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
-	}
-
 	// Marshal content to JSON
 	contentBytes, err := json.Marshal(content)
 	if err != nil {

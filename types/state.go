@@ -64,7 +64,6 @@ func (s *State) initStreamState(stream *ConfiguredStream) *StreamState {
 // State is a dto for airbyte state serialization
 type State struct {
 	*sync.RWMutex `json:"-"`
-	NoSave        bool           `json:"-"`
 	Type          StateType      `json:"type"`
 	Global        *GlobalState   `json:"global,omitempty"`
 	Streams       []*StreamState `json:"streams,omitempty"` // TODO: make it set
@@ -287,7 +286,7 @@ func (s *State) LogState() {
 		return
 	}
 
-	if s.NoSave {
+	if viper.GetBool(constants.NoSave) {
 		logger.Debug("skipping state file write due to --no-save flag")
 		return
 	}
@@ -299,8 +298,7 @@ func (s *State) LogState() {
 	// TODO: Only Log in logs file, not in CLI
 	// logger.Info(message)
 
-	statePath := viper.GetString(constants.StatePath)
-	err := logger.FileLoggerWithPath(s, "state", ".json", statePath)
+	err := logger.FileLoggerWithPath(s, "state", ".json", viper.GetString(constants.StatePath))
 	if err != nil {
 		logger.Fatalf("failed to write state file: %s", err)
 	}

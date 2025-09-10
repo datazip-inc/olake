@@ -6,14 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // syncCmd represents the read command
@@ -55,11 +53,6 @@ var syncCmd = &cobra.Command{
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
-		}
-
-		state.NoSave = noSave
-		if !noSave && statePath != "" {
-			viper.Set(constants.StatePath, statePath)
 		}
 
 		state.RWMutex = &sync.RWMutex{}
