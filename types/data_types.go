@@ -126,3 +126,22 @@ func (d DataType) ToIceberg() string {
 		return "string"
 	}
 }
+
+func IcebergTypeToDatatype(d string) DataType {
+	switch d {
+	case "boolean":
+		return Bool
+	case "int":
+		return Int32
+	case "long":
+		return Int64
+	case "float":
+		return Float32
+	case "double":
+		return Float64
+	case "timestamptz":
+		return TimestampMilli
+	default:
+		return String
+	}
+}
