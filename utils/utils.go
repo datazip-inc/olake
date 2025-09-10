@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+
 	//nolint:gosec,G115
 	"crypto/md5"
 	"crypto/rand"
@@ -20,10 +21,9 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
-	"github.com/testcontainers/testcontainers-go"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 var (
@@ -297,72 +297,6 @@ func AddConstantToInterface(val interface{}, increment int) (interface{}, error)
 	}
 }
 
-// return 0 for equal, -1 if a < b else 1 if a>b
-func CompareInterfaceValue(a, b interface{}) int {
-	// Handle nil cases first
-	if a == nil && b == nil {
-		return 0
-	}
-	if a == nil {
-		return -1
-	}
-	if b == nil {
-		return 1
-	}
-
-	switch aVal := a.(type) {
-	case uint, uint8, uint16, uint32, uint64:
-		aUint := reflect.ValueOf(a).Convert(reflect.TypeOf(uint64(0))).Uint()
-		bUint := reflect.ValueOf(b).Convert(reflect.TypeOf(uint64(0))).Uint()
-		if aUint < bUint {
-			return -1
-		} else if aUint > bUint {
-			return 1
-		}
-		return 0
-	case int, int8, int16, int32, int64:
-		aInt := reflect.ValueOf(a).Convert(reflect.TypeOf(int64(0))).Int()
-		bInt := reflect.ValueOf(b).Convert(reflect.TypeOf(int64(0))).Int()
-		if aInt < bInt {
-			return -1
-		} else if aInt > bInt {
-			return 1
-		}
-		return 0
-	case float32, float64:
-		aFloat := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
-		bFloat := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
-		if aFloat < bFloat {
-			return -1
-		} else if aFloat > bFloat {
-			return 1
-		}
-		return 0
-	case string:
-		return strings.Compare(aVal, b.(string))
-	case time.Time:
-		bTime := b.(time.Time)
-		if aVal.Before(bTime) {
-			return -1
-		} else if aVal.After(bTime) {
-			return 1
-		}
-		return 0
-	case bool:
-		bBool := b.(bool)
-		// false < true
-		if !aVal && bBool {
-			return -1
-		} else if aVal && !bBool {
-			return 1
-		}
-		return 0
-	default:
-		// For any other types, convert to string for comparison
-		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
-	}
-}
-
 func ConvertToString(value interface{}) string {
 	switch v := value.(type) {
 	case []byte:
@@ -438,4 +372,55 @@ func NormalizedEqual(strune1, strune2 string) bool {
 	sort.Slice(rune1, func(i, j int) bool { return rune1[i] < rune1[j] })
 	sort.Slice(rune2, func(i, j int) bool { return rune2[i] < rune2[j] })
 	return string(rune1) == string(rune2)
+}
+
+// Reformat makes all keys to lower case and replaces all special symbols with '_'
+func Reformat(key string) string {
+	key = strings.ToLower(key)
+	var result strings.Builder
+	for _, symbol := range key {
+		if IsLetterOrNumber(symbol) {
+			result.WriteByte(byte(symbol))
+		} else {
+			result.WriteRune('_')
+		}
+	}
+	return result.String()
+}
+
+// IsLetterOrNumber returns true if input symbol is:
+//
+//	A - Z: 65-90
+//	a - z: 97-122
+func IsLetterOrNumber(symbol int32) bool {
+	return ('a' <= symbol && symbol <= 'z') ||
+		('A' <= symbol && symbol <= 'Z') ||
+		('0' <= symbol && symbol <= '9')
+}
+
+// GenerateDestinationDetails creates the default Iceberg database and table names.
+// It combines prefix, source database, and namespace into a proper DB name.
+func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) (string, string) {
+	parts := []string{}
+
+	// Add destination database prefix if available
+	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
+		parts = append(parts, Reformat(prefix))
+	}
+
+	// Add source database if provided
+	if sourceDatabase != nil && *sourceDatabase != "" {
+		parts = append(parts, Reformat(*sourceDatabase))
+	}
+
+	// Join prefix + source database
+	dbName := strings.Join(parts, "_")
+
+	// Append namespace if provided
+	if namespace != "" {
+		dbName = fmt.Sprintf("%s:%s", dbName, Reformat(namespace))
+	}
+
+	// Final table name is always reformatted
+	return dbName, Reformat(name)
 }

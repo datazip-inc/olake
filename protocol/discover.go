@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var discoverCmd = &cobra.Command{
@@ -25,7 +26,8 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
-
+		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
+		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" {
 			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {
 				return fmt.Errorf("failed to read streams from %s: %s", streamsPath, err)
