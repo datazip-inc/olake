@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/datazip-inc/olake/utils"
 )
 
 // Input/Processed object for Stream
@@ -57,6 +59,20 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
+func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
+	if s.Stream.DestinationDatabase != "" {
+		return utils.Reformat(s.Stream.DestinationDatabase)
+	}
+	if icebergDB != nil && *icebergDB != "" {
+		return *icebergDB
+	}
+	return s.Stream.Namespace
+}
+
+func (s *ConfiguredStream) GetDestinationTable() string {
+	return utils.Ternary(s.Stream.DestinationTable == "", s.Stream.Name, s.Stream.DestinationTable).(string)
+}
+
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
 	cursorFields := strings.Split(s.Stream.CursorField, ":")
@@ -73,6 +89,7 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
+	// TODO: handle special characters in column name in filter
 	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
 	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)

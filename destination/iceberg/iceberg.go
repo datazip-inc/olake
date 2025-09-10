@@ -58,7 +58,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		}
 	}
 
-	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill))
+	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
 	if err != nil {
 		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
@@ -71,13 +71,15 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	var schema map[string]string
 
 	if globalSchema == nil {
+		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
+
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
 				Schema:          iceSchema,
-				DestTableName:   i.stream.Name(),
+				DestTableName:   i.stream.GetDestinationTable(),
 				ThreadId:        i.server.serverID,
 				IdentifierField: &identifierField,
 			},
@@ -195,7 +197,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: i.stream.Name(),
+			DestTableName: i.stream.GetDestinationTable(),
 			ThreadId:      i.server.serverID,
 			Schema:        protoSchema,
 		},
@@ -241,7 +243,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      i.server.serverID,
-			DestTableName: i.stream.Name(),
+			DestTableName: i.stream.GetDestinationTable(),
 		},
 	}
 	res, err := i.server.sendClientRequest(ctx, request)
@@ -258,7 +260,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		ThreadID: "test_iceberg_destination",
 	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false)
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -379,7 +381,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 			}
 			records[idx].Data = flattenedRecord
 
-			for key, value := range record.Data {
+			for key, value := range flattenedRecord {
 				detectedType := typeutils.TypeFromValue(value)
 
 				if detectedType == types.Null {
@@ -390,17 +392,24 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 				detectedIcebergType := detectedType.ToIceberg()
 				if typeInNewSchema, exists := recordsSchema[key]; exists {
-					valid := validIcebergType(typeInNewSchema, detectedIcebergType)
-					if !valid {
-						return false, nil, fmt.Errorf(
-							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
-							key, typeInNewSchema, detectedIcebergType,
-						)
-					}
+					// if column exist in iceberg table validate type
+					if _, exist := i.schema[key]; exist {
+						valid := validIcebergType(typeInNewSchema, detectedIcebergType)
+						if !valid {
+							return false, nil, fmt.Errorf(
+								"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+								key, typeInNewSchema, detectedIcebergType,
+							)
+						}
 
-					if promotionRequired(typeInNewSchema, detectedIcebergType) {
-						recordsSchema[key] = detectedIcebergType
-						diffThreadSchema = true
+						if promotionRequired(typeInNewSchema, detectedIcebergType) {
+							recordsSchema[key] = detectedIcebergType
+							diffThreadSchema = true
+						}
+					} else {
+						// if column not exist in iceberg table use common ancestor
+						diffThreadSchema = true // (Note: adding just to maintain consistency)
+						recordsSchema[key] = getCommonAncestorType(typeInNewSchema, detectedIcebergType)
 					}
 				} else {
 					diffThreadSchema = true
@@ -449,6 +458,10 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		return nil, fmt.Errorf("failed to convert newSchemaMap of type[%T] to map[string]string", recordsRawSchema)
 	}
 
+	// case handled:
+	// 1. returns true if promotion is possible or new column is added
+	// 2. in case of int(globalType) and string(threadType) it return false
+	//    and write method will try to parse the string (write will fail if not parsable)
 	differentSchema := func(oldSchema, newSchema map[string]string) bool {
 		for fieldName, newType := range newSchema {
 			if oldType, exists := oldSchema[fieldName]; !exists {
@@ -466,7 +479,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
 			IdentifierField: &identifierField,
-			DestTableName:   i.stream.Name(),
+			DestTableName:   i.stream.GetDestinationTable(),
 			ThreadId:        i.server.serverID,
 		},
 	}
@@ -508,7 +521,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 // return if evolution is valid or not
 func validIcebergType(oldType, newType string) bool {
-	if oldType == newType {
+	if oldType == newType || getCommonAncestorType(oldType, newType) == oldType {
 		return true
 	}
 
@@ -681,6 +694,18 @@ func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
 		})
 	}
 	return icebergFields
+}
+
+func getCommonAncestorType(d1, d2 string) string {
+	// check for cases:
+	// d1: string d2: int  -> return string
+	// d1: float d2: int  -> return float
+	// d1: string d2: float  -> return string
+	// d1: string d2: timestamp  -> return string
+
+	oldDT := types.IcebergTypeToDatatype(d1)
+	newDT := types.IcebergTypeToDatatype(d2)
+	return types.GetCommonAncestorType(oldDT, newDT).ToIceberg()
 }
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {

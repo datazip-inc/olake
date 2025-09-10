@@ -125,7 +125,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name())
+		stream := types.NewStream(streamName, db.Name(), nil)
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
@@ -193,7 +193,6 @@ func filterMongoObject(doc bson.M) {
 	for key, value := range doc {
 		// first make key small case as data being typeresolved with small case keys
 		delete(doc, key)
-		key = typeutils.Reformat(key)
 		switch value := value.(type) {
 		case primitive.Timestamp:
 			doc[key] = value.T
