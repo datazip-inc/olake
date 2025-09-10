@@ -122,13 +122,13 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 
 func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("[KAFKA] producing schema for topic [%s]", streamName)
-	stream := types.NewStream(streamName, "", nil)
+	stream := types.NewStream(streamName, "topics", nil)
 	schema := types.NewTypeSchema()
-	schema.AddTypes("message", types.String)  // Basic field for message payload
-	schema.AddTypes("key", types.String)      // Kafka message key
-	schema.AddTypes("offset", types.Int64)    // Offset for tracking
-	schema.AddTypes("partition", types.Int64) // Partition
-	schema.AddTypes("timestamp", types.Int64) // Message timestamp
+	schema.AddTypes("message", types.String)        // Basic field for message payload
+	schema.AddTypes("key", types.String)            // Kafka message key
+	schema.AddTypes("offset", types.Int64)          // Offset for tracking
+	schema.AddTypes("partition", types.Int64)       // Partition
+	schema.AddTypes("kafka_timestamp", types.Int64) // Message timestamp
 	stream.WithSchema(schema)
 
 	// Set offset as available cursor field for incremental sync

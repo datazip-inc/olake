@@ -44,6 +44,10 @@ func (c *Config) Validate() error {
 		c.WaitTime = int(constants.DefaultWaitTime)
 	}
 
+	if c.AutoOffsetReset != "" && c.AutoOffsetReset != "earliest" && c.AutoOffsetReset != "latest" {
+		return fmt.Errorf("auto_offset_reset must be either 'earliest' or 'latest'")
+	}
+
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount
 	}

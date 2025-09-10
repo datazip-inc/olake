@@ -43,15 +43,12 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	// Get persisted state offsets, partitions
 	stateOffsets := make(map[int]int64)
 	if k.state != nil {
-		cursor := k.state.GetCursor(stream.Self(), "partitions")
-		if cursor != nil {
-			partitionMap, ok := cursor.(map[string]any)
-			if ok {
-				for _, partition := range topicDetail.Partitions {
-					partitionID := fmt.Sprintf("%d", partition.ID)
+		if cursor := k.state.GetCursor(stream.Self(), "partitions"); cursor != nil {
+			if partitionMap, ok := cursor.(map[string]any); ok {
+				for _, p := range topicDetail.Partitions {
+					partitionID := fmt.Sprintf("%d", p.ID)
 					if val, exists := partitionMap[partitionID]; exists {
-						offset, _ := typeutils.ReformatInt64(val)
-						stateOffsets[partition.ID] = offset
+						stateOffsets[p.ID], _ = typeutils.ReformatInt64(val)
 					}
 				}
 			}
@@ -70,6 +67,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		ID:      groupID,
 		Brokers: strings.Split(k.config.BootstrapServers, ","),
 		Topics:  []string{topic},
+		Dialer:  k.dialer,
 	})
 	if err != nil {
 		return fmt.Errorf("[KAFKA] failed to create consumer group for incremental sync: %v", err)
@@ -86,9 +84,6 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	k.consumerGen = consumerGen
 	k.mutex.Unlock()
 
-	offsetsLock := &sync.Mutex{}
-	lastProcessedOffsets := make(map[int]int64)
-
 	// Prepare partition data for concurrent processing
 	partitionData := make([]struct {
 		Partition   int
@@ -102,7 +97,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 		// If we have state for this partition, use it
 		if offset, exists := stateOffsets[partition]; exists && offset > 0 {
-			startOffset = offset + 1
+			startOffset = offset
 		}
 		partitionData = append(partitionData, struct {
 			Partition   int
@@ -112,6 +107,11 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 			StartOffset: startOffset,
 		})
 	}
+
+	var (
+		offsetsMu            = &sync.Mutex{}
+		lastProcessedOffsets = make(map[int]int64)
+	)
 
 	// Processing partitions concurrently
 	err = utils.Concurrent(ctx, partitionData, k.config.MaxThreads, func(ctx context.Context, data struct {
@@ -130,7 +130,11 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 			MaxBytes:  10e6,
 			Dialer:    k.dialer,
 		})
-		defer reader.Close()
+		defer func() {
+			if err := reader.Close(); err != nil {
+				logger.Warnf("[KAFKA] failed to close reader for topic %s, partition %d: %v", topic, partition, err)
+			}
+		}()
 
 		// Set offset based on state or from beginning
 		if err := reader.SetOffset(startOffset); err != nil {
@@ -158,12 +162,14 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		// safely store last processed offset
 		saveOffset := func() {
 			if processedAny {
-				offsetsLock.Lock()
+				offsetsMu.Lock()
 				lastProcessedOffsets[partition] = lastOffset
-				offsetsLock.Unlock()
+				offsetsMu.Unlock()
 			}
 		}
 
+		// per-partition wait time after last processed message
+		partitionIdleWait := time.Duration(k.config.WaitTime) * time.Second
 		for {
 			select {
 			case <-ctx.Done():
@@ -171,15 +177,8 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 				saveOffset()
 				return ctx.Err()
 			default:
-				// Read message within user-provided deadline
-				remaining := time.Until(time.Now().Add(time.Duration(k.config.WaitTime) * time.Second))
-				if remaining <= 0 {
-					logger.Warnf("[KAFKA] wait time exhausted for topic %s, partition %d", topic, partition)
-					saveOffset()
-					return nil
-				}
-
-				fetchCtx, cancel := context.WithTimeout(ctx, remaining)
+				deadline := time.Now().Add(partitionIdleWait)
+				fetchCtx, cancel := context.WithDeadline(ctx, deadline)
 				msg, err := reader.ReadMessage(fetchCtx)
 				cancel()
 
@@ -225,16 +224,16 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 				}()
 
 				// Process message with provided function
-				if err := processFn(fetchCtx, data); err != nil {
+				if err := processFn(ctx, data); err != nil {
 					logger.Errorf("[KAFKA] failed to process message at offset %d: %v", msg.Offset, err)
-					offsetsLock.Lock()
+					offsetsMu.Lock()
 					lastProcessedOffsets[partition] = lastOffset
-					offsetsLock.Unlock()
+					offsetsMu.Unlock()
 					return err
 				}
 				lastOffset = msg.Offset
 				processedAny = true
-				logger.Debugf("[KAFKA] processed incremental message at offset %d for topic %s, partition %d", msg.Offset, topic, partition)
+				logger.Infof("[KAFKA] processed incremental message at offset %d for topic %s, partition %d", msg.Offset, topic, partition)
 			}
 		}
 	})
@@ -287,7 +286,11 @@ func (k *Kafka) PostIncremental(_ context.Context, stream types.StreamInterface,
 			k.state.SetCursor(stream.Self(), "partitions", partitionsState)
 
 			// commit to kafka
-			if err := k.consumerGen.CommitOffsets(commitOffsets); err != nil {
+			gen := k.consumerGen
+			if gen == nil {
+				return fmt.Errorf("[KAFKA] no active generation found for topic %s", topic)
+			}
+			if err := gen.CommitOffsets(commitOffsets); err != nil {
 				return fmt.Errorf("[KAFKA] failed to commit offsets to Kafka: %w", err)
 			}
 			logger.Infof("[KAFKA] offsets committed for topic %s", topic)
