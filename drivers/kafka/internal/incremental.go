@@ -138,20 +138,15 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 		// Set offset based on state or from beginning
 		if err := reader.SetOffset(startOffset); err != nil {
-			var kerr kafka.Error
 			// If offset is invalid, fallback to configured offset reset policy
-			if errors.Is(kerr, kafka.OffsetOutOfRange) {
+			if errors.Is(err, kafka.OffsetOutOfRange) {
+				resetOffset := utils.Ternary(k.config.AutoOffsetReset == "latest", kafka.LastOffset, kafka.FirstOffset).(int64)
 				logger.Warnf("[KAFKA] offset %d out of range for topic %s, partition %d, resetting to beginning", startOffset, topic, partition)
-				resetOffset, resetOffsetErr := ResolveOffset(k.config.AutoOffsetReset)
-				if resetOffsetErr != nil {
-					logger.Errorf("[KAFKA] invalid auto_offset_reset policy: %s", resetOffsetErr)
-				}
 				if setOffsetErr := reader.SetOffset(resetOffset); setOffsetErr != nil {
-					logger.Errorf("[KAFKA] failed to reset offset to %d for topic %s, partition %d: %s", resetOffset, topic, partition, setOffsetErr)
+					return fmt.Errorf("[KAFKA] failed to reset offset to %d for topic %s, partition %d: %s", resetOffset, topic, partition, setOffsetErr)
 				}
 			} else {
-				logger.Errorf("[KAFKA] failed to set offset %d for topic %s, partition %d: %v", startOffset, topic, partition, err)
-				return err
+				return fmt.Errorf("[KAFKA] failed to set offset %d for topic %s, partition %d: %v", startOffset, topic, partition, err)
 			}
 		}
 
@@ -202,9 +197,8 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 						return nil
 					}
 					// any failure during reading
-					logger.Errorf("[KAFKA] error reading message in incremental sync: %v", err)
 					saveOffset()
-					return err
+					return fmt.Errorf("[KAFKA] error reading message in incremental sync: %v", err)
 				}
 				data := func() map[string]any {
 					var result map[string]any
@@ -225,11 +219,10 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 				// Process message with provided function
 				if err := processFn(ctx, data); err != nil {
-					logger.Errorf("[KAFKA] failed to process message at offset %d: %v", msg.Offset, err)
 					offsetsMu.Lock()
 					lastProcessedOffsets[partition] = lastOffset
 					offsetsMu.Unlock()
-					return err
+					return fmt.Errorf("[KAFKA] failed to process message at offset %d: %v", msg.Offset, err)
 				}
 				lastOffset = msg.Offset
 				processedAny = true
@@ -305,16 +298,4 @@ func (k *Kafka) PostIncremental(_ context.Context, stream types.StreamInterface,
 		k.syncedTopics[topic] = true
 	}
 	return nil
-}
-
-// Provides auto offset resolution based on the policy
-func ResolveOffset(policy string) (int64, error) {
-	switch policy {
-	case "earliest":
-		return kafka.FirstOffset, nil
-	case "latest":
-		return kafka.LastOffset, nil
-	default:
-		return 0, fmt.Errorf("[KAFKA] invalid auto_offset_reset value: %q", policy)
-	}
 }
