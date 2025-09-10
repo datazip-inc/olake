@@ -125,7 +125,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string]*FileMetadata)
-	p.basePath = filepath.Join(p.stream.Namespace(), p.stream.Name())
+	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
 	p.schema = make(typeutils.Fields)
 	p.stopCh = make(chan struct{})
 

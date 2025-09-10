@@ -71,9 +71,6 @@ type Config struct {
 }
 
 func (c *Config) Validate() error {
-	if c.IcebergDatabase == "" {
-		c.IcebergDatabase = "olake_iceberg"
-	}
 	if c.IcebergS3Path == "" {
 		return fmt.Errorf("s3_path is required")
 	}

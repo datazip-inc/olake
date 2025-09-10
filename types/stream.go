@@ -28,9 +28,13 @@ type Stream struct {
 	CursorField string `json:"cursor_field,omitempty"`
 	// Mode being used for syncing data
 	SyncMode SyncMode `json:"sync_mode,omitempty"`
+	// Normalized Destination Database and Table used as default values for destination database and table
+	DestinationDatabase string `json:"destination_database,omitempty"`
+	DestinationTable    string `json:"destination_table,omitempty"`
 }
 
-func NewStream(name, namespace string) *Stream {
+func NewStream(name, namespace string, sourceDatabase *string) *Stream {
+	DestDatabase, DestTable := utils.GenerateDestinationDetails(namespace, name, sourceDatabase)
 	return &Stream{
 		Name:                    name,
 		Namespace:               namespace,
@@ -38,6 +42,8 @@ func NewStream(name, namespace string) *Stream {
 		SourceDefinedPrimaryKey: NewSet[string](),
 		AvailableCursorFields:   NewSet[string](),
 		Schema:                  NewTypeSchema(),
+		DestinationDatabase:     DestDatabase,
+		DestinationTable:        DestTable,
 	}
 }
 

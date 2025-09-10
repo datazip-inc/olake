@@ -150,7 +150,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 	populateStream := func(streamName string) (*types.Stream, error) {
 		streamParts := strings.Split(streamName, ".")
 		schemaName, streamName := streamParts[0], streamParts[1]
-		stream := types.NewStream(streamName, schemaName)
+		stream := types.NewStream(streamName, schemaName, &p.config.Database)
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {
@@ -178,7 +178,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				datatype = types.String
 			}
 
-			stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
+			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
 		}
 
 		// add primary keys for stream
