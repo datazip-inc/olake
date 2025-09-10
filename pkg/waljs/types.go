@@ -17,6 +17,9 @@ type Config struct {
 	InitialWaitTime     time.Duration
 	TLSConfig           *tls.Config
 	BatchSize           int
+	// Continuous indicates we should not exit when we reach current WAL end;
+	// instead, keep streaming and wait for new WAL records.
+	Continuous bool
 }
 
 type WALState struct {

@@ -19,12 +19,21 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
 	}
 
+	continuous := false
+	for _, s := range streams {
+		if s.GetStream().SyncMode == types.CONTINUOUS {
+			continuous = true
+			break
+		}
+	}
+
 	return &waljs.Config{
 		Connection:          *p.config.Connection,
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet[types.StreamInterface](streams...),
 		BatchSize:           p.config.BatchSize,
+		Continuous:          continuous,
 	}, nil
 }
 

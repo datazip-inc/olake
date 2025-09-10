@@ -7,4 +7,5 @@ const (
 	INCREMENTAL SyncMode = "incremental"
 	CDC         SyncMode = "cdc"
 	STRICTCDC   SyncMode = "strict_cdc"
+	CONTINUOUS  SyncMode = "continuous"
 )

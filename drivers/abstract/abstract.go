@@ -95,7 +95,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		}
 
 		if a.driver.CDCSupported() {
-			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
+			convStream.WithSyncMode(types.CDC, types.STRICTCDC, types.CONTINUOUS)
 			convStream.SyncMode = types.CDC
 		} else {
 			// remove cdc column as it is not supported
