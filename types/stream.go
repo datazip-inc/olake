@@ -128,7 +128,6 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 }
 
 func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
-
 	if viper.GetBool(constants.NoSave) {
 		logger.Debug("skipping catalog file write due to --no-save flag")
 		return
