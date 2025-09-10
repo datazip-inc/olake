@@ -568,8 +568,8 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 }
 
 // drop streams required for clear destination
-func (i *Iceberg) DropStreams(ctx context.Context, selectedStreams []string) error {
-	if len(selectedStreams) == 0 {
+func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error {
+	if len(dropStreams) == 0 {
 		logger.Info("No streams selected for clearing Iceberg destination, skipping operation")
 		return nil
 	}
@@ -579,23 +579,20 @@ func (i *Iceberg) DropStreams(ctx context.Context, selectedStreams []string) err
 		i.Close(ctx)
 	}()
 
-	logger.Infof("Starting Clear Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+	logger.Infof("Starting Clear Iceberg destination for %d selected streams", len(dropStreams))
 
 	// process each stream
-	for _, streamID := range selectedStreams {
-		parts := strings.SplitN(streamID, ".", 2)
-		if len(parts) != 2 {
-			logger.Warnf("Invalid stream identifier: %s, skipping", streamID)
-			continue
-		}
-		namespace, tableName := i.config.IcebergDatabase, parts[1]
+	for _, stream := range dropStreams {
+		destDB := stream.GetDestinationDatabase(&i.config.IcebergDatabase)
+		destTable := stream.GetDestinationTable()
+		dropTable := fmt.Sprintf("%s.%s", destDB, destTable)
 
-		logger.Infof("Dropping Iceberg table: %s.%s", namespace, tableName)
+		logger.Infof("Dropping Iceberg table: %s", dropTable)
 
 		request := proto.IcebergPayload{
 			Type: proto.IcebergPayload_DROP_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
-				DestTableName: tableName,
+				DestTableName: dropTable,
 				ThreadId:      i.server.serverID,
 			},
 		}
@@ -605,10 +602,10 @@ func (i *Iceberg) DropStreams(ctx context.Context, selectedStreams []string) err
 
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				logger.Infof("Table %s.%s does not exist, skipping drop", namespace, tableName)
+				logger.Infof("Table %s does not exist, skipping drop", dropTable)
 				continue
 			}
-			return fmt.Errorf("failed to drop table %s.%s: %s", namespace, tableName, err)
+			return fmt.Errorf("failed to drop table %s: %s", dropTable, err)
 		}
 	}
 

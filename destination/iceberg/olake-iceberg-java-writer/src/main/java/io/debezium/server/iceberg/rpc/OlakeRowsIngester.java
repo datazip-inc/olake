@@ -111,14 +111,22 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
                     
                 case DROP_TABLE:
-                    LOGGER.warn("{} Dropping table {}.{}", requestId, icebergNamespace, destTableName);
-                    boolean dropped = IcebergUtil.dropIcebergTable(icebergNamespace, destTableName, icebergCatalog);
+                    String dropTable = metadata.getDestTableName();
+                    String[] parts = dropTable.split("\\.", 2);
+                    if (parts.length != 2) {
+                        throw new IllegalArgumentException("Invalid destination table name: " + dropTable);
+                    }
+                    String namespace = parts[0], tableName = parts[1];
+                    
+                    LOGGER.warn("{} Dropping table {}.{}", requestId, namespace, tableName);
+
+                    boolean dropped = IcebergUtil.dropIcebergTable(namespace, tableName, icebergCatalog);
                     if (dropped) {
-                        sendResponse(responseObserver, "Successfully dropped table " + destTableName);
-                        LOGGER.info("{} Table {} dropped", requestId, destTableName);
+                        sendResponse(responseObserver, "Successfully dropped table " + tableName);
+                        LOGGER.info("{} Table {} dropped", requestId, tableName);
                     } else {
-                        sendResponse(responseObserver, "Table " + destTableName + " does not exist");
-                        LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, destTableName);
+                        sendResponse(responseObserver, "Table " + tableName + " does not exist");
+                        LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, tableName);
                     }
                     break;
                 
