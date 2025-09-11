@@ -86,8 +86,15 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		convStream.SyncMode = types.FULLREFRESH
+
+		// kafka specific: incremenatal only
+		if a.driver.Type() == string(constants.Kafka) {
+			convStream.WithSyncMode(types.INCREMENTAL)
+			convStream.SyncMode = types.INCREMENTAL
+		} else {
+			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+			convStream.SyncMode = types.FULLREFRESH
+		}
 
 		// add default columns
 		for column, typ := range DefaultColumns {
