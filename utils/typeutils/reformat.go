@@ -462,3 +462,11 @@ func ReformatByteArraysToString(data map[string]any) map[string]any {
 	}
 	return data
 }
+
+// ReformatCursorValue is used to make time format consistent in state (Removing timezone info)
+func ReformatCursorValue(cursorValue any) any {
+	if _, ok := cursorValue.(time.Time); ok {
+		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
+	}
+	return cursorValue
+}

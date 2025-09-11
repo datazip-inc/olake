@@ -476,3 +476,55 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 	_, isObjID := idVal.(primitive.ObjectID)
 	return isObjID, nil
 }
+
+func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
+	primaryCursor, secondaryCursor := stream.Cursor()
+	filter, err := buildFilter(stream)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build filter: %s", err)
+	}
+
+	groupStage := bson.D{
+		{Key: "_id", Value: nil},
+		{Key: "maxPrimaryCursor", Value: bson.D{{Key: "$max", Value: "$" + primaryCursor}}},
+	}
+	if secondaryCursor != "" {
+		groupStage = append(groupStage, bson.E{
+			Key:   "maxSecondaryCursor",
+			Value: bson.D{{Key: "$max", Value: "$" + secondaryCursor}},
+		})
+	}
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$group", Value: groupStage}},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute aggregate pipeline: %s", err)
+	}
+	defer cursor.Close(ctx)
+
+	if cursor.Next(ctx) {
+		var result bson.M
+		if err := cursor.Decode(&result); err != nil {
+			return nil, nil, fmt.Errorf("failed to decode cursor result: %s", err)
+		}
+
+		filterMongoObject(result)
+		m.state.SetCursor(stream.Self(), primaryCursor, typeutils.ReformatCursorValue(result["maxPrimaryCursor"]))
+		if secondaryCursor != "" {
+			if maxSecondaryCursor, exists := result["maxSecondaryCursor"]; exists && maxSecondaryCursor != nil {
+				return result["maxPrimaryCursor"], maxSecondaryCursor, nil
+			}
+		}
+		return result["maxPrimaryCursor"], nil, nil
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, nil, fmt.Errorf("cursor error: %s", err)
+	}
+	return nil, nil, fmt.Errorf("no documents found")
+}

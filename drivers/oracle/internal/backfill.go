@@ -48,16 +48,9 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	splitViaRowId := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var currentSCN string
-		query := jdbc.OracleCurrentSCNQuery()
-		err := o.client.QueryRow(query).Scan(&currentSCN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get current SCN: %s", err)
-		}
-
 		// TODO: Add implementation of AddRecordsToSync function which expects total number of records to be synced
-		query = jdbc.OracleEmptyCheckQuery(stream)
-		err = o.client.QueryRow(query).Scan(new(interface{}))
+		query := jdbc.OracleEmptyCheckQuery(stream)
+		err := o.client.QueryRow(query).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
@@ -126,7 +119,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			}
 
 			chunks.Insert(types.Chunk{
-				Min: fmt.Sprintf("%s,%s", currentSCN, startRowID),
+				Min: startRowID,
 				Max: maxRowID,
 			})
 		}
@@ -134,4 +127,18 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		return chunks, rows.Err()
 	}
 	return splitViaRowId(stream)
+}
+
+func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.Oracle,
+		Stream: stream,
+		Client: o.client,
+		State:  o.state,
+	}
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.MaxCursorSetter(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }

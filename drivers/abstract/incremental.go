@@ -3,7 +3,6 @@ package abstract
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -77,8 +76,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+						a.state.SetCursor(stream.Self(), primaryCursor, typeutils.ReformatCursorValue(maxPrimaryCursorValue))
+						a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(maxSecondaryCursorValue))
 					} else {
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
@@ -134,12 +133,4 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 		secondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 	}
 	return primaryCursorValue, secondaryCursorValue
-}
-
-// reformatCursorValue is used to make time format consistent in state (Removing timezone info)
-func (a *AbstractDriver) reformatCursorValue(cursorValue any) any {
-	if _, ok := cursorValue.(time.Time); ok {
-		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
-	}
-	return cursorValue
 }
