@@ -17,7 +17,6 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// IncrementalChanges is not supported for MySQL
 func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	topic := stream.Name()
 	// Fetch topic metadata to get partitions
@@ -55,16 +54,9 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		}
 	}
 
-	// Generate a new consumer group ID if not configured
-	groupID := k.config.ConsumerGroup
-	if groupID == "" {
-		groupID = fmt.Sprintf("olake-consumer-incremental-%s-%d", stream.ID(), time.Now().Unix())
-		logger.Infof("[KAFKA] No consumer group specified; using generated group ID: %s", groupID)
-	}
-
 	// Create consumer group to handle partition assignment
 	consumerGroup, err := kafka.NewConsumerGroup(kafka.ConsumerGroupConfig{
-		ID:      groupID,
+		ID:      k.groupID,
 		Brokers: strings.Split(k.config.BootstrapServers, ","),
 		Topics:  []string{topic},
 		Dialer:  k.dialer,
@@ -153,7 +145,6 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		logger.Infof("[KAFKA] starting incremental sync for topic %s, partition %d", topic, partition)
 
 		lastOffset := startOffset
-
 		// safely store last processed offset
 		saveOffset := func() {
 			offsetsMu.Lock()

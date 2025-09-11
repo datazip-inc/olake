@@ -30,15 +30,11 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 		}
 
 		// For non-Kafka drivers
-		skipBackfill := false
 		primaryCursor, secondaryCursor := stream.Cursor()
 		prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
 		prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
 		if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil && (secondaryCursor == "" || prevSecondaryCursor != nil)) {
 			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
-			skipBackfill = true
-		}
-		if skipBackfill {
 			backfillWaitChannel <- stream.ID()
 			return nil
 		}

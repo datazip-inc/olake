@@ -24,6 +24,7 @@ type Kafka struct {
 	adminClient    *kafka.Client
 	mutex          sync.Mutex
 	state          *types.State
+	groupID        string
 	consumerGroups map[string]*kafka.ConsumerGroup
 	consumerGen    *kafka.Generation
 	offsetMap      map[string]map[int]int64
@@ -83,8 +84,17 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to ping Kafka brokers: %v", err)
 	}
+
+	groupID := k.config.ConsumerGroup
+	// Generate a new consumer group ID if not configured
+	if groupID == "" {
+		groupID = fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())
+		logger.Infof("[KAFKA] No consumer group specified; using generated group ID: %s", groupID)
+	}
+
 	k.dialer = dialer
 	k.adminClient = adminClient
+	k.groupID = groupID
 	k.consumerGroups = make(map[string]*kafka.ConsumerGroup)
 	k.syncedTopics = make(map[string]bool)
 	k.offsetMap = make(map[string]map[int]int64)
