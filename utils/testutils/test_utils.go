@@ -102,10 +102,13 @@ func GetTestConfig(driver string) *TestConfig {
 	}
 }
 
-func syncCommand(config TestConfig, useState bool) string {
+func syncCommand(config TestConfig, useState bool, flags ...string) string {
 	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
 	if useState {
 		baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
+	}
+	if len(flags) > 0 {
+		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
 	}
 	return baseCmd
 }
@@ -510,7 +513,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							t.Log("(backfill) sync started")
 							usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
-							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState)
+							destDbPrefix := fmt.Sprintf("performance_%s_", cfg.TestConfig.Driver)
+							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "--destination-database-prefix", destDbPrefix)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
@@ -543,7 +547,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 
 								t.Log("(cdc) state creation started")
-								syncCmd := syncCommand(*cfg.TestConfig, false)
+								syncCmd := syncCommand(*cfg.TestConfig, false, "--destination-database-prefix", destDbPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
@@ -554,7 +558,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) sync started")
-								syncCmd = syncCommand(*cfg.TestConfig, true)
+								syncCmd = syncCommand(*cfg.TestConfig, true, "--destination-database-prefix", destDbPrefix)
 								if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
 								}
