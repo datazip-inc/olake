@@ -596,10 +596,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 				ThreadId:      i.server.serverID,
 			},
 		}
-		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 		_, err := i.server.sendClientRequest(ctx, &request)
-		cancel()
-
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				logger.Infof("Table %s does not exist, skipping drop", dropTable)

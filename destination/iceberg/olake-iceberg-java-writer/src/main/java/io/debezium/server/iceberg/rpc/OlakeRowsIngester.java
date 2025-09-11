@@ -129,7 +129,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                         LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, tableName);
                     }
                     break;
-                
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());
             }

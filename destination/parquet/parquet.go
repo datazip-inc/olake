@@ -491,7 +491,6 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []types.Stre
 
 		logger.Debugf("Thread[%s]: successfully cleared S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
 	}
-
 	return nil
 }
 

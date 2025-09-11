@@ -143,12 +143,10 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
+		dropStreams = append(dropStreams, standardModeStreams...)
 		if clearDestinationFlag {
-			dropStreams = append(dropStreams, standardModeStreams...)
 			dropStreams = append(dropStreams, cdcStreams...)
 			dropStreams = append(dropStreams, incrementalStreams...)
-		} else {
-			dropStreams = append(dropStreams, standardModeStreams...)
 		}
 		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, dropStreams)
 		if err != nil {
