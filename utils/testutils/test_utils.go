@@ -110,8 +110,12 @@ func syncCommand(config TestConfig, useState bool) string {
 	return baseCmd
 }
 
-func discoverCommand(config TestConfig) string {
-	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+func discoverCommand(config TestConfig, flags ...string) string {
+	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+	if len(flags) > 0 {
+		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
+	}
+	return baseCmd
 }
 
 // TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
@@ -460,6 +464,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		code, output, err := utils.ExecCommand(timedCtx, c, cmd)
 		// check if sync was canceled due to timeout (expected)
 		if timedCtx.Err() == context.DeadlineExceeded {
+			killCmd := "pkill -9 -f 'olake.*sync' || true"
+			_, _, _ = utils.ExecCommand(ctx, c, killCmd)
 			return output, nil
 		}
 		if err != nil || code != 0 {
@@ -491,11 +497,12 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
 							}
-
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
+							destDbPrefix := fmt.Sprintf("performance_%s_", cfg.TestConfig.Driver)
+
 							t.Log("(backfill) discover started")
-							discoverCmd := discoverCommand(*cfg.TestConfig)
+							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDbPrefix)
 							if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
 							}
@@ -529,7 +536,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) discover started")
-								discoverCmd := discoverCommand(*cfg.TestConfig)
+								discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDbPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
 								}
