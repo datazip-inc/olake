@@ -615,13 +615,13 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	return incrementalQuery, queryArgs, nil
 }
 
-func MaxCursorSetter(opts IncrementalConditionOptions) error {
+func MaxCursorSetter(ctx context.Context, opts IncrementalConditionOptions) (any, any, error) {
 	primaryCursor, secondaryCursor := opts.Stream.Cursor()
 	quotedTable := QuoteTable(opts.Stream.Namespace(), opts.Stream.Name(), opts.Driver)
 
 	filter, err := SQLFilter(opts.Stream, string(opts.Driver))
 	if err != nil {
-		return fmt.Errorf("failed to parse stream filter: %s", err)
+		return nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 	filterClause := utils.Ternary(filter == "", "", " WHERE ("+filter+")").(string)
 
@@ -644,19 +644,16 @@ func MaxCursorSetter(opts IncrementalConditionOptions) error {
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable, filterClause)).(string)
 
 	if secondaryCursor != "" {
-		err = opts.Client.QueryRow(cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		err = opts.Client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
-			return fmt.Errorf("failed to scan the cursor values: %s", err)
+			return nil, nil, fmt.Errorf("failed to scan the cursor values: %s", err)
 		}
-		opts.State.SetCursor(opts.Stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxSecondaryCursorValue)))
+		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
 	} else {
-		err = opts.Client.QueryRow(cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err = opts.Client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
-			return fmt.Errorf("failed to scan primary cursor value: %s", err)
+			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %s", err)
 		}
 	}
-
-	opts.State.SetCursor(opts.Stream.Self(), primaryCursor, typeutils.ReformatCursorValue(bytesConverter(maxPrimaryCursorValue)))
-
-	return nil
+	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }

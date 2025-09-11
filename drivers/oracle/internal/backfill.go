@@ -59,19 +59,6 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			return nil, fmt.Errorf("failed to check for rows: %s", err)
 		}
 
-		if stream.GetSyncMode() == types.INCREMENTAL {
-			opts := jdbc.IncrementalConditionOptions{
-				Driver: constants.Oracle,
-				Stream: stream,
-				Client: o.client,
-				State:  o.state,
-			}
-			err = jdbc.MaxCursorSetter(opts)
-			if err != nil {
-				return nil, err
-			}
-		}
-
 		query = jdbc.OracleBlockSizeQuery()
 		var blockSize int64
 		err = o.client.QueryRow(query).Scan(&blockSize)
@@ -140,4 +127,18 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		return chunks, rows.Err()
 	}
 	return splitViaRowId(stream)
+}
+
+func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.Oracle,
+		Stream: stream,
+		Client: o.client,
+		State:  o.state,
+	}
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.MaxCursorSetter(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }

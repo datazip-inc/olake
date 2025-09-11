@@ -158,19 +158,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 
-	if stream.GetSyncMode() == types.INCREMENTAL {
-		opts := jdbc.IncrementalConditionOptions{
-			Driver: constants.MySQL,
-			Stream: stream,
-			Client: m.client,
-			State:  m.state,
-		}
-		err = jdbc.MaxCursorSetter(opts)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	if stream.GetStream().SourceDefinedPrimaryKey.Len() > 0 || chunkColumn != "" {
 		err = splitViaPrimaryKey(stream, chunks)
 	} else {
@@ -183,4 +170,18 @@ func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []strin
 	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
 	err = tx.QueryRow(query).Scan(&min, &max)
 	return min, max, err
+}
+
+func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.MySQL,
+		Stream: stream,
+		Client: m.client,
+		State:  m.state,
+	}
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.MaxCursorSetter(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }
