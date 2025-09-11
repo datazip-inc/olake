@@ -2,7 +2,9 @@ package types
 
 import (
 	"github.com/goccy/go-json"
+	"github.com/spf13/viper"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -134,7 +136,7 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	// write catalog to the specified file
 	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
-	err := logger.FileLogger(message.Catalog, "streams", ".json")
+	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
 	}
