@@ -109,8 +109,8 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 
 	var (
-		offsetsMu            = &sync.Mutex{}
-		lastProcessedOffsets = make(map[int]int64)
+		offsetsMu      = &sync.Mutex{}
+		toCommitOffset = make(map[int]int64)
 	)
 
 	// Processing partitions concurrently
@@ -153,14 +153,12 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		logger.Infof("[KAFKA] starting incremental sync for topic %s, partition %d", topic, partition)
 
 		lastOffset := startOffset
-		processedAny := false
+
 		// safely store last processed offset
 		saveOffset := func() {
-			if processedAny {
-				offsetsMu.Lock()
-				lastProcessedOffsets[partition] = lastOffset
-				offsetsMu.Unlock()
-			}
+			offsetsMu.Lock()
+			toCommitOffset[partition] = lastOffset
+			offsetsMu.Unlock()
 		}
 
 		// per-partition wait time after last processed message
@@ -217,15 +215,17 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 					return result
 				}()
 
+				lastOffset = msg.Offset
+				// skip processing if data is nil
+				if data == nil {
+					saveOffset()
+					continue
+				}
 				// Process message with provided function
 				if err := processFn(ctx, data); err != nil {
-					offsetsMu.Lock()
-					lastProcessedOffsets[partition] = lastOffset
-					offsetsMu.Unlock()
-					return fmt.Errorf("[KAFKA] failed to process message at offset %d: %v", msg.Offset, err)
+					saveOffset()
+					return err
 				}
-				lastOffset = msg.Offset
-				processedAny = true
 				logger.Infof("[KAFKA] processed incremental message at offset %d for topic %s, partition %d", msg.Offset, topic, partition)
 			}
 		}
@@ -240,7 +240,7 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	if _, ok := k.offsetMap[topic]; !ok {
 		k.offsetMap[topic] = make(map[int]int64)
 	}
-	for partition, offset := range lastProcessedOffsets {
+	for partition, offset := range toCommitOffset {
 		k.offsetMap[topic][partition] = offset
 	}
 
