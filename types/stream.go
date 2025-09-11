@@ -128,11 +128,6 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 }
 
 func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
-	if viper.GetBool(constants.NoSave) {
-		logger.Debug("skipping catalog file write due to --no-save flag")
-		return
-	}
-
 	message := Message{
 		Type:    CatalogMessage,
 		Catalog: GetWrappedCatalog(streams, driver),
@@ -141,7 +136,7 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	// write catalog to the specified file
 	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
-	err := logger.FileLoggerWithPath(message.Catalog, "streams", ".json", viper.GetString(constants.StreamsPath))
+	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
 	}

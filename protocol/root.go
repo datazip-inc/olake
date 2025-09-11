@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/datazip-inc/olake/constants"
@@ -42,23 +43,23 @@ var RootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		// set global variables
+
+		viper.SetDefault(constants.ConfigFolder, os.TempDir())
+		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
+		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
 		if !noSave {
-			viper.Set(constants.ConfigFolder, utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)))
-		} else {
-			viper.Set(constants.NoSave, noSave)
-		}
-
-		if statePath != "" {
-			viper.Set(constants.StatePath, statePath)
-		}
-
-		if streamsPath != "" {
-			viper.Set(constants.StreamsPath, streamsPath)
+			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
+			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
+			statePathEnv := utils.Ternary(statePath == "", filepath.Join(configFolder, "state.json"), statePath).(string)
+			viper.Set(constants.ConfigFolder, configFolder)
+			viper.Set(constants.StatePath, statePathEnv)
+			viper.Set(constants.StreamsPath, streamsPathEnv)
 		}
 
 		if encryptionKey != "" {
 			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
+
 		// logger uses CONFIG_FOLDER
 		logger.Init()
 		telemetry.Init()

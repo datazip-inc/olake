@@ -286,11 +286,6 @@ func (s *State) LogState() {
 		return
 	}
 
-	if viper.GetBool(constants.NoSave) {
-		logger.Debug("skipping state file write due to --no-save flag")
-		return
-	}
-
 	// message := Message{
 	// 	Type:  StateMessage,
 	// 	State: s,
@@ -298,7 +293,7 @@ func (s *State) LogState() {
 	// TODO: Only Log in logs file, not in CLI
 	// logger.Info(message)
 
-	err := logger.FileLoggerWithPath(s, "state", ".json", viper.GetString(constants.StatePath))
+	err := logger.FileLoggerWithPath(s, viper.GetString(constants.StatePath))
 	if err != nil {
 		logger.Fatalf("failed to write state file: %s", err)
 	}
