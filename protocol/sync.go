@@ -88,7 +88,7 @@ var syncCmd = &cobra.Command{
 		incrementalStreams := []types.StreamInterface{}
 		standardModeStreams := []types.StreamInterface{}
 		newStreamsState := []*types.StreamState{}
-		fullLoadStreams := []string{}
+		dropStreams := []types.StreamInterface{}
 
 		var stateStreamMap = make(map[string]*types.StreamState)
 		for _, stream := range state.Streams {
@@ -131,7 +131,6 @@ var syncCmd = &cobra.Command{
 					newStreamsState = append(newStreamsState, streamState)
 				}
 			default:
-				fullLoadStreams = append(fullLoadStreams, elem.ID())
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
@@ -144,8 +143,12 @@ var syncCmd = &cobra.Command{
 
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
-		fullLoadStreams = utils.Ternary(clearDestinationFlag, selectedStreams, fullLoadStreams).([]string)
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, fullLoadStreams)
+		dropStreams = append(dropStreams, standardModeStreams...)
+		if clearDestinationFlag {
+			dropStreams = append(dropStreams, cdcStreams...)
+			dropStreams = append(dropStreams, incrementalStreams...)
+		}
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, dropStreams)
 		if err != nil {
 			return err
 		}
