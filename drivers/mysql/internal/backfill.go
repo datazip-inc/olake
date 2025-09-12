@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -59,15 +60,25 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var avgRowSize any
 	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
 	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
-	
-	// Handle different error scenarios
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err)
 	}
 	
-	// Check if table has 0 records (valid case - should succeed)
 	if approxRowCount == 0 {
-		logger.Infof("Table %s contains 0 records, creating empty chunk set", stream.ID())
+		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		rowCountQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", stream.Namespace(), stream.Name())
+		err := m.client.QueryRowContext(timeoutCtx, rowCountQuery).Scan(&approxRowCount)
+		if err != nil || approxRowCount != 0 {
+			// Check if it's a timeout error or the table is not actually empty
+			if timeoutCtx.Err() == context.DeadlineExceeded || approxRowCount != 0 {
+				return nil, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE TABLE to update table statistics", stream.ID())
+			}
+			return nil, fmt.Errorf("failed to get row count: %s", err)
+		}
+		// Table is empty, skip chunking
+		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
 		pool.AddRecordsToSync(0)
 		return types.NewSet[types.Chunk](), nil
 	}
