@@ -62,8 +62,9 @@ func (c *SSHConfig) SetupSSHConnection() (*ssh.Client, error) {
 		User: c.Username,
 		Auth: authMethods,
 		// Allows everyone to connect to the server without verifying the host key
+		// TODO: Add proper host key verification
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
-		Timeout:         10 * time.Second,
+		Timeout:         30 * time.Second,
 	}
 
 	bastionAddr := net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
