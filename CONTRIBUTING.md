@@ -29,12 +29,12 @@ One way you can contribute to Olake is to create an Driver. An Driver is a conne
 - Optimized Performance: By building a custom Driver, you can tailor it to optimize for your specific use case, improving performance and reducing latency during data fetch operations
 - Advanced Features: Implement additional capabilities, such as support for custom queries, change data capture, or enhanced data transformation, to better suit your data workflows.
 
-For more information on the different ways in which you can contribute to Olake, you can chat with us on our [**Slack**](olake.io/slack/) channel.
+For more information on the different ways in which you can contribute to Olake, you can chat with us on our [**Slack**](https://join.slack.com/t/getolake/shared_invite/zt-2usyz3i6r-8I8c9MtfcQUINQbR7vNtCQ) channel.
 
 
 ## Submitting a pull request
 
-For every suggested change or issue, you can make a pull request to the appropriate branch based on the type of change. You can reach out to us on our [**Slack**](olake.io/slack/) channel if you have any questions.
+For every suggested change or issue, you can make a pull request to the appropriate branch based on the type of change. You can reach out to us on our [**Slack**](https://join.slack.com/t/getolake/shared_invite/zt-2usyz3i6r-8I8c9MtfcQUINQbR7vNtCQ/) channel if you have any questions.
 
 For example to contribute a new driver, you need to create a pull request (PR). Follow these steps to ensure your PR is well-prepared:
 - Provide a clear and concise PR title.
@@ -51,7 +51,7 @@ To contribute to this project, you may need to install Olake on your machine. Yo
 
 ## Getting help
 
-For any questions, concerns, or queries, you can start by asking a question on our [**Slack**](olake.io/slack/) channel.
+For any questions, concerns, or queries, you can start by asking a question on our [**Slack**](https://join.slack.com/t/getolake/shared_invite/zt-2usyz3i6r-8I8c9MtfcQUINQbR7vNtCQ) channel.
 <br><br>
 
 ### We look forward to your feedback on improving this project!
