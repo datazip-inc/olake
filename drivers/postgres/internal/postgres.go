@@ -15,9 +15,8 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/stdlib"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
 )
@@ -69,7 +68,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	var db *sql.DB
 	if p.sshClient != nil {
 		logger.Info("Connecting to Postgres via SSH tunnel")
-
 		pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
 		if err != nil {
 			return fmt.Errorf("failed to parse postgres connection string: %s", err)
@@ -79,7 +77,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
 			return p.sshClient.Dial("tcp", addr)
 		}
-
 		db = stdlib.OpenDB(*pgCfg)
 	} else {
 		db, err = sql.Open("pgx", p.config.Connection.String())
