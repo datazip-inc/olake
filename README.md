@@ -14,7 +14,7 @@
     <a href="https://olake.io/docs">
     <img alt="Documentation" src="https://img.shields.io/badge/view-Documentation-white"/>
     </a>
-    <a href="olake.io/slack/">
+    <a href="https://olake.io/slack/">
     <img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/>
     </a>
     <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
