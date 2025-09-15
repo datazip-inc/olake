@@ -25,7 +25,8 @@ type Kafka struct {
 	mutex           sync.Mutex
 	state           *types.State
 	consumerGroupID string
-	syncedTopics    map[string]bool
+	readers         map[string]*kafka.Reader
+	lastMessages    map[string]kafka.Message
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -87,14 +88,14 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	k.dialer = dialer
 	k.adminClient = adminClient
 	k.consumerGroupID = groupID
-	k.syncedTopics = make(map[string]bool)
+	k.readers = make(map[string]*kafka.Reader)
+	k.lastMessages = make(map[string]kafka.Message)
 	return nil
 }
 
 func (k *Kafka) Close(_ context.Context) error {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
-	k.syncedTopics = nil
 	k.adminClient = nil
 	k.dialer = nil
 	return nil
