@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
@@ -111,21 +112,65 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		}
 		newCatalog.SelectedStreams = selectedStreams
 	}
+	prefix, useCustomPrefix, useCustomDB := detectDBNamingPattern(oldCatalog.Streams)
 
 	// Preserve sync modes from old catalog
 	oldStreams := createStreamMap(oldCatalog)
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
-		if !exists {
+		if exists {
+			// preserve from old
+			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
+			newStream.Stream.CursorField = oldStream.Stream.CursorField
+			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
+			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			return nil
 		}
-		// not adding checks, let validation handle it
-		newStream.Stream.SyncMode = oldStream.Stream.SyncMode
-		newStream.Stream.CursorField = oldStream.Stream.CursorField
-		newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
-		newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+		// new stream → apply rule
+		if useCustomPrefix {
+			newStream.Stream.DestinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
+		} else if useCustomDB {
+			// pick first custom db name (assuming user wants same for all)
+			newStream.Stream.DestinationDatabase = oldCatalog.Streams[0].Stream.DestinationDatabase
+		}
+		// else → leave default generated db
+
 		return nil
 	})
 
 	return newCatalog
+}
+func detectDBNamingPattern(streams []*ConfiguredStream) (prefix string, isCustomPrefix, isCustomDB bool) {
+	if len(streams) == 0 {
+		return "", false, false
+	}
+
+	var customDBs = make(map[string]struct{})
+	var prefixes = make(map[string]struct{})
+
+	for _, s := range streams {
+		db := s.Stream.DestinationDatabase
+		customDBs[db] = struct{}{}
+
+		// check if it looks like "prefix_something"
+		parts := strings.SplitN(db, ":", 2)
+		if len(parts) == 2 {
+			prefixes[parts[0]] = struct{}{}
+		}
+	}
+
+	// Case 1: all use same prefix
+	if len(prefixes) == 1 && len(customDBs) > 1 {
+		for p := range prefixes {
+			return p, true, false
+		}
+	}
+
+	// Case 2: all use same db (no common prefix)
+	if len(customDBs) == 1 {
+		return "", false, true
+	}
+
+	// fallback: default
+	return "", false, false
 }
