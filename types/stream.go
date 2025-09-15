@@ -2,7 +2,9 @@ package types
 
 import (
 	"github.com/goccy/go-json"
+	"github.com/spf13/viper"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -28,9 +30,13 @@ type Stream struct {
 	CursorField string `json:"cursor_field,omitempty"`
 	// Mode being used for syncing data
 	SyncMode SyncMode `json:"sync_mode,omitempty"`
+	// Normalized Destination Database and Table used as default values for destination database and table
+	DestinationDatabase string `json:"destination_database,omitempty"`
+	DestinationTable    string `json:"destination_table,omitempty"`
 }
 
-func NewStream(name, namespace string) *Stream {
+func NewStream(name, namespace string, sourceDatabase *string) *Stream {
+	DestDatabase, DestTable := utils.GenerateDestinationDetails(namespace, name, sourceDatabase)
 	return &Stream{
 		Name:                    name,
 		Namespace:               namespace,
@@ -38,6 +44,8 @@ func NewStream(name, namespace string) *Stream {
 		SourceDefinedPrimaryKey: NewSet[string](),
 		AvailableCursorFields:   NewSet[string](),
 		Schema:                  NewTypeSchema(),
+		DestinationDatabase:     DestDatabase,
+		DestinationTable:        DestTable,
 	}
 }
 
@@ -128,7 +136,7 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	// write catalog to the specified file
 	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
-	err := logger.FileLogger(message.Catalog, "streams", ".json")
+	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
 	}

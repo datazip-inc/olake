@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	icebergDatabase     = "olake_iceberg"
+	icebergCatalog      = "olake_iceberg"
 	sparkConnectAddress = "sc://localhost:15002"
 	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
 	SyncTimeout         = 10 * time.Minute
@@ -36,6 +36,7 @@ type IntegrationTest struct {
 	DataTypeSchema     map[string]string
 	Namespace          string
 	ExecuteQuery       func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+	IcebergDB          string
 }
 
 type PerformanceTest struct {
@@ -316,7 +317,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
 								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
 								return nil
 							}
 
@@ -353,7 +354,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 }
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -366,7 +367,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 
 	selectQuery := fmt.Sprintf(
 		"SELECT * FROM %s.%s.%s WHERE _op_type = '%s'",
-		icebergDatabase, icebergDatabase, tableName, opSymbol,
+		icebergCatalog, icebergDB, tableName, opSymbol,
 	)
 	t.Logf("Executing query: %s", selectQuery)
 
@@ -397,7 +398,7 @@ func VerifyIcebergSync(t *testing.T, tableName string, datatypeSchema map[string
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
-	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergDatabase, icebergDatabase, tableName)
+	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergCatalog, icebergDB, tableName)
 	describeDf, err := spark.Sql(ctx, describeQuery)
 	require.NoError(t, err, "Failed to describe Iceberg table")
 
