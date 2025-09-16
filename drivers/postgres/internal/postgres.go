@@ -86,9 +86,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	}
 
 	sqlxDB := sqlx.NewDb(db, "pgx")
-	if err != nil {
-		return fmt.Errorf("failed to connect database: %s", err)
-	}
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)

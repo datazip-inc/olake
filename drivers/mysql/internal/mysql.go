@@ -2,7 +2,9 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -15,15 +17,17 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 
 	// MySQL driver
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 )
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
 	config     *Config
 	client     *sqlx.DB
+	sshClient  *ssh.Client
 	CDCSupport bool // indicates if the MySQL instance supports CDC
 	cdcConfig  CDC
 	BinlogConn *binlog.Connection
@@ -57,10 +61,42 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
-	// Open database connection
-	client, err := sqlx.Open("mysql", m.config.URI())
+
+	if m.config.SSHConfig != nil {
+		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
+	}
+
+	var db *sql.DB
+	if m.sshClient != nil {
+		logger.Info("Connecting to MySQL via SSH tunnel")
+
+		cfg, err := mysql.ParseDSN(m.config.URI())
+		if err != nil {
+			return fmt.Errorf("failed to parse mysql DSN: %s", err)
+		}
+		
+		// Allows mysql driver to use the SSH client to connect to the database
+		cfg.Net = "mysqlTcp"
+		mysql.RegisterDialContext(cfg.Net, func(ctx context.Context, addr string) (net.Conn, error) {
+			return m.sshClient.Dial("tcp", addr)
+		})
+
+		db, err = sql.Open("mysql", cfg.FormatDSN())
+		if err != nil {
+			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+		}
+	} else {
+		db, err = sql.Open("mysql", m.config.URI())
+		if err != nil {
+			return fmt.Errorf("failed to open database connection: %s", err)
+		}
+	}
+	client := sqlx.NewDb(db, "mysql")
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %s", err)
+		return fmt.Errorf("failed to connect database: %s", err)
 	}
 	// Test connection
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

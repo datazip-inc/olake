@@ -24,7 +24,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/testcontainers/testcontainers-go"
-	"golang.org/x/crypto/ssh"
 )
 
 var (
@@ -424,20 +423,4 @@ func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) 
 
 	// Final table name is always reformatted
 	return dbName, Reformat(name)
-}
-
-// ParsePrivateKey parses a private key from a PEM string
-func ParsePrivateKey(pemText, passphrase string) (ssh.Signer, error) {
-	if passphrase != "" {
-		return ssh.ParsePrivateKeyWithPassphrase([]byte(pemText), []byte(passphrase))
-	}
-
-	signer, err := ssh.ParsePrivateKey([]byte(pemText))
-	if err == nil {
-		return signer, nil
-	}
-	if _, ok := err.(*ssh.PassphraseMissingError); ok {
-		return nil, fmt.Errorf("SSH private key appears encrypted, enter the passphrase")
-	}
-	return nil, err
 }
