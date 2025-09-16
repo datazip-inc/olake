@@ -131,7 +131,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		// manipulate destination db in new streams according to old streams
 
 		// prefix == "" means old stream when db normalization feature not introduced
-		if constantValue && prefix != "" {
+		if constantValue {
 			newStream.Stream.DestinationDatabase = oldCatalog.Streams[0].Stream.DestinationDatabase
 		} else if prefix != "" {
 			newStream.Stream.DestinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
