@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -35,6 +36,13 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		VerifyChecksum:  config.VerifyChecksum,
 		HeartbeatPeriod: config.HeartbeatPeriod,
 	}
+
+	if config.SSHClient != nil {
+		syncerConfig.Dialer = func(_ context.Context, _, addr string) (net.Conn, error) {
+			return config.SSHClient.Dial("tcp", addr)
+		}
+	}
+
 	return &Connection{
 		ServerID:        config.ServerID,
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
