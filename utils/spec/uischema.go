@@ -74,8 +74,7 @@ const MySQLUISchema = `{
     { "username": 12, "password": 12 },
     { "port": 12, "max_threads": 12 },
     { "backoff_retry_count": 12, "tls_skip_verify": 12 },
-    { "update_method": 12 },
-    { "ssh_config": 12}
+    { "ssh_config": 12 , "update_method": 12 }
   ],
   "tls_skip_verify": {
     "ui:widget": "boolean"
@@ -88,18 +87,18 @@ const MySQLUISchema = `{
     },
     "type": {
       "ui:widget": "hidden"
-    },
-    "ssh_config": {
-      "ui:options": {
-        "title": false,
-        "description": false
-      },
-      "ui:grid": [
-        { "host": 12, "port": 12, "username": 12 },
-        { "private_key": 12, "passphrase": 12 },
-        { "password": 12 }
-      ]
     }
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ]
   }
 }`
 
