@@ -177,20 +177,10 @@ func (k *Kafka) PostIncremental(ctx context.Context, stream types.StreamInterfac
 			logger.Warnf("[KAFKA] no reader found for topic %s while committing last offset %d", readerID, lastMsg.Offset)
 			continue
 		}
-
 		if commitErr := r.CommitMessages(ctx, lastMsg); commitErr != nil {
 			readerErr = append(readerErr, fmt.Sprintf("[KAFKA] failed to commit last message at offset %d for topic %s: %v", lastMsg.Offset, readerID, commitErr))
 		}
 	}
-
-	for _, r := range readers {
-		if r != nil {
-			if closeErr := r.Close(); closeErr != nil {
-				readerErr = append(readerErr, fmt.Sprintf("[KAFKA] failed to close reader: %v", closeErr))
-			}
-		}
-	}
-
 	if len(readerErr) > 0 {
 		return fmt.Errorf("[KAFKA] post-incremental errors: %s", strings.Join(readerErr, "; "))
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
@@ -85,15 +86,27 @@ func (k *Kafka) Setup(ctx context.Context) error {
 
 	// Generate a new consumer group ID if not configured
 	groupID := fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())
+	k.consumerGroupID = utils.Ternary(k.config.ConsumerGroup == "", groupID, k.config.ConsumerGroup).(string)
 	k.dialer = dialer
 	k.adminClient = adminClient
-	k.consumerGroupID = groupID
 	k.readers = make(map[string]*kafka.Reader)
 	k.lastMessages = make(map[string]kafka.Message)
 	return nil
 }
 
 func (k *Kafka) Close(_ context.Context) error {
+	readers, _ := k.popAllReadersAndMessages()
+	var err []string
+	for _, r := range readers {
+		if r != nil {
+			if closeErr := r.Close(); closeErr != nil {
+				err = append(err, fmt.Sprintf("[KAFKA] failed to close reader: %v", closeErr))
+			}
+		}
+	}
+	if len(err) > 0 {
+		return fmt.Errorf("[KAFKA] reader closing errors: %s", strings.Join(err, "; "))
+	}
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 	k.adminClient = nil
