@@ -94,18 +94,6 @@ func (k *Kafka) Setup(ctx context.Context) error {
 }
 
 func (k *Kafka) Close(_ context.Context) error {
-	readers, _ := k.popAllReadersAndMessages()
-	var err []string
-	for _, r := range readers {
-		if r != nil {
-			if closeErr := r.Close(); closeErr != nil {
-				err = append(err, fmt.Sprintf("[KAFKA] failed to close reader: %v", closeErr))
-			}
-		}
-	}
-	if len(err) > 0 {
-		return fmt.Errorf("[KAFKA] reader closing errors: %s", strings.Join(err, "; "))
-	}
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 	k.adminClient = nil

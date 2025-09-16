@@ -182,6 +182,14 @@ func (k *Kafka) PostIncremental(ctx context.Context, stream types.StreamInterfac
 			readerErr = append(readerErr, fmt.Sprintf("[KAFKA] failed to commit last message at offset %d for topic %s: %v", lastMsg.Offset, readerID, commitErr))
 		}
 	}
+	for _, r := range readers {
+		logger.Debugf("Closing Kafka reader: %+v", r.Stats())
+		if r != nil {
+			if closeErr := r.Close(); closeErr != nil {
+				readerErr = append(readerErr, fmt.Sprintf("[KAFKA] failed to close reader: %v", closeErr))
+			}
+		}
+	}
 	if len(readerErr) > 0 {
 		return fmt.Errorf("[KAFKA] post-incremental errors: %s", strings.Join(readerErr, "; "))
 	}
