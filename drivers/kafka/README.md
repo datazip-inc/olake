@@ -1,12 +1,10 @@
 # Kafka Driver
-The Kafka Driver enables data synchronization from Kafka to your desired destination. It supports both **Full Refresh** and **Incremental** modes.
+The Kafka Driver enables data synchronization from Kafka to your desired destination. It supports **Incremental** mode as of now.
 
 ---
 
 ## Supported Modes
-1. **Full Refresh**
-   Fetches the complete dataset from Kafka.
-2. **Incremental**
+1. **Incremental**
    Tracks and syncs incremental changes or messages from Kafka in real time streaming mode.
 
 ---
@@ -163,7 +161,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
             "stream": {
                "name": "incr2",
                ...
-               "sync_mode": "full_refresh"
+               "sync_mode": "incremental"
             }
          }
       ]
@@ -238,8 +236,7 @@ For Detailed overview check [here.](https://olake.io/docs/category/destinations-
 
 ### Sync Command
 The *Sync* command fetches data from Kafka and ingests it into the destination.
-Currently 2 modes are supported: Full_Refresh and Incremental. 
-- In case of Full_Refresh, all the messages from the selected topic will be synced from start offset till the latest offset. 
+Supported Sync Mode: Incremental. 
 - In case of Incremental :
    - For this sync, cursor field from the available cursor field needs to be provided. For Kafka, this is typically "offset".
    ```json

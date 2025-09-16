@@ -10,7 +10,7 @@ import (
 type Config struct {
 	BootstrapServers string         `json:"bootstrap_servers"`
 	Protocol         ProtocolConfig `json:"protocol"`
-	ConsumerGroup    string         `json:"consumer_group_id,omitempty"`
+	ConsumerGroupID  string         `json:"consumer_group_id,omitempty"`
 	AutoOffsetReset  string         `json:"auto_offset_reset,omitempty"`
 	MaxThreads       int            `json:"max_threads"`
 	WaitTime         int            `json:"wait_time,omitempty"`

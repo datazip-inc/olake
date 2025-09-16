@@ -85,8 +85,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	// Generate a new consumer group ID if not configured
-	groupID := fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())
-	k.consumerGroupID = utils.Ternary(k.config.ConsumerGroup == "", groupID, k.config.ConsumerGroup).(string)
+	k.consumerGroupID = utils.Ternary(k.config.ConsumerGroupID == "", fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix()), k.config.ConsumerGroupID).(string)
 	k.dialer = dialer
 	k.adminClient = adminClient
 	k.readers = make(map[string]*kafka.Reader)
