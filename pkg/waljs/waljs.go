@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -55,6 +56,12 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	cfg, err := pgconn.ParseConfig(connURL.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection url: %s", err)
+	}
+
+	if config.SSHClient != nil {
+		cfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
+			return config.SSHClient.Dial("tcp", addr)
+		}
 	}
 
 	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
