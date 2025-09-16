@@ -61,7 +61,9 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	if m.config.SSHConfig != nil {
+	found, _ := utils.IsOfType(m.config.SSHConfig, "host")
+	if m.config.SSHConfig != nil && found {
+		logger.Info("Found SSH Configuration")
 		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
 			return fmt.Errorf("failed to setup SSH connection: %s", err)
@@ -102,7 +104,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
 	// TODO: If CDC config exists and permission check fails, fail the setup
-	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
+	found, _ = utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
 		cdc := &CDC{}

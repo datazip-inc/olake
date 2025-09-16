@@ -58,7 +58,9 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	if p.config.SSHConfig != nil {
+	found, _ := utils.IsOfType(p.config.SSHConfig, "host")
+	if p.config.SSHConfig != nil && found {
+		logger.Info("Found SSH Configuration")
 		p.sshClient, err = p.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
 			return fmt.Errorf("failed to setup SSH connection: %s", err)
@@ -97,7 +99,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
 	// TODO: correct cdc setup
-	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
+	found, _ = utils.IsOfType(p.config.UpdateMethod, "replication_slot")
 	if found {
 		logger.Info("Found CDC Configuration")
 		cdc := &CDC{}
