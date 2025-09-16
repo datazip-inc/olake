@@ -67,8 +67,9 @@ func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		})
 	}
 
+	concThreads := utils.Ternary(k.config.MaxThreads < len(partitionData), k.config.MaxThreads, len(partitionData)).(int)
 	// Processing partitions concurrently
-	err = utils.Concurrent(ctx, partitionData, k.config.MaxThreads, func(ctx context.Context, data struct {
+	err = utils.Concurrent(ctx, partitionData, concThreads, func(ctx context.Context, data struct {
 		Partition   int
 		StartOffset int64
 	}, _ int) error {
