@@ -34,40 +34,39 @@ const MongoDBUISchema = `{
 }`
 
 const PostgresUISchema = `{
-  "ui:grid": [
-    { "host": 12, "database": 12 },
-    { "username": 12, "password": 12 },
-    { "port": 12, "jdbc_url_params": 12 },
-    { "ssl": 12, "max_threads": 12 },
-    { "retry_count": 12, "update_method": 12 }
-  ],
-  "ssl": {
-    "ui:options": {
-      "title": false
-    }
-  },
-  "update_method": {
-    "ui:widget": "radio",
-    "ui:grid": [
-      { "replication_slot": 12, "initial_wait_time": 12 }
-    ],
-    "ui:options": {
-      "title": false,
-      "description": false
-    }
-  },
-  "ssh_config": {
-    "ui:options": {
-      "title": false,
-      "description": false
-    },
-    "ui:grid": [
-      { "host": 12, "port": 12, "username": 12 },
-      { "private_key": 12, "passphrase": 12 },
-      { "password": 12 }
-    ]
-  }
-}`
+      "ui:grid": [
+        { "host": 12, "database": 12 },
+        { "username": 12, "password": 12 },
+        { "port": 12, "jdbc_url_params": 12 },
+        { "ssl": 12, "max_threads": 12 },
+        { "update_method": 12, "retry_count": 12 },
+        { "ssh_config": 12 }
+      ],
+      "ssl": {
+        "ui:options": {
+          "title": false
+        }
+      },
+      "update_method": {
+        "ui:widget": "radio",
+        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12 }],
+        "ui:options": {
+          "title": false,
+          "description": false
+        }
+      },
+      "ssh_config": {
+        "ui:options": {
+          "title": false,
+          "description": false
+        },
+        "ui:grid": [
+          { "host": 12, "port": 12 },
+          { "username": 12, "private_key": 12 },
+          { "passphrase": 12, "password": 12 }
+        ]
+      }
+    }`
 
 const MySQLUISchema = `{
   "ui:grid": [

@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net"
 	"strings"
@@ -69,7 +68,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		}
 	}
 
-	var db *sql.DB
+	var client *sqlx.DB
 	if m.sshClient != nil {
 		logger.Info("Connecting to MySQL via SSH tunnel")
 
@@ -84,17 +83,16 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			return m.sshClient.Dial("tcp", addr)
 		})
 
-		db, err = sql.Open("mysql", cfg.FormatDSN())
+		client, err = sqlx.Open("mysql", cfg.FormatDSN())
 		if err != nil {
 			return fmt.Errorf("failed to open tunneled database connection: %s", err)
 		}
 	} else {
-		db, err = sql.Open("mysql", m.config.URI())
+		client, err = sqlx.Open("mysql", m.config.URI())
 		if err != nil {
 			return fmt.Errorf("failed to open database connection: %s", err)
 		}
 	}
-	client := sqlx.NewDb(db, "mysql")
 	// Test connection
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

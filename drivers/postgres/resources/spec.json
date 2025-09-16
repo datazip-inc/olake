@@ -111,7 +111,6 @@
             ]
         },
         "ssh_config": {
-            "type": "object",
             "title": "SSH Config",
             "description": "OLake uses SSH to connect to the database.",
             "oneOf": [
