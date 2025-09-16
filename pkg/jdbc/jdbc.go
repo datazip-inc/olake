@@ -470,9 +470,9 @@ func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, la
 	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
 	quotedCol := QuoteIdentifier(cursorField, constants.Oracle)
 	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
-		return fmt.Sprintf("%s >= CAST(%s AS TIMESTAMP)", quotedCol, argumentPlaceholder), formattedValue, nil
+		return fmt.Sprintf("%s > CAST(%s AS TIMESTAMP)", quotedCol, argumentPlaceholder), formattedValue, nil
 	}
-	return fmt.Sprintf("%s >= %s", quotedCol, argumentPlaceholder), formattedValue, nil
+	return fmt.Sprintf("%s > %s", quotedCol, argumentPlaceholder), formattedValue, nil
 }
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition
@@ -589,7 +589,7 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
-		return fmt.Sprintf("%s >= %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
+		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
 	}
 
 	// Build primary cursor condition
