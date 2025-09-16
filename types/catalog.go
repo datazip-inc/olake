@@ -112,7 +112,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		}
 		newCatalog.SelectedStreams = selectedStreams
 	}
-	prefix, useCustomPrefix, useCustomDB := detectDBNamingPattern(oldCatalog.Streams)
+	isSameForAllStreams, isCustomDB, prefix := detectDBNamingPattern(oldCatalog.Streams)
 
 	// Preserve sync modes from old catalog
 	oldStreams := createStreamMap(oldCatalog)
@@ -127,9 +127,9 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			return nil
 		}
 		// new stream → apply rule
-		if useCustomPrefix {
+		if isSameForAllStreams && !isCustomDB {
 			newStream.Stream.DestinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
-		} else if useCustomDB {
+		} else if isSameForAllStreams {
 			// pick first custom db name (assuming user wants same for all)
 			newStream.Stream.DestinationDatabase = oldCatalog.Streams[0].Stream.DestinationDatabase
 		}
@@ -140,37 +140,32 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 	return newCatalog
 }
-func detectDBNamingPattern(streams []*ConfiguredStream) (prefix string, isCustomPrefix, isCustomDB bool) {
+
+// detectDBNamingPattern inspects the DestinationDatabase values of all streams
+// and determines whether they share the same naming pattern.
+// Returns:
+//   - isSameForAllStreams: true if all streams use the exact same database name
+//   - isCustomDB: true if that database name has no prefix (custom DB case)
+//   - prefix: the prefix string if present and consistent across all streams, else ""
+
+func detectDBNamingPattern(streams []*ConfiguredStream) (isSameForAllStreams bool, isCustomDB bool, prefix string) {
 	if len(streams) == 0 {
-		return "", false, false
+		return false, false, ""
 	}
 
-	var customDBs = make(map[string]struct{})
-	var prefixes = make(map[string]struct{})
+	firstDB := streams[0].Stream.DestinationDatabase
+	firstParts := strings.SplitN(firstDB, ":", 2)
 
-	for _, s := range streams {
-		db := s.Stream.DestinationDatabase
-		customDBs[db] = struct{}{}
-
-		// check if it looks like "prefix_something"
-		parts := strings.SplitN(db, ":", 2)
-		if len(parts) == 2 {
-			prefixes[parts[0]] = struct{}{}
+	for _, s := range streams[1:] {
+		if s.Stream.DestinationDatabase != firstDB {
+			// Not all same → bail out
+			return false, false, ""
 		}
 	}
 
-	// Case 1: all use same prefix
-	if len(prefixes) == 1 && len(customDBs) > 1 {
-		for p := range prefixes {
-			return p, true, false
-		}
+	// All are the same
+	if len(firstParts) == 2 {
+		return true, false, firstParts[0] // prefixed
 	}
-
-	// Case 2: all use same db (no common prefix)
-	if len(customDBs) == 1 {
-		return "", false, true
-	}
-
-	// fallback: default
-	return "", false, false
+	return true, true, "" // single custom DB
 }
