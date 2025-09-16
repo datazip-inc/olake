@@ -128,6 +128,7 @@ func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stre
 
 	// Set offset as available cursor field for incremental sync
 	stream.WithCursorField("offset")
+	stream.CursorField = "offset"
 	return stream, nil
 }
 
