@@ -97,7 +97,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return sm
 	}
 
-	// filter selected streams
+	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
 		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
@@ -112,28 +112,30 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		}
 		newCatalog.SelectedStreams = selectedStreams
 	}
-	isSameForAllStreams, isCustomDB, prefix := detectDBNamingPattern(oldCatalog.Streams)
 
-	// Preserve sync modes from old catalog
+	constantValue, prefix := getDestDBPrefix(oldCatalog.Streams)
+
+	// merge streams metadata
 	oldStreams := createStreamMap(oldCatalog)
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
 		if exists {
-			// preserve from old
+			// preserve metadata from old
 			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
 			newStream.Stream.CursorField = oldStream.Stream.CursorField
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			return nil
 		}
-		// new stream → apply rule
-		if isSameForAllStreams && !isCustomDB {
-			newStream.Stream.DestinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
-		} else if isSameForAllStreams {
-			// pick first custom db name (assuming user wants same for all)
+
+		// manipulate destination db in new streams according to old streams
+
+		// prefix == "" means old stream when db normalization feature not introduced
+		if constantValue && prefix != "" {
 			newStream.Stream.DestinationDatabase = oldCatalog.Streams[0].Stream.DestinationDatabase
+		} else if prefix != "" {
+			newStream.Stream.DestinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
 		}
-		// else → leave default generated db
 
 		return nil
 	})
@@ -141,31 +143,30 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	return newCatalog
 }
 
-// detectDBNamingPattern inspects the DestinationDatabase values of all streams
-// and determines whether they share the same naming pattern.
+// getDestDBPrefix analyzes a collection of streams to determine if they share a common
+// destination database prefix or constant value.
+//
+// The function checks if all streams have the same:
+// - Destination database prefix (e.g., "PREFIX:table_name") OR
+// - Constant database name (e.g., "CONSTANT_DB_NAME")
 // Returns:
-//   - isSameForAllStreams: true if all streams use the exact same database name
-//   - isCustomDB: true if that database name has no prefix (custom DB case)
-//   - prefix: the prefix string if present and consistent across all streams, else ""
-
-func detectDBNamingPattern(streams []*ConfiguredStream) (isSameForAllStreams bool, isCustomDB bool, prefix string) {
+//
+//	bool: true if the common value is a constant (no colon present),
+//	      false if it's a prefix (colon present in original string)
+//	string: the common prefix or constant value, or empty string if no common value exists
+func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix string) {
 	if len(streams) == 0 {
-		return false, false, ""
+		return false, ""
 	}
 
-	firstDB := streams[0].Stream.DestinationDatabase
-	firstParts := strings.SplitN(firstDB, ":", 2)
-
-	for _, s := range streams[1:] {
-		if s.Stream.DestinationDatabase != firstDB {
+	prefixOrConstValue := strings.Split(streams[0].Stream.DestinationDatabase, ":")
+	for _, s := range streams {
+		streamDBPrefixOrConstValue := strings.Split(s.Stream.DestinationDatabase, ":")
+		if streamDBPrefixOrConstValue[0] != prefixOrConstValue[0] {
 			// Not all same → bail out
-			return false, false, ""
+			return false, ""
 		}
 	}
 
-	// All are the same
-	if len(firstParts) == 2 {
-		return true, false, firstParts[0] // prefixed
-	}
-	return true, true, "" // single custom DB
+	return len(prefixOrConstValue) == 1, prefixOrConstValue[0]
 }
