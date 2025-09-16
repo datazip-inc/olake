@@ -77,7 +77,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse mysql DSN: %s", err)
 		}
-		
+
 		// Allows mysql driver to use the SSH client to connect to the database
 		cfg.Net = "mysqlTcp"
 		mysql.RegisterDialContext(cfg.Net, func(ctx context.Context, addr string) (net.Conn, error) {
@@ -95,9 +95,6 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		}
 	}
 	client := sqlx.NewDb(db, "mysql")
-	if err != nil {
-		return fmt.Errorf("failed to connect database: %s", err)
-	}
 	// Test connection
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -229,7 +226,17 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 // Close ensures proper cleanup
 func (m *MySQL) Close() error {
 	if m.client != nil {
-		return m.client.Close()
+		err := m.client.Close()
+		if err != nil {
+			logger.Errorf("failed to close connection with MySQL: %s", err)
+		}
+	}
+
+	if m.sshClient != nil {
+		err := m.sshClient.Close()
+		if err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+		}
 	}
 	return nil
 }
