@@ -64,7 +64,13 @@ const PostgresUISchema = `{
           { "host": 12, "port": 12 },
           { "username": 12, "private_key": 12 },
           { "passphrase": 12, "password": 12 }
-        ]
+        ],
+        "private_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        }
       }
     }`
 
@@ -98,7 +104,13 @@ const MySQLUISchema = `{
       { "host": 12, "port": 12 },
       { "username": 12, "private_key": 12 },
       { "passphrase": 12, "password": 12 }
-    ]
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    }
   }
 }`
 
