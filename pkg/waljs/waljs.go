@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -55,6 +56,12 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	cfg, err := pgconn.ParseConfig(connURL.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection url: %s", err)
+	}
+
+	if config.SSHClient != nil {
+		cfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
+			return config.SSHClient.Dial("tcp", addr)
+		}
 	}
 
 	cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
@@ -216,7 +223,7 @@ func (s *Socket) StreamMessages(ctx context.Context, db *sqlx.DB, callback abstr
 					return fmt.Errorf("failed to parse XLogData: %s", err)
 				}
 				// Process change with the provided callback.
-				nextLSN, records, err := s.changeFilter.FilterChange(xld.WALData, callback)
+				nextLSN, records, err := s.changeFilter.FilterChange(ctx, xld.WALData, callback)
 				if err != nil {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}

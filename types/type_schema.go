@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
@@ -86,6 +87,7 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 }
 
 func (t *TypeSchema) GetType(column string) (DataType, error) {
+	column = utils.Ternary(t.HasDestinationColumnName(), column, utils.Reformat(column)).(string)
 	p, found := t.Properties.Load(column)
 	if !found {
 		return "", fmt.Errorf("column [%s] missing from type schema", column)
@@ -99,7 +101,8 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 	p, found := t.Properties.Load(column)
 	if !found {
 		t.Properties.Store(column, &Property{
-			Type: NewSet(types...),
+			Type:                  NewSet(types...),
+			DestinationColumnName: utils.Reformat(column),
 		})
 		return
 	}
@@ -120,18 +123,40 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 func (t *TypeSchema) ToParquet() *parquet.Schema {
 	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
-		groupNode[key.(string)] = value.(*Property).DataType().ToNewParquet()
+		prop := value.(*Property)
+		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
 		return true
 	})
 
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
+func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
+	var icebergFields []*proto.IcebergPayload_SchemaField
+	t.Properties.Range(func(key, value interface{}) bool {
+		prop := value.(*Property)
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: prop.DataType().ToIceberg(),
+			Key:     prop.getDestinationColumnName(key.(string)),
+		})
+		return true
+	})
+
+	return icebergFields
+}
+func (t *TypeSchema) HasDestinationColumnName() bool {
+	found := false
+	t.Properties.Range(func(_, value interface{}) bool {
+		found = value.(*Property).DestinationColumnName != ""
+		return true
+	})
+	return found
+}
+
 // Property is a dto for catalog properties representation
 type Property struct {
-	Type *Set[DataType] `json:"type,omitempty"`
-	// TODO: Decide to keep in the Protocol Or Not
-	// Format string     `json:"format,omitempty"`
+	Type                  *Set[DataType] `json:"type,omitempty"`
+	DestinationColumnName string         `json:"destination_column_name,omitempty"`
 }
 
 // returns datatype according to typecast tree if multiple type present
@@ -164,6 +189,10 @@ func (p *Property) Nullable() bool {
 	})
 
 	return found
+}
+
+func (p *Property) getDestinationColumnName(key string) string {
+	return utils.Ternary(p.DestinationColumnName != "", p.DestinationColumnName, key).(string)
 }
 
 // Tree that is being used for typecasting

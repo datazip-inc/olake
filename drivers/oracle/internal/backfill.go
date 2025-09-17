@@ -42,7 +42,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
-		return OnMessage(record)
+		return OnMessage(ctx, record)
 	})
 }
 

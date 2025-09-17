@@ -117,7 +117,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 	}
 	schemaName, tableName := parts[0], parts[1]
-	stream := types.NewStream(tableName, schemaName)
+	stream := types.NewStream(tableName, schemaName, nil)
 
 	// Get column information
 	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)
@@ -142,7 +142,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 			datatype = types.String
 		}
 
-		stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("Y", isNullable))
+		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable))
 	}
 
 	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)

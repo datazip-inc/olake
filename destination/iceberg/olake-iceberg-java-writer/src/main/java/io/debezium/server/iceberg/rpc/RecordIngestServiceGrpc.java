@@ -3,9 +3,6 @@ package io.debezium.server.iceberg.rpc;
 import static io.grpc.MethodDescriptor.generateFullMethodName;
 
 /**
- * <pre>
- * The service definition.
- * </pre>
  */
 @javax.annotation.Generated(
     value = "by gRPC proto compiler (version 1.53.0)",
@@ -18,27 +15,27 @@ public final class RecordIngestServiceGrpc {
   public static final String SERVICE_NAME = "io.debezium.server.iceberg.rpc.RecordIngestService";
 
   // Static method descriptors that strictly reflect the proto.
-  private static volatile io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest,
+  private static volatile io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload,
       io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> getSendRecordsMethod;
 
   @io.grpc.stub.annotations.RpcMethod(
       fullMethodName = SERVICE_NAME + '/' + "SendRecords",
-      requestType = io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest.class,
+      requestType = io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.class,
       responseType = io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse.class,
       methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
-  public static io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest,
+  public static io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload,
       io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> getSendRecordsMethod() {
-    io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> getSendRecordsMethod;
+    io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> getSendRecordsMethod;
     if ((getSendRecordsMethod = RecordIngestServiceGrpc.getSendRecordsMethod) == null) {
       synchronized (RecordIngestServiceGrpc.class) {
         if ((getSendRecordsMethod = RecordIngestServiceGrpc.getSendRecordsMethod) == null) {
           RecordIngestServiceGrpc.getSendRecordsMethod = getSendRecordsMethod =
-              io.grpc.MethodDescriptor.<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse>newBuilder()
+              io.grpc.MethodDescriptor.<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse>newBuilder()
               .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
               .setFullMethodName(generateFullMethodName(SERVICE_NAME, "SendRecords"))
               .setSampledToLocalTracing(true)
               .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest.getDefaultInstance()))
+                  io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
                   io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse.getDefaultInstance()))
               .setSchemaDescriptor(new RecordIngestServiceMethodDescriptorSupplier("SendRecords"))
@@ -94,18 +91,12 @@ public final class RecordIngestServiceGrpc {
   }
 
   /**
-   * <pre>
-   * The service definition.
-   * </pre>
    */
   public static abstract class RecordIngestServiceImplBase implements io.grpc.BindableService {
 
     /**
-     * <pre>
-     * Sends a string array and returns a simple response.
-     * </pre>
      */
-    public void sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest request,
+    public void sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload request,
         io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getSendRecordsMethod(), responseObserver);
     }
@@ -116,7 +107,7 @@ public final class RecordIngestServiceGrpc {
             getSendRecordsMethod(),
             io.grpc.stub.ServerCalls.asyncUnaryCall(
               new MethodHandlers<
-                io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest,
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload,
                 io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse>(
                   this, METHODID_SEND_RECORDS)))
           .build();
@@ -124,9 +115,6 @@ public final class RecordIngestServiceGrpc {
   }
 
   /**
-   * <pre>
-   * The service definition.
-   * </pre>
    */
   public static final class RecordIngestServiceStub extends io.grpc.stub.AbstractAsyncStub<RecordIngestServiceStub> {
     private RecordIngestServiceStub(
@@ -141,11 +129,8 @@ public final class RecordIngestServiceGrpc {
     }
 
     /**
-     * <pre>
-     * Sends a string array and returns a simple response.
-     * </pre>
      */
-    public void sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest request,
+    public void sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload request,
         io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getSendRecordsMethod(), getCallOptions()), request, responseObserver);
@@ -153,9 +138,6 @@ public final class RecordIngestServiceGrpc {
   }
 
   /**
-   * <pre>
-   * The service definition.
-   * </pre>
    */
   public static final class RecordIngestServiceBlockingStub extends io.grpc.stub.AbstractBlockingStub<RecordIngestServiceBlockingStub> {
     private RecordIngestServiceBlockingStub(
@@ -170,20 +152,14 @@ public final class RecordIngestServiceGrpc {
     }
 
     /**
-     * <pre>
-     * Sends a string array and returns a simple response.
-     * </pre>
      */
-    public io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest request) {
+    public io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getSendRecordsMethod(), getCallOptions(), request);
     }
   }
 
   /**
-   * <pre>
-   * The service definition.
-   * </pre>
    */
   public static final class RecordIngestServiceFutureStub extends io.grpc.stub.AbstractFutureStub<RecordIngestServiceFutureStub> {
     private RecordIngestServiceFutureStub(
@@ -198,12 +174,9 @@ public final class RecordIngestServiceGrpc {
     }
 
     /**
-     * <pre>
-     * Sends a string array and returns a simple response.
-     * </pre>
      */
     public com.google.common.util.concurrent.ListenableFuture<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> sendRecords(
-        io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest request) {
+        io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
           getChannel().newCall(getSendRecordsMethod(), getCallOptions()), request);
     }
@@ -229,7 +202,7 @@ public final class RecordIngestServiceGrpc {
     public void invoke(Req request, io.grpc.stub.StreamObserver<Resp> responseObserver) {
       switch (methodId) {
         case METHODID_SEND_RECORDS:
-          serviceImpl.sendRecords((io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestRequest) request,
+          serviceImpl.sendRecords((io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload) request,
               (io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse>) responseObserver);
           break;
         default:
