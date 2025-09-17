@@ -123,7 +123,8 @@
             "passphrase": {
               "type": "string",
               "title": "SSH Passphrase",
-              "description": "Passphrase to decrypt the encrypted SSH private key"
+              "description": "Passphrase to decrypt the encrypted SSH private key",
+              "format": "password"
             }
           },
           "required": [
@@ -159,7 +160,9 @@
             "password": {
               "type": "string",
               "title": "SSH Password",
-              "description": "Password to authenticate with the SSH server"
+              "description": "Password to authenticate with the SSH server",
+              "format": "password",
+              "minLength": 1
             }
           },
           "required": [
