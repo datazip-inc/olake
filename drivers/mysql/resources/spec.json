@@ -85,12 +85,21 @@
       "oneOf": [
         {
           "type": "object",
-          "title": "No Tunnel"
+          "title": "No Tunnel",
+          "properties": {
+            "type": {
+              "const": "no_tunnel"
+            }
+          },
+          "required": ["type"]
         },
         {
           "type": "object",
           "title": "SSH Key Authentication",
           "properties": {
+            "type": {
+              "const": "ssh_key_authentication"
+            },
             "host": {
               "type": "string",
               "title": "SSH Host",
@@ -114,21 +123,25 @@
             "passphrase": {
               "type": "string",
               "title": "SSH Passphrase",
-              "description": "Passphrase to decrypt the encrypted SSH private key"
+              "description": "Passphrase to decrypt the encrypted SSH private key",
+              "format": "password"
             }
           },
           "required": [
             "host",
             "port",
             "username",
-            "private_key"
-          ],
-          "additionalProperties": false
+            "private_key",
+            "type"
+          ]
         },
         {
           "type": "object",
           "title": "SSH Password Authentication",
           "properties": {
+            "type": {
+              "const": "ssh_password_authentication"
+            },
             "host": {
               "type": "string",
               "title": "SSH Host",
@@ -147,19 +160,20 @@
             "password": {
               "type": "string",
               "title": "SSH Password",
-              "description": "Password to authenticate with the SSH server"
+              "description": "Password to authenticate with the SSH server",
+              "format": "password",
+              "minLength": 1
             }
           },
           "required": [
             "host",
             "port",
             "username",
-            "password"
-          ],
-          "additionalProperties": false
+            "password",
+            "type"
+          ]
         }
-      ],
-      "additionalProperties": false
+      ]
     },
     "username": {
       "type": "string",
