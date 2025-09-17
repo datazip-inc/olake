@@ -44,6 +44,8 @@ type Socket struct {
 	replicationSlot string
 	// initialWaitTime is the duration to wait for initial data before timing out
 	initialWaitTime time.Duration
+	// continuous indicates whether to keep streaming beyond current WAL end
+	continuous bool
 }
 
 func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Socket, error) {
@@ -111,6 +113,7 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		CurrentWalPosition: slot.CurrentLSN,
 		replicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
+		continuous:         config.Continuous,
 	}, nil
 }
 
@@ -181,7 +184,8 @@ func (s *Socket) StreamMessages(ctx context.Context, db *sqlx.DB, callback abstr
 				return nil
 			}
 
-			if s.ClientXLogPos >= s.CurrentWalPosition {
+			// Stop at current WAL end only when not running in continuous mode.
+			if s.ClientXLogPos >= s.CurrentWalPosition && !s.continuous {
 				logger.Infof("finishing sync, reached wal position: %s", s.CurrentWalPosition)
 				return nil
 			}
@@ -189,6 +193,10 @@ func (s *Socket) StreamMessages(ctx context.Context, db *sqlx.DB, callback abstr
 			msg, err := s.pgConn.ReceiveMessage(ctx)
 			if err != nil {
 				if strings.Contains(err.Error(), "EOF") {
+					if s.continuous {
+						time.Sleep(200 * time.Millisecond)
+						continue
+					}
 					return nil
 				}
 				return fmt.Errorf("failed to receive message from wal logs: %s", err)
