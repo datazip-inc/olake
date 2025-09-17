@@ -81,11 +81,8 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return types.NewSet[types.Chunk](), nil
 	}
 
-	if avgRowSize == nil {
-		return nil, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE TABLE to update table statistics", stream.ID())
-	}
-
 	pool.AddRecordsToSync(approxRowCount)
+	// avgRowSize is returned as []uint8 which is converted to float64
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get avg row size: %s", err)
@@ -93,13 +90,16 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
+	// Takes the user defined batch size as chunkSize
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+			// Get primary key column using the provided function
 			pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 			if chunkColumn != "" {
 				pkColumns = []string{chunkColumn}
 			}
 			sort.Strings(pkColumns)
+			// Get table extremes
 			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
@@ -118,9 +118,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
 			currentVal := minVal
 			for {
+				// Split the current value into parts
 				columns := strings.Split(utils.ConvertToString(currentVal), ",")
+
+				// Create args array with the correct number of arguments for the query
 				args := make([]interface{}, 0)
 				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
+					// For each column combination in the WHERE clause, we need to add the necessary parts
 					for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
 						args = append(args, columns[partIndex])
 					}
