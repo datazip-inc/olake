@@ -16,6 +16,7 @@ func TestMySQLIntegration(t *testing.T) {
 		ExpectedUpdateData: ExpectedUpdatedMySQLData,
 		DataTypeSchema:     MySQLToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
+		IcebergDB:          "mysql_olake_mysql_test",
 	}
 	testConfig.TestIntegration(t)
 }

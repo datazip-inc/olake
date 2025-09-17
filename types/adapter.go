@@ -1,14 +1,14 @@
 package types
 
-type AdapterType string
+type DestinationType string
 
 const (
-	Parquet AdapterType = "PARQUET"
-	Iceberg AdapterType = "ICEBERG"
+	Parquet DestinationType = "PARQUET"
+	Iceberg DestinationType = "ICEBERG"
 )
 
 // TODO: Add validations
 type WriterConfig struct {
-	Type         AdapterType `json:"type"`
-	WriterConfig any         `json:"writer"`
+	Type         DestinationType `json:"type"`
+	WriterConfig any             `json:"writer"`
 }

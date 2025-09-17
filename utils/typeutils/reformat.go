@@ -70,30 +70,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	case types.Null:
 		return nil, ErrNullValue
 	case types.Bool:
-		switch booleanValue := v.(type) {
-		case bool:
-			return booleanValue, nil
-		case string:
-			switch booleanValue {
-			case "1", "t", "T", "true", "TRUE", "True", "YES", "Yes", "yes":
-				return true, nil
-			case "0", "f", "F", "false", "FALSE", "False", "NO", "No", "no":
-				return false, nil
-			}
-		case int, int16, int32, int64, int8:
-			switch booleanValue {
-			case 1:
-				return true, nil
-			case 0:
-				return true, nil
-			default:
-				return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
-			}
-		default:
-			return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
-		}
-
-		return nil, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
+		return ReformatBool(v)
 	case types.Int64:
 		return ReformatInt64(v)
 	case types.Int32:
@@ -131,6 +108,33 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	default:
 		return v, nil
 	}
+}
+
+func ReformatBool(v interface{}) (bool, error) {
+	switch booleanValue := v.(type) {
+	case bool:
+		return booleanValue, nil
+	case string:
+		switch booleanValue {
+		case "1", "t", "T", "true", "TRUE", "True", "YES", "Yes", "yes":
+			return true, nil
+		case "0", "f", "F", "false", "FALSE", "False", "NO", "No", "no":
+			return false, nil
+		}
+	case int, int16, int32, int64, int8:
+		switch booleanValue {
+		case 1:
+			return true, nil
+		case 0:
+			return false, nil
+		default:
+			return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
+		}
+	default:
+		return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
+	}
+
+	return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 }
 
 // reformat date

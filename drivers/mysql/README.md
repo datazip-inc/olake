@@ -34,11 +34,17 @@ Add MySql credentials in following format in `config.json` file. [More details.]
     "database": "mysql-database",
     "port": 3306,
     "update_method": {
-      "intial_wait_time": 10
+      "initial_wait_time": 10
      },
     "tls_skip_verify": true,
     "max_threads":10,
-    "backoff_retry_count": 2
+    "backoff_retry_count": 2,
+    "ssh_config":{
+         "host": "ssh_host",
+         "port": 22,
+         "username": "ssh_user",
+         "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nssh_passkey\n-----END OPENSSH PRIVATE KEY-----"
+    }
   }
 ```
 

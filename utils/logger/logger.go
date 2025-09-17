@@ -100,21 +100,27 @@ func LogRequest(req *http.Request) {
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
 func FileLogger(content any, fileName, fileExtension string) error {
-	// get config folder
-	filePath := viper.GetString(constants.ConfigFolder)
-	if filePath == "" {
+	configFolder := viper.GetString(constants.ConfigFolder)
+	if configFolder == "" {
 		return fmt.Errorf("config folder is not set")
 	}
-	// Construct the full file path
+
+	return FileLoggerWithPath(content, filepath.Join(configFolder, fileName+fileExtension))
+}
+
+func FileLoggerWithPath(content any, path string) error {
+	if path == "" {
+		return fmt.Errorf("path is not set")
+	}
+
+	// Marshal content to JSON
 	contentBytes, err := json.Marshal(content)
 	if err != nil {
 		return fmt.Errorf("failed to marshal content: %s", err)
 	}
 
-	fullPath := filepath.Join(filePath, fileName+fileExtension)
-
 	// Create or truncate the file
-	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to create or open file: %s", err)
 	}
@@ -140,7 +146,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
-				syncedRecords, runningThreads, recordsToSync := statsFunc()
+				runningThreads, recordsToSync, syncedRecords := statsFunc()
 				memStats := new(runtime.MemStats)
 				runtime.ReadMemStats(memStats)
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
@@ -151,7 +157,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 					estimatedSeconds = fmt.Sprintf("%.2f s", float64(remainingRecords)/speed)
 				}
 				stats := map[string]interface{}{
-					"Running Threads":          runningThreads,
+					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
 					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
 					"Speed":                    fmt.Sprintf("%.2f rps", speed),
@@ -167,10 +173,6 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 }
 
 func Init() {
-	// check working directory
-	if viper.GetString(constants.ConfigFolder) == "" {
-		viper.SetDefault(constants.ConfigFolder, os.TempDir())
-	}
 	// Set up timestamp for log file names
 	currentTimestamp := time.Now().UTC()
 	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d",
@@ -293,9 +295,9 @@ func (p *ProcessOutputReader) StartReading() {
 			}
 
 			if isErrorLine || isStackTraceLine || inStackTrace {
-				Error(fmt.Sprintf("[%s] %s", p.Name, line))
+				Error(fmt.Sprintf("%s %s", p.Name, line))
 			} else {
-				Info(fmt.Sprintf("[%s] %s", p.Name, line))
+				Info(fmt.Sprintf("%s %s", p.Name, line))
 			}
 		}
 	}()

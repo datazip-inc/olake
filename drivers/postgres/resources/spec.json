@@ -1,0 +1,217 @@
+{
+    "type": "object",
+    "properties": {
+        "host": {
+            "type": "string",
+            "title": "Postgres Host",
+            "description": "Database host address for connection"
+        },
+        "port": {
+            "type": "integer",
+            "title": "Postgres Port",
+            "description": "Database server listening port",
+            "default": 5432
+        },
+        "database": {
+            "type": "string",
+            "title": "Database Name",
+            "description": "The name of the database to use for connection"
+        },
+        "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Username used to authenticate with the database"
+        },
+        "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "Password for database authentication",
+            "format": "password",
+            "minLength": 1
+        },
+        "jdbc_url_params": {
+            "type": "object",
+            "title": "JDBC URL Parameters",
+            "description": "Additional JDBC URL parameters for connection tuning (optional)",
+            "additionalProperties": true
+        },
+        "max_threads": {
+            "type": "integer",
+            "title": "Max Threads",
+            "description": "Max parallel threads for chunk snapshotting",
+            "default": 3
+        },
+        "retry_count": {
+            "type": "integer",
+            "title": "Retry Count",
+            "description": "Number of sync retry attempts using exponential backoff",
+            "default": 3
+        },
+        "ssl": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "title": "SSL Mode",
+                    "description": "Database connection SSL configuration (e.g., SSL mode)",
+                    "default": "disable",
+                    "enum": [
+                        "require",
+                        "disable",
+                        "verify-ca",
+                        "verify-full"
+                    ]
+                }
+            },
+            "required": [
+                "mode"
+            ]
+        },
+        "update_method": {
+            "title": "Update Method",
+            "description": "Define how OLake captures data updates from your source",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "Standalone",
+                    "properties": {
+                        "type": {
+                            "const": "Standalone"
+                        }
+                    },
+                    "required": [
+                        "type"
+                    ]
+                },
+                {
+                    "type": "object",
+                    "title": "CDC",
+                    "properties": {
+                        "type": {
+                            "const": "CDC"
+                        },
+                        "initial_wait_time": {
+                            "type": "integer",
+                            "title": "Initial Wait Time",
+                            "description": "Idle timeout for wal catchup to Saved LSN, Range: (120,2400]",
+                            "minimum": 120,
+                            "maximum": 2400
+                        },
+                        "replication_slot": {
+                            "type": "string",
+                            "title": "Replication Slot",
+                            "description": "Slot to retain WAL logs for consistent replication"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "replication_slot"
+                    ]
+                }
+            ]
+        },
+        "ssh_config": {
+            "title": "SSH Config",
+            "description": "OLake uses SSH to connect to the database.",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "No Tunnel",
+                    "properties": {
+                        "type": {
+                            "const": "no_tunnel"
+                        }
+                    },
+                    "required": ["type"]
+                },
+                {
+                    "type": "object",
+                    "title": "SSH Key Authentication",
+                    "properties": {
+                        "type": {
+                            "const": "ssh_key_authentication"
+                        },
+                        "host": {
+                            "type": "string",
+                            "title": "SSH Host",
+                            "description": "SSH host address"
+                        },
+                        "port": {
+                            "type": "integer",
+                            "title": "SSH Port",
+                            "description": "Port number to connect to the SSH server"
+                        },
+                        "username": {
+                            "type": "string",
+                            "title": "SSH Username",
+                            "description": "Username to authenticate with the SSH server"
+                        },
+                        "private_key": {
+                            "type": "string",
+                            "title": "SSH Private Key",
+                            "description": "SSH private key to authenticate with the SSH server"
+                        },
+                        "passphrase": {
+                            "type": "string",
+                            "title": "SSH Passphrase",
+                            "description": "Passphrase to decrypt the encrypted SSH private key",
+                            "format": "password"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "host",
+                        "port",
+                        "username",
+                        "private_key"
+                    ]
+                },
+                {
+                    "type": "object",
+                    "title": "SSH Password Authentication",
+                    "properties": {
+                        "type": {
+                            "const": "ssh_password_authentication"
+                        },
+                        "host": {
+                            "type": "string",
+                            "title": "SSH Host",
+                            "description": "SSH host address"
+                        },
+                        "port": {
+                            "type": "integer",
+                            "title": "SSH Port",
+                            "description": "Port number to connect to the SSH server"
+                        },
+                        "username": {
+                            "type": "string",
+                            "title": "SSH Username",
+                            "description": "Username to authenticate with the SSH server"
+                        },
+                        "password": {
+                            "type": "string",
+                            "title": "SSH Password",
+                            "description": "Password to authenticate with the SSH server",
+                            "format": "password",
+                            "minLength": 1
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "host",
+                        "port",
+                        "username",
+                        "password"
+                    ]
+                }
+            ]
+        }
+    },
+    "required": [
+        "host",
+        "port",
+        "database",
+        "username",
+        "password"
+    ]
+}

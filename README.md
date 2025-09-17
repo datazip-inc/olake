@@ -14,7 +14,7 @@
     <a href="https://olake.io/docs">
     <img alt="Documentation" src="https://img.shields.io/badge/view-Documentation-white"/>
     </a>
-    <a href="https://join.slack.com/t/getolake/shared_invite/zt-2utw44do6-g4XuKKeqBghBMy2~LcJ4ag">
+    <a href="https://olake.io/slack/">
     <img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/>
     </a>
     <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
@@ -162,10 +162,10 @@ For advanced users and automation, OLake's core logic is exposed via a powerful 
 Below are other different ways you can run OLake:
 
 1. [OLake UI (Recommended)](https://olake.io/docs/getting-started/olake-ui)
-2. [Standalone Docker container](https://olake.io/docs/install/docker)
-3. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2?utm_source=chatgpt.com)
-4. [Airflow on Kubernetes](https://olake.io/blog/olake-airflow)
-5. Kubernetes using Helm (Coming soon!)
+2. [Kubernetes using Helm](https://olake.io/docs/install/kubernetes)
+3. [Standalone Docker container](https://olake.io/docs/install/docker-cli)
+4. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2?utm_source=chatgpt.com)
+5. [Airflow on Kubernetes](https://olake.io/blog/olake-airflow) 
 
 ---
 
