@@ -80,8 +80,8 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		pool.AddRecordsToSync(0)
 		return types.NewSet[types.Chunk](), nil
 	}
-    pool.AddRecordsToSync(approxRowCount)
- 
+
+	pool.AddRecordsToSync(approxRowCount)
 	// avgRowSize is returned as []uint8 which is converted to float64
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {
