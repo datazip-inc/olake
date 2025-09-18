@@ -263,9 +263,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	destinationDB := "test_olake"
 	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
-		destinationDB = utils.Reformat(prefix) + "_" + destinationDB
+		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
 	}
-	logger.Info("destinationDatabase: ", destinationDB)
 	// Create a temporary setup for checking
 	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
 	if err != nil {
