@@ -116,9 +116,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
 			currentVal := minVal
 			for {
+				// Split the current value into parts
 				columns := strings.Split(utils.ConvertToString(currentVal), ",")
+
+				// Create args array with the correct number of arguments for the query
 				args := make([]interface{}, 0)
 				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
+					// For each column combination in the WHERE clause, we need to add the necessary parts
 					for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
 						args = append(args, columns[partIndex])
 					}
