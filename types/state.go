@@ -5,9 +5,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
+	"github.com/spf13/viper"
 )
 
 type StateType string
@@ -253,12 +255,12 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) int {
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {
-	if s.isZero() {
-		return json.Marshal(nil)
-	}
-
 	type Alias State
 	p := Alias(*s)
+
+	if s.isZero() {
+		return json.Marshal(p)
+	}
 
 	populatedStreams := []*StreamState{}
 	for _, stream := range p.Streams {
@@ -291,10 +293,9 @@ func (s *State) LogState() {
 	// TODO: Only Log in logs file, not in CLI
 	// logger.Info(message)
 
-	// log to state file
-	err := logger.FileLogger(s, "state", ".json")
+	err := logger.FileLoggerWithPath(s, viper.GetString(constants.StatePath))
 	if err != nil {
-		logger.Fatalf("failed to create state file: %s", err)
+		logger.Fatalf("failed to write state file: %s", err)
 	}
 }
 

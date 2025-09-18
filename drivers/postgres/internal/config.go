@@ -22,13 +22,14 @@ type Config struct {
 	BatchSize        int               `json:"reader_batch_size"`
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
+	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 }
 
 // Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
 	// initial wait time must be in range [120,2400), default value 1200
-	InitialWaitTime int `json:"intial_wait_time"`
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
 func (c *Config) Validate() error {

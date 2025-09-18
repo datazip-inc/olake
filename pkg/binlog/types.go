@@ -5,6 +5,7 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"golang.org/x/crypto/ssh"
 )
 
 // Config holds the configuration for the binlog syncer.
@@ -19,6 +20,7 @@ type Config struct {
 	VerifyChecksum  bool
 	HeartbeatPeriod time.Duration
 	InitialWaitTime time.Duration
+	SSHClient       *ssh.Client
 }
 
 // BinlogState holds the current binlog position.

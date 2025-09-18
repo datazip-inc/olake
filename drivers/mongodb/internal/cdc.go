@@ -9,7 +9,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -89,12 +88,12 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 		).(time.Time)
 		change := abstract.CDCChange{
 			Stream:    stream,
-			Timestamp: typeutils.Time{Time: ts},
+			Timestamp: ts,
 			Data:      record.FullDocument,
 			Kind:      record.OperationType,
 		}
 		m.cdcCursor.Store(stream.ID(), cursor.ResumeToken().Lookup(cdcCursorField).StringValue())
-		if err := OnMessage(change); err != nil {
+		if err := OnMessage(ctx, change); err != nil {
 			return fmt.Errorf("failed to process message: %s", err)
 		}
 	}
