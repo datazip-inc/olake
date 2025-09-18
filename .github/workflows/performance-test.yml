@@ -110,4 +110,3 @@ jobs:
             sudo rm -rf /etc/openvpn/client/ /var/log/openvpn-client.log || true
             echo "VPN cleanup completed"
         fi
-
