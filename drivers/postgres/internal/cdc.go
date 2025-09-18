@@ -21,6 +21,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 
 	return &waljs.Config{
 		Connection:          *p.config.Connection,
+		SSHClient:           p.sshClient,
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet[types.StreamInterface](streams...),

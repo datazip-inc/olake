@@ -79,6 +79,102 @@
         }
       ]
     },
+    "ssh_config": {
+      "title": "SSH Config",
+      "description": "OLake uses SSH to connect to the database.",
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "No Tunnel",
+          "properties": {
+            "type": {
+              "const": "no_tunnel"
+            }
+          },
+          "required": ["type"]
+        },
+        {
+          "type": "object",
+          "title": "SSH Key Authentication",
+          "properties": {
+            "type": {
+              "const": "ssh_key_authentication"
+            },
+            "host": {
+              "type": "string",
+              "title": "SSH Host",
+              "description": "SSH host address"
+            },
+            "port": {
+              "type": "integer",
+              "title": "SSH Port",
+              "description": "Port number to connect to the SSH server"
+            },
+            "username": {
+              "type": "string",
+              "title": "SSH Username",
+              "description": "Username to authenticate with the SSH server"
+            },
+            "private_key": {
+              "type": "string",
+              "title": "SSH Private Key",
+              "description": "SSH private key to authenticate with the SSH server"
+            },
+            "passphrase": {
+              "type": "string",
+              "title": "SSH Passphrase",
+              "description": "Passphrase to decrypt the encrypted SSH private key",
+              "format": "password"
+            }
+          },
+          "required": [
+            "host",
+            "port",
+            "username",
+            "private_key",
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "title": "SSH Password Authentication",
+          "properties": {
+            "type": {
+              "const": "ssh_password_authentication"
+            },
+            "host": {
+              "type": "string",
+              "title": "SSH Host",
+              "description": "SSH host address"
+            },
+            "port": {
+              "type": "integer",
+              "title": "SSH Port",
+              "description": "Port number to connect to the SSH server"
+            },
+            "username": {
+              "type": "string",
+              "title": "SSH Username",
+              "description": "Username to authenticate with the SSH server"
+            },
+            "password": {
+              "type": "string",
+              "title": "SSH Password",
+              "description": "Password to authenticate with the SSH server",
+              "format": "password",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "host",
+            "port",
+            "username",
+            "password",
+            "type"
+          ]
+        }
+      ]
+    },
     "username": {
       "type": "string",
       "title": "Username",

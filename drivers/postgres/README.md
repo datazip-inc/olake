@@ -44,6 +44,12 @@ Add Postgres credentials in following format in `config.json` file. [More detail
     "reader_batch_size": 100000,
     "max_threads" :50,
     "retry_count" :2,
+    "ssh_config":{
+         "host": "ssh_host",
+         "port": 22,
+         "username": "ssh_user",
+         "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nssh_passkey\n-----END OPENSSH PRIVATE KEY-----"
+    }
   }
 ```
 

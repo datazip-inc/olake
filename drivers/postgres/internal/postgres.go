@@ -2,7 +2,9 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -13,8 +15,10 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -36,6 +40,7 @@ const (
 
 type Postgres struct {
 	client     *sqlx.DB
+	sshClient  *ssh.Client
 	config     *Config // postgres driver connection config
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
 	cdcConfig  CDC
@@ -53,10 +58,35 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	sqlxDB, err := sqlx.Open("pgx", p.config.Connection.String())
-	if err != nil {
-		return fmt.Errorf("failed to connect database: %s", err)
+	if p.config.SSHConfig != nil && p.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		p.sshClient, err = p.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
 	}
+
+	var db *sql.DB
+	if p.sshClient != nil {
+		logger.Info("Connecting to Postgres via SSH tunnel")
+		pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
+		if err != nil {
+			return fmt.Errorf("failed to parse postgres connection string: %s", err)
+		}
+
+		// Allows pgx to use the SSH client to connect to the database
+		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
+			return p.sshClient.Dial("tcp", addr)
+		}
+		db = stdlib.OpenDB(*pgCfg)
+	} else {
+		db, err = sql.Open("pgx", p.config.Connection.String())
+		if err != nil {
+			return fmt.Errorf("failed to open database connection: %s", err)
+		}
+	}
+
+	sqlxDB := sqlx.NewDb(db, "pgx")
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -128,6 +158,13 @@ func (p *Postgres) CloseConnection() {
 		err := p.client.Close()
 		if err != nil {
 			logger.Error("failed to close connection with postgres: %s", err)
+		}
+	}
+
+	if p.sshClient != nil {
+		err := p.sshClient.Close()
+		if err != nil {
+			logger.Error("failed to close SSH connection: %s", err)
 		}
 	}
 }
