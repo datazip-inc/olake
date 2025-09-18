@@ -68,7 +68,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		rowCountQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", stream.Namespace(), stream.Name())
+		rowCountQuery := jdbc.MySQLTableRowCountQuery(stream.Namespace(), stream.Name())
 		err := m.client.QueryRowContext(timeoutCtx, rowCountQuery).Scan(&approxRowCount)
 		if err != nil || approxRowCount != 0 {
 			if timeoutCtx.Err() == context.DeadlineExceeded || approxRowCount != 0 {
