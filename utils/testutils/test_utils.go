@@ -110,6 +110,7 @@ func syncCommand(config TestConfig, useState bool) string {
 	return baseCmd
 }
 
+// pass flags as `--flag1, flag1 value, --flag2, flag2 value...`
 func discoverCommand(config TestConfig, flags ...string) string {
 	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
 	if len(flags) > 0 {
@@ -499,7 +500,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
-							destDbPrefix := fmt.Sprintf("performance_%s_", cfg.TestConfig.Driver)
+							destDbPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
 
 							t.Log("(backfill) discover started")
 							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDbPrefix)
