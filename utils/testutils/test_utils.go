@@ -500,10 +500,10 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
-							destDbPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
+							destDBPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
 
 							t.Log("(backfill) discover started")
-							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDbPrefix)
+							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 							if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
 							}
@@ -537,7 +537,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) discover started")
-								discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDbPrefix)
+								discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
 								}
