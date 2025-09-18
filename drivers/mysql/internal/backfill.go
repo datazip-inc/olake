@@ -77,7 +77,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil, fmt.Errorf("failed to get row count: %s", err)
 		}
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
-		pool.AddRecordsToSyncStats(0)
 		return types.NewSet[types.Chunk](), nil
 	}
 
