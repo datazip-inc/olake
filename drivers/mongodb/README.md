@@ -4,23 +4,27 @@ The MongoDB Driver enables data synchronization from MongoDB to your desired des
 ---
 
 ## Supported Modes
-1. **Full Refresh**  
+1. **Full Refresh**
    Fetches the complete dataset from MongoDB.
-2. **CDC (Change Data Capture)**  
+2. **CDC (Change Data Capture)**
    Tracks and syncs incremental changes from MongoDB in real time.
+3. **Strict CDC (Change Data Capture)**
+   Tracks only new changes from the current position in the MongoDB change stream, without performing an initial backfill.
+4. **Incremental**
+   Syncs only new or modified records which have cursor value greater than or equal to the saved position.
 
 ---
 
 ## Setup and Configuration
 To run the MongoDB Driver, configure the following files with your specific credentials and settings:
 
-- **`config.json`**: MongoDB connection details.  
-- **`streams.json`**: List of collections and fields to sync (generated using the *Discover* command).  
+- **`config.json`**: MongoDB connection details.
+- **`streams.json`**: List of collections and fields to sync (generated using the *Discover* command).
 - **`write.json`**: Configuration for the destination where the data will be written.
 
 Place these files in your project directory before running the commands.
 
-### Config File 
+### Config File
 Add MongoDB credentials in following format in `config.json` file. To check more about config [visit docs](https://olake.io/docs/connectors/mongodb/config)
    ```json
    {
@@ -38,9 +42,8 @@ Add MongoDB credentials in following format in `config.json` file. To check more
       "server-ram": 16,
       "database": "database",
       "max_threads": 50,
-      "default_mode" : "cdc",
       "backoff_retry_count": 2,
-      "partition_strategy":""
+      "chunking_strategy":""
    }
 ```
 
@@ -51,7 +54,7 @@ The *Discover* command generates json content for `streams.json` file, which def
 #### Usage
 To run the Discover command, use the following syntax
    ```bash
-   ./build.sh driver-mongodb discover --config /mongodb/examples/config.json 
+   ./build.sh driver-mongodb discover --config /mongodb/examples/config.json
    ```
 
 #### Example Response (Formatted)
@@ -66,7 +69,8 @@ After executing the Discover command, a formatted response will look like this:
                   "partition_regex": "",
                   "stream_name": "incr",
                   "normalization": false,
-                  "append_only": false
+                  "append_mode": false,
+                  "filter": "id > 1"
                }
          ]
       },
@@ -96,11 +100,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "sync_mode": "cdc",
       ```
-   - Specify the cursor field (only for incremental syncs):
-      ```json
-      "cursor_field": "<cursor field from available_cursor_fields>"
-      ```
-   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration.
+   - To enable `append_mode` mode, explicitly set it to `true` in the selected stream configuration.
       ```json
          "selected_streams": {
             "namespace": [
@@ -108,15 +108,37 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "partition_regex": "",
                      "stream_name": "incr",
                      "normalization": false,
-                     "append_only": false
+                     "append_mode": false
                   }
             ]
          },
       ```
-   
+
+   - Add `cursor_field` from set of `available_cursor_fields` in case of incremental sync. This column will be used to track which rows from the table must be synced. If the primary cursor field is expected to contain `null` values, a fallback cursor field can be specified after the primary cursor field using a colon separator. The system will use the fallback cursor when the primary cursor is `null`.
+        > **Note**: For incremental sync to work correctly, the primary cursor field (and fallback cursor field if defined) must contain at least one non-null value. Defined cursor fields cannot be entirely null.
+      ```json
+         "sync_mode": "incremental",
+         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be skipped if the primary cursor is not expected to contain null values)
+      ```
+
+   - The `filter` mode under selected_streams allows you to define precise   criteria for selectively syncing data from your source.
+      ```json
+         "selected_streams": {
+            "namespace": [
+                  {
+                     "partition_regex": "",
+                     "stream_name": "incr",
+                     "normalization": false,
+                     "filter": "_id > 6835a56c558d36492e3c39e2 and created_at <= \"2025-05-27T11:43:40.497+00:00\""
+                  }
+            ]
+         },
+      ```
+      For primitive types like _id, directly provide the value without using any quotes.
+
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
-<br> The `append_only` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow) <br>
+<br> The `append_mode` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow) <br>
    ```json
    {
       "selected_streams": {
@@ -125,7 +147,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "partition_regex": "",
                   "stream_name": "incr",
                   "normalization": false,
-                  "append_only": false
+                  "append_mode": false
                }
          ]
       },
@@ -145,7 +167,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
 
 
 
-### Writer File 
+### Writer File
 The Writer file defines the configuration for the destination where data needs to be added.<br>
 Example (For Local):
    ```
@@ -161,10 +183,10 @@ Example (For S3):
    {
       "type": "PARQUET",
       "writer": {
-         "s3_bucket": "olake",  
+         "s3_bucket": "olake",
          "s3_region": "",
-         "s3_access_key": "", 
-         "s3_secret_key": "", 
+         "s3_access_key": "",
+         "s3_secret_key": "",
          "s3_path": ""
       }
    }
@@ -215,13 +237,13 @@ The *Sync* command fetches data from MongoDB and ingests it into the destination
 ./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/streams.json --destination /mongodb/examples/write.json
 ```
 
-To run sync with state 
+To run sync with state
 ```bash
 ./build.sh driver-mongodb sync --config /mongodb/examples/config.json --catalog /mongodb/examples/streams.json --destination /mongodb/examples/write.json --state /mongodb/examples/state.json
 ```
 
 
-### State File 
+### State File
 The State file is generated by the CLI command at the completion of a batch or the end of a sync. This file can be used to save the sync progress and later resume from a specific checkpoint.
 #### State File Format
 You can save the state in a `state.json` file using the following format:

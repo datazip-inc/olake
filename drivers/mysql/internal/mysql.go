@@ -2,46 +2,49 @@ package driver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/drivers/base"
-	"github.com/datazip-inc/olake/logger"
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/typeutils"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 
 	// MySQL driver
-	_ "github.com/go-sql-driver/mysql"
-)
-
-const (
-	discoverTime = 5 * time.Minute // maximum time allowed to discover all the streams
+	"github.com/go-sql-driver/mysql"
 )
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
-	*base.Driver
-	config    *Config
-	client    *sql.DB
-	cdcConfig CDC
+	config     *Config
+	client     *sqlx.DB
+	sshClient  *ssh.Client
+	CDCSupport bool // indicates if the MySQL instance supports CDC
+	cdcConfig  CDC
+	BinlogConn *binlog.Connection
+	state      *types.State // reference to globally present state
 }
 
-func (m *MySQL) StateType() types.StateType {
-	return types.GlobalType
+// MySQLGlobalState tracks the binlog position and backfilled streams.
+type MySQLGlobalState struct {
+	ServerID uint32        `json:"server_id"`
+	State    binlog.Binlog `json:"state"`
 }
 
-func (m *MySQL) SetupState(state *types.State) {
-	state.Type = m.StateType()
-	m.State = state
+func (m *MySQL) CDCSupported() bool {
+	return m.CDCSupport
 }
 
 // GetConfigRef returns a reference to the configuration
-func (m *MySQL) GetConfigRef() protocol.Config {
+func (m *MySQL) GetConfigRef() abstract.Config {
 	m.config = &Config{}
 	return m.config
 }
@@ -52,24 +55,55 @@ func (m *MySQL) Spec() any {
 }
 
 // Setup establishes the database connection
-func (m *MySQL) Setup() error {
+func (m *MySQL) Setup(ctx context.Context) error {
 	err := m.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
-	// Open database connection
-	client, err := sql.Open("mysql", m.config.URI())
-	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
+
+	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
+	}
+
+	var client *sqlx.DB
+	if m.sshClient != nil {
+		logger.Info("Connecting to MySQL via SSH tunnel")
+
+		cfg, err := mysql.ParseDSN(m.config.URI())
+		if err != nil {
+			return fmt.Errorf("failed to parse mysql DSN: %s", err)
+		}
+
+		// Allows mysql driver to use the SSH client to connect to the database
+		cfg.Net = "mysqlTcp"
+		mysql.RegisterDialContext(cfg.Net, func(ctx context.Context, addr string) (net.Conn, error) {
+			return m.sshClient.Dial("tcp", addr)
+		})
+
+		client, err = sqlx.Open("mysql", cfg.FormatDSN())
+		if err != nil {
+			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+		}
+	} else {
+		client, err = sqlx.Open("mysql", m.config.URI())
+		if err != nil {
+			return fmt.Errorf("failed to open database connection: %s", err)
+		}
 	}
 	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-
+	// Set connection pool size
+	client.SetMaxOpenConns(m.config.MaxThreads)
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %w", err)
+		return fmt.Errorf("failed to ping database: %s", err)
 	}
-	found, _ := utils.IsOfType(m.config.UpdateMethod, "intial_wait_time")
+	// TODO: If CDC config exists and permission check fails, fail the setup
+	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
 		cdc := &CDC{}
@@ -83,38 +117,43 @@ func (m *MySQL) Setup() error {
 		m.cdcConfig = *cdc
 	}
 	m.client = client
+	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if binlog is configured
-	//TODO : check for mysql binlog permisssions
-	m.CDCSupport = true
+	cdcSupported, err := m.IsCDCSupported(ctx)
+	if err != nil {
+		logger.Warnf("failed to check CDC support: %s", err)
+	}
+	if !cdcSupported {
+		logger.Warnf("CDC is not supported")
+	}
+	m.CDCSupport = cdcSupported
 	return nil
-}
-
-// Check verifies the database connection
-func (m *MySQL) Check() error {
-	return m.Setup()
 }
 
 // Type returns the database type
 func (m *MySQL) Type() string {
-	return "MySQL"
+	return string(constants.MySQL)
 }
 
-// Discover finds and catalogs database tables
-func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
-	streams := m.GetStreams()
-	if len(streams) != 0 {
-		return streams, nil
-	}
+// set state to mysql
+func (m *MySQL) SetupState(state *types.State) {
+	m.state = state
+}
 
+func (m *MySQL) MaxConnections() int {
+	return m.config.MaxThreads
+}
+
+func (m *MySQL) MaxRetries() int {
+	return m.config.RetryCount
+}
+
+func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
-	discoverCtx, cancel := context.WithTimeout(context.Background(), discoverTime)
-	defer cancel()
-
 	query := jdbc.MySQLDiscoverTablesQuery()
-
-	rows, err := m.client.QueryContext(discoverCtx, query, m.config.Database)
+	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %w", err)
+		return nil, fmt.Errorf("failed to query tables: %s", err)
 	}
 	defer rows.Close()
 
@@ -122,102 +161,121 @@ func (m *MySQL) Discover(discoverSchema bool) ([]*types.Stream, error) {
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&tableName, &schemaName); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %w", err)
+			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
 	}
-
-	err = utils.Concurrent(discoverCtx, tableNames, len(tableNames), func(ctx context.Context, streamName string, _ int) error {
-		stream, err := m.produceTableSchema(ctx, streamName)
-		if err != nil && discoverCtx.Err() == nil {
-			return fmt.Errorf("failed to process table[%s]: %s", streamName, err)
-		}
-		stream.SyncMode = m.config.DefaultMode
-		m.AddStream(stream)
-		return err
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return m.GetStreams(), nil
+	return tableNames, nil
 }
 
-// Read handles different sync modes for data retrieval
-func (m *MySQL) Read(pool *protocol.WriterPool, stream protocol.Stream) error {
-	switch stream.GetSyncMode() {
-	case types.FULLREFRESH:
-		return m.backfill(pool, stream)
-	case types.CDC:
-		return m.RunChangeStream(pool, stream)
-	}
-
-	return nil
-}
-
-// produceTableSchema extracts schema information for a given table
-func (m *MySQL) produceTableSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	logger.Infof("producing type schema for stream [%s]", streamName)
-
-	parts := strings.Split(streamName, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-	}
-	schemaName, tableName := parts[0], parts[1]
-	stream := types.NewStream(tableName, schemaName).WithSyncMode(types.FULLREFRESH, types.CDC)
-
-	query := jdbc.MySQLTableSchemaQuery()
-
-	rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query column information: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var columnName, columnType, dataType, isNullable, columnKey string
-		if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
-			return nil, fmt.Errorf("failed to scan column: %w", err)
+func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+	produceTableSchema := func(ctx context.Context, streamName string) (*types.Stream, error) {
+		logger.Infof("producing type schema for stream [%s]", streamName)
+		parts := strings.Split(streamName, ".")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
 		}
-		datatype := types.Unknown
+		schemaName, tableName := parts[0], parts[1]
+		stream := types.NewStream(tableName, schemaName, nil)
+		query := jdbc.MySQLTableSchemaQuery()
 
-		if val, found := mysqlTypeToDataTypes[dataType]; found {
-			datatype = val
-		} else {
-			logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
-			datatype = types.String
+		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query column information: %s", err)
 		}
-		stream.UpsertField(typeutils.Reformat(columnName), datatype, strings.EqualFold("yes", isNullable))
+		defer rows.Close()
 
-		// Mark primary keys
-		if columnKey == "PRI" {
-			stream.WithPrimaryKey(columnName)
+		for rows.Next() {
+			var columnName, columnType, dataType, isNullable, columnKey string
+			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
+				return nil, fmt.Errorf("failed to scan column: %s", err)
+			}
+			stream.WithCursorField(columnName)
+			datatype := types.Unknown
+			if val, found := mysqlTypeToDataTypes[dataType]; found {
+				datatype = val
+			} else {
+				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
+				datatype = types.String
+			}
+			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable))
+
+			// Mark primary keys
+			if columnKey == "PRI" {
+				stream.WithPrimaryKey(columnName)
+			}
 		}
+		return stream, rows.Err()
 	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
+	stream, err := produceTableSchema(ctx, streamName)
+	if err != nil && ctx.Err() == nil {
+		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
-	// TODO: Populate cursor fields for incremental purpose
-
-	// Add CDC columns if supported
-	if m.CDCSupport {
-		for column, typ := range base.DefaultColumns {
-			stream.UpsertField(column, typ, true)
-		}
-		stream.WithSyncMode(types.CDC)
-
-	}
-	stream.WithSyncMode(types.FULLREFRESH)
-
 	return stream, nil
+}
+
+func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
+	if value == nil {
+		return nil, typeutils.ErrNullValue
+	}
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
+	return typeutils.ReformatValue(olakeType, value)
 }
 
 // Close ensures proper cleanup
 func (m *MySQL) Close() error {
 	if m.client != nil {
-		return m.client.Close()
+		err := m.client.Close()
+		if err != nil {
+			logger.Errorf("failed to close connection with MySQL: %s", err)
+		}
+	}
+
+	if m.sshClient != nil {
+		err := m.sshClient.Close()
+		if err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+		}
 	}
 	return nil
+}
+
+func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
+	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
+	if _, err := m.getCurrentBinlogPosition(); err != nil {
+		return false, fmt.Errorf("failed to get binlog position: %s", err)
+	}
+	// checkMySQLConfig checks a MySQL configuration value against an expected value
+	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
+		var name, value string
+		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
+			return false, fmt.Errorf("failed to check %s: %s", name, err)
+		}
+
+		if strings.ToUpper(value) != expectedValue {
+			logger.Warnf(warnMessage)
+			return false, nil
+		}
+
+		return true, nil
+	}
+
+	// Check binlog configurations
+	configChecks := []struct {
+		query         string
+		expectedValue string
+		errMessage    string
+	}{
+		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
+		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
+		{jdbc.MySQLBinlogRowMetadataQuery(), "FULL", "binlog_row_metadata is not set to FULL"},
+	}
+
+	for _, check := range configChecks {
+		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
+			return ok, err
+		}
+	}
+
+	return true, nil
 }

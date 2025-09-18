@@ -5,15 +5,16 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/typeutils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
+	"golang.org/x/crypto/ssh"
 )
 
 type Config struct {
-	Tables              *types.Set[protocol.Stream]
+	Tables              *types.Set[types.StreamInterface]
 	Connection          url.URL
+	SSHClient           *ssh.Client
 	ReplicationSlotName string
 	InitialWaitTime     time.Duration
 	TLSConfig           *tls.Config
@@ -29,23 +30,14 @@ func (s *WALState) IsEmpty() bool {
 }
 
 type ReplicationSlot struct {
-	SlotType string        `db:"slot_type"`
-	Plugin   string        `db:"plugin"`
-	LSN      pglogrepl.LSN `db:"confirmed_flush_lsn"`
-}
-
-type CDCChange struct {
-	Stream    protocol.Stream
-	Timestamp typeutils.Time
-	LSN       pglogrepl.LSN
-	Kind      string
-	Schema    string
-	Table     string
-	Data      map[string]any
+	SlotType   string        `db:"slot_type"`
+	Plugin     string        `db:"plugin"`
+	LSN        pglogrepl.LSN `db:"confirmed_flush_lsn"`
+	CurrentLSN pglogrepl.LSN `db:"current_lsn"`
 }
 
 type WALMessage struct {
-	// NextLSN   pglogrepl.LSN `json:"nextlsn"`
+	NextLSN   string         `json:"nextlsn"`
 	Timestamp typeutils.Time `json:"timestamp"`
 	Change    []struct {
 		Kind         string        `json:"kind"`
@@ -61,5 +53,3 @@ type WALMessage struct {
 		} `json:"oldkeys"`
 	} `json:"change"`
 }
-
-type OnMessage = func(message CDCChange) error

@@ -3,8 +3,9 @@ package binlog
 import (
 	"time"
 
-	"github.com/datazip-inc/olake/protocol"
+	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"golang.org/x/crypto/ssh"
 )
 
 // Config holds the configuration for the binlog syncer.
@@ -19,6 +20,7 @@ type Config struct {
 	VerifyChecksum  bool
 	HeartbeatPeriod time.Duration
 	InitialWaitTime time.Duration
+	SSHClient       *ssh.Client
 }
 
 // BinlogState holds the current binlog position.
@@ -28,7 +30,7 @@ type Binlog struct {
 
 // CDCChange represents a change event captured from the binlog.
 type CDCChange struct {
-	Stream    protocol.Stream
+	Stream    types.StreamInterface
 	Timestamp time.Time
 	Position  mysql.Position
 	Kind      string

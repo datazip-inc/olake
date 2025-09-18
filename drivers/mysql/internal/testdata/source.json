@@ -1,0 +1,13 @@
+{
+  "hosts": "host.docker.internal",
+  "username": "mysql",
+  "password": "secret1234",
+  "database": "olake_mysql_test",
+  "port": 3306,
+  "tls_skip_verify": true,
+  "update_method": {
+    "initial_wait_time": 10
+  },
+  "max_threads": 30,
+  "backoff_retry_count": 4
+}

@@ -179,7 +179,7 @@ func TestGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams)
+			result := GetWrappedCatalog(tc.streams, "test_driver")
 
 			// Verify the number of streams
 			assert.Equal(t, len(tc.expected.Streams), len(result.Streams), "Number of streams should match")
