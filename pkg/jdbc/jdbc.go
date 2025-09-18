@@ -287,8 +287,9 @@ func MySQLTableRowStatsQuery() string {
 }
 
 // MySQLTableRowCountQuery returns the query to get actual row count for a specific table
-func MySQLTableRowCountQuery(schema, table string) string {
-	return fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", schema, table)
+func MySQLTableRowCountQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	return fmt.Sprintf("SELECT COUNT(*) FROM %s", quotedTable)
 }
 
 // MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.3 and below
