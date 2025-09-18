@@ -8,11 +8,13 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
+	"golang.org/x/crypto/ssh"
 )
 
 type Config struct {
 	Tables              *types.Set[types.StreamInterface]
 	Connection          url.URL
+	SSHClient           *ssh.Client
 	ReplicationSlotName string
 	InitialWaitTime     time.Duration
 	TLSConfig           *tls.Config

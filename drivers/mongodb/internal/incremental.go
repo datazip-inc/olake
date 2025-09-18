@@ -69,7 +69,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 	incrementalCondition := buildMongoCondition(types.Condition{
 		Column:   primaryCursor,
 		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
-		Operator: ">=",
+		Operator: ">",
 	})
 
 	// If secondary is enabled, build an OR condition with fallback
@@ -83,7 +83,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 						buildMongoCondition(types.Condition{
 							Column:   secondaryCursor,
 							Value:    fmt.Sprintf("%v", lastSecondaryCursorValue),
-							Operator: ">=",
+							Operator: ">",
 						}),
 					},
 				}},
