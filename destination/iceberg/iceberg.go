@@ -286,6 +286,9 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	res, err := server.sendClientRequest(ctx, request)
 	if err != nil {
+		if recent := logger.GetFirstErrorLine(fmt.Sprintf("Thread[%s:%d]", server.serverID, server.port)); recent != "" {
+			return fmt.Errorf("failed to create or get table: %s : %s", err, recent)
+		}
 		return fmt.Errorf("failed to create or get table: %s", err)
 	}
 
