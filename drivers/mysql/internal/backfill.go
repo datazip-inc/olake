@@ -50,7 +50,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			if err != nil {
 				return fmt.Errorf("failed to scan record data as map: %s", err)
 			}
-			return OnMessage(record)
+			return OnMessage(ctx, record)
 		})
 	})
 }
@@ -77,11 +77,11 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil, fmt.Errorf("failed to get row count: %s", err)
 		}
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
-		pool.AddRecordsToSync(0)
+		pool.AddRecordsToSyncStats(0)
 		return types.NewSet[types.Chunk](), nil
 	}
 
-	pool.AddRecordsToSync(approxRowCount)
+	pool.AddRecordsToSyncStats(approxRowCount)
 	// avgRowSize is returned as []uint8 which is converted to float64
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {
@@ -93,11 +93,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// Takes the user defined batch size as chunkSize
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+			// Get primary key column using the provided function
 			pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 			if chunkColumn != "" {
 				pkColumns = []string{chunkColumn}
 			}
 			sort.Strings(pkColumns)
+			// Get table extremes
 			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
