@@ -149,33 +149,49 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	return fields, nil
 }
 
-// Write writes a record to the Parquet file.
+// Write writes records to the Parquet file using batch writing for better performance.
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
-	// TODO: use batch writing feature of pq writer
+	// Set timestamp for all records
+	now := time.Now().UTC()
+	for i := range records {
+		records[i].OlakeTimestamp = now
+	}
+
+	// Group records by partition path
+	partitionBatches := make(map[string][]types.RawRecord)
 	for _, record := range records {
-		record.OlakeTimestamp = time.Now().UTC()
-		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
-		partitionFile, exists := p.partitionedFiles[partitionedPath]
+		path := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
+		partitionBatches[path] = append(partitionBatches[path], record)
+	}
+
+	// Write each partition batch
+	for path, batch := range partitionBatches {
+		file, exists := p.partitionedFiles[path]
 		if !exists {
-			err := p.createNewPartitionFile(partitionedPath)
-			if err != nil {
-				return fmt.Errorf("failed to create parititon file: %s", err)
+			if err := p.createNewPartitionFile(path); err != nil {
+				return fmt.Errorf("failed to create partition file: %s", err)
 			}
-			partitionFile = p.partitionedFiles[partitionedPath]
+			file = p.partitionedFiles[path]
 		}
 
-		if partitionFile == nil {
-			return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
+		if file == nil {
+			return fmt.Errorf("failed to create partition file for path[%s]", path)
 		}
 
+		// Batch write based on normalization mode
 		var err error
 		if p.stream.NormalizationEnabled() {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
+			data := make([]any, len(batch))
+			for i, rec := range batch {
+				data[i] = rec.Data
+			}
+			_, err = file.writer.(*pqgo.GenericWriter[any]).Write(data)
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+			_, err = file.writer.(*pqgo.GenericWriter[types.RawRecord]).Write(batch)
 		}
+		
 		if err != nil {
-			return fmt.Errorf("failed to write in parquet file: %s", err)
+			return fmt.Errorf("failed to write batch to parquet file: %s", err)
 		}
 	}
 
