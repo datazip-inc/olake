@@ -483,5 +483,8 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 
 func hasMultipleType(stream types.StreamInterface) bool {
 	_, idProperty := stream.Schema().GetProperty("_id")
+	if idProperty == nil {
+		return false
+	}
 	return idProperty.Type.Len() > 1
 }
