@@ -455,7 +455,7 @@ func reformatID(v interface{}) (interface{}, error) {
 	switch t := v.(type) {
 	case primitive.ObjectID:
 		return t.Hex(), nil
-	case int32, int64:
+	case int32, int64, float64:
 		return t, nil
 	default:
 		// fallback
@@ -483,5 +483,5 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 
 func hasMultipleType(stream types.StreamInterface) bool {
 	_, idProperty := stream.Schema().GetProperty("_id")
-	return len(idProperty.Type.Array()) > 1
+	return idProperty.Type.Len() > 1
 }
