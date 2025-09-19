@@ -31,12 +31,12 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 
 	// check for _id type
-	isObjID, hasMultipleType, err := isObjectID(ctx, collection, stream)
+	isObjID, err := isObjectID(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID, hasMultipleType), opts)
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID, hasMultipleType(stream)), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -72,7 +72,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	pool.AddRecordsToSyncStats(recordCount)
 
 	// check for _id type
-	isObjID, hasMultipleType, err := isObjectID(ctx, collection, stream)
+	isObjID, err := isObjectID(ctx, collection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
@@ -82,7 +82,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var retryErr error
 	var chunksArray []types.Chunk
 	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, isObjID, hasMultipleType, storageSize)
+		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, isObjID, storageSize)
 		return retryErr
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return types.NewSet(chunksArray...), nil
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, isObjID, hasMultipleType bool, storageSize float64) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, isObjID bool, storageSize float64) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
@@ -165,7 +165,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 		}
 		// Add filter for ObjectID type when multiple types are detected
-		if hasMultipleType {
+		if hasMultipleType(stream) {
 			logger.Warnf("Caution: collection %s contains multiple _id types. Only documents with ObjectID _id will be synced; other types are skipped, which could result in data loss.", stream.ID())
 			pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}}})
 		}
@@ -256,7 +256,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return timestampStrategy()
 	default:
 		// Fallback to auto strategy if _id is not ObjectID or has multiple types
-		if hasMultipleType || !isObjID {
+		if hasMultipleType(stream) || !isObjID {
 			return bucketAutoStrategy(storageSize)
 		}
 		// Not using splitVector strategy when _id is not an ObjectID:
@@ -332,9 +332,9 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter bson.D, isObjID, isMultipleType bool) mongo.Pipeline {
+func generatePipeline(start, end any, filter bson.D, isObjID, hasMultipleType bool) mongo.Pipeline {
 	var andOperation []bson.D
-	if isMultipleType || isObjID {
+	if hasMultipleType || isObjID {
 		// convert to primitive.ObjectID
 		start, _ = primitive.ObjectIDFromHex(start.(string))
 		if end != nil {
@@ -463,21 +463,31 @@ func reformatID(v interface{}) (interface{}, error) {
 	}
 }
 
-func isObjectID(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface) (bool, bool, error) {
+func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error) {
 	var doc bson.M
 	err := collection.FindOne(ctx, bson.D{}).Decode(&doc)
-	_, idProperty := stream.Schema().GetProperty("_id")
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			// No data
-			return false, len(idProperty.Type.Array()) > 1, nil
+			return false, nil
 		}
-		return false, len(idProperty.Type.Array()) > 1, err
+		return false, err
 	}
 	idVal, ok := doc["_id"]
 	if !ok {
-		return false, len(idProperty.Type.Array()) > 1, fmt.Errorf("no _id field found")
+		return false, fmt.Errorf("no _id field found")
 	}
 	_, isObjID := idVal.(primitive.ObjectID)
-	return isObjID, len(idProperty.Type.Array()) > 1, nil
+	return isObjID, nil
+}
+
+func hasMultipleType(stream types.StreamInterface) bool {
+	_, idProperty := stream.Schema().GetProperty("_id")
+	var validType []types.DataType
+	for _, t := range idProperty.Type.Array() {
+		if t != types.Null {
+			validType = append(validType, t)
+		}
+	}
+	return len(validType) > 1
 }
