@@ -164,7 +164,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		pipeline := mongo.Pipeline{
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 		}
-		// Add filter for ObjectID type when multiple types are detected
+		// chunk only ObjectID type _id when multiple types are detected
 		if hasMultipleType(stream) {
 			logger.Warnf("Caution: collection %s contains multiple _id types. Only documents with ObjectID _id will be synced; other types are skipped, which could result in data loss.", stream.ID())
 			pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}}})
@@ -483,11 +483,5 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 
 func hasMultipleType(stream types.StreamInterface) bool {
 	_, idProperty := stream.Schema().GetProperty("_id")
-	var validType []types.DataType
-	for _, t := range idProperty.Type.Array() {
-		if t != types.Null {
-			validType = append(validType, t)
-		}
-	}
-	return len(validType) > 1
+	return len(idProperty.Type.Array()) > 1
 }
