@@ -36,7 +36,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID), opts)
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID, hasMultipleType(stream)), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -163,11 +163,16 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
 		pipeline := mongo.Pipeline{
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
-			{{Key: "$bucketAuto", Value: bson.D{
-				{Key: "groupBy", Value: "$_id"},
-				{Key: "buckets", Value: numberOfBuckets},
-			}}},
 		}
+		// chunk only ObjectID type _id when multiple types are detected
+		if hasMultipleType(stream) {
+			logger.Warnf("Caution: collection %s contains multiple _id types. Only documents with ObjectID _id will be synced; other types are skipped, which could result in data loss.", stream.ID())
+			pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}}})
+		}
+		pipeline = append(pipeline, bson.D{{Key: "$bucketAuto", Value: bson.D{
+			{Key: "groupBy", Value: "$_id"},
+			{Key: "buckets", Value: numberOfBuckets},
+		}}})
 
 		cursor, err := collection.Aggregate(ctx, pipeline)
 		if err != nil {
@@ -207,10 +212,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 				Max: max,
 			})
 		}
-
 		return chunks, nil
 	}
-
 	timestampStrategy := func() ([]types.Chunk, error) {
 		// Time-based strategy implementation
 		first, last, err := m.fetchExtremes(ctx, collection)
@@ -252,7 +255,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	case "timestamp":
 		return timestampStrategy()
 	default:
-		if !isObjID {
+		// Fallback to auto strategy if _id is not ObjectID or has multiple types
+		if hasMultipleType(stream) || !isObjID {
 			return bucketAutoStrategy(storageSize)
 		}
 		// Not using splitVector strategy when _id is not an ObjectID:
@@ -260,6 +264,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
 		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
 		// leading to uneven splits, overlaps, or gaps.
+		logger.Infof("using split vector strategy for stream: %s", stream.ID())
 		chunks, err := splitVectorStrategy()
 		// check if authorization error occurs
 		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
@@ -327,10 +332,9 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipeline {
+func generatePipeline(start, end any, filter bson.D, isObjID, hasMultipleType bool) mongo.Pipeline {
 	var andOperation []bson.D
-
-	if isObjID {
+	if hasMultipleType || isObjID {
 		// convert to primitive.ObjectID
 		start, _ = primitive.ObjectIDFromHex(start.(string))
 		if end != nil {
@@ -451,7 +455,7 @@ func reformatID(v interface{}) (interface{}, error) {
 	switch t := v.(type) {
 	case primitive.ObjectID:
 		return t.Hex(), nil
-	case int32, int64:
+	case int32, int64, float64:
 		return t, nil
 	default:
 		// fallback
@@ -475,4 +479,12 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 	}
 	_, isObjID := idVal.(primitive.ObjectID)
 	return isObjID, nil
+}
+
+func hasMultipleType(stream types.StreamInterface) bool {
+	_, idProperty := stream.Schema().GetProperty("_id")
+	if idProperty == nil {
+		return false
+	}
+	return idProperty.Type.Len() > 1
 }
