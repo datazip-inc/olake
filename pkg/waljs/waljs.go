@@ -44,6 +44,10 @@ type Socket struct {
 	replicationSlot string
 	// initialWaitTime is the duration to wait for initial data before timing out
 	initialWaitTime time.Duration
+	// map to store relation id
+	relationID map[uint32]*pglogrepl.RelationMessage
+	// transaction buffer
+	// txBuffer []abstract.CDCChange
 }
 
 func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Socket, error) {
@@ -111,6 +115,7 @@ func NewConnection(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		CurrentWalPosition: slot.CurrentLSN,
 		replicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
+		relationID:         make(map[uint32]*pglogrepl.RelationMessage),
 	}, nil
 }
 

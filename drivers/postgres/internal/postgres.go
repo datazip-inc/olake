@@ -109,7 +109,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		cdc.InitialWaitTime = utils.Ternary(cdc.InitialWaitTime == 0, 1200, cdc.InitialWaitTime).(int)
 
 		// check if initial wait time is valid or not
-		if cdc.InitialWaitTime < 120 || cdc.InitialWaitTime > 2400 {
+		if cdc.InitialWaitTime < 10 || cdc.InitialWaitTime > 2400 {
 			return fmt.Errorf("the CDC initial wait time must be at least 120 seconds and less than 2400 seconds")
 		}
 

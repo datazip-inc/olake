@@ -84,7 +84,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 }
 
 func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
-	return p.Socket.StreamMessages(ctx, p.client, callback)
+	return p.Socket.ProcessNextMessage(ctx, p.client)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
@@ -117,9 +117,9 @@ func validateReplicationSlot(conn *sqlx.DB, slotName string) error {
 		return err
 	}
 
-	if slot.Plugin != "wal2json" {
-		return fmt.Errorf("plugin not supported[%s]: driver only supports wal2json", slot.Plugin)
-	}
+	// if slot.Plugin != "wal2json" {
+	// 	return fmt.Errorf("plugin not supported[%s]: driver only supports wal2json", slot.Plugin)
+	// }
 
 	if slot.SlotType != "logical" {
 		return fmt.Errorf("only logical slots are supported: %s", slot.SlotType)
