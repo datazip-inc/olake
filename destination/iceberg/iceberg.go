@@ -565,7 +565,7 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 
 		// Append to ordered slice to preserve partition order
 		i.partitionInfo = append(i.partitionInfo, PartitionInfo{
-			field:     colName,
+			field:     utils.Reformat(colName),
 			transform: transform,
 		})
 	}
