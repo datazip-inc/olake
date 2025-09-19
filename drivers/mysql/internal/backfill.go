@@ -188,3 +188,17 @@ func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []strin
 	err = tx.QueryRow(query).Scan(&min, &max)
 	return min, max, err
 }
+
+func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.MySQL,
+		Stream: stream,
+		Client: m.client,
+		State:  m.state,
+	}
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.MaxCursorSetter(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+}

@@ -18,6 +18,20 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
 	if chunksSet == nil || chunksSet.Len() == 0 {
+		// Set max cursor values incase of incremental sync before splitting chunks
+		if stream.GetSyncMode() == types.INCREMENTAL {
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
+			if err != nil {
+				return fmt.Errorf("failed to fetch max cursor values: %s", err)
+			}
+			primaryCursor, secondaryCursor := stream.Cursor()
+
+			a.state.SetCursor(stream.Self(), primaryCursor, typeutils.ReformatCursorValue(maxPrimaryCursorValue))
+			if secondaryCursor != "" {
+				a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(maxSecondaryCursorValue))
+			}
+		}
+
 		chunksSet, err = a.driver.GetOrSplitChunks(ctx, pool, stream)
 		if err != nil {
 			return fmt.Errorf("failed to get or split chunks: %s", err)
@@ -64,21 +78,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
-				}
-
-				// if it is incremental update the max cursor value received in chunk
-				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
-					prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-					if cursorErr != nil {
-						err = cursorErr
-						return
-					}
-					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
-						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-					}
-					if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
-					}
 				}
 			} else {
 				err = fmt.Errorf("thread[%s]: %s", threadID, err)
