@@ -161,17 +161,18 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		logger.Infof("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
-		groupBy := interface{}("$_id")
-		if hasMultipleType {
-			groupBy = bson.D{{Key: "$toString", Value: "$_id"}}
-		}
 		pipeline := mongo.Pipeline{
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
-			{{Key: "$bucketAuto", Value: bson.D{
-				{Key: "groupBy", Value: groupBy},
-				{Key: "buckets", Value: numberOfBuckets},
-			}}},
 		}
+		// Add filter for ObjectID type when multiple types are detected
+		if hasMultipleType {
+			logger.Warnf("Caution: collection %s contains multiple _id types. Only documents with ObjectID _id will be synced; other types are skipped, which could result in data loss.", stream.ID())
+			pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}}})
+		}
+		pipeline = append(pipeline, bson.D{{Key: "$bucketAuto", Value: bson.D{
+			{Key: "groupBy", Value: "$_id"},
+			{Key: "buckets", Value: numberOfBuckets},
+		}}})
 
 		cursor, err := collection.Aggregate(ctx, pipeline)
 		if err != nil {
@@ -263,6 +264,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
 		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
 		// leading to uneven splits, overlaps, or gaps.
+		logger.Infof("using split vector strategy for stream: %s", stream.ID())
 		chunks, err := splitVectorStrategy()
 		// check if authorization error occurs
 		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
@@ -332,15 +334,8 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 }
 
 func generatePipeline(start, end any, filter bson.D, isObjID, isMultipleType bool) mongo.Pipeline {
-	var stages mongo.Pipeline
-	if isMultipleType {
-		stages = append(stages, bson.D{{Key: "$project", Value: bson.D{
-			{Key: "_id", Value: bson.D{{Key: "$toString", Value: "$_id"}}},
-		}}})
-	}
-
 	var andOperation []bson.D
-	if !isMultipleType && isObjID {
+	if isMultipleType || isObjID {
 		// convert to primitive.ObjectID
 		start, _ = primitive.ObjectIDFromHex(start.(string))
 		if end != nil {
@@ -367,10 +362,22 @@ func generatePipeline(start, end any, filter bson.D, isObjID, isMultipleType boo
 	}
 
 	// Define the aggregation pipeline
-	matchStage := bson.D{{Key: "$match", Value: bson.D{{Key: "$and", Value: andOperation}}}}
-	stages = append(stages, matchStage)
-	stages = append(stages, bson.D{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}})
-	return stages
+	return mongo.Pipeline{
+		{
+			{
+				Key: "$match",
+				Value: bson.D{
+					{
+						Key:   "$and",
+						Value: andOperation,
+					},
+				}},
+		},
+		bson.D{
+			{Key: "$sort",
+				Value: bson.D{{Key: "_id", Value: 1}}},
+		},
+	}
 }
 
 // function to generate ObjectID with the minimum value for a given time
