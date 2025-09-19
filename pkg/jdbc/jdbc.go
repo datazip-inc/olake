@@ -127,26 +127,38 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int) string {
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int, dataType types.DataType) string {
 	quotedColumn := QuoteIdentifier(filterColumn, constants.Postgres)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
-	baseCond := fmt.Sprintf(`%s > %v`, quotedColumn, filterValue)
+	var baseCond string
+	if dataType == types.String {
+		baseCond = fmt.Sprintf(`%s > '%s'`, quotedColumn, strings.ReplaceAll(fmt.Sprintf("%v", filterValue), "'", "''"))
+	} else {
+		baseCond = fmt.Sprintf(`%s > %v`, quotedColumn, filterValue)
+	}
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM %s WHERE %s ORDER BY %s ASC LIMIT %d) AS T`,
 		quotedColumn, quotedColumn, quotedTable, baseCond, quotedColumn, batchSize)
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
-func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk, filter string) string {
+func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk, filter string, dataType types.DataType) string {
 	quotedFilterColumn := QuoteIdentifier(filterColumn, constants.Postgres)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
 
+	formatValue := func(val interface{}) string {
+		if dataType == types.String && val != nil {
+			return fmt.Sprintf("'%s'", strings.ReplaceAll(fmt.Sprintf("%v", val), "'", "''"))
+		}
+		return fmt.Sprintf("%v", val)
+	}
+
 	chunkCond := ""
 	if chunk.Min != nil && chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", quotedFilterColumn, chunk.Min, quotedFilterColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s >= %s AND %s < %s", quotedFilterColumn, formatValue(chunk.Min), quotedFilterColumn, formatValue(chunk.Max))
 	} else if chunk.Min != nil {
-		chunkCond = fmt.Sprintf("%s >= %v", quotedFilterColumn, chunk.Min)
+		chunkCond = fmt.Sprintf("%s >= %s", quotedFilterColumn, formatValue(chunk.Min))
 	} else if chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s < %v", quotedFilterColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s < %s", quotedFilterColumn, formatValue(chunk.Max))
 	}
 
 	chunkCond = utils.Ternary(filter != "" && chunkCond != "", fmt.Sprintf("(%s) AND (%s)", chunkCond, filter), chunkCond).(string)
