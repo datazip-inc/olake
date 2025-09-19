@@ -129,7 +129,7 @@ services:
       retries: 3
       start_period: 10s
     ports:
-      - 5432:5432
+      - 55432:5432
     volumes:
       - ./data/postgres-data:/var/lib/postgresql/data
 
