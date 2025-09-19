@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -13,7 +14,7 @@ import (
 )
 
 // ProcessNextMessage handles the next replication message with retry logic for connection errors
-func (s *Socket) ProcessNextMessage(ctx context.Context, db *sqlx.DB) error {
+func (s *Socket) ProcessNextMessage(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	// Update current lsn information
 	var slot ReplicationSlot
 	if err := db.Get(&slot, fmt.Sprintf(ReplicationSlotTempl, s.replicationSlot)); err != nil {
@@ -66,7 +67,7 @@ func (s *Socket) ProcessNextMessage(ctx context.Context, db *sqlx.DB) error {
 
 			switch finalMsg.Data[0] {
 			case pglogrepl.XLogDataByteID:
-				lsn, err := s.handleXLogData(finalMsg.Data[1:], &lastStatusUpdate)
+				lsn, err := s.handleXLogData(finalMsg.Data[1:], &lastStatusUpdate, insertFn)
 				if err != nil {
 					return err
 				}
@@ -93,13 +94,13 @@ func (s *Socket) ProcessNextMessage(ctx context.Context, db *sqlx.DB) error {
 }
 
 // handleXLogData processes XLogData messages
-func (s *Socket) handleXLogData(data []byte, lastStatusUpdate *time.Time) (*pglogrepl.LSN, error) {
+func (s *Socket) handleXLogData(data []byte, lastStatusUpdate *time.Time, insertFn abstract.CDCMsgFn) (*pglogrepl.LSN, error) {
 	xld, err := pglogrepl.ParseXLogData(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse XLogData: %w", err)
 	}
 
-	if err := s.processWALData(xld.WALData, xld.WALStart); err != nil {
+	if err := s.processWALData(xld.WALData, xld.WALStart, insertFn); err != nil {
 		return nil, fmt.Errorf("failed to process WAL data: %w", err)
 	}
 
@@ -108,7 +109,7 @@ func (s *Socket) handleXLogData(data []byte, lastStatusUpdate *time.Time) (*pglo
 }
 
 // processWALData handles different types of WAL messages
-func (s *Socket) processWALData(walData []byte, lsn pglogrepl.LSN) error {
+func (s *Socket) processWALData(walData []byte, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {
 		return fmt.Errorf("failed to parse WAL data: %w", err)
@@ -120,11 +121,11 @@ func (s *Socket) processWALData(walData []byte, lsn pglogrepl.LSN) error {
 	case *pglogrepl.BeginMessage:
 		return s.HandleBeginMessage(msg)
 	case *pglogrepl.InsertMessage:
-		return s.HandleInsertMessage(msg, lsn)
+		return s.HandleInsertMessage(msg, lsn, insertFn)
 	case *pglogrepl.UpdateMessage:
-		return s.HandleUpdateMessage(msg, lsn)
+		return s.HandleUpdateMessage(msg, lsn, insertFn)
 	case *pglogrepl.DeleteMessage:
-		return s.HandleDeleteMessage(msg, lsn)
+		return s.HandleDeleteMessage(msg, lsn, insertFn)
 	case *pglogrepl.CommitMessage:
 		return s.HandleCommitMessage(msg)
 	default:
@@ -146,7 +147,7 @@ func (s *Socket) HandleBeginMessage(msg *pglogrepl.BeginMessage) error {
 }
 
 // HandleInsertMessage handles InsertMessage messages
-func (s *Socket) HandleInsertMessage(msg *pglogrepl.InsertMessage, lsn pglogrepl.LSN) error {
+func (s *Socket) HandleInsertMessage(msg *pglogrepl.InsertMessage, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
 	relation, ok := s.relationID[msg.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation ID: %d", msg.RelationID)
@@ -162,58 +163,73 @@ func (s *Socket) HandleInsertMessage(msg *pglogrepl.InsertMessage, lsn pglogrepl
 			logger.Infof("  %s: %s", colName, string(col.Data))
 		}
 	}
+	insertFn(context.TODO(), abstract.CDCChange{
+		Stream: s.changeFilter.tables[fmt.Sprintf("%s.%s", relation.Namespace, relation.RelationName)],
+		Kind:   "insert",
+		Data:   make(map[string]any),
+	})
 	return nil
 }
 
 // HandleUpdateMessage handles UpdateMessage messages
-func (s *Socket) HandleUpdateMessage(msg *pglogrepl.UpdateMessage, lsn pglogrepl.LSN) error {
+func (s *Socket) HandleUpdateMessage(msg *pglogrepl.UpdateMessage, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
 	relation, ok := s.relationID[msg.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation ID: %d", msg.RelationID)
 	}
 
 	// Print update record
-	logger.Infof("UPDATE: LSN=%s, Relation=%s.%s", lsn, relation.Namespace, relation.RelationName)
-	if msg.OldTuple != nil {
-		logger.Info("  OLD VALUES:")
-		for idx, col := range msg.OldTuple.Columns {
-			colName := relation.Columns[idx].Name
-			if col.Data == nil {
-				logger.Infof("    %s: NULL", colName)
-			} else {
-				logger.Infof("    %s: %s", colName, string(col.Data))
-			}
-		}
-	}
-	logger.Info("  NEW VALUES:")
-	for idx, col := range msg.NewTuple.Columns {
-		colName := relation.Columns[idx].Name
-		if col.Data == nil {
-			logger.Infof("    %s: NULL", colName)
-		} else {
-			logger.Infof("    %s: %s", colName, string(col.Data))
-		}
-	}
+	// logger.Infof("UPDATE: LSN=%s, Relation=%s.%s", lsn, relation.Namespace, relation.RelationName)
+	// if msg.OldTuple != nil {
+	// 	logger.Info("  OLD VALUES:")
+	// 	for idx, col := range msg.OldTuple.Columns {
+	// 		colName := relation.Columns[idx].Name
+	// 		if col.Data == nil {
+	// 			logger.Infof("    %s: NULL", colName)
+	// 		} else {
+	// 			logger.Infof("    %s: %s", colName, string(col.Data))
+	// 		}
+	// 	}
+	// }
+	// logger.Info("  NEW VALUES:")
+	// for idx, col := range msg.NewTuple.Columns {
+	// 	colName := relation.Columns[idx].Name
+	// 	if col.Data == nil {
+	// 		logger.Infof("    %s: NULL", colName)
+	// 	} else {
+	// 		logger.Infof("    %s: %s", colName, string(col.Data))
+	// 	}
+	// }
+	insertFn(context.TODO(), abstract.CDCChange{
+		Stream: s.changeFilter.tables[fmt.Sprintf("%s.%s", relation.Namespace, relation.RelationName)],
+		Kind:   "update",
+		Data:   make(map[string]any),
+	})
 	return nil
 }
 
 // HandleDeleteMessage handles DeleteMessage messages
-func (s *Socket) HandleDeleteMessage(msg *pglogrepl.DeleteMessage, lsn pglogrepl.LSN) error {
+func (s *Socket) HandleDeleteMessage(msg *pglogrepl.DeleteMessage, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
 	relation, ok := s.relationID[msg.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation ID: %d", msg.RelationID)
 	}
 
 	// Print delete record
-	logger.Infof("DELETE: LSN=%s, Relation=%s.%s", lsn, relation.Namespace, relation.RelationName)
-	for idx, col := range msg.OldTuple.Columns {
-		colName := relation.Columns[idx].Name
-		if col.Data == nil {
-			logger.Infof("  %s: NULL", colName)
-		} else {
-			logger.Infof("  %s: %s", colName, string(col.Data))
-		}
-	}
+	// logger.Infof("DELETE: LSN=%s, Relation=%s.%s", lsn, relation.Namespace, relation.RelationName)
+	// for idx, col := range msg.OldTuple.Columns {
+	// 	colName := relation.Columns[idx].Name
+	// 	if col.Data == nil {
+	// 		logger.Infof("  %s: NULL", colName)
+	// 	} else {
+	// 		logger.Infof("  %s: %s", colName, string(col.Data))
+	// 	}
+	// }
+	insertFn(context.TODO(), abstract.CDCChange{
+		Stream: s.changeFilter.tables[fmt.Sprintf("%s.%s", relation.Namespace, relation.RelationName)],
+		Kind:   "delete",
+		Data:   make(map[string]any),
+	})
 	return nil
 }
 

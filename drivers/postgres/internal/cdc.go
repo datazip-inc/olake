@@ -84,7 +84,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 }
 
 func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
-	return p.Socket.ProcessNextMessage(ctx, p.client)
+	return p.Socket.ProcessNextMessage(ctx, p.client, callback)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
