@@ -22,6 +22,7 @@ type Config struct {
 	BatchSize        int               `json:"reader_batch_size"`
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
+	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 }
 
 // Capture Write Ahead Logs

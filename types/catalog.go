@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
@@ -96,7 +97,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return sm
 	}
 
-	// filter selected streams
+	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
 		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
@@ -112,20 +113,60 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		newCatalog.SelectedStreams = selectedStreams
 	}
 
-	// Preserve sync modes from old catalog
+	constantValue, prefix := getDestDBPrefix(oldCatalog.Streams)
+
+	// merge streams metadata
 	oldStreams := createStreamMap(oldCatalog)
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
-		if !exists {
+		if exists {
+			// preserve metadata from old
+			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
+			newStream.Stream.CursorField = oldStream.Stream.CursorField
+			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
+			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			return nil
 		}
-		// not adding checks, let validation handle it
-		newStream.Stream.SyncMode = oldStream.Stream.SyncMode
-		newStream.Stream.CursorField = oldStream.Stream.CursorField
-		newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
-		newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+
+		// manipulate destination db in new streams according to old streams
+
+		// prefix == "" means old stream when db normalization feature not introduced
+		if constantValue {
+			newStream.Stream.DestinationDatabase = oldCatalog.Streams[0].Stream.DestinationDatabase
+		} else if prefix != "" {
+			newStream.Stream.DestinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
+		}
+
 		return nil
 	})
 
 	return newCatalog
+}
+
+// getDestDBPrefix analyzes a collection of streams to determine if they share a common
+// destination database prefix or constant value.
+//
+// The function checks if all streams have the same:
+// - Destination database prefix (e.g., "PREFIX:table_name") OR
+// - Constant database name (e.g., "CONSTANT_DB_NAME")
+// Returns:
+//
+//	bool: true if the common value is a constant (no colon present),
+//	      false if it's a prefix (colon present in original string)
+//	string: the common prefix or constant value, or empty string if no common value exists
+func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix string) {
+	if len(streams) == 0 {
+		return false, ""
+	}
+
+	prefixOrConstValue := strings.Split(streams[0].Stream.DestinationDatabase, ":")
+	for _, s := range streams {
+		streamDBPrefixOrConstValue := strings.Split(s.Stream.DestinationDatabase, ":")
+		if streamDBPrefixOrConstValue[0] != prefixOrConstValue[0] {
+			// Not all same → bail out
+			return false, ""
+		}
+	}
+
+	return len(prefixOrConstValue) == 1, prefixOrConstValue[0]
 }
