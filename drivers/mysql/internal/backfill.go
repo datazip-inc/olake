@@ -72,12 +72,23 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		var hasRows bool
 		existsQuery := jdbc.MySQLTableExistsQuery(stream)
 		err := m.client.QueryRowContext(timeoutCtx, existsQuery).Scan(&hasRows)
-		if err != nil || hasRows {
-			if timeoutCtx.Err() == context.DeadlineExceeded || hasRows {
-				return nil, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE TABLE to update table statistics", stream.ID())
-			}
+		
+		// Handle query timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE TABLE to update table statistics", stream.ID())
+		}
+		
+		// Handle query error
+		if err != nil {
 			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
 		}
+		
+		// If table has rows but approxRowCount is 0, stats are missing
+		if hasRows {
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE TABLE to update table statistics", stream.ID())
+		}
+		
+		// Table is actually empty
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
 		return types.NewSet[types.Chunk](), nil
 	}
