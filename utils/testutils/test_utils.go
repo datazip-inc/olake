@@ -114,7 +114,7 @@ func discoverCommand(config TestConfig) string {
 	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
 }
 
-// TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
+// update normalization=true for selected streams under selected_streams.<namespace> by name
 func updateStreamsCommand(config TestConfig, namespace string, stream []string, isBackfill bool) string {
 	if len(stream) == 0 {
 		return ""
@@ -136,6 +136,23 @@ func updateStreamsCommand(config TestConfig, namespace string, stream []string, 
 		config.CatalogPath,
 	)
 	return jqExpr
+}
+
+// set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
+func setStreamSyncModeCommand(config TestConfig, namespace, streamName, syncMode, cursorField string, stateRequired bool) string {
+	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
+	// --argjson is used for boolean state; map/select pattern updates nested array members
+	return fmt.Sprintf(
+		`jq --arg ns "%s" --arg name "%s" --arg mode "%s" --arg cursor "%s" --argjson state %t '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = $mode | .stream.cursor_field = $cursor | .stream.state_required = $state) | . else . end))' %s > %s && mv %s %s`,
+		namespace, streamName, syncMode, cursorField, stateRequired,
+		config.CatalogPath, tmpCatalog, tmpCatalog, config.CatalogPath,
+	)
+}
+
+// reset state file so incremental can perform initial load (equivalent to full load on first run)
+func resetStateFileCommand(config TestConfig) string {
+	// Ensure the state is clean irrespective of previous CDC run
+	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
 // to get backfill streams from cdc streams e.g. "demo_cdc" -> "demo"
@@ -270,6 +287,21 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							t.Logf("Enabled normalization in %s", cfg.TestConfig.CatalogPath)
 
+							// Helper to run sync and verify
+							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
+								cmd := syncCommand(*cfg.TestConfig, useState)
+								if useState && operation != "" {
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, operation, false)
+								}
+								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
+									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
+								}
+								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
+								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+								return nil
+							}
+
+							// 3. Phase A: Full load + CDC
 							testCases := []struct {
 								syncMode    string
 								operation   string
@@ -306,22 +338,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									dummySchema: nil,
 								},
 							}
-
-							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
-								cmd := syncCommand(*cfg.TestConfig, useState)
-								if useState && operation != "" {
-									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, operation, false)
-								}
-
-								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
-									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
-								}
-								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
-								return nil
-							}
-
-							// 3. Run Sync command and verify records in Iceberg
 							for _, test := range testCases {
 								t.Logf("Running test for: %s", test.syncMode)
 								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
@@ -329,7 +345,47 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								}
 							}
 
-							// 4. Clean up
+							// 4. Phase B: Full load + Incremental (switch streams.json cdc -> incremental, set cursor_field = "id")
+							// Reset table to isolate incremental scenario
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+
+							// Ensure normalization remains on for selected stream
+							streamUpdateCmd = updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true)
+							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
+								return fmt.Errorf("failed to enable normalization in streams.json for incremental (%d): %s\n%s",
+									code, err, out,
+								)
+							}
+
+							// Patch: sync_mode = incremental, cursor_field = "id", state_required = true
+							incPatch := setStreamSyncModeCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable, "incremental", "id", true)
+							if code, out, err := utils.ExecCommand(ctx, c, incPatch); err != nil || code != 0 {
+								return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
+							}
+
+							// Reset state so initial incremental behaves like a first full incremental load
+							resetState := resetStateFileCommand(*cfg.TestConfig)
+							if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+								return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
+							}
+
+							// Initial incremental run (equivalent to full on first run)
+							t.Log("Running Incremental - initial load")
+							if err := runSync(c, true, "", "i", cfg.ExpectedData); err != nil {
+								return err
+							}
+
+							// Delta incremental: add new rows and sync again
+							t.Log("Running Incremental - delta load (inserts)")
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "insert", false)
+							if err := runSync(c, true, "", "i", cfg.ExpectedData); err != nil {
+								return err
+							}
+
+							// 5. Clean up
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 							t.Logf("%s sync test-container clean up", cfg.TestConfig.Driver)
 							return nil
