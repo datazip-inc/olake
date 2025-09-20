@@ -238,19 +238,36 @@ func TestResolve(t *testing.T) {
 				"nil_unknown":  {dataType: types.Null, nullable: true},
 			},
 		},
+		{
+			name:    "empty input",
+			objects: []map[string]interface{}{},
+			expected: map[string]struct {
+				dataType types.DataType
+				nullable bool
+			}{},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create a new stream for testing
 			stream := types.NewStream("test_stream", "test_namespace", nil)
 
 			err := Resolve(stream, tc.objects...)
 
 			require.NoError(t, err)
+			assert.NotNil(t, stream.Schema)
+
+			if len(tc.expected) == 0 {
+				count := 0
+				stream.Schema.Properties.Range(func(_, _ interface{}) bool {
+					count++
+					return true
+				})
+				assert.Equal(t, 0, count, "Expected empty schema for empty input")
+				return
+			}
 
 			for fieldName, expected := range tc.expected {
-				// Check if the field exists in the stream's schema
 				property, found := stream.Schema.Properties.Load(fieldName)
 				assert.True(t, found, "Field %s should exist in schema", fieldName)
 
@@ -258,12 +275,10 @@ func TestResolve(t *testing.T) {
 					prop := property.(*types.Property)
 					typeSet := *(prop.Type)
 
-					// Check field type
 					assert.True(t, typeSet.Exists(expected.dataType),
 						"Field %s should have type %s, got %v",
 						fieldName, expected.dataType, typeSet)
 
-					// Check nullability
 					if expected.nullable {
 						assert.True(t, typeSet.Exists(types.Null),
 							"Field %s should be nullable", fieldName)
@@ -275,22 +290,4 @@ func TestResolve(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestResolveWithEmptyInput tests the edge case of resolving with no objects
-func TestResolveWithEmptyInput(t *testing.T) {
-	stream := types.NewStream("empty_stream", "test_namespace", nil)
-
-	err := Resolve(stream, []map[string]interface{}{}...)
-
-	assert.NoError(t, err)
-
-	assert.NotNil(t, stream.Schema)
-
-	count := 0
-	stream.Schema.Properties.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	assert.Equal(t, 0, count, "Expected empty schema")
 }

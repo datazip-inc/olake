@@ -13,13 +13,13 @@ const (
 	testName    = "John Doe"
 	testAge     = 30
 	testEnabled = true
-	testScore   = 92.5
+	testScore   = 92.52361
 )
 
 var testTimestamp = time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// TestFlattenerFlatten tests the Flatten method of Flattener interface
-func TestFlattenerFlatten(t *testing.T) {
+// TestFlatten tests the public Flatten method of FlattenerImpl
+func TestFlatten(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       types.Record
@@ -27,7 +27,29 @@ func TestFlattenerFlatten(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "flatten nested map",
+			name:        "empty record",
+			input:       types.Record{},
+			expected:    types.Record{},
+			expectError: false,
+		},
+		{
+			name: "simple values",
+			input: types.Record{
+				"name":    testName,
+				"age":     testAge,
+				"enabled": testEnabled,
+				"score":   testScore,
+			},
+			expected: types.Record{
+				"name":    testName,
+				"age":     testAge,
+				"enabled": testEnabled,
+				"score":   testScore,
+			},
+			expectError: false,
+		},
+		{
+			name: "nested map",
 			input: types.Record{
 				"user": map[string]interface{}{
 					"name":  testName,
@@ -47,23 +69,20 @@ func TestFlattenerFlatten(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "flatten simple values",
+			name: "nil values are omitted",
 			input: types.Record{
-				"name":    testName,
-				"age":     testAge,
-				"enabled": testEnabled,
-				"score":   testScore,
+				"valid":   "value",
+				"invalid": nil,
+				"number":  42,
 			},
 			expected: types.Record{
-				"name":    testName,
-				"age":     testAge,
-				"enabled": testEnabled,
-				"score":   testScore,
+				"valid":  "value",
+				"number": 42,
 			},
 			expectError: false,
 		},
 		{
-			name: "flatten with special characters in keys",
+			name: "special characters in keys",
 			input: types.Record{
 				"User@Name": testName,
 				"user-id":   testUserID,
@@ -77,85 +96,118 @@ func TestFlattenerFlatten(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "flatten with time value",
+			name: "time values",
 			input: types.Record{
-				"timestamp": testTimestamp,
+				"timestamp":  testTimestamp,
+				"created_at": time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+				"zero_time":  time.Time{},
 			},
 			expected: types.Record{
-				"timestamp": testTimestamp,
+				"timestamp":  testTimestamp,
+				"created_at": time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+				"zero_time":  time.Time{},
 			},
 			expectError: false,
 		},
 		{
-			name: "flatten with nil value",
-			input: types.Record{
-				"nullable": nil,
-			},
-			expected:    types.Record{},
-			expectError: false,
-		},
-		{
-			name: "flatten deeply nested maps with mixed types",
+			name: "deeply nested maps",
 			input: types.Record{
 				"user": map[string]interface{}{
 					"profile": map[string]interface{}{
 						"personal": map[string]interface{}{
 							"name": testName,
 							"age":  testAge,
-							"address": map[string]interface{}{
-								"city":    "New York",
-								"zipcode": 10001,
-								"details": map[string]interface{}{
-									"street": "test street",
-									"apt":    "5B",
-								},
-							},
 						},
 						"preferences": map[string]interface{}{
 							"notifications": true,
 							"theme":         "dark",
 						},
 					},
-					"stats": map[string]interface{}{
-						"visits": []int{1, 2, 3},
-						"score":  testScore,
-					},
 				},
 			},
 			expected: types.Record{
-				"user": `{"profile":{"personal":{"address":{"city":"New York","details":{"apt":"5B","street":"test street"},"zipcode":10001},"age":30,"name":"John Doe"},"preferences":{"notifications":true,"theme":"dark"}},"stats":{"score":92.5,"visits":[1,2,3]}}`,
+				"user": `{"profile":{"personal":{"age":30,"name":"John Doe"},"preferences":{"notifications":true,"theme":"dark"}}}`,
 			},
 			expectError: false,
 		},
 		{
-			name: "flatten nested maps with arrays and timestamps",
+			name: "arrays with mixed types",
 			input: types.Record{
-				"data": map[string]interface{}{
-					"events": []map[string]interface{}{
-						{
-							"timestamp": testTimestamp,
-							"type":      "login",
-							"details": map[string]interface{}{
-								"ip":      "192.168.1.1",
-								"success": true,
-							},
-						},
-						{
-							"timestamp": testTimestamp.Add(time.Hour),
-							"type":      "logout",
-							"details": map[string]interface{}{
-								"duration": 3600,
-							},
-						},
-					},
-					"metadata": map[string]interface{}{
-						"version": "1.0",
-						"tags":    []string{"test", "nested"},
-					},
+				"mixed_array": []interface{}{
+					"string",
+					42,
+					3.14,
+					true,
+					nil,
+					[]int{1, 2, 3},
+					map[string]interface{}{"key": "value"},
+					time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
 			},
 			expected: types.Record{
-				"data": `{"events":[{"details":{"ip":"192.168.1.1","success":true},"timestamp":"2023-01-01T00:00:00Z","type":"login"},{"details":{"duration":3600},"timestamp":"2023-01-01T01:00:00Z","type":"logout"}],"metadata":{"tags":["test","nested"],"version":"1.0"}}`,
+				"mixed_array": `["string",42,3.14,true,null,[1,2,3],{"key":"value"},"2023-01-01T00:00:00Z"]`,
+			},
+			expectError: false,
+		},
+		{
+			name: "unicode and special characters",
+			input: types.Record{
+				"🚀rocket🎯target":  "🌟success",
+				"key with spaces": "value with\nnewlines\tand\ttabs",
+			},
+			expected: types.Record{
+				"_rocket_target":  "🌟success",
+				"key_with_spaces": "value with\nnewlines\tand\ttabs",
+			},
+			expectError: false,
+		},
+		{
+			name: "large numbers",
+			input: types.Record{
+				"numbers": map[string]interface{}{
+					"max_int64":  int64(9223372036854775807),
+					"min_int64":  int64(-9223372036854775808),
+					"max_uint64": uint64(18446744073709551615),
+					"very_large": float64(1e20),
+					"very_small": float64(1e-20),
+					"pi":         3.141592653589793,
+				},
+			},
+			expected: types.Record{
+				"numbers": `{"max_int64":9223372036854775807,"max_uint64":18446744073709551615,"min_int64":-9223372036854775808,"pi":3.141592653589793,"very_large":100000000000000000000,"very_small":1e-20}`,
+			},
+			expectError: false,
+		},
+		{
+			name: "all empty values",
+			input: types.Record{
+				"empty_string": "",
+				"empty_slice":  []interface{}{},
+				"empty_map":    map[string]interface{}{},
+				"zero":         0,
+				"false":        false,
+			},
+			expected: types.Record{
+				"empty_string": "",
+				"empty_slice":  `[]`,
+				"empty_map":    `{}`,
+				"zero":         0,
+				"false":        false,
+			},
+			expectError: false,
+		},
+		{
+			name: "complex pointer scenarios",
+			input: types.Record{
+				"pointers": map[string]interface{}{
+					"nil_pointer":       (*string)(nil),
+					"pointer_to_struct": &struct{ Name string }{"test"},
+					"pointer_to_slice":  &[]int{1, 2, 3},
+					"pointer_to_map":    &map[string]int{"a": 1, "b": 2},
+				},
+			},
+			expected: types.Record{
+				"pointers": `{"nil_pointer":null,"pointer_to_map":{"a":1,"b":2},"pointer_to_slice":[1,2,3],"pointer_to_struct":{"Name":"test"}}`,
 			},
 			expectError: false,
 		},
@@ -169,6 +221,7 @@ func TestFlattenerFlatten(t *testing.T) {
 
 			if tc.expectError {
 				assert.Error(t, err)
+				assert.Nil(t, result)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tc.expected, result)
@@ -177,17 +230,17 @@ func TestFlattenerFlatten(t *testing.T) {
 	}
 }
 
-// TestFlattenerImplFlatten tests the internal flatten method
-func TestFlattenerImplFlatten(t *testing.T) {
+// TestFlattenInternal tests the private flatten method of FlattenerImpl
+func TestFlattenInternal(t *testing.T) {
 	tests := []struct {
 		name        string
 		key         string
-		value       any
+		value       interface{}
 		expected    types.Record
 		expectError bool
 	}{
 		{
-			name:  "test slice flattening",
+			name:  "slice of strings",
 			key:   "testArray",
 			value: []string{"a", "b", "c"},
 			expected: types.Record{
@@ -196,49 +249,167 @@ func TestFlattenerImplFlatten(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "test map flattening",
+			name:  "slice of integers",
+			key:   "numbers",
+			value: []int{1, 2, 3, 4, 5},
+			expected: types.Record{
+				"numbers": `[1,2,3,4,5]`,
+			},
+			expectError: false,
+		},
+		{
+			name:  "empty slice",
+			key:   "empty",
+			value: []interface{}{},
+			expected: types.Record{
+				"empty": `[]`,
+			},
+			expectError: false,
+		},
+		{
+			name:  "nil slice",
+			key:   "nil_slice",
+			value: []interface{}(nil),
+			expected: types.Record{
+				"nil_slice": `null`,
+			},
+			expectError: false,
+		},
+		{
+			name:  "multi dimensional slice",
+			key:   "nested",
+			value: [][]int{{1, 2}, {3, 4}},
+			expected: types.Record{
+				"nested": `[[1,2],[3,4]]`,
+			},
+			expectError: false,
+		},
+		{
+			name: "simple map",
 			key:  "testMap",
 			value: map[string]interface{}{
-				"nested_1": "value",
+				"nested_1": "value1",
 				"nested_2": "value2",
 			},
 			expected: types.Record{
-				"testmap": `{"nested_1":"value","nested_2":"value2"}`,
+				"testmap": `{"nested_1":"value1","nested_2":"value2"}`,
 			},
 			expectError: false,
 		},
 		{
-			name: "test primitive types",
-			key:  "testPrimitive",
+			name:  "empty map",
+			key:   "empty_map",
+			value: map[string]interface{}{},
+			expected: types.Record{
+				"empty_map": `{}`,
+			},
+			expectError: false,
+		},
+		{
+			name: "nested map",
+			key:  "nested_map",
 			value: map[string]interface{}{
-				"string":  "hello",
-				"int":     42,
-				"float":   3.14,
-				"boolean": true,
+				"level1": map[string]interface{}{
+					"level2": map[string]interface{}{
+						"value": "deep",
+					},
+				},
 			},
 			expected: types.Record{
-				"testprimitive": `{"boolean":true,"float":3.14,"int":42,"string":"hello"}`,
+				"nested_map": `{"level1":{"level2":{"value":"deep"}}}`,
 			},
 			expectError: false,
 		},
 		{
-			name:  "test time value",
-			key:   "testTime",
+			name:  "string",
+			key:   "str",
+			value: "hello world",
+			expected: types.Record{
+				"str": "hello world",
+			},
+			expectError: false,
+		},
+		{
+			name:  "boolean true",
+			key:   "bool_true",
+			value: true,
+			expected: types.Record{
+				"bool_true": true,
+			},
+			expectError: false,
+		},
+		{
+			name:  "boolean false",
+			key:   "bool_false",
+			value: false,
+			expected: types.Record{
+				"bool_false": false,
+			},
+			expectError: false,
+		},
+		{
+			name:  "int",
+			key:   "integer",
+			value: 42,
+			expected: types.Record{
+				"integer": 42,
+			},
+			expectError: false,
+		},
+		{
+			name:  "int64",
+			key:   "big_int",
+			value: int64(-9223372036854775807),
+			expected: types.Record{
+				"big_int": int64(-9223372036854775807),
+			},
+			expectError: false,
+		},
+		{
+			name:  "float64",
+			key:   "float",
+			value: 343562342.141594523545434341,
+			expected: types.Record{
+				"float": 343562342.1415945235454341,
+			},
+			expectError: false,
+		},
+		{
+			name:  "uint64",
+			key:   "unsigned",
+			value: uint64(18446744073709551615),
+			expected: types.Record{
+				"unsigned": uint64(18446744073709551615),
+			},
+			expectError: false,
+		},
+		{
+			name:  "time value",
+			key:   "timestamp",
 			value: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			expected: types.Record{
-				"testtime": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				"timestamp": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
 			expectError: false,
 		},
 		{
-			name:        "test nil value with omitNilValues true",
-			key:         "testNil",
+			name:  "zero time",
+			key:   "zero_time",
+			value: time.Time{},
+			expected: types.Record{
+				"zero_time": time.Time{},
+			},
+			expectError: false,
+		},
+		{
+			name:        "nil value is omitted",
+			key:         "nil_value",
 			value:       nil,
 			expected:    types.Record{},
 			expectError: false,
 		},
 		{
-			name:  "test special characters in key",
+			name:  "special characters in key",
 			key:   "Test@K-e_y#123",
 			value: "value",
 			expected: types.Record{
@@ -247,38 +418,62 @@ func TestFlattenerImplFlatten(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "test deeply nested map with multiple levels",
-			key:  "deeplyNested",
-			value: map[string]interface{}{
-				"level1": map[string]interface{}{
-					"level2": map[string]interface{}{
-						"level3": map[string]interface{}{
-							"level4": map[string]interface{}{
-								"final": "value",
-								"array": []int{1, 2, 3},
-								"nested": map[string]interface{}{
-									"key": "value",
-								},
-							},
-						},
-					},
-				},
-			},
+			name:  "unicode in key",
+			key:   "用户@名称#123",
+			value: "test user",
 			expected: types.Record{
-				"deeplynested": `{"level1":{"level2":{"level3":{"level4":{"array":[1,2,3],"final":"value","nested":{"key":"value"}}}}}}`,
+				"______123": "test user",
 			},
 			expectError: false,
 		},
 		{
-			name: "test basic types",
-			key:  "basic",
+			name:  "spaces in key",
+			key:   "key with spaces",
+			value: "value",
+			expected: types.Record{
+				"key_with_spaces": "value",
+			},
+			expectError: false,
+		},
+		{
+			name:  "interface with string",
+			key:   "interface_str",
+			value: interface{}("test"),
+			expected: types.Record{
+				"interface_str": "test",
+			},
+			expectError: false,
+		},
+		{
+			name:  "interface with number",
+			key:   "interface_num",
+			value: interface{}(42),
+			expected: types.Record{
+				"interface_num": 42,
+			},
+			expectError: false,
+		},
+		{
+			name: "struct value",
+			key:  "struct",
+			value: struct {
+				Name string
+				Age  int
+			}{"John", 30},
+			expected: types.Record{
+				"struct": "{John 30}",
+			},
+			expectError: false,
+		},
+		{
+			name: "all numeric types",
+			key:  "all_numbers",
 			value: map[string]interface{}{
-				"string":  "test",
 				"int":     int(42),
-				"int8":    int8(42),
-				"int16":   int16(42),
-				"int32":   int32(42),
-				"int64":   int64(42),
+				"int8":    int8(-42),
+				"int16":   int16(-42),
+				"int32":   int32(423425),
+				"int64":   int64(42425463733234),
 				"uint":    uint(42),
 				"uint8":   uint8(42),
 				"uint16":  uint16(42),
@@ -286,69 +481,9 @@ func TestFlattenerImplFlatten(t *testing.T) {
 				"uint64":  uint64(42),
 				"float32": float32(3.14),
 				"float64": float64(3.14),
-				"bool":    true,
 			},
 			expected: types.Record{
-				"basic": `{"bool":true,"float32":3.14,"float64":3.14,"int":42,"int16":42,"int32":42,"int64":42,"int8":42,"string":"test","uint":42,"uint16":42,"uint32":42,"uint64":42,"uint8":42}`,
-			},
-			expectError: false,
-		},
-		{
-			name: "test pointer types",
-			key:  "pointers",
-			value: map[string]interface{}{
-				"int_ptr":     func() *int { v := 42; return &v }(),
-				"string_ptr":  func() *string { v := "test"; return &v }(),
-				"bool_ptr":    func() *bool { v := true; return &v }(),
-				"float64_ptr": func() *float64 { v := 3.14; return &v }(),
-				"nil_ptr":     (*int)(nil),
-			},
-			expected: types.Record{
-				"pointers": `{"bool_ptr":true,"float64_ptr":3.14,"int_ptr":42,"nil_ptr":null,"string_ptr":"test"}`,
-			},
-			expectError: false,
-		},
-		{
-			name: "test array and slice types",
-			key:  "arrays",
-			value: map[string]interface{}{
-				"int_array":    [3]int{1, 2, 3},
-				"string_array": [2]string{"a", "b"},
-				"int_slice":    []int{1, 2, 3},
-				"string_slice": []string{"a", "b"},
-				"empty_slice":  []int{},
-				"nil_slice":    []int(nil),
-			},
-			expected: types.Record{
-				"arrays": `{"empty_slice":[],"int_array":[1,2,3],"int_slice":[1,2,3],"nil_slice":null,"string_array":["a","b"],"string_slice":["a","b"]}`,
-			},
-			expectError: false,
-		},
-		{
-			name: "test interface types",
-			key:  "interfaces",
-			value: map[string]interface{}{
-				"interface_value":  interface{}(42),
-				"nil_interface":    interface{}(nil),
-				"string_interface": interface{}("oLake"),
-			},
-			expected: types.Record{
-				"interfaces": `{"interface_value":42,"nil_interface":null,"string_interface":"oLake"}`,
-			},
-			expectError: false,
-		},
-		{
-			name: "test struct types",
-			key:  "structs",
-			value: map[string]interface{}{
-				"time": time.Date(2024, 3, 19, 15, 30, 0, 0, time.UTC),
-				"custom_struct": struct {
-					Name  string
-					Value int
-				}{"test", 42},
-			},
-			expected: types.Record{
-				"structs": `{"custom_struct":{"Name":"test","Value":42},"time":"2024-03-19T15:30:00Z"}`,
+				"all_numbers": `{"float32":3.14,"float64":3.14,"int":42,"int16":-42,"int32":423425,"int64":42425463733234,"int8":-42,"uint":42,"uint16":42,"uint32":42,"uint64":42,"uint8":42}`,
 			},
 			expectError: false,
 		},
