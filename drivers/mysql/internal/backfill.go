@@ -59,10 +59,27 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var avgRowSize any
 	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
 	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
-	if err != nil || avgRowSize == nil {
-		errorMsg := utils.Ternary(err != nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err), fmt.Errorf("either stats not populated for table[%s] or the table contains 0 records. (to populate stats run ANALYZE TABLE query)", stream.ID()))
-		return nil, errorMsg.(error)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err)
 	}
+
+	if approxRowCount == 0 {
+		var hasRows bool
+		existsQuery := jdbc.MySQLTableExistsQuery(stream)
+		err := m.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
+		}
+
+		if hasRows {
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE TABLE to update table statistics", stream.ID())
+		}
+
+		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
+		return types.NewSet[types.Chunk](), nil
+	}
+
 	pool.AddRecordsToSyncStats(approxRowCount)
 	// avgRowSize is returned as []uint8 which is converted to float64
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
