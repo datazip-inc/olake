@@ -26,9 +26,9 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			}
 			primaryCursor, secondaryCursor := stream.Cursor()
 
-			a.state.SetCursor(stream.Self(), primaryCursor, typeutils.ReformatCursorValue(maxPrimaryCursorValue))
+			a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 			if secondaryCursor != "" {
-				a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.ReformatCursorValue(maxSecondaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 			}
 		}
 
@@ -54,8 +54,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
-		var maxPrimaryCursorValue, maxSecondaryCursorValue any
-		primaryCursor, secondaryCursor := stream.Cursor()
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
 		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
@@ -85,10 +83,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(ctx context.Context, data map[string]any) error {
-				// if incremental enabled check cursor value
-				if stream.GetSyncMode() == types.INCREMENTAL {
-					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
-				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 
 				// persist cdc timestamp for cdc full load

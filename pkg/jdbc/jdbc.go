@@ -621,7 +621,7 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	return incrementalQuery, queryArgs, nil
 }
 
-func MaxCursorSetter(ctx context.Context, opts IncrementalConditionOptions) (any, any, error) {
+func GetMaxCursorValues(ctx context.Context, opts IncrementalConditionOptions) (any, any, error) {
 	primaryCursor, secondaryCursor := opts.Stream.Cursor()
 	quotedTable := QuoteTable(opts.Stream.Namespace(), opts.Stream.Name(), opts.Driver)
 
@@ -629,7 +629,7 @@ func MaxCursorSetter(ctx context.Context, opts IncrementalConditionOptions) (any
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
-	filterClause := utils.Ternary(filter == "", "", " WHERE ("+filter+")").(string)
+	filterClause := utils.Ternary(filter == "", "", fmt.Sprintf(" WHERE (%s)", filter)).(string)
 
 	primaryCursorQuoted := QuoteIdentifier(primaryCursor, opts.Driver)
 	secondaryCursorQuoted := QuoteIdentifier(secondaryCursor, opts.Driver)

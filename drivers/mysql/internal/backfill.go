@@ -196,7 +196,7 @@ func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 		Client: m.client,
 		State:  m.state,
 	}
-	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.MaxCursorSetter(ctx, opts)
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, opts)
 	if err != nil {
 		return nil, nil, err
 	}

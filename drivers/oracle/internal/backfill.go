@@ -136,7 +136,7 @@ func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamIn
 		Client: o.client,
 		State:  o.state,
 	}
-	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.MaxCursorSetter(ctx, opts)
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, opts)
 	if err != nil {
 		return nil, nil, err
 	}
