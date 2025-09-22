@@ -229,15 +229,11 @@ func (s *serverInstance) closeIcebergClient() error {
 
 // findAvailablePort finds an available port for the RPC server
 func FindAvailablePort(serverHost string) (int, error) {
-	for p := 50051; p <= 50090; p++ {
+	for p := 50051; p <= 59051; p++ {
 		// Try to store port in map - returns false if already exists
 		if _, loaded := portMap.LoadOrStore(p, true); !loaded {
 			// Check if the port is already in use by another process
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", serverHost, p), time.Second)
-			if err != nil {
-				logger.Errorf("error received while dial timeout on port[%d]: %s", p, err)
-				continue
-			}
 			if err == nil {
 				// Port is in use, close our test connection
 				conn.Close()
@@ -272,6 +268,10 @@ func FindAvailablePort(serverHost string) (int, error) {
 
 				// Wait a moment for the port to be released
 				time.Sleep(time.Second * 5)
+			}
+			if err != nil && !strings.Contains(err.Error(), "connection refused") {
+				logger.Warnf("unable to use port[%d]: %s", p, err)
+				continue
 			}
 			return p, nil
 		}
