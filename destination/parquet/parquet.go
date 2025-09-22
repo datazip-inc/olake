@@ -139,25 +139,25 @@ func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Optio
 // The parquet library's GenericWriter already supports batch writing internally,
 // so we write records as single-element batches to leverage this optimization.
 func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
+	record.OlakeTimestamp = time.Now().UTC()
 	partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
-
-	partitionFolder, exists := p.partitionedFiles[partitionedPath]
+	partitionFile, exists := p.partitionedFiles[partitionedPath]
 	if !exists {
 		err := p.createNewPartitionFile(partitionedPath)
 		if err != nil {
 			return fmt.Errorf("failed to create partition file: %s", err)
 		}
-		partitionFolder = p.partitionedFiles[partitionedPath]
+		partitionFile = p.partitionedFiles[partitionedPath]
 	}
 
-	if len(partitionFolder) == 0 {
-		return fmt.Errorf("failed to get partitioned files")
+	if partitionFile == nil {
+		return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
 	}
 
-	// Get last written file
-	fileMetadata := &partitionFolder[len(partitionFolder)-1]
-	
-	// Write as batch to leverage parquet's internal optimizations
+	// Get the last file in the partition (most recent)
+	fileMetadata := &partitionFile[len(partitionFile)-1]
+
+	// Use batch writing API for better performance - this is our optimization!
 	var err error
 	if p.stream.NormalizationEnabled() {
 		record.Data[constants.OlakeID] = record.OlakeID
@@ -170,12 +170,10 @@ func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
 		// Write as single-element batch for better performance
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
 	}
-	
 	if err != nil {
 		return fmt.Errorf("failed to write to parquet file: %s", err)
 	}
-	
-	fileMetadata.recordCount++
+
 	return nil
 }
 
