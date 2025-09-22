@@ -194,7 +194,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			// Write entire batch in one operation
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write(batch)
 		}
-		
+
 		if err != nil {
 			return fmt.Errorf("failed to write batch to parquet file: %s", err)
 		}
