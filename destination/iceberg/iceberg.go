@@ -18,14 +18,14 @@ import (
 )
 
 type Iceberg struct {
-	options         *destination.Options
-	config          *Config
-	stream          types.StreamInterface
-	partitionInfo   []PartitionInfo   // ordered slice to preserve partition column order
-	server          *serverInstance   // java server instance
-	schema          map[string]string // schema for current thread associated with java writer (col -> type)
-	createdFilePaths []string         // list of created parquet file paths
-	// Why Schema On Thread Level ?
+	options          *destination.Options
+	config           *Config
+	stream           types.StreamInterface
+	partitionInfo    []PartitionInfo   // ordered slice to preserve partition column order
+	server           *serverInstance   // java server instance
+	schema           map[string]string // schema for current thread associated with java writer (col -> type)
+	createdFilePaths []string          // list of created parquet file paths
+	batchedWriter    interface{}       // Per-thread streaming arrow writer
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
 }
@@ -220,6 +220,21 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 }
 
 func (i *Iceberg) Close(ctx context.Context) error {
+	if i.batchedWriter != nil {
+		if writer, ok := i.batchedWriter.(*ArrowWriter); ok {
+			finalFilePath, err := writer.closeAndGetFinalPath()
+			if err != nil {
+				logger.Errorf("Thread[%s]: failed to close batched writer: %v", i.options.ThreadID, err)
+			} else if finalFilePath != "" {
+				if i.createdFilePaths == nil {
+					i.createdFilePaths = make([]string, 0)
+				}
+				i.createdFilePaths = append(i.createdFilePaths, finalFilePath)
+			}
+		}
+		i.batchedWriter = nil
+	}
+
 	// skip flushing on error
 	defer func() {
 		if i.server == nil {
@@ -243,6 +258,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	arrowEnabled := true // TODO: have "arrow-writes" enable option
 	var request *proto.IcebergPayload
 	if arrowEnabled {
+		logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
 		request = &proto.IcebergPayload{
 			Type: proto.IcebergPayload_REGISTER,
 			Metadata: &proto.IcebergPayload_Metadata{

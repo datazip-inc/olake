@@ -183,7 +183,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
-		batchSize:      40000,
+		batchSize:      5000,
 		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,
@@ -248,7 +248,6 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 			return fmt.Errorf("failed to write records: %s", err)
 		}
 	}
-	
 
 	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
 	return nil
