@@ -23,6 +23,8 @@ type Config struct {
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
+	// PublicationNames used when OutputPlugin is pgoutput
+	PublicationNames []string `json:"publications"`
 }
 
 // Capture Write Ahead Logs

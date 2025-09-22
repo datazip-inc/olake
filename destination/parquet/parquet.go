@@ -159,7 +159,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
 			if err != nil {
-				return fmt.Errorf("failed to create parititon file: %s", err)
+				return fmt.Errorf("failed to create partition file: %s", err)
 			}
 			partitionFile = p.partitionedFiles[partitionedPath]
 		}

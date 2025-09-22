@@ -44,7 +44,7 @@ type Postgres struct {
 	config     *Config // postgres driver connection config
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
 	cdcConfig  CDC
-	Socket     *waljs.Socket
+	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
 }
 

@@ -4,269 +4,268 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jmoiron/sqlx"
 )
 
-// ProcessNextMessage handles the next replication message with retry logic for connection errors
-func (s *Socket) ProcessNextMessage(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
+// pgoutputReplicator implements Replicator for pgoutput
+type pgoutputReplicator struct {
+	socket        *Socket
+	publications  []string
+	txnCommitTime time.Time
+}
+
+func (p *pgoutputReplicator) Socket() *Socket {
+	return p.socket
+}
+
+func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	// Update current lsn information
 	var slot ReplicationSlot
-	if err := db.Get(&slot, fmt.Sprintf(ReplicationSlotTempl, s.replicationSlot)); err != nil {
+	if err := db.Get(&slot, fmt.Sprintf(ReplicationSlotTempl, p.socket.ReplicationSlot)); err != nil {
 		return fmt.Errorf("failed to get replication slot: %s", err)
 	}
-	cdcStartTime := time.Now()
-	messageReceived := false
-	// Update current wal lsn
-	s.CurrentWalPosition = slot.CurrentLSN
-	logger.Info("current lsn that is being received: %s", s.CurrentWalPosition)
-	err := pglogrepl.StartReplication(ctx, s.pgConn, s.replicationSlot, s.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
-		PluginArgs: []string{
-			"proto_version '1'",
-			"publication_names 'ankit_pub'", // Hard coded for now
-		},
-	})
+	p.socket.CurrentWalPosition = slot.CurrentLSN
+
+	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
+
+	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, p.socket.ReplicationSlot, p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
+		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", strings.Join(p.publications, ","))}})
 	if err != nil {
-		return fmt.Errorf("failed to start replication: %w", err)
+		return fmt.Errorf("failed to start replication: %v", err)
 	}
 
 	lastStatusUpdate := time.Now()
-	standbyMessageTimeout := 10 * time.Second
+	idleTimeout := 10 * time.Second
+	cdcStartTime := time.Now()
+	messageReceived := false
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			if !messageReceived && s.initialWaitTime > 0 && time.Since(cdcStartTime) > s.initialWaitTime {
+			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
 				logger.Warnf("no records found in given initial wait time, try increasing it or do full load")
 				return nil
 			}
 
-			if s.ClientXLogPos >= s.CurrentWalPosition {
-				logger.Infof("finishing sync, reached wal position: %s", s.CurrentWalPosition)
+			if p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
+				logger.Infof("finishing sync, reached wal position: %s", p.socket.CurrentWalPosition)
 				return nil
 			}
 
-			msg, err := s.pgConn.ReceiveMessage(ctx)
+			msg, err := p.socket.pgConn.ReceiveMessage(ctx)
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return nil
 				}
+				if strings.Contains(err.Error(), "EOF") {
+					return nil
+				}
 				return err
 			}
-
-			finalMsg, ok := msg.(*pgproto3.CopyData)
+			copyData, ok := msg.(*pgproto3.CopyData)
 			if !ok {
 				return fmt.Errorf("pgoutput unexpected message type: %T", msg)
 			}
 
-			switch finalMsg.Data[0] {
+			switch copyData.Data[0] {
 			case pglogrepl.XLogDataByteID:
-				lsn, err := s.handleXLogData(finalMsg.Data[1:], &lastStatusUpdate, insertFn)
+				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
+					return fmt.Errorf("failed to parse XLogData: %v", err)
+				}
+				if err := p.processPgoutputWAL(ctx, xld.WALData, xld.WALStart, insertFn); err != nil {
 					return err
 				}
-				messageReceived = true
-				s.ClientXLogPos = *lsn
-			case pglogrepl.PrimaryKeepaliveMessageByteID:
-				lsn, err := s.handlePrimaryKeepaliveMessage(ctx, finalMsg.Data[1:], &lastStatusUpdate)
-				if err != nil {
-					return err
-				}
-				s.ClientXLogPos = *lsn
-			default:
-				logger.Info("Received unexpected CopyData message type")
-			}
-
-			if time.Since(lastStatusUpdate) >= standbyMessageTimeout {
-				if err := s.SendStandbyStatusUpdate(ctx); err != nil {
-					return fmt.Errorf("failed to send standby status update: %v", err)
-				}
+				p.socket.ClientXLogPos = xld.WALStart
 				lastStatusUpdate = time.Now()
+				messageReceived = true
+			case pglogrepl.PrimaryKeepaliveMessageByteID:
+				// TODO: need to validate if it is required or not
+				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
+				if err != nil {
+					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
+				}
+				p.socket.ClientXLogPos = pkm.ServerWALEnd
+				if pkm.ReplyRequested || time.Since(lastStatusUpdate) >= idleTimeout {
+					if err := p.AcknowledgeLSN(ctx, true); err != nil {
+						return fmt.Errorf("failed to send standby status update: %v", err)
+					}
+					lastStatusUpdate = time.Now()
+				}
+			default:
+				logger.Debugf("pgoutput: unhandled message type: %d", copyData.Data[0])
 			}
 		}
 	}
 }
 
-// handleXLogData processes XLogData messages
-func (s *Socket) handleXLogData(data []byte, lastStatusUpdate *time.Time, insertFn abstract.CDCMsgFn) (*pglogrepl.LSN, error) {
-	xld, err := pglogrepl.ParseXLogData(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse XLogData: %w", err)
-	}
-
-	if err := s.processWALData(xld.WALData, xld.WALStart, insertFn); err != nil {
-		return nil, fmt.Errorf("failed to process WAL data: %w", err)
-	}
-
-	*lastStatusUpdate = time.Now()
-	return &xld.WALStart, nil
-}
-
-// processWALData handles different types of WAL messages
-func (s *Socket) processWALData(walData []byte, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
+func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []byte, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {
-		return fmt.Errorf("failed to parse WAL data: %w", err)
+		return fmt.Errorf("failed to parse WAL data: %v", err)
 	}
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
-		s.handleRelationMessage(msg)
+		p.socket.relationID[msg.RelationID] = msg
+		return nil
 	case *pglogrepl.BeginMessage:
-		return s.HandleBeginMessage(msg)
+		p.txnCommitTime = msg.CommitTime
+		return nil
 	case *pglogrepl.InsertMessage:
-		return s.HandleInsertMessage(msg, lsn, insertFn)
+		return p.emitInsert(ctx, msg, insertFn)
 	case *pglogrepl.UpdateMessage:
-		return s.HandleUpdateMessage(msg, lsn, insertFn)
+		return p.emitUpdate(ctx, msg, insertFn)
 	case *pglogrepl.DeleteMessage:
-		return s.HandleDeleteMessage(msg, lsn, insertFn)
+		return p.emitDelete(ctx, msg, insertFn)
 	case *pglogrepl.CommitMessage:
-		return s.HandleCommitMessage(msg)
+		return nil
 	default:
-		logger.Info("Received unexpected logical replication message")
+		return nil
 	}
-	return nil
 }
 
-// handleRelationMessage handles RelationMessage messages
-func (s *Socket) handleRelationMessage(msg *pglogrepl.RelationMessage) {
-	s.relationID[msg.RelationID] = msg
-	logger.Infof("relation id received: %d", msg.RelationID)
-}
-
-// HandleBeginMessage handles BeginMessage messages
-func (s *Socket) HandleBeginMessage(msg *pglogrepl.BeginMessage) error {
-	logger.Infof("Begin Message: LSN=%s, CommitTime=%v", msg.FinalLSN, msg.CommitTime)
-	return nil
-}
-
-// HandleInsertMessage handles InsertMessage messages
-func (s *Socket) HandleInsertMessage(msg *pglogrepl.InsertMessage, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
-	relation, ok := s.relationID[msg.RelationID]
-	if !ok {
-		return fmt.Errorf("unknown relation ID: %d", msg.RelationID)
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) (map[string]any, error) {
+	data := make(map[string]any)
+	if tuple == nil {
+		return data, nil
 	}
 
-	// Print insert record
-	logger.Infof("INSERT: LSN=%s, Relation=%s.%s", lsn, relation.Namespace, relation.RelationName)
-	for idx, col := range msg.Tuple.Columns {
-		colName := relation.Columns[idx].Name
-		if col.Data == nil {
-			logger.Infof("  %s: NULL", colName)
-		} else {
-			logger.Infof("  %s: %s", colName, string(col.Data))
+	// TODO: Verify logic first
+	for idx, col := range tuple.Columns {
+		if idx >= len(rel.Columns) {
+			continue
 		}
+		colName := rel.Columns[idx].Name
+		colType := rel.Columns[idx].DataType
+		if col.Data == nil {
+			data[colName] = nil
+			continue
+		}
+		// Convert according to OID inferred type mapping using existing converter where possible
+		// We map OID to a generic type string so existing converter can be reused
+		typeName := mapPgOIDToType(colType)
+		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
+		if err != nil && err != typeutils.ErrNullValue {
+			return nil, err
+		}
+		data[colName] = val
 	}
-	insertFn(context.TODO(), abstract.CDCChange{
-		Stream: s.changeFilter.tables[fmt.Sprintf("%s.%s", relation.Namespace, relation.RelationName)],
-		Kind:   "insert",
-		Data:   make(map[string]any),
-	})
-	return nil
+	return data, nil
 }
 
-// HandleUpdateMessage handles UpdateMessage messages
-func (s *Socket) HandleUpdateMessage(msg *pglogrepl.UpdateMessage, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
-	relation, ok := s.relationID[msg.RelationID]
+func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
+	rel, ok := p.socket.relationID[m.RelationID]
 	if !ok {
-		return fmt.Errorf("unknown relation ID: %d", msg.RelationID)
+		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
 
-	// Print update record
-	// logger.Infof("UPDATE: LSN=%s, Relation=%s.%s", lsn, relation.Namespace, relation.RelationName)
-	// if msg.OldTuple != nil {
-	// 	logger.Info("  OLD VALUES:")
-	// 	for idx, col := range msg.OldTuple.Columns {
-	// 		colName := relation.Columns[idx].Name
-	// 		if col.Data == nil {
-	// 			logger.Infof("    %s: NULL", colName)
-	// 		} else {
-	// 			logger.Infof("    %s: %s", colName, string(col.Data))
-	// 		}
-	// 	}
-	// }
-	// logger.Info("  NEW VALUES:")
-	// for idx, col := range msg.NewTuple.Columns {
-	// 	colName := relation.Columns[idx].Name
-	// 	if col.Data == nil {
-	// 		logger.Infof("    %s: NULL", colName)
-	// 	} else {
-	// 		logger.Infof("    %s: %s", colName, string(col.Data))
-	// 	}
-	// }
-	insertFn(context.TODO(), abstract.CDCChange{
-		Stream: s.changeFilter.tables[fmt.Sprintf("%s.%s", relation.Namespace, relation.RelationName)],
-		Kind:   "update",
-		Data:   make(map[string]any),
-	})
-	return nil
+	stream := p.socket.changeFilter.tables[fmt.Sprintf("%s.%s", rel.Namespace, rel.RelationName)]
+	if stream == nil {
+		return nil
+	}
+
+	values, err := p.tupleValuesToMap(rel, m.Tuple)
+	if err != nil {
+		return err
+	}
+
+	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "insert", Data: values})
 }
 
-// HandleDeleteMessage handles DeleteMessage messages
-func (s *Socket) HandleDeleteMessage(msg *pglogrepl.DeleteMessage, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
-	relation, ok := s.relationID[msg.RelationID]
+func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
+	rel, ok := p.socket.relationID[m.RelationID]
 	if !ok {
-		return fmt.Errorf("unknown relation ID: %d", msg.RelationID)
+		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
 
-	// Print delete record
-	// logger.Infof("DELETE: LSN=%s, Relation=%s.%s", lsn, relation.Namespace, relation.RelationName)
-	// for idx, col := range msg.OldTuple.Columns {
-	// 	colName := relation.Columns[idx].Name
-	// 	if col.Data == nil {
-	// 		logger.Infof("  %s: NULL", colName)
-	// 	} else {
-	// 		logger.Infof("  %s: %s", colName, string(col.Data))
-	// 	}
-	// }
-	insertFn(context.TODO(), abstract.CDCChange{
-		Stream: s.changeFilter.tables[fmt.Sprintf("%s.%s", relation.Namespace, relation.RelationName)],
-		Kind:   "delete",
-		Data:   make(map[string]any),
-	})
-	return nil
+	stream := p.socket.changeFilter.tables[fmt.Sprintf("%s.%s", rel.Namespace, rel.RelationName)]
+	if stream == nil {
+		return nil
+	}
+
+	values, err := p.tupleValuesToMap(rel, m.NewTuple)
+	if err != nil {
+		return err
+	}
+
+	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "update", Data: values})
 }
 
-// HandleCommitMessage processes a commit message
-func (s *Socket) HandleCommitMessage(msg *pglogrepl.CommitMessage) error {
-	logger.Infof("Commit Message: LSN=%s, TransactionEndLSN=%s", msg.CommitLSN, msg.TransactionEndLSN)
-	return nil
+func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
+	rel, ok := p.socket.relationID[m.RelationID]
+	if !ok {
+		return fmt.Errorf("unknown relation id: %d", m.RelationID)
+	}
+
+	stream := p.socket.changeFilter.tables[fmt.Sprintf("%s.%s", rel.Namespace, rel.RelationName)]
+	if stream == nil {
+		return nil
+	}
+
+	values, err := p.tupleValuesToMap(rel, m.OldTuple)
+	if err != nil {
+		return err
+	}
+
+	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})
 }
 
-// SendStandbyStatusUpdate sends a status update to the primary server
-func (s *Socket) SendStandbyStatusUpdate(ctx context.Context) error {
-	err := pglogrepl.SendStandbyStatusUpdate(ctx, s.pgConn, pglogrepl.StandbyStatusUpdate{
-		WALWritePosition: s.ClientXLogPos,
-		WALFlushPosition: s.ClientXLogPos,
-		WALApplyPosition: s.ClientXLogPos,
+// Confirm that Logs has been recorded
+func (p *pgoutputReplicator) AcknowledgeLSN(ctx context.Context, fakeAck bool) error {
+	walPosition := utils.Ternary(fakeAck, p.socket.ConfirmedFlushLSN, p.socket.ClientXLogPos).(pglogrepl.LSN)
+
+	err := pglogrepl.SendStandbyStatusUpdate(ctx, p.socket.pgConn, pglogrepl.StandbyStatusUpdate{
+		WALWritePosition: walPosition,
+		WALFlushPosition: walPosition,
 		ClientTime:       time.Now(),
 		ReplyRequested:   false,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to send standby status update: %w", err)
+		return fmt.Errorf("failed to send standby status message on wal position[%s]: %s", walPosition.String(), err)
 	}
-	logger.Debugf("Sent standby status update at LSN: %s", s.ClientXLogPos)
+
+	// Update local pointer and state
+	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
 	return nil
 }
 
-// handlePrimaryKeepaliveMessage processes PrimaryKeepaliveMessage messages
-func (s *Socket) handlePrimaryKeepaliveMessage(ctx context.Context, data []byte, lastStatusUpdate *time.Time) (*pglogrepl.LSN, error) {
-	pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse primary keepalive message: %w", err)
+func (p *pgoutputReplicator) Cleanup(ctx context.Context) {
+	if p.socket.pgConn != nil {
+		_ = p.socket.pgConn.Close(ctx)
 	}
-	logger.Debugf("Primary Keepalive Message: ServerWALEnd=%s, ServerTime=%v", pkm.ServerWALEnd, pkm.ServerTime)
-	// if pkm.ReplyRequested {
-	// 	if err := s.SendStandbyStatusUpdate(ctx); err != nil {
-	// 		return nil, fmt.Errorf("failed to send standby status update: %w", err)
-	// 	}
-	// 	*lastStatusUpdate = time.Now()
-	// }
-	return &pkm.ServerWALEnd, nil
+}
+
+func mapPgOIDToType(oid uint32) string {
+	switch oid {
+	case 16:
+		return "boolean"
+	case 20, 21, 23:
+		return "integer"
+	case 700, 701, 1700:
+		return "numeric"
+	case 25, 1043, 1042:
+		return "text"
+	case 1082:
+		return "date"
+	case 1083, 1266:
+		return "time"
+	case 1114, 1184:
+		return "timestamp"
+	case 17:
+		return "bytea"
+	default:
+		return "text"
+	}
 }
