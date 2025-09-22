@@ -136,44 +136,38 @@ func (p *Parquet) Setup(stream types.StreamInterface, options *destination.Optio
 }
 
 // Write writes a record to the Parquet file.
-// The parquet library's GenericWriter already supports batch writing internally,
-// so we write records as single-element batches to leverage this optimization.
 func (p *Parquet) Write(_ context.Context, record types.RawRecord) error {
-	record.OlakeTimestamp = time.Now().UTC()
 	partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
-	partitionFile, exists := p.partitionedFiles[partitionedPath]
+
+	partitionFolder, exists := p.partitionedFiles[partitionedPath]
 	if !exists {
 		err := p.createNewPartitionFile(partitionedPath)
 		if err != nil {
 			return fmt.Errorf("failed to create partition file: %s", err)
 		}
-		partitionFile = p.partitionedFiles[partitionedPath]
+		partitionFolder = p.partitionedFiles[partitionedPath]
 	}
 
-	if partitionFile == nil {
-		return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
+	if len(partitionFolder) == 0 {
+		return fmt.Errorf("failed to get partitioned files")
 	}
 
-	// Get the last file in the partition (most recent)
-	fileMetadata := &partitionFile[len(partitionFile)-1]
-
-	// Use batch writing API for better performance - this is our optimization!
+	// get last written file
+	fileMetadata := &partitionFolder[len(partitionFolder)-1]
 	var err error
 	if p.stream.NormalizationEnabled() {
 		record.Data[constants.OlakeID] = record.OlakeID
 		record.Data[constants.OlakeTimestamp] = record.OlakeTimestamp
 		record.Data[constants.OpType] = record.OperationType
 		record.Data[constants.CdcTimestamp] = record.CdcTimestamp
-		// Write as single-element batch for better performance
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 	} else {
-		// Write as single-element batch for better performance
 		_, err = fileMetadata.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
 	}
 	if err != nil {
 		return fmt.Errorf("failed to write to parquet file: %s", err)
 	}
-
+	fileMetadata.recordCount++
 	return nil
 }
 
