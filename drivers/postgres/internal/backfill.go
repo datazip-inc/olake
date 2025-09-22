@@ -27,7 +27,8 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	defer tx.Rollback()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
-	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
+	chunkColType, _ := stream.Schema().GetType(chunkColumn)
+	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter, chunkColType)
 	setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 		return tx.Query(query, args...)
 	})
@@ -129,7 +130,6 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 	if chunkColumn != "" {
 		var minValue, maxValue interface{}
 		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, chunkColumn)
-		// TODO: Fails on UUID type (Good First Issue)
 		err := p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch table min max: %s", err)
@@ -158,7 +158,8 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 
 func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
 	var chunkEnd interface{}
-	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd, p.config.BatchSize)
+	chunkColType, _ := stream.Schema().GetType(chunkColumn)
+	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd, p.config.BatchSize, chunkColType)
 	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
