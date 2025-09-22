@@ -54,6 +54,7 @@ type (
 		writer         Writer
 		batchSize      int
 		streamArtifact *writerSchema
+		group          utils.CxGroup
 	}
 )
 
@@ -180,7 +181,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
 	}
-
+	group := utils.NewCGroupWithLimit(ctx, 1)
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
 		batchSize:      10000,
@@ -188,6 +189,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		writer:         writerThread,
 		stats:          w.stats,
 		streamArtifact: streamArtifact,
+		group:          *group,
 	}, nil
 }
 
@@ -195,16 +197,18 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("context closed")
+	case <-wt.group.Ctx().Done():
+		return wt.group.Ctx().Err()
 	default:
 		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
 		if len(wt.buffer) >= wt.batchSize {
-			err := wt.flush(ctx, wt.buffer)
-			if err != nil {
-				return fmt.Errorf("failed to flush data: %s", err)
-			}
-			// empty buffer
+			var buf []types.RawRecord
+			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
+			wt.group.Add(func(ctx context.Context) error {
+				return wt.flush(ctx, buf)
+			})
 		}
 		return nil
 	}
