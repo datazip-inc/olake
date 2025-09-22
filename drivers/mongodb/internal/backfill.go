@@ -398,34 +398,45 @@ func buildMongoCondition(cond types.Condition) bson.D {
 		"=":  "$eq",
 		"!=": "$ne",
 	}
-	//TODO: take val as any type
-	value := func(field, val string) interface{} {
-		// Handle unquoted null
-		if val == "null" {
-			return nil
-		}
 
-		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-			val = val[1 : len(val)-1]
-		}
-		if field == "_id" && len(val) == 24 {
-			if oid, err := primitive.ObjectIDFromHex(val); err == nil {
-				return oid
+	value := func(field string, val any) interface{} {
+		switch v := val.(type) {
+		case nil:
+			return nil
+
+		case string:
+			if v == "null" {
+				return nil
 			}
+			if strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"") {
+				return v[1 : len(v)-1]
+			}
+			if field == "_id" && len(v) == 24 {
+				if oid, err := primitive.ObjectIDFromHex(v); err == nil {
+					return oid
+				}
+			}
+			if strings.ToLower(v) == "true" || strings.ToLower(v) == "false" {
+				return strings.ToLower(v) == "true"
+			}
+			if timeVal, err := typeutils.ReformatDate(v); err == nil {
+				return timeVal
+			}
+			if intVal, err := typeutils.ReformatInt64(v); err == nil {
+				return intVal
+			}
+			if floatVal, err := typeutils.ReformatFloat64(v); err == nil {
+				return floatVal
+			}
+			return v
+
+		case bool, int32, int64, float64, time.Time:
+			return v
+
+		default:
+			return v
+
 		}
-		if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
-			return strings.ToLower(val) == "true"
-		}
-		if timeVal, err := typeutils.ReformatDate(val); err == nil {
-			return timeVal
-		}
-		if intVal, err := typeutils.ReformatInt64(val); err == nil {
-			return intVal
-		}
-		if floatVal, err := typeutils.ReformatFloat64(val); err == nil {
-			return floatVal
-		}
-		return val
 	}(cond.Column, cond.Value)
 	return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
 }
