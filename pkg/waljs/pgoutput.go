@@ -21,6 +21,7 @@ type pgoutputReplicator struct {
 	socket        *Socket
 	publications  []string
 	txnCommitTime time.Time
+	relationID    map[uint32]*pglogrepl.RelationMessage // map to store relation id
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -43,7 +44,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 
 	lastStatusUpdate := time.Now()
-	idleTimeout := 10 * time.Second
+	statusUpdateTimeout := 10 * time.Second
 	cdcStartTime := time.Now()
 	messageReceived := false
 
@@ -64,14 +65,12 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 
 			msg, err := p.socket.pgConn.ReceiveMessage(ctx)
 			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return nil
-				}
-				if strings.Contains(err.Error(), "EOF") {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "EOF") {
 					return nil
 				}
 				return err
 			}
+
 			copyData, ok := msg.(*pgproto3.CopyData)
 			if !ok {
 				return fmt.Errorf("pgoutput unexpected message type: %T", msg)
@@ -83,7 +82,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				if err != nil {
 					return fmt.Errorf("failed to parse XLogData: %v", err)
 				}
-				if err := p.processPgoutputWAL(ctx, xld.WALData, xld.WALStart, insertFn); err != nil {
+				if err := p.processPgoutputWAL(ctx, xld.WALData, insertFn); err != nil {
 					return err
 				}
 				p.socket.ClientXLogPos = xld.WALStart
@@ -95,7 +94,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
-				if pkm.ReplyRequested || time.Since(lastStatusUpdate) >= idleTimeout {
+				if pkm.ReplyRequested || time.Since(lastStatusUpdate) >= statusUpdateTimeout {
 					if err := AcknowledgeLSN(ctx, p.socket, true); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)
 					}
@@ -108,7 +107,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 }
 
-func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []byte, lsn pglogrepl.LSN, insertFn abstract.CDCMsgFn) error {
+func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []byte, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {
 		return fmt.Errorf("failed to parse WAL data: %v", err)
@@ -116,7 +115,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
-		p.socket.relationID[msg.RelationID] = msg
+		p.relationID[msg.RelationID] = msg
 		return nil
 	case *pglogrepl.BeginMessage:
 		p.txnCommitTime = msg.CommitTime
@@ -163,7 +162,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.socket.relationID[m.RelationID]
+	rel, ok := p.relationID[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
@@ -182,7 +181,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.socket.relationID[m.RelationID]
+	rel, ok := p.relationID[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
@@ -201,7 +200,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.socket.relationID[m.RelationID]
+	rel, ok := p.relationID[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}

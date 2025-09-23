@@ -368,7 +368,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		// create new schema from already available schema
 		recordsSchema := copySchema(i.schema)
 		diffThreadSchema := atomic.Bool{}
-		utils.Concurrent(ctx, records, len(records), func(ctx context.Context, record types.RawRecord, idx int) error {
+		err := utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, idx int) error {
 			// set pre configured fields
 			records[idx].Data[constants.OlakeID] = record.OlakeID
 			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
@@ -421,7 +421,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			return nil
 		})
 
-		return diffThreadSchema.Load(), recordsSchema, nil
+		return diffThreadSchema.Load(), recordsSchema, err
 	}
 
 	records = dedupRecords(records)
@@ -432,7 +432,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
 	if err != nil {
-		return false, nil, nil, err
+		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
 	return schemaDifference, records, recordsSchema, err

@@ -24,7 +24,7 @@ const (
 type Socket struct {
 	// pgConn is the underlying PostgreSQL replication connection
 	pgConn *pgconn.PgConn
-	// clientXLogPos tracks the current position in the Write-Ahead Log (WAL)
+	// clientXLogPos tracks the current position (while reading logs) in the Write-Ahead Log (WAL)
 	ClientXLogPos pglogrepl.LSN
 	// changeFilter filters WAL changes based on configured tables
 	changeFilter ChangeFilter
@@ -34,10 +34,8 @@ type Socket struct {
 	CurrentWalPosition pglogrepl.LSN
 	// replicationSlot is the name of the PostgreSQL replication slot being used
 	ReplicationSlot string
-	// initialWaitTime is the duration to wait for initial data before timing out
+	// initialWaitTime is the duration to wait for first wal log catchup before timing out
 	initialWaitTime time.Duration
-	// map to store relation id
-	relationID map[uint32]*pglogrepl.RelationMessage
 }
 
 // Replicator defines an abstraction over different logical decoding plugins.
@@ -113,15 +111,15 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		CurrentWalPosition: slot.CurrentLSN,
 		ReplicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
-		relationID:         make(map[uint32]*pglogrepl.RelationMessage),
 	}
+
 	plugin := strings.ToLower(strings.TrimSpace(slot.Plugin))
 	switch plugin {
 	case "pgoutput":
 		if len(config.Publications) == 0 {
 			return nil, fmt.Errorf("publication names are required for pgoutput")
 		}
-		return &pgoutputReplicator{socket: socket, publications: config.Publications}, nil
+		return &pgoutputReplicator{socket: socket, publications: config.Publications, relationID: make(map[uint32]*pglogrepl.RelationMessage)}, nil
 	default:
 		return &wal2jsonReplicator{socket: socket}, nil
 	}
@@ -138,9 +136,9 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) er
 }
 
 // Confirm that Logs has been recorded
+// in fake ack prev confirmed flush lsn is sent
 func AcknowledgeLSN(ctx context.Context, socket *Socket, fakeAck bool) error {
 	walPosition := utils.Ternary(fakeAck, socket.ConfirmedFlushLSN, socket.ClientXLogPos).(pglogrepl.LSN)
-
 	err := pglogrepl.SendStandbyStatusUpdate(ctx, socket.pgConn, pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: walPosition,
 		WALFlushPosition: walPosition,
@@ -151,7 +149,6 @@ func AcknowledgeLSN(ctx context.Context, socket *Socket, fakeAck bool) error {
 		return fmt.Errorf("failed to send standby status message on wal position[%s]: %s", walPosition.String(), err)
 	}
 
-	// Update local pointer and state
 	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
 	return nil
 }

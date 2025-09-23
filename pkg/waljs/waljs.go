@@ -21,13 +21,12 @@ var pluginArguments = []string{
 	"\"include-timestamp\" 'on'",
 }
 
-// wal2jsonReplicator implements Replicator for wal2json plugin using existing StreamMessages logic
+// wal2jsonReplicator implements Replicator for wal2json plugin
 type wal2jsonReplicator struct {
 	socket *Socket
 }
 
 func (w *wal2jsonReplicator) Socket() *Socket {
-	// No-op: existing StreamMessages starts replication internally
 	return w.socket
 }
 

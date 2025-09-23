@@ -19,7 +19,7 @@ type Config struct {
 	InitialWaitTime     time.Duration
 	TLSConfig           *tls.Config
 	BatchSize           int
-	// Publications is used with pgoutput. If empty, a single default publication may be used.
+	// Publications is used with pgoutput
 	Publications []string
 }
 

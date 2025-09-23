@@ -54,7 +54,7 @@ type (
 		writer         Writer
 		batchSize      int
 		streamArtifact *writerSchema
-		group          utils.CxGroup
+		group          *utils.CxGroup
 	}
 )
 
@@ -181,7 +181,6 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
 	}
-	group := utils.NewCGroupWithLimit(ctx, 1)
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
 		batchSize:      10000,
@@ -189,7 +188,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		writer:         writerThread,
 		stats:          w.stats,
 		streamArtifact: streamArtifact,
-		group:          *group,
+		group:          utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
 	}, nil
 }
 
@@ -198,7 +197,8 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 	case <-ctx.Done():
 		return fmt.Errorf("context closed")
 	case <-wt.group.Ctx().Done():
-		return wt.group.Ctx().Err()
+		// if group context is done, return the group err
+		return wt.group.Block()
 	default:
 		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
@@ -219,6 +219,14 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	if len(buf) == 0 {
 		return nil
 	}
+
+	defer func() {
+		if err == nil {
+			if rec := recover(); rec != nil {
+				err = fmt.Errorf("panic recovered in flush: %v", rec)
+			}
+		}
+	}()
 
 	// create flush context
 	flushCtx, cancel := context.WithCancel(ctx)
