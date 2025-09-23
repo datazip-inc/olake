@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -33,13 +34,14 @@ type FileMetadata struct {
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
 type Parquet struct {
-	options          *destination.Options
-	config           *Config
-	stream           types.StreamInterface
-	basePath         string                   // construct with streamNamespace/streamName
-	partitionedFiles map[string]*FileMetadata // mapping of basePath/{regex} -> pqFiles
-	s3Client         *s3.S3
-	schema           typeutils.Fields
+	options             *destination.Options
+	config              *Config
+	stream              types.StreamInterface
+	basePath            string                   // construct with streamNamespace/streamName
+	partitionedFiles    map[string]*FileMetadata // mapping of basePath/{regex} -> pqFiles
+	s3Client            *s3.S3
+	schema              typeutils.Fields
+	cachedParquetSchema *pqgo.Schema // cached parquet schema for performance
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -97,7 +99,11 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
+			// Use cached schema if available, otherwise create and cache it
+			if p.cachedParquetSchema == nil {
+				p.cachedParquetSchema = p.schema.ToTypeSchema().ToParquet()
+			}
+			return pqgo.NewGenericWriter[any](pqFile, p.cachedParquetSchema, pqgo.Compression(&pqgo.Snappy))
 		}
 		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
@@ -149,12 +155,50 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	return fields, nil
 }
 
-// Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
-	// TODO: use batch writing feature of pq writer
-	for _, record := range records {
-		record.OlakeTimestamp = time.Now().UTC()
+// Write writes records to the Parquet file using parallel processing and batch writing for maximum performance.
+func (p *Parquet) Write(ctx context.Context, records []types.RawRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	// Single batch timestamp for all records
+	batchNow := time.Now().UTC()
+	partitionBatches := make(map[string][]types.RawRecord)
+
+	// Use parallel processing for partition path calculation with 100 workers
+	const maxWorkers = 1000
+	type partitionResult struct {
+		path   string
+		record types.RawRecord
+	}
+
+	resultChan := make(chan partitionResult, len(records))
+
+	// Process records in parallel to determine partition paths
+	err := utils.Concurrent(ctx, records, maxWorkers, func(ctx context.Context, record types.RawRecord, idx int) error {
+		record.OlakeTimestamp = batchNow
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
+
+		select {
+		case resultChan <- partitionResult{path: partitionedPath, record: record}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+
+	close(resultChan)
+	if err != nil {
+		return fmt.Errorf("failed to process records in parallel: %s", err)
+	}
+
+	// Collect results and group by partition
+	for result := range resultChan {
+		partitionBatches[result.path] = append(partitionBatches[result.path], result.record)
+	}
+
+	// Write batches to their respective partition files
+	for partitionedPath, batch := range partitionBatches {
 		partitionFile, exists := p.partitionedFiles[partitionedPath]
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
@@ -170,12 +214,18 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 
 		var err error
 		if p.stream.NormalizationEnabled() {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
+			// Batch write normalized data
+			normalizedBatch := make([]any, len(batch))
+			for i, record := range batch {
+				normalizedBatch[i] = record.Data
+			}
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write(normalizedBatch)
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+			// Batch write raw records
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write(batch)
 		}
 		if err != nil {
-			return fmt.Errorf("failed to write in parquet file: %s", err)
+			return fmt.Errorf("failed to write batch to parquet file: %s", err)
 		}
 	}
 
@@ -307,32 +357,73 @@ func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return false, records, nil, nil
 	}
 
-	schemaChange := false
-	for idx, record := range records {
-		// add common fields
-		records[idx].Data[constants.OlakeID] = record.OlakeID
-		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
-		records[idx].Data[constants.OpType] = record.OperationType
-		if record.CdcTimestamp != nil {
-			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
-		}
-
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
-		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
-		}
-
-		// just process the changes and upgrade new schema
-		change, typeChange, _ := p.schema.Process(flattenedRecord)
-		schemaChange = change || typeChange || schemaChange
-		err = typeutils.ReformatRecord(p.schema, flattenedRecord)
-		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
-		}
-		records[idx].Data = flattenedRecord // use idx to update slice record
+	if len(records) == 0 {
+		return false, records, p.schema, nil
 	}
 
-	return schemaChange, records, p.schema, nil
+	// Single batch timestamp for all records
+	batchNow := time.Now().UTC()
+	schemaChange := false
+	diffFound := atomic.Bool{}
+	diffFound.Store(false)
+
+	// Parallel flattening with 100 worker goroutines for maximum performance
+	ctx := context.Background()
+	const maxWorkers = 1000
+
+	// Process records in parallel using utils.Concurrent
+	err := utils.Concurrent(ctx, records, maxWorkers, func(ctx context.Context, record types.RawRecord, idx int) error {
+		// Add common fields
+		records[idx-1].Data[constants.OlakeID] = record.OlakeID
+		records[idx-1].Data[constants.OlakeTimestamp] = batchNow
+		records[idx-1].Data[constants.OpType] = record.OperationType
+		if record.CdcTimestamp != nil {
+			records[idx-1].Data[constants.CdcTimestamp] = *record.CdcTimestamp
+		}
+
+		// Each goroutine gets its own flattener to avoid race conditions
+		flattener := typeutils.NewFlattener()
+		flattenedRecord, err := flattener.Flatten(record.Data)
+		if err != nil {
+			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx-1, err)
+		}
+
+		// Store flattened result back to the record
+		records[idx-1].Data = flattenedRecord
+
+		for key, value := range flattenedRecord {
+			detectedType := typeutils.TypeFromValue(value)
+			_, keyExist := p.schema[key]
+			if !keyExist {
+				diffFound.Store(true)
+				continue
+			}
+
+			persistedType := p.schema[key].Types()
+			if _, exist := utils.ArrayContains(persistedType, func(elem types.DataType) bool {
+				return elem == detectedType
+			}); !exist {
+				diffFound.Store(true)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return false, nil, nil, err
+	}
+
+	if diffFound.Load() {
+		for _, record := range records {
+			// Process the changes and upgrade new schema
+			change, typeChange, _ := p.schema.Process(record.Data)
+			schemaChange = change || typeChange || schemaChange
+		}
+	}
+
+	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, maxWorkers, func(ctx context.Context, record types.RawRecord, idx int) error {
+		return typeutils.ReformatRecord(p.schema, record.Data)
+	})
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
@@ -342,6 +433,9 @@ func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 	}
 
 	logger.Infof("Thread[%s]: schema evolution detected", p.options.ThreadID)
+
+	// Invalidate cached schema since it's changing
+	p.cachedParquetSchema = nil
 
 	// TODO: can we implement something https://github.com/parquet-go/parquet-go?tab=readme-ov-file#evolving-parquet-schemas-parquetconvert
 	// close prev files as change detected (new files will be created with new schema)

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -21,9 +23,11 @@ type Iceberg struct {
 	options       *destination.Options
 	config        *Config
 	stream        types.StreamInterface
-	partitionInfo []PartitionInfo   // ordered slice to preserve partition column order
-	server        *serverInstance   // java server instance
-	schema        map[string]string // schema for current thread associated with java writer (col -> type)
+	partitionInfo []PartitionInfo                     // ordered slice to preserve partition column order
+	server        *serverInstance                     // java server instance
+	schema        map[string]string                   // schema for current thread associated with java writer (col -> type)
+	protoSchema   []*proto.IcebergPayload_SchemaField // cached deterministic proto schema
+	schemaIndex   map[string]int                      // cached column index by name
 	// Why Schema On Thread Level ?
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
@@ -105,18 +109,13 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	// set schema for current thread
 	i.schema = copySchema(schema)
+	i.rebuildProtoSchemaCache()
 	return schema, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
-	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(i.schema))
-	for field, dType := range i.schema {
-		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
-			Key:     field,
-			IceType: dType,
-		})
-	}
+	protoSchema := i.protoSchema
 
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
 	for _, record := range records {
@@ -124,18 +123,17 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 			continue
 		}
 
-		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
+		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, len(protoSchema))
 		if !i.stream.NormalizationEnabled() {
 			protoCols, err := rawDataColumnBuffer(record, protoSchema)
 			if err != nil {
 				return fmt.Errorf("failed to create raw data column buffer: %s", err)
 			}
-			protoColumnsValue = protoCols
+			copy(protoColumnsValue, protoCols)
 		} else {
-			for _, field := range protoSchema {
+			for idx, field := range protoSchema {
 				val, exist := record.Data[field.Key]
 				if !exist {
-					protoColumnsValue = append(protoColumnsValue, nil)
 					continue
 				}
 				switch field.IceType {
@@ -144,39 +142,39 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] as bool value: %s", val, err)
 					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolValue}})
+					protoColumnsValue[idx] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolValue}}
 				case "int":
 					intValue, err := typeutils.ReformatInt32(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as int32 value: %s", val, val, err)
 					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: intValue}})
+					protoColumnsValue[idx] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: intValue}}
 				case "long":
 					longValue, err := typeutils.ReformatInt64(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as long value: %s", val, val, err)
 					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: longValue}})
+					protoColumnsValue[idx] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: longValue}}
 				case "float":
 					floatValue, err := typeutils.ReformatFloat32(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float32 value: %s", val, val, err)
 					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: floatValue}})
+					protoColumnsValue[idx] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: floatValue}}
 				case "double":
 					doubleValue, err := typeutils.ReformatFloat64(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float64 value: %s", val, val, err)
 					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}})
+					protoColumnsValue[idx] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}}
 				case "timestamptz":
 					timeValue, err := typeutils.ReformatDate(val)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as time value: %s", val, val, err)
 					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: timeValue.UnixMilli()}})
+					protoColumnsValue[idx] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: timeValue.UnixMilli()}}
 				default:
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", val)}})
+					protoColumnsValue[idx] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", val)}}
 				}
 			}
 		}
@@ -366,11 +364,12 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 	extractSchemaFromRecords := func(records []types.RawRecord) (bool, map[string]string, error) {
 		// create new schema from already available schema
 		recordsSchema := copySchema(i.schema)
-		diffThreadSchema := false
-		for idx, record := range records {
-			// TODO: normalized column names (remove from driver side)
-
+		diffThreadSchema := atomic.Bool{}
+		diffThreadSchema.Store(false)
+		// reuse one flattener and a single batch timestamp
+		utils.Concurrent(context.TODO(), records, len(records), func(ctx context.Context, record types.RawRecord, idx int) error {
 			// set pre configured fields
+			idx = idx - 1
 			records[idx].Data[constants.OlakeID] = record.OlakeID
 			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
 			records[idx].Data[constants.OpType] = record.OperationType
@@ -380,7 +379,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 			if err != nil {
-				return false, nil, fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
+				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
 			records[idx].Data = flattenedRecord
 
@@ -399,7 +398,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 					if _, exist := i.schema[key]; exist {
 						valid := validIcebergType(typeInNewSchema, detectedIcebergType)
 						if !valid {
-							return false, nil, fmt.Errorf(
+							return fmt.Errorf(
 								"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
 								key, typeInNewSchema, detectedIcebergType,
 							)
@@ -407,21 +406,22 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 						if promotionRequired(typeInNewSchema, detectedIcebergType) {
 							recordsSchema[key] = detectedIcebergType
-							diffThreadSchema = true
+							diffThreadSchema.Store(true)
 						}
 					} else {
 						// if column not exist in iceberg table use common ancestor
-						diffThreadSchema = true // (Note: adding just to maintain consistency)
+						diffThreadSchema.Store(true) // (Note: adding just to maintain consistency)
 						recordsSchema[key] = getCommonAncestorType(typeInNewSchema, detectedIcebergType)
 					}
 				} else {
-					diffThreadSchema = true
+					diffThreadSchema.Store(true)
 					recordsSchema[key] = detectedIcebergType
 				}
 			}
-		}
+			return nil
+		})
 
-		return diffThreadSchema, recordsSchema, nil
+		return diffThreadSchema.Load(), recordsSchema, nil
 	}
 
 	records = dedupRecords(records)
@@ -519,6 +519,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	}
 
 	i.schema = copySchema(schemaAfterEvolution)
+	i.rebuildProtoSchemaCache()
 	return schemaAfterEvolution, nil
 }
 
@@ -591,6 +592,23 @@ func copySchema(schema map[string]string) map[string]string {
 		copySchema[key] = value
 	}
 	return copySchema
+}
+
+// rebuildProtoSchemaCache rebuilds a deterministic proto schema slice and index map
+func (i *Iceberg) rebuildProtoSchemaCache() {
+	// build keys in stable order for deterministic column positions across batches
+	keys := make([]string, 0, len(i.schema))
+	for k := range i.schema {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	i.protoSchema = i.protoSchema[:0]
+	i.schemaIndex = make(map[string]int, len(keys))
+	for idx, k := range keys {
+		i.protoSchema = append(i.protoSchema, &proto.IcebergPayload_SchemaField{Key: k, IceType: i.schema[k]})
+		i.schemaIndex[k] = idx
+	}
 }
 
 func parseSchema(schemaStr string) (map[string]string, error) {
