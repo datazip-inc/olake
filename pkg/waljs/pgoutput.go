@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jmoiron/sqlx"
 )
@@ -28,7 +28,6 @@ func (p *pgoutputReplicator) Socket() *Socket {
 }
 
 func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
-	// Update current lsn information
 	var slot ReplicationSlot
 	if err := db.Get(&slot, fmt.Sprintf(ReplicationSlotTempl, p.socket.ReplicationSlot)); err != nil {
 		return fmt.Errorf("failed to get replication slot: %s", err)
@@ -91,14 +90,13 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				lastStatusUpdate = time.Now()
 				messageReceived = true
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
-				// TODO: need to validate if it is required or not
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested || time.Since(lastStatusUpdate) >= idleTimeout {
-					if err := p.AcknowledgeLSN(ctx, true); err != nil {
+					if err := AcknowledgeLSN(ctx, p.socket, true); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)
 					}
 					lastStatusUpdate = time.Now()
@@ -142,7 +140,6 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		return data, nil
 	}
 
-	// TODO: Verify logic first
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
 			continue
@@ -153,9 +150,9 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 			data[colName] = nil
 			continue
 		}
-		// Convert according to OID inferred type mapping using existing converter where possible
-		// We map OID to a generic type string so existing converter can be reused
-		typeName := mapPgOIDToType(colType)
+
+		// Convert according to OID to string
+		typeName := oidToString(colType)
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
@@ -222,50 +219,51 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})
 }
 
-// Confirm that Logs has been recorded
-func (p *pgoutputReplicator) AcknowledgeLSN(ctx context.Context, fakeAck bool) error {
-	walPosition := utils.Ternary(fakeAck, p.socket.ConfirmedFlushLSN, p.socket.ClientXLogPos).(pglogrepl.LSN)
-
-	err := pglogrepl.SendStandbyStatusUpdate(ctx, p.socket.pgConn, pglogrepl.StandbyStatusUpdate{
-		WALWritePosition: walPosition,
-		WALFlushPosition: walPosition,
-		ClientTime:       time.Now(),
-		ReplyRequested:   false,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to send standby status message on wal position[%s]: %s", walPosition.String(), err)
+// OIDToString converts a PostgreSQL OID to its string representation
+func oidToString(oid uint32) string {
+	if typeName, ok := oidToTypeName[oid]; ok {
+		return typeName
 	}
-
-	// Update local pointer and state
-	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
-	return nil
+	logger.Warnf("unknown oid[%d] falling back to string", oid)
+	// default to json, which will be converted to string
+	return "json"
 }
 
-func (p *pgoutputReplicator) Cleanup(ctx context.Context) {
-	if p.socket.pgConn != nil {
-		_ = p.socket.pgConn.Close(ctx)
-	}
-}
-
-func mapPgOIDToType(oid uint32) string {
-	switch oid {
-	case 16:
-		return "boolean"
-	case 20, 21, 23:
-		return "integer"
-	case 700, 701, 1700:
-		return "numeric"
-	case 25, 1043, 1042:
-		return "text"
-	case 1082:
-		return "date"
-	case 1083, 1266:
-		return "time"
-	case 1114, 1184:
-		return "timestamp"
-	case 17:
-		return "bytea"
-	default:
-		return "text"
-	}
+// OidToTypeName maps PostgreSQL OIDs to their corresponding type names
+var oidToTypeName = map[uint32]string{
+	pgtype.BoolOID:             "bool",
+	pgtype.ByteaOID:            "bytea",
+	pgtype.Int8OID:             "int8",
+	pgtype.Int2OID:             "int2",
+	pgtype.Int4OID:             "int4",
+	pgtype.TextOID:             "text",
+	pgtype.UUIDOID:             "uuid",
+	pgtype.JSONOID:             "json",
+	pgtype.Float4OID:           "float4",
+	pgtype.Float8OID:           "float8",
+	pgtype.BoolArrayOID:        "bool[]",
+	pgtype.Int2ArrayOID:        "int2[]",
+	pgtype.Int4ArrayOID:        "int4[]",
+	pgtype.TextArrayOID:        "text[]",
+	pgtype.ByteaArrayOID:       "bytea[]",
+	pgtype.Int8ArrayOID:        "int8[]",
+	pgtype.Float4ArrayOID:      "float4[]",
+	pgtype.Float8ArrayOID:      "float8[]",
+	pgtype.BPCharOID:           "bpchar",
+	pgtype.VarcharOID:          "varchar",
+	pgtype.DateOID:             "date",
+	pgtype.TimeOID:             "time",
+	pgtype.TimestampOID:        "timestamp",
+	pgtype.TimestampArrayOID:   "timestamp[]",
+	pgtype.DateArrayOID:        "date[]",
+	pgtype.TimestamptzOID:      "timestamptz",
+	pgtype.TimestamptzArrayOID: "timestamptz[]",
+	pgtype.IntervalOID:         "interval",
+	pgtype.NumericArrayOID:     "numeric[]",
+	pgtype.BitOID:              "bit",
+	pgtype.VarbitOID:           "varbit",
+	pgtype.NumericOID:          "numeric",
+	pgtype.UUIDArrayOID:        "uuid[]",
+	pgtype.JSONBOID:            "jsonb",
+	pgtype.JSONBArrayOID:       "jsonb[]",
 }

@@ -99,7 +99,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				if pkm.ReplyRequested {
 					logger.Debugf("keep alive message received: %v", pkm)
 					// send fake acknowledgement
-					err := w.AcknowledgeLSN(ctx, true)
+					err := AcknowledgeLSN(ctx, w.socket, true)
 					if err != nil {
 						return fmt.Errorf("failed to ack lsn: %s", err)
 					}
@@ -121,30 +121,5 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				logger.Warnf("received unhandled message type: %v", copyData.Data[0])
 			}
 		}
-	}
-}
-
-// Confirm that Logs has been recorded
-func (w *wal2jsonReplicator) AcknowledgeLSN(ctx context.Context, fakeAck bool) error {
-	walPosition := w.socket.ClientXLogPos
-	if fakeAck {
-		walPosition = w.socket.ConfirmedFlushLSN
-	}
-	err := pglogrepl.SendStandbyStatusUpdate(ctx, w.socket.pgConn, pglogrepl.StandbyStatusUpdate{
-		WALWritePosition: walPosition,
-		WALFlushPosition: walPosition,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to send standby status message on wal position[%s]: %s", walPosition.String(), err)
-	}
-
-	// Update local pointer and state
-	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
-	return nil
-}
-
-func (w *wal2jsonReplicator) Cleanup(ctx context.Context) {
-	if w.socket.pgConn != nil {
-		_ = w.socket.pgConn.Close(ctx)
 	}
 }

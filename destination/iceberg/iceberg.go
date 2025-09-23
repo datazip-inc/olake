@@ -364,13 +364,11 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
-	extractSchemaFromRecords := func(records []types.RawRecord) (bool, map[string]string, error) {
+	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {
 		// create new schema from already available schema
 		recordsSchema := copySchema(i.schema)
 		diffThreadSchema := atomic.Bool{}
-		diffThreadSchema.Store(false)
-		// reuse one flattener and a single batch timestamp
-		utils.Concurrent(context.TODO(), records, len(records), func(ctx context.Context, record types.RawRecord, idx int) error {
+		utils.Concurrent(ctx, records, len(records), func(ctx context.Context, record types.RawRecord, idx int) error {
 			// set pre configured fields
 			records[idx].Data[constants.OlakeID] = record.OlakeID
 			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
@@ -432,7 +430,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, records, i.schema, nil
 	}
 
-	schemaDifference, recordsSchema, err := extractSchemaFromRecords(records)
+	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
 	if err != nil {
 		return false, nil, nil, err
 	}

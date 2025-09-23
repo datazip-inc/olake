@@ -24,9 +24,9 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		SSHClient:           p.sshClient,
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
-		Tables:              types.NewSet[types.StreamInterface](streams...),
+		Tables:              types.NewSet(streams...),
 		BatchSize:           p.config.BatchSize,
-		PublicationNames:    p.config.PublicationNames,
+		Publications:        p.config.Publications,
 	}, nil
 }
 
@@ -92,11 +92,11 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, c
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
-	defer p.replicator.Cleanup(ctx)
+	defer waljs.Cleanup(ctx, p.replicator.Socket())
 	if noErr {
 		socket := p.replicator.Socket()
 		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-		return p.replicator.AcknowledgeLSN(ctx, false)
+		return waljs.AcknowledgeLSN(ctx, socket, false)
 	}
 	return nil
 }
@@ -121,13 +121,10 @@ func validateReplicationSlot(conn *sqlx.DB, slotName string) error {
 		return err
 	}
 
-	// if slot.Plugin != "wal2json" {
-	// 	return fmt.Errorf("plugin not supported[%s]: driver only supports wal2json", slot.Plugin)
-	// }
-
 	if slot.SlotType != "logical" {
 		return fmt.Errorf("only logical slots are supported: %s", slot.SlotType)
 	}
 
+	logger.Debugf("replication slot[%s] with pluginType[%s] found", slotName, slot.Plugin)
 	return nil
 }

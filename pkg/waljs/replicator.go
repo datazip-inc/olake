@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -43,12 +44,8 @@ type Socket struct {
 type Replicator interface {
 	// info about socket
 	Socket() *Socket
-	// Acknowledgment of LSN
-	AcknowledgeLSN(ctx context.Context, fakeAck bool) error
 	// StreamChanges processes messages until it emits changes via insertFn or exits per logic.
 	StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error
-	// Cleanup the socket
-	Cleanup(ctx context.Context)
 }
 
 func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
@@ -121,9 +118,10 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	plugin := strings.ToLower(strings.TrimSpace(slot.Plugin))
 	switch plugin {
 	case "pgoutput":
-		// TODO: validate if publication is provided or not
-		logger.Debug("pgoutput plugin found")
-		return &pgoutputReplicator{socket: socket, publications: config.PublicationNames}, nil
+		if len(config.Publications) == 0 {
+			return nil, fmt.Errorf("publication names are required for pgoutput")
+		}
+		return &pgoutputReplicator{socket: socket, publications: config.Publications}, nil
 	default:
 		return &wal2jsonReplicator{socket: socket}, nil
 	}
@@ -137,4 +135,30 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) er
 	}
 	logger.Debugf("advanced LSN to %s", currentWalPos)
 	return nil
+}
+
+// Confirm that Logs has been recorded
+func AcknowledgeLSN(ctx context.Context, socket *Socket, fakeAck bool) error {
+	walPosition := utils.Ternary(fakeAck, socket.ConfirmedFlushLSN, socket.ClientXLogPos).(pglogrepl.LSN)
+
+	err := pglogrepl.SendStandbyStatusUpdate(ctx, socket.pgConn, pglogrepl.StandbyStatusUpdate{
+		WALWritePosition: walPosition,
+		WALFlushPosition: walPosition,
+		ClientTime:       time.Now(),
+		ReplyRequested:   false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send standby status message on wal position[%s]: %s", walPosition.String(), err)
+	}
+
+	// Update local pointer and state
+	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
+	return nil
+}
+
+// cleanup replicator
+func Cleanup(ctx context.Context, socket *Socket) {
+	if socket.pgConn != nil {
+		_ = socket.pgConn.Close(ctx)
+	}
 }

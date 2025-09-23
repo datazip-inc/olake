@@ -312,8 +312,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, records, p.schema, nil
 	}
 
-	diffFound := atomic.Bool{}
-	diffFound.Store(false)
+	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
 	// Process records in parallel using utils.Concurrent
 	err := utils.Concurrent(ctx, records, len(records), func(ctx context.Context, record types.RawRecord, idx int) error {
@@ -325,9 +324,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
 
-		// Each goroutine gets its own flattener to avoid race conditions
-		flattener := typeutils.NewFlattener()
-		flattenedRecord, err := flattener.Flatten(record.Data)
+		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
@@ -335,29 +332,30 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		// Store flattened result back to the record
 		records[idx].Data = flattenedRecord
 
-		for key, value := range flattenedRecord {
-			detectedType := typeutils.TypeFromValue(value)
-			_, keyExist := p.schema[key]
-			if !keyExist {
-				diffFound.Store(true)
-				continue
-			}
+		if !diffFound.Load() {
+			for columnName, columnValue := range flattenedRecord {
+				detectedType := typeutils.TypeFromValue(columnValue)
+				if _, columnExist := p.schema[columnName]; !columnExist {
+					diffFound.Store(true)
+					continue
+				}
 
-			persistedType := p.schema[key].Types()
-			if _, exist := utils.ArrayContains(persistedType, func(elem types.DataType) bool {
-				return elem == detectedType
-			}); !exist {
-				diffFound.Store(true)
+				persistedTypes := p.schema[columnName].Types()
+				if _, exist := utils.ArrayContains(persistedTypes, func(elem types.DataType) bool {
+					return elem == detectedType
+				}); !exist {
+					diffFound.Store(true)
+				}
 			}
 		}
 		return nil
 	})
 
 	if err != nil {
-		return false, nil, nil, err
+		return false, nil, nil, fmt.Errorf("failed to process records: %s", err)
 	}
 
-	schemaChange := false
+	schemaChange := false // note: diff schema already detected so we can avoid this in future
 
 	if diffFound.Load() {
 		for _, record := range records {
