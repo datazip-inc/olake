@@ -59,6 +59,10 @@ type (
 
 var RegisteredWriters = map[types.DestinationType]NewFunc{}
 
+type ArrowToggle interface {
+	UseArrowWrites() bool
+}
+
 func WithIdentifier(identifier string) ThreadOptions {
 	return func(opt *Options) {
 		opt.Identifier = identifier
@@ -238,7 +242,11 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 		}
 	}
 
-	arrowWrites := true // TODO: have "arrow-writes" enable option
+	arrowWrites := false
+	if toggle, ok := wt.writer.(ArrowToggle); ok {
+		arrowWrites = toggle.UseArrowWrites()
+	}
+
 	if arrowWrites {
 		if err := wt.writer.ArrowWrites(flushCtx, buf); err != nil {
 			return fmt.Errorf("failed to write arrow records: %s", err)

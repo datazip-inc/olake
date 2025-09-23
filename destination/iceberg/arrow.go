@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -22,9 +23,12 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/google/uuid"
 )
 
-const parquetSizeThresholdBytes = int64(350*1024*1024 - 1*1024*1024)
+var totalDataFiles atomic.Int64
+
+const parquetSizeThresholdBytes = int64(27*1024*1024 - 1*1024*1024)
 const streamChunkSize = int64(8 * 1024 * 1024)
 
 type ArrowWriter struct {
@@ -32,15 +36,21 @@ type ArrowWriter struct {
 	bucketName string
 	prefix     string
 
-	currentWriter      *pqarrow.FileWriter
-	currentBuffer      *bytes.Buffer
-	currentRowCount    int64
-	currentFile        string
+	currentWriter         *pqarrow.FileWriter
+	currentBuffer         *bytes.Buffer
+	currentRowCount       int64
+	currentFile           string
 	currentCompressedSize int64
 }
 
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+}
+
+func GenerateDataFileName() string {
+	// It mimics the behavior in the Java API:
+	// https://github.com/apache/iceberg/blob/a582968975dd30ff4917fbbe999f1be903efac02/core/src/main/java/org/apache/iceberg/io/OutputFileFactory.java#L92-L101
+	return fmt.Sprintf("00000-%d-%s.parquet", totalDataFiles.Load(), uuid.New())
 }
 
 func NewArrowWriter(bucketName, prefix, accessKey, secretKey, region string) (*ArrowWriter, error) {
@@ -80,22 +90,10 @@ func (i *Iceberg) ArrowWrites(ctx context.Context, records []types.RawRecord) er
 	return nil
 }
 
-func (i *Iceberg) createArrowRecord(records []types.RawRecord) (arrow.Record, error) {
-	if len(records) == 0 {
-		return nil, fmt.Errorf("no records provided")
-	}
-
-	allocator := memory.NewGoAllocator()
-	fieldNames := make([]string, 0, len(i.schema))
-
-	if i.stream.NormalizationEnabled() {
-		for fieldName := range i.schema {
-			fieldNames = append(fieldNames, fieldName)
-		}
-	} else {
-		for fieldName := range records[0].Data {
-			fieldNames = append(fieldNames, fieldName)
-		}
+func (i *Iceberg) createNormFields() []arrow.Field {
+	fieldNames := make([]string, 0, len(i.schema)+1)
+	for fieldName := range i.schema {
+		fieldNames = append(fieldNames, fieldName)
 	}
 
 	sort.Strings(fieldNames)
@@ -104,25 +102,21 @@ func (i *Iceberg) createArrowRecord(records []types.RawRecord) (arrow.Record, er
 	for _, fieldName := range fieldNames {
 		var arrowType arrow.DataType
 
-		if i.stream.NormalizationEnabled() {
-			icebergType := i.schema[fieldName]
-			switch icebergType {
-			case "boolean":
-				arrowType = arrow.FixedWidthTypes.Boolean
-			case "int":
-				arrowType = arrow.PrimitiveTypes.Int32
-			case "long":
-				arrowType = arrow.PrimitiveTypes.Int64
-			case "float":
-				arrowType = arrow.PrimitiveTypes.Float32
-			case "double":
-				arrowType = arrow.PrimitiveTypes.Float64
-			case "timestamptz":
-				arrowType = arrow.FixedWidthTypes.Timestamp_us
-			default:
-				arrowType = arrow.BinaryTypes.String
-			}
-		} else {
+		icebergType := i.schema[fieldName]
+		switch icebergType {
+		case "boolean":
+			arrowType = arrow.FixedWidthTypes.Boolean
+		case "int":
+			arrowType = arrow.PrimitiveTypes.Int32
+		case "long":
+			arrowType = arrow.PrimitiveTypes.Int64
+		case "float":
+			arrowType = arrow.PrimitiveTypes.Float32
+		case "double":
+			arrowType = arrow.PrimitiveTypes.Float64
+		case "timestamptz":
+			arrowType = arrow.FixedWidthTypes.Timestamp_us
+		default:
 			arrowType = arrow.BinaryTypes.String
 		}
 
@@ -133,26 +127,72 @@ func (i *Iceberg) createArrowRecord(records []types.RawRecord) (arrow.Record, er
 		})
 	}
 
+	return fields
+}
+
+func (i *Iceberg) createDeNormFields() []arrow.Field {
+	fields := make([]arrow.Field, 0, 5)
+
+	fields = append(fields, arrow.Field{Name: "_olake_id", Type: arrow.BinaryTypes.String, Nullable: false})
+	fields = append(fields, arrow.Field{Name: "_olake_timestamp", Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: false})
+	fields = append(fields, arrow.Field{Name: "_op_type", Type: arrow.BinaryTypes.String, Nullable: false})
+	fields = append(fields, arrow.Field{Name: "_cdc_timestamp", Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: true})
+	fields = append(fields, arrow.Field{Name: "data", Type: arrow.BinaryTypes.String, Nullable: true})
+
+	return fields
+}
+
+func (i *Iceberg) createArrowRecord(records []types.RawRecord) (arrow.Record, error) {
+	if len(records) == 0 {
+		return nil, fmt.Errorf("no records provided")
+	}
+
+	allocator := memory.NewGoAllocator()
+	var fields []arrow.Field
+
+	if i.stream.NormalizationEnabled() {
+		fields = i.createNormFields()
+	} else {
+		fields = i.createDeNormFields()
+	}
+
 	arrowSchema := arrow.NewSchema(fields, nil)
 	recordBuilder := array.NewRecordBuilder(allocator, arrowSchema)
 	defer recordBuilder.Release()
 
 	for _, record := range records {
 		for idx, field := range arrowSchema.Fields() {
-			val, exists := record.Data[field.Name]
-			if !exists || val == nil {
-				recordBuilder.Field(idx).AppendNull()
-				continue
+			var val any
+			switch field.Name {
+			case "_olake_id":
+				val = record.OlakeID
+			case "_olake_timestamp":
+				val = record.OlakeTimestamp
+			case "_op_type":
+				val = record.CdcTimestamp
+			case "_cdc_timestamp":
+				val = record.CdcTimestamp
+			default:
+				if i.stream.NormalizationEnabled() {
+					val = record.Data[field.Name]
+				} else {
+					val = record.Data
+				}
 			}
-
-			if err := i.appendValueToBuilder(recordBuilder.Field(idx), val, field.Type); err != nil {
-				logger.Warnf("Failed to append value for field %s: %v", field.Name, err)
+			
+			if val == nil {
 				recordBuilder.Field(idx).AppendNull()
+			} else {
+				if err := i.appendValueToBuilder(recordBuilder.Field(idx), val, field.Type); err != nil {
+					logger.Warnf("failed to append value for field %s: %v", field.Name, err)
+					recordBuilder.Field(idx).AppendNull()
+				}
 			}
 		}
 	}
 
 	arrowRecord := recordBuilder.NewRecord()
+
 	return arrowRecord, nil
 }
 
@@ -248,7 +288,6 @@ func (aw *ArrowWriter) closeAndGetFinalPath() (string, error) {
 
 	runtime.GC()
 
-	fmt.Printf("🧹 ArrowWriter closed and cleaned up\n")
 	return finalPath, nil
 }
 
@@ -314,10 +353,8 @@ func (aw *ArrowWriter) flush() (string, error) {
 		return "", fmt.Errorf("failed to close writer: %w", err)
 	}
 
-	key := fmt.Sprintf("%s/%s.parquet", aw.prefix, aw.currentFile)
-	if aw.prefix == "" {
-		key = fmt.Sprintf("%s.parquet", aw.currentFile)
-	}
+	key := GenerateDataFileName()
+	totalDataFiles.Add(1)
 
 	_, err := aw.s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket: aws.String(aw.bucketName),

@@ -68,6 +68,8 @@ type Config struct {
 	RestAuthType      string `json:"rest_auth_type,omitempty"`
 	RestScope         string `json:"scope,omitempty"`
 	RestCredential    string `json:"credential,omitempty"`
+
+	ArrowWrites 	   bool `json:"arrow_writes,omitempty"`
 }
 
 func (c *Config) Validate() error {

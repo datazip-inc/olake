@@ -255,27 +255,26 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	arrowEnabled := true // TODO: have "arrow-writes" enable option
-	var request *proto.IcebergPayload
-	if arrowEnabled {
-		logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
-		request = &proto.IcebergPayload{
-			Type: proto.IcebergPayload_REGISTER,
+    var request *proto.IcebergPayload
+    if i.UseArrowWrites() {
+        logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
+        request = &proto.IcebergPayload{
+            Type: proto.IcebergPayload_REGISTER,
 			Metadata: &proto.IcebergPayload_Metadata{
 				ThreadId:      i.server.serverID,
 				DestTableName: i.stream.GetDestinationTable(),
 				FilePaths:     i.createdFilePaths,
 			},
-		}
-	} else {
-		request = &proto.IcebergPayload{
-			Type: proto.IcebergPayload_COMMIT,
+        }
+    } else {
+        request = &proto.IcebergPayload{
+            Type: proto.IcebergPayload_COMMIT,
 			Metadata: &proto.IcebergPayload_Metadata{
 				ThreadId:      i.server.serverID,
 				DestTableName: i.stream.GetDestinationTable(),
 			},
-		}
-	}
+        }
+    }
 
 	res, err := i.server.sendClientRequest(ctx, request)
 	if err != nil {
@@ -287,6 +286,10 @@ func (i *Iceberg) Close(ctx context.Context) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
+	if i.UseArrowWrites() {
+		logger.Infof(">>>> Arrow Writer Enabled >>>> >>>> >>>>")
+	}
+
 	i.options = &destination.Options{
 		ThreadID: "test_iceberg_destination",
 	}
@@ -353,10 +356,13 @@ func (i *Iceberg) Check(ctx context.Context) error {
 }
 
 func (i *Iceberg) Type() string {
-	return string(types.Iceberg)
+     return string(types.Iceberg)
 }
 
-// validate schema change & evolution and removes null records
+func (i *Iceberg) UseArrowWrites() bool {
+     return i.config.ArrowWrites
+}
+
 func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
 		// only dedup if it is upsert mode
