@@ -21,8 +21,10 @@ import (
 )
 
 // PBRT checkpoint throttle interval (avoid writing state too often)
-const pbrtCheckpointInterval = 1 * time.Minute
-const maxAwait = 2 * time.Second
+const (
+	pbrtCheckpointInterval = 1 * time.Minute
+	maxAwait               = 2 * time.Second
+)
 
 var ErrIdleTermination = errors.New("change stream terminated due to idle timeout")
 
@@ -86,7 +88,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
-		return fmt.Errorf("failed to open change stream: %w", err)
+		return fmt.Errorf("failed to open change stream: %s", err)
 	}
 	defer cursor.Close(ctx)
 
@@ -100,7 +102,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 				return fmt.Errorf("change stream error: %s", err)
 			}
 
-			// handle idle / PBRT checkpoint; check for sentinel termination
+			// PBRT checkpoint and termination check
 			if err := m.handleIdleCheckpoint(ctx, cursor, stream, lastDocToken, &lastPbrtCheckpoint); err != nil {
 				if errors.Is(err, ErrIdleTermination) {
 					// graceful termination requested by helper
@@ -126,21 +128,21 @@ func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStre
 		return nil
 	}
 
-	tokVal := finalTok.Lookup(cdcCursorField).StringValue()
-	if tokVal == "" {
-		logger.Warnf("Resume token for stream %s lacks %s field", stream.ID(), cdcCursorField)
-		return nil
+	tokVal, err := finalTok.LookupErr(cdcCursorField)
+	if err != nil {
+		return fmt.Errorf("_data field not found in resume token: %s", err)
 	}
+	tokValStr := tokVal.StringValue()
 
 	// Persist PBRT if it differs from last document token and interval elapsed
 	if (lastDocToken == nil || !bytes.Equal(finalTok, lastDocToken)) &&
 		time.Since(*lastPbrtCheckpoint) > pbrtCheckpointInterval {
-		m.cdcCursor.Store(stream.ID(), tokVal)
-		m.state.SetCursor(stream.Self(), cdcCursorField, tokVal)
+		m.cdcCursor.Store(stream.ID(), tokValStr)
+		m.state.SetCursor(stream.Self(), cdcCursorField, tokValStr)
 		*lastPbrtCheckpoint = time.Now()
-		logger.Debugf("Persisted PBRT checkpoint for stream %s with token %s", stream.ID(), tokVal)
+		logger.Debugf("Persisted PBRT checkpoint for stream %s with token %s", stream.ID(), tokValStr)
 	}
-	streamOpTime, err := decodeResumeTokenOpTime(tokVal)
+	streamOpTime, err := decodeResumeTokenOpTime(tokValStr)
 	if err != nil {
 		logger.Warnf("Failed to decode resume token for stream %s: %s", stream.ID(), err)
 		return nil
@@ -156,7 +158,6 @@ func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStre
 }
 
 func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn, lastDocToken *bson.Raw) error {
-
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
 		return fmt.Errorf("error while decoding: %s", err)
@@ -204,7 +205,7 @@ func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
-	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream().SetMaxAwaitTime(2*time.Second))
+	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream().SetMaxAwaitTime(maxAwait))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open change stream: %s", err)
 	}
