@@ -56,6 +56,14 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 		}
 		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
+
+	clusterOpTime, err := m.getClusterOpTime(cdcCtx)
+	if err != nil {
+		logger.Warnf("Failed to get cluster op time: %s", err)
+		return err
+	}
+	m.clusterOpTime = clusterOpTime
+
 	return nil
 }
 
@@ -111,7 +119,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	}
 }
 
-func (m *Mongo) handleIdleCheckpoint(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastDocToken bson.Raw, lastPbrtCheckpoint *time.Time) error {
+func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastDocToken bson.Raw, lastPbrtCheckpoint *time.Time) error {
 	finalTok := cursor.ResumeToken()
 	if finalTok == nil {
 		logger.Warnf("No resume token available for stream %s after TryNext", stream.ID())
@@ -132,13 +140,6 @@ func (m *Mongo) handleIdleCheckpoint(ctx context.Context, cursor *mongo.ChangeSt
 		*lastPbrtCheckpoint = time.Now()
 		logger.Debugf("Persisted PBRT checkpoint for stream %s with token %s", stream.ID(), tokVal)
 	}
-
-	latestOpTime, err := m.getClusterOpTime(ctx)
-	if err != nil {
-		logger.Warnf("Failed to get cluster op time for stream %s: %v, continuing stream", stream.ID(), err)
-		return nil
-	}
-
 	streamOpTime, err := decodeResumeTokenOpTime(tokVal)
 	if err != nil {
 		logger.Warnf("Failed to decode resume token for stream %s: %s", stream.ID(), err)
@@ -146,7 +147,7 @@ func (m *Mongo) handleIdleCheckpoint(ctx context.Context, cursor *mongo.ChangeSt
 	}
 
 	// If stream is caught up -> request graceful termination
-	if !latestOpTime.After(streamOpTime) {
+	if !m.clusterOpTime.After(streamOpTime) {
 		logger.Infof("Change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
 		return ErrIdleTermination
 	}
@@ -213,34 +214,41 @@ func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.
 	return &resumeToken, nil
 }
 
-// getClusterOpTime retrieves the latest operation time from the MongoDB server using serverStatus.
+// getClusterOpTime retrieves the latest cluster operation time from MongoDB.
+// It first tries the modern 'hello' command and falls back to 'isMaster' for older servers.
 func (m *Mongo) getClusterOpTime(ctx context.Context) (primitive.Timestamp, error) {
-	var out primitive.Timestamp
+	var opTime primitive.Timestamp
 
-	// Try the modern 'hello' command first
-	var raw bson.Raw
-	var err error
-	if raw, err = m.client.Database("admin").RunCommand(ctx, bson.M{"hello": 1}).Raw(); err != nil {
-		// fallback to compatibility with older versions of MongoDB
+	// Helper to run a command and return raw result
+	runCmd := func(cmd bson.M) (bson.Raw, error) {
+		return m.client.Database("admin").RunCommand(ctx, cmd).Raw()
+	}
+
+	// Try 'hello' command first
+	raw, err := runCmd(bson.M{"hello": 1})
+	if err != nil {
 		logger.Debug("running 'hello' command failed, falling back to 'isMaster' command")
-		if raw, err = m.client.Database("admin").RunCommand(ctx, bson.M{"isMaster": 1}).Raw(); err != nil {
-			return out, fmt.Errorf("fetching 'operationTime', both 'hello' and 'isMaster' commands failed: %s", err)
+		raw, err = runCmd(bson.M{"isMaster": 1})
+		if err != nil {
+			return opTime, fmt.Errorf("fetching 'operationTime' failed: both 'hello' and 'isMaster' failed: %w", err)
 		}
 	}
 
-	// Extract 'operationTime' from the command result
-	if opRaw, err := raw.LookupErr("operationTime"); err != nil {
-		return out, fmt.Errorf("looking up 'operationTime' field: %s", err)
-	} else if err := opRaw.Unmarshal(&out); err != nil {
-		return out, fmt.Errorf("unmarshaling 'operationTime' field: %s", err)
+	// Extract 'operationTime' field
+	opRaw, err := raw.LookupErr("operationTime")
+	if err != nil {
+		return opTime, fmt.Errorf("operationTime field missing in server response: %w", err)
+	}
+	if err := opRaw.Unmarshal(&opTime); err != nil {
+		return opTime, fmt.Errorf("failed to unmarshal operationTime: %w", err)
 	}
 
-	// Check for zero timestamp like before
-	if out.T == 0 && out.I == 0 {
+	// Sanity check: zero timestamp
+	if opTime.T == 0 && opTime.I == 0 {
 		return primitive.Timestamp{}, fmt.Errorf("operationTime returned zero timestamp")
 	}
 
-	return out, nil
+	return opTime, nil
 }
 
 // decodeResumeTokenOpTime extracts a stable, sortable MongoDB resume token timestamp (4-byte timestamp + 4-byte increment).
