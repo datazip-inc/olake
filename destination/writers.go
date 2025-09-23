@@ -203,12 +203,12 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
 		if len(wt.buffer) >= wt.batchSize {
-			err := wt.flush(ctx, wt.buffer)
-			if err != nil {
-				return fmt.Errorf("failed to flush data: %s", err)
-			}
-
+			buf := make([]types.RawRecord, len(wt.buffer))
+			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
+			wt.group.Add(func(ctx context.Context) error {
+				return wt.flush(ctx, buf)
+			})
 		}
 		return nil
 	}
@@ -256,8 +256,12 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 		return fmt.Errorf("context closed")
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
-		err := wt.flush(ctx, wt.buffer)
-		if err != nil {
+
+		wt.group.Add(func(ctx context.Context) error {
+			return wt.flush(ctx, wt.buffer)
+		})
+
+		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
 
