@@ -286,6 +286,12 @@ func MySQLTableRowStatsQuery() string {
 	`
 }
 
+// MySQLTableExistsQuery returns the query to check if a table has any rows using EXISTS
+func MySQLTableExistsQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	return fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s LIMIT 1)", quotedTable)
+}
+
 // MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.3 and below
 func MySQLMasterStatusQuery() string {
 	return "SHOW MASTER STATUS"

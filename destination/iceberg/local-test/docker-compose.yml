@@ -136,6 +136,8 @@ services:
   hive-metastore:
     image: apache/hive:4.0.0
     container_name: hive-metastore
+    profiles:
+      - hive
     networks:
       iceberg_net:
     ports:
