@@ -203,12 +203,12 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
 		if len(wt.buffer) >= wt.batchSize {
-			var buf []types.RawRecord
-			copy(buf, wt.buffer)
+			err := wt.flush(ctx, wt.buffer)
+			if err != nil {
+				return fmt.Errorf("failed to flush data: %s", err)
+			}
+
 			wt.buffer = wt.buffer[:0]
-			wt.group.Add(func(ctx context.Context) error {
-				return wt.flush(ctx, buf)
-			})
 		}
 		return nil
 	}
