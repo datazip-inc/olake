@@ -183,7 +183,6 @@ func (k *Kafka) PostIncremental(ctx context.Context, stream types.StreamInterfac
 		}
 	}
 	for _, r := range readers {
-		logger.Debugf("Closing Kafka reader: %+v", r.Stats())
 		if r != nil {
 			if closeErr := r.Close(); closeErr != nil {
 				readerErr = append(readerErr, fmt.Sprintf("[KAFKA] failed to close reader: %v", closeErr))
