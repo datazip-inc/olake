@@ -6,12 +6,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
-
-const DestError = "destination error"
 
 type (
 	NewFunc        func() Writer
@@ -183,7 +182,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
-		batchSize:      10000,
+		batchSize:      constants.DefaultBatchSize,
 		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,

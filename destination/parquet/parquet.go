@@ -315,7 +315,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
 	// Process records in parallel using utils.Concurrent
-	err := utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, idx int) error {
+	err := utils.Concurrent(ctx, records, int(constants.DefaultBatchSize), func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
 		records[idx].Data[constants.OlakeID] = record.OlakeID
 		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
@@ -365,7 +365,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 	}
 
-	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, _ int) error {
+	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, int(constants.DefaultBatchSize), func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
 	})
 }
