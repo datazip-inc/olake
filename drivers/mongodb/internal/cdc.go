@@ -1,7 +1,11 @@
 package driver
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,6 +19,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
+
+// PBRT checkpoint throttle interval (avoid writing state too often)
+const pbrtCheckpointInterval = 1 * time.Minute
+const maxAwait = 2 * time.Second
+
+var ErrIdleTermination = errors.New("change stream terminated due to idle timeout")
 
 type CDCDocument struct {
 	OperationType string              `json:"operationType"`
@@ -55,9 +65,10 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
 		}}},
 	}
-	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
+	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
+	// Seed resume token from previously saved cursor (if any)
 	resumeToken, ok := m.cdcCursor.Load(stream.ID())
 	if !ok {
 		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
@@ -67,37 +78,116 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
-		return fmt.Errorf("failed to open change stream: %s", err)
+		return fmt.Errorf("failed to open change stream: %w", err)
 	}
 	defer cursor.Close(ctx)
 
-	for cursor.TryNext(ctx) {
-		var record CDCDocument
-		if err := cursor.Decode(&record); err != nil {
-			return fmt.Errorf("error while decoding: %s", err)
+	lastPbrtCheckpoint := time.Time{}
+	var lastDocToken bson.Raw
+
+	for {
+		if !cursor.TryNext(ctx) {
+			if err := cursor.Err(); err != nil {
+				logger.Errorf("Change stream for stream %s terminated with error: %v", stream.ID(), err)
+				return fmt.Errorf("change stream error: %w", err)
+			}
+
+			// handle idle / PBRT checkpoint; check for sentinel termination
+			if err := m.handleIdleCheckpoint(ctx, cursor, stream, lastDocToken, &lastPbrtCheckpoint); err != nil {
+				if errors.Is(err, ErrIdleTermination) {
+					// graceful termination requested by helper
+					return nil
+				}
+				return err
+			}
+
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
 
-		if record.OperationType == "delete" {
-			// replace full document(null) with documentKey
-			record.FullDocument = record.DocumentKey
-		}
-		filterMongoObject(record.FullDocument)
-		ts := utils.Ternary(record.WallTime != 0,
-			record.WallTime.Time(), // millisecond precision
-			time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
-		).(time.Time)
-		change := abstract.CDCChange{
-			Stream:    stream,
-			Timestamp: ts,
-			Data:      record.FullDocument,
-			Kind:      record.OperationType,
-		}
-		m.cdcCursor.Store(stream.ID(), cursor.ResumeToken().Lookup(cdcCursorField).StringValue())
-		if err := OnMessage(ctx, change); err != nil {
-			return fmt.Errorf("failed to process message: %s", err)
+		if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage, &lastDocToken); err != nil {
+			return err
 		}
 	}
-	return cursor.Err()
+}
+
+func (m *Mongo) handleIdleCheckpoint(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastDocToken bson.Raw, lastPbrtCheckpoint *time.Time) error {
+	finalTok := cursor.ResumeToken()
+	if finalTok == nil {
+		logger.Warnf("No resume token available for stream %s after TryNext", stream.ID())
+		return nil
+	}
+
+	tokVal := finalTok.Lookup(cdcCursorField).StringValue()
+	if tokVal == "" {
+		logger.Warnf("Resume token for stream %s lacks %s field", stream.ID(), cdcCursorField)
+		return nil
+	}
+
+	// Persist PBRT if it differs from last document token and interval elapsed
+	if (lastDocToken == nil || !bytes.Equal(finalTok, lastDocToken)) &&
+		time.Since(*lastPbrtCheckpoint) > pbrtCheckpointInterval {
+		m.cdcCursor.Store(stream.ID(), tokVal)
+		m.state.SetCursor(stream.Self(), cdcCursorField, tokVal)
+		*lastPbrtCheckpoint = time.Now()
+		logger.Debugf("Persisted PBRT checkpoint for stream %s with token %s", stream.ID(), tokVal)
+	}
+
+	latestOpTime, err := m.getClusterOpTime(ctx)
+	if err != nil {
+		logger.Warnf("Failed to get cluster op time for stream %s: %v, continuing stream", stream.ID(), err)
+		return nil
+	}
+
+	streamOpTime, err := decodeResumeTokenOpTime(tokVal)
+	if err != nil {
+		logger.Warnf("Failed to decode resume token for stream %s: %v", stream.ID(), err)
+		return nil
+	}
+
+	// If stream is caught up and idle for longer than idleTimeout -> request graceful termination
+	if !latestOpTime.After(streamOpTime) {
+		logger.Infof("Change stream for stream %s terminating due to idle timeout while caught up", stream.ID())
+		return ErrIdleTermination
+	}
+
+	return nil
+}
+
+func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn, lastDocToken *bson.Raw) error {
+
+	var record CDCDocument
+	if err := cursor.Decode(&record); err != nil {
+		return fmt.Errorf("error while decoding: %s", err)
+	}
+
+	if record.OperationType == "delete" {
+		// replace full document(null) with documentKey
+		record.FullDocument = record.DocumentKey
+	}
+
+	filterMongoObject(record.FullDocument)
+
+	ts := utils.Ternary(record.WallTime != 0,
+		record.WallTime.Time(), // millisecond precision
+		time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
+	).(time.Time)
+
+	change := abstract.CDCChange{
+		Stream:    stream,
+		Timestamp: ts,
+		Data:      record.FullDocument,
+		Kind:      record.OperationType,
+	}
+
+	if rt := cursor.ResumeToken(); rt != nil {
+		m.cdcCursor.Store(stream.ID(), rt.Lookup(cdcCursorField).StringValue())
+		*lastDocToken = rt
+	}
+	if err := OnMessage(ctx, change); err != nil {
+		return fmt.Errorf("failed to process message: %s", err)
+	}
+	return nil
 }
 
 func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
@@ -113,7 +203,7 @@ func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
-	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream())
+	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream().SetMaxAwaitTime(2*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open change stream: %s", err)
 	}
@@ -121,4 +211,46 @@ func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.
 
 	resumeToken := cursor.ResumeToken()
 	return &resumeToken, nil
+}
+
+// getClusterOpTime retrieves the latest operation time from the MongoDB server using serverStatus.
+func (m *Mongo) getClusterOpTime(ctx context.Context) (primitive.Timestamp, error) {
+	var out primitive.Timestamp
+
+	// Try the modern 'hello' command first
+	var raw bson.Raw
+	var err error
+	if raw, err = m.client.Database("admin").RunCommand(ctx, bson.M{"hello": 1}).Raw(); err != nil {
+		// fallback to compatibility with older versions of MongoDB
+		logger.Debug("running 'hello' command failed, falling back to 'isMaster' command")
+		if raw, err = m.client.Database("admin").RunCommand(ctx, bson.M{"isMaster": 1}).Raw(); err != nil {
+			return out, fmt.Errorf("fetching 'operationTime', both 'hello' and 'isMaster' commands failed: %w", err)
+		}
+	}
+
+	// Extract 'operationTime' from the command result
+	if opRaw, err := raw.LookupErr("operationTime"); err != nil {
+		return out, fmt.Errorf("looking up 'operationTime' field: %w", err)
+	} else if err := opRaw.Unmarshal(&out); err != nil {
+		return out, fmt.Errorf("unmarshaling 'operationTime' field: %w", err)
+	}
+
+	// Check for zero timestamp like before
+	if out.T == 0 && out.I == 0 {
+		return primitive.Timestamp{}, fmt.Errorf("operationTime returned zero timestamp")
+	}
+
+	return out, nil
+}
+
+// decodeResumeTokenOpTime extracts a stable, sortable MongoDB resume token timestamp (4-byte timestamp + 4-byte increment).
+func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
+	dataBytes, err := hex.DecodeString(dataStr)
+	if err != nil || len(dataBytes) < 9 {
+		return primitive.Timestamp{}, fmt.Errorf("invalid resume token")
+	}
+	return primitive.Timestamp{
+		T: binary.BigEndian.Uint32(dataBytes[1:5]),
+		I: binary.BigEndian.Uint32(dataBytes[5:9]),
+	}, nil
 }
