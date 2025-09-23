@@ -88,8 +88,8 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	for {
 		if !cursor.TryNext(ctx) {
 			if err := cursor.Err(); err != nil {
-				logger.Errorf("Change stream for stream %s terminated with error: %v", stream.ID(), err)
-				return fmt.Errorf("change stream error: %w", err)
+				logger.Errorf("Change stream for stream %s terminated with error: %s", stream.ID(), err)
+				return fmt.Errorf("change stream error: %s", err)
 			}
 
 			// handle idle / PBRT checkpoint; check for sentinel termination
@@ -141,13 +141,13 @@ func (m *Mongo) handleIdleCheckpoint(ctx context.Context, cursor *mongo.ChangeSt
 
 	streamOpTime, err := decodeResumeTokenOpTime(tokVal)
 	if err != nil {
-		logger.Warnf("Failed to decode resume token for stream %s: %v", stream.ID(), err)
+		logger.Warnf("Failed to decode resume token for stream %s: %s", stream.ID(), err)
 		return nil
 	}
 
-	// If stream is caught up and idle for longer than idleTimeout -> request graceful termination
+	// If stream is caught up -> request graceful termination
 	if !latestOpTime.After(streamOpTime) {
-		logger.Infof("Change stream for stream %s terminating due to idle timeout while caught up", stream.ID())
+		logger.Infof("Change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
 		return ErrIdleTermination
 	}
 
@@ -224,15 +224,15 @@ func (m *Mongo) getClusterOpTime(ctx context.Context) (primitive.Timestamp, erro
 		// fallback to compatibility with older versions of MongoDB
 		logger.Debug("running 'hello' command failed, falling back to 'isMaster' command")
 		if raw, err = m.client.Database("admin").RunCommand(ctx, bson.M{"isMaster": 1}).Raw(); err != nil {
-			return out, fmt.Errorf("fetching 'operationTime', both 'hello' and 'isMaster' commands failed: %w", err)
+			return out, fmt.Errorf("fetching 'operationTime', both 'hello' and 'isMaster' commands failed: %s", err)
 		}
 	}
 
 	// Extract 'operationTime' from the command result
 	if opRaw, err := raw.LookupErr("operationTime"); err != nil {
-		return out, fmt.Errorf("looking up 'operationTime' field: %w", err)
+		return out, fmt.Errorf("looking up 'operationTime' field: %s", err)
 	} else if err := opRaw.Unmarshal(&out); err != nil {
-		return out, fmt.Errorf("unmarshaling 'operationTime' field: %w", err)
+		return out, fmt.Errorf("unmarshaling 'operationTime' field: %s", err)
 	}
 
 	// Check for zero timestamp like before
