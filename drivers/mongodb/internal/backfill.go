@@ -31,12 +31,12 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 
 	// check for _id type
-	isObjID, err := isObjectID(ctx, collection)
+	ObjectIDPresent, err := isObjectID(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID), opts)
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, ObjectIDPresent), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -71,18 +71,11 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
 	pool.AddRecordsToSyncStats(recordCount)
 
-	// check for _id type
-	isObjID, err := isObjectID(ctx, collection)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
-	}
-	logger.Infof("_id is %s ObjectID", utils.Ternary(isObjID, "", "not").(string))
-
 	// Generate and update chunks
 	var retryErr error
 	var chunksArray []types.Chunk
 	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
-		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, isObjID, storageSize)
+		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, storageSize)
 		return retryErr
 	})
 	if err != nil {
@@ -91,9 +84,14 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return types.NewSet(chunksArray...), nil
 }
 
-func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, isObjID bool, storageSize float64) ([]types.Chunk, error) {
+func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, storageSize float64) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
-		// split-vector only syncs docs with objectID based _id (even when multiple types _id exist)
+		// NOTE: split-vector only syncs docs with objectID based _id (even when multiple types _id exist)
+		// splitVector is designed to compute chunk boundaries based on the internal format of BSON ObjectIDs
+		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
+		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
+		// leading to uneven splits, overlaps, or gaps.
+		logger.Infof("using split vector strategy for stream: %s", stream.ID())
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
 			objectIDBson := bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}
@@ -253,25 +251,24 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	case "timestamp":
 		return timestampStrategy()
 	default:
-		// Fallback to bucket-auto strategy if _id is not ObjectID or has multiple types
-		if !isObjID {
-			logger.Debug("falling back to bucket-auto strategy as non-objectID type exist (can be multiple types _id)")
-			return bucketAutoStrategy(storageSize)
+		// check for _id type
+		ObjectIDPresent, err := isObjectID(ctx, collection)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 		}
-		// Not using splitVector strategy when _id is not an ObjectID:
-		// splitVector is designed to compute chunk boundaries based on the internal format of BSON ObjectIDs
-		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
-		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
-		// leading to uneven splits, overlaps, or gaps.
-		logger.Infof("using split vector strategy for stream: %s", stream.ID())
-		chunks, err := splitVectorStrategy()
-		// check if authorization error occurs
-		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
-			strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
-			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
-			return bucketAutoStrategy(storageSize)
+
+		if ObjectIDPresent {
+			chunks, err := splitVectorStrategy()
+			// fallback to bucket-auto strategy if authorization error occurs
+			if err != nil && (strings.Contains(err.Error(), "not authorized") ||
+				strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
+				logger.Warnf("failed to get chunks via split vector strategy: %s", err)
+				return bucketAutoStrategy(storageSize)
+			}
+			return chunks, err
 		}
-		return chunks, err
+		logger.Warn("_id is not ObjectID, falling back to bucket-auto strategy")
+		return bucketAutoStrategy(storageSize)
 	}
 }
 
@@ -331,9 +328,9 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipeline {
+func generatePipeline(start, end any, filter bson.D, ObjectIDPresent bool) mongo.Pipeline {
 	var andOperation []bson.D
-	if isObjID {
+	if ObjectIDPresent {
 		// convert to primitive.ObjectID
 		start, _ = primitive.ObjectIDFromHex(start.(string))
 		if end != nil {
@@ -464,8 +461,7 @@ func reformatID(v interface{}) (interface{}, error) {
 
 func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error) {
 	var doc bson.M
-	objectIDBson := bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}
-	err := collection.FindOne(ctx, objectIDBson).Decode(&doc)
+	err := collection.FindOne(ctx, bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			// No data
