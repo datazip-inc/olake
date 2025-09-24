@@ -53,50 +53,45 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			backfilledStreams = append(backfilledStreams, streamID)
 			switch {
 			case isKafkaStreaming(a.driver.Type()):
-				partitionData, perr := a.driver.GetPartitions(ctx, streams)
-				if perr != nil {
-					return fmt.Errorf("failed to get partitions for kafka: %w", err)
-				}
-				for _, data := range partitionData {
-					a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
-						inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
-						if err != nil {
-							return fmt.Errorf("failed to create new thread in pool, error: %s", err)
+				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
+				partitionData, _ := a.driver.GetPartitions()
+				utils.ConcurrentInGroup(a.GlobalConnGroup, partitionData[streams[index].ID()], func(ctx context.Context, data PartitionMetaData) error {
+					inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
+					if err != nil {
+						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
+					}
+					logger.Infof("Thread[%s]: created cdc writer for stream %s", data.ReaderID, data.Stream.ID())
+					defer func() {
+						if threadErr := inserter.Close(ctx); threadErr != nil {
+							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
-						logger.Infof("Thread[%s]: created cdc writer for stream %s", data.ReaderID, data.Stream.ID())
-						defer func() {
-							if threadErr := inserter.Close(ctx); threadErr != nil {
-								err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
-							}
 
-							// check for panics before saving state
-							if r := recover(); r != nil {
-								err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
-							}
+						// check for panics before saving state
+						if r := recover(); r != nil {
+							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
+						}
 
-							postCDCErr := a.driver.PostCDC(ctx, data.Stream, err == nil, data.ReaderID)
-							if postCDCErr != nil {
-								err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
-							}
+						postCDCErr := a.driver.PostCDC(ctx, data.Stream, err == nil, data.ReaderID)
+						if postCDCErr != nil {
+							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+						}
 
-							if err != nil {
-								err = fmt.Errorf("thread[%s]: %s", data.ReaderID, err)
-							}
-						}()
-						return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-							return a.driver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
-								pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
-								return inserter.Push(ctx, types.CreateRawRecord(
-									utils.GetKeysHash(message.Data, pkFields...),
-									message.Data,
-									"c",
-									&message.Timestamp,
-								))
-							})
+						if err != nil {
+							err = fmt.Errorf("thread[%s]: %s", data.ReaderID, err)
+						}
+					}()
+					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+						return a.driver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
+							pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+							return inserter.Push(ctx, types.CreateRawRecord(
+								utils.GetKeysHash(message.Data, pkFields...),
+								message.Data,
+								"c",
+								&message.Timestamp,
+							))
 						})
 					})
-				}
-
+				})
 			// run parallel change stream
 			// TODO: remove duplicate code
 			case isParallelChangeStream(a.driver.Type()):

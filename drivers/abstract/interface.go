@@ -45,6 +45,6 @@ type DriverInterface interface {
 	StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error
 	PostCDC(ctx context.Context, stream types.StreamInterface, success bool, readerID string) error // to save state
 	// kafka-specific get partition
-	GetPartitions(ctx context.Context, streams []types.StreamInterface) ([]PartitionMetaData, error)
+	GetPartitions() (map[string][]PartitionMetaData, int)
 	PartitionStreamChanges(ctx context.Context, partitionData PartitionMetaData, processFn CDCMsgFn) error
 }

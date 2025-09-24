@@ -27,6 +27,7 @@ type Kafka struct {
 	consumerGroupID string
 	readers         sync.Map // map[string]*kafka.Reader
 	lastMessages    sync.Map // map[string]kafka.Message
+	partitionMeta   sync.Map // map[string][]abstract.PartitionMetaData
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
