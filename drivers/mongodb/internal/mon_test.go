@@ -17,6 +17,7 @@ func TestMongodbIntegration(t *testing.T) {
 		DataTypeSchema:     MongoToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
 		IcebergDB:          "mongodb_olake_mongodb_test",
+		CursorField:        "_id",
 	}
 	testConfig.TestIntegration(t)
 }

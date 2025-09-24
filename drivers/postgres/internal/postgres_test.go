@@ -18,6 +18,7 @@ func TestPostgresIntegration(t *testing.T) {
 		DataTypeSchema:     PostgresToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
 		IcebergDB:          "postgres_postgres_public",
+		CursorField:        "col_bigserial",
 	}
 	testConfig.TestIntegration(t)
 }

@@ -37,6 +37,7 @@ type IntegrationTest struct {
 	Namespace          string
 	ExecuteQuery       func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 	IcebergDB          string
+	CursorField        string
 }
 
 type PerformanceTest struct {
@@ -361,7 +362,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// Patch: sync_mode = incremental, cursor_field = "id", state_required = true
-							incPatch := setStreamSyncModeCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable, "incremental", "id", true)
+							incPatch := setStreamSyncModeCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable, "incremental", cfg.CursorField, true)
 							if code, out, err := utils.ExecCommand(ctx, c, incPatch); err != nil || code != 0 {
 								return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
 							}
@@ -374,14 +375,14 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							// Initial incremental run (equivalent to full on first run)
 							t.Log("Running Incremental - initial load")
-							if err := runSync(c, true, "", "i", cfg.ExpectedData); err != nil {
+							if err := runSync(c, true, "", "r", cfg.ExpectedData); err != nil {
 								return err
 							}
 
 							// Delta incremental: add new rows and sync again
 							t.Log("Running Incremental - delta load (inserts)")
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "insert", false)
-							if err := runSync(c, true, "", "i", cfg.ExpectedData); err != nil {
+							if err := runSync(c, true, "", "u", cfg.ExpectedData); err != nil {
 								return err
 							}
 
