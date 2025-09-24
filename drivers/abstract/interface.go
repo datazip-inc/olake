@@ -9,6 +9,12 @@ import (
 
 type BackfillMsgFn func(ctx context.Context, message map[string]any) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
+type PartitionMetaData struct {
+	ReaderID    string
+	Stream      types.StreamInterface
+	PartitionID int
+	StartOffset int64
+}
 
 type Config interface {
 	Validate() error
@@ -37,5 +43,8 @@ type DriverInterface interface {
 	CDCSupported() bool
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error
-	PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error // to save state
+	PostCDC(ctx context.Context, stream types.StreamInterface, success bool, readerID string) error // to save state
+	// kafka-specific get partition
+	GetPartitions(ctx context.Context, streams []types.StreamInterface) ([]PartitionMetaData, error)
+	PartitionStreamChanges(ctx context.Context, partitionData PartitionMetaData, processFn CDCMsgFn) error
 }

@@ -86,12 +86,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-
-		// kafka specific: incremenatal only
-		if a.driver.Type() == string(constants.Kafka) {
-			convStream.WithSyncMode(types.INCREMENTAL)
-			convStream.SyncMode = types.INCREMENTAL
-		} else {
+		if isKafkaStreaming(a.driver.Type()) {
 			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 			convStream.SyncMode = types.FULLREFRESH
 		}
@@ -125,6 +120,15 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	// set max read connections
 	if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
+	}
+
+	// For Kafka, default max connections should equal total partitions across selected streams
+	if isKafkaStreaming(a.driver.Type()) && len(cdcStreams) > 0 {
+		if partitions, err := a.driver.GetPartitions(ctx, cdcStreams); err == nil {
+			if len(partitions) > 0 {
+				a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, len(partitions))
+			}
+		}
 	}
 
 	// run cdc sync

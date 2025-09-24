@@ -10,7 +10,7 @@ import (
 // CDC is not supported yet
 
 // PostCDC is called after CDC operation completes
-func (o *Oracle) PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error {
+func (o *Oracle) PostCDC(ctx context.Context, stream types.StreamInterface, success bool, _ string) error {
 	return nil
 }
 
@@ -32,4 +32,12 @@ func (o *Oracle) CDCSupported() bool {
 // SetupState sets the state for the driver
 func (o *Oracle) SetupState(state *types.State) {
 	o.state = state
+}
+
+func (o *Oracle) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
+	return nil
+}
+
+func (o *Oracle) GetPartitions(ctx context.Context, streams []types.StreamInterface) ([]abstract.PartitionMetaData, error) {
+	return nil, nil
 }

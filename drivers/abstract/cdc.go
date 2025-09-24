@@ -51,10 +51,55 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				return fmt.Errorf("backfill channel closed unexpectedly")
 			}
 			backfilledStreams = append(backfilledStreams, streamID)
+			switch {
+			case isKafkaStreaming(a.driver.Type()):
+				partitionData, perr := a.driver.GetPartitions(ctx, streams)
+				if perr != nil {
+					return fmt.Errorf("failed to get partitions for kafka: %w", err)
+				}
+				for _, data := range partitionData {
+					a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
+						inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
+						if err != nil {
+							return fmt.Errorf("failed to create new thread in pool, error: %s", err)
+						}
+						logger.Infof("Thread[%s]: created cdc writer for stream %s", data.ReaderID, data.Stream.ID())
+						defer func() {
+							if threadErr := inserter.Close(ctx); threadErr != nil {
+								err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
+							}
+
+							// check for panics before saving state
+							if r := recover(); r != nil {
+								err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
+							}
+
+							postCDCErr := a.driver.PostCDC(ctx, data.Stream, err == nil, data.ReaderID)
+							if postCDCErr != nil {
+								err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+							}
+
+							if err != nil {
+								err = fmt.Errorf("thread[%s]: %s", data.ReaderID, err)
+							}
+						}()
+						return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+							return a.driver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
+								pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+								return inserter.Push(ctx, types.CreateRawRecord(
+									utils.GetKeysHash(message.Data, pkFields...),
+									message.Data,
+									"c",
+									&message.Timestamp,
+								))
+							})
+						})
+					})
+				}
 
 			// run parallel change stream
 			// TODO: remove duplicate code
-			if isParallelChangeStream(a.driver.Type()) {
+			case isParallelChangeStream(a.driver.Type()):
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
@@ -73,7 +118,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 						}
 
-						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil, "")
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -95,13 +140,14 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						})
 					})
 				})
-			} else {
+
+			default:
 				a.state.SetGlobal(nil, streamID)
 			}
 		}
 	}
-	if isParallelChangeStream(a.driver.Type()) {
-		// parallel change streams already processed
+	if isParallelChangeStream(a.driver.Type()) || isKafkaStreaming(a.driver.Type()) {
+		// parallel change streams or kafka message already processed
 		return nil
 	}
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
@@ -131,7 +177,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 			}
 
-			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil, "")
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}
@@ -154,4 +200,8 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 
 func isParallelChangeStream(driverType string) bool {
 	return driverType == string(constants.MongoDB)
+}
+
+func isKafkaStreaming(driverType string) bool {
+	return driverType == string(constants.Kafka)
 }

@@ -66,7 +66,7 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
 	if noErr {
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
@@ -115,4 +115,12 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	}
 
 	return mysql.Position{Name: file, Pos: position}, nil
+}
+
+func (m *MySQL) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
+	return nil
+}
+
+func (m *MySQL) GetPartitions(ctx context.Context, streams []types.StreamInterface) ([]abstract.PartitionMetaData, error) {
+	return nil, nil
 }

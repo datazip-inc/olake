@@ -100,7 +100,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	return cursor.Err()
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
 	if noErr {
 		val, ok := m.cdcCursor.Load(stream.ID())
 		if ok {
@@ -121,4 +121,12 @@ func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.
 
 	resumeToken := cursor.ResumeToken()
 	return &resumeToken, nil
+}
+
+func (m *Mongo) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
+	return nil
+}
+
+func (m *Mongo) GetPartitions(ctx context.Context, streams []types.StreamInterface) ([]abstract.PartitionMetaData, error) {
+	return nil, nil
 }

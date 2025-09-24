@@ -12,7 +12,6 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
@@ -26,8 +25,8 @@ type Kafka struct {
 	mutex           sync.Mutex
 	state           *types.State
 	consumerGroupID string
-	readers         map[string]*kafka.Reader
-	lastMessages    map[string]kafka.Message
+	readers         sync.Map // map[string]*kafka.Reader
+	lastMessages    sync.Map // map[string]kafka.Message
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -52,7 +51,7 @@ func (k *Kafka) MaxRetries() int {
 }
 
 func (k *Kafka) CDCSupported() bool {
-	return false // Kafka uses incremental mode with offsets, not traditional CDC
+	return true // Kafka uses streaming mode with offsets
 }
 
 func (k *Kafka) SetupState(state *types.State) {
@@ -83,13 +82,8 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to ping Kafka brokers: %v", err)
 	}
-
-	// Generate a new consumer group ID if not configured
-	k.consumerGroupID = utils.Ternary(k.config.ConsumerGroupID == "", fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix()), k.config.ConsumerGroupID).(string)
 	k.dialer = dialer
 	k.adminClient = adminClient
-	k.readers = make(map[string]*kafka.Reader)
-	k.lastMessages = make(map[string]kafka.Message)
 	return nil
 }
 
@@ -119,16 +113,13 @@ func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stre
 	logger.Infof("[KAFKA] producing schema for topic [%s]", streamName)
 	stream := types.NewStream(streamName, "topics", nil)
 	schema := types.NewTypeSchema()
-	schema.AddTypes("message", types.String)        // Basic field for message payload
+	schema.AddTypes("message", types.String)        // message payload
 	schema.AddTypes("key", types.String)            // Kafka message key
 	schema.AddTypes("offset", types.Int64)          // Offset for tracking
 	schema.AddTypes("partition", types.Int64)       // Partition
 	schema.AddTypes("kafka_timestamp", types.Int64) // Message timestamp
 	stream.WithSchema(schema)
-
-	// Set offset as available cursor field for incremental sync
-	stream.WithCursorField("offset")
-	stream.CursorField = "offset"
+	stream.SourceDefinedPrimaryKey = types.NewSet("offset", "partition")
 	return stream, nil
 }
 
