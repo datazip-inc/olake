@@ -36,7 +36,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID, m.hasMultipleType(ctx, stream)), opts)
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -95,18 +95,15 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	splitVectorStrategy := func() ([]types.Chunk, error) {
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
-			err := collection.FindOne(ctx, bson.D{}, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
+			objectIDBson := bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}
+			err := collection.FindOne(ctx, objectIDBson, options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}})).Decode(&doc)
 			if err == mongo.ErrNoDocuments {
 				return primitive.NilObjectID, nil
 			}
 			if err != nil {
 				return primitive.NilObjectID, err
 			}
-			id, ok := doc["_id"].(primitive.ObjectID)
-			if !ok {
-				return primitive.NilObjectID, fmt.Errorf("multiple type _id exist")
-			}
-			return id, nil
+			return doc["_id"].(primitive.ObjectID), nil
 		}
 
 		minID, err := getID(1)
@@ -165,7 +162,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 		}
 		// chunk only ObjectID type _id when multiple types are detected
-		if m.hasMultipleType(ctx, stream) {
+		if hasMultipleType(stream) {
 			logger.Warnf("Caution: collection %s contains multiple _id types. Only documents with ObjectID _id will be synced; other types are skipped, which could result in data loss.", stream.ID())
 			pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}}})
 		}
@@ -256,7 +253,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return timestampStrategy()
 	default:
 		// Fallback to auto strategy if _id is not ObjectID or has multiple types
-		if m.hasMultipleType(ctx, stream) || !isObjID {
+		if !isObjID {
 			return bucketAutoStrategy(storageSize)
 		}
 		// Not using splitVector strategy when _id is not an ObjectID:
@@ -332,9 +329,9 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter bson.D, isObjID, hasMultipleType bool) mongo.Pipeline {
+func generatePipeline(start, end any, filter bson.D, isObjID bool) mongo.Pipeline {
 	var andOperation []bson.D
-	if hasMultipleType || isObjID {
+	if isObjID {
 		// convert to primitive.ObjectID
 		start, _ = primitive.ObjectIDFromHex(start.(string))
 		if end != nil {
@@ -465,7 +462,8 @@ func reformatID(v interface{}) (interface{}, error) {
 
 func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error) {
 	var doc bson.M
-	err := collection.FindOne(ctx, bson.D{}).Decode(&doc)
+	objectIDBson := bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}
+	err := collection.FindOne(ctx, objectIDBson).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			// No data
@@ -473,41 +471,13 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 		}
 		return false, err
 	}
-	idVal, ok := doc["_id"]
-	if !ok {
-		return false, fmt.Errorf("no _id field found")
-	}
-	_, isObjID := idVal.(primitive.ObjectID)
-	return isObjID, nil
+	return true, nil
 }
 
-func (m *Mongo) hasMultipleType(ctx context.Context, stream types.StreamInterface) bool {
-	coll := m.client.Database(stream.Namespace()).Collection(stream.Name())
-	pipeline := mongo.Pipeline{{
-		{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: bson.D{{Key: "$type", Value: "$_id"}}},
-		}},
-	}}
-
-	cursor, err := coll.Aggregate(ctx, pipeline, options.Aggregate().SetHint(bson.D{{Key: "_id", Value: 1}}))
-	if err != nil {
-		logger.Warnf("failure in aggregation, not able to detect multiple _id types")
+func hasMultipleType(stream types.StreamInterface) bool {
+	_, idProperty := stream.Schema().GetProperty("_id")
+	if idProperty == nil {
 		return false
 	}
-	defer cursor.Close(ctx)
-	found := make(map[string]struct{})
-	for cursor.Next(ctx) {
-		var res struct {
-			ID string `bson:"_id"` // BSON type
-		}
-		if err := cursor.Decode(&res); err != nil {
-			continue
-		}
-		found[res.ID] = struct{}{}
-	}
-	types := make([]string, 0, len(found))
-	for t := range found {
-		types = append(types, t)
-	}
-	return len(types) > 1
+	return idProperty.Type.Len() > 1
 }
