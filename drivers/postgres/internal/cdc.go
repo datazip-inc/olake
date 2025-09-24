@@ -25,7 +25,6 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet(streams...),
-		BatchSize:           p.config.BatchSize,
 		Publications:        p.config.Publications,
 	}, nil
 }

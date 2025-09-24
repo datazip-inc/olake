@@ -19,7 +19,6 @@ type Config struct {
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	UpdateMethod     interface{}       `json:"update_method"`
-	BatchSize        int               `json:"reader_batch_size"`
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
@@ -44,11 +43,6 @@ func (c *Config) Validate() error {
 	// Validate port
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port number: must be between 1 and 65535")
-	}
-
-	// Set default values if not provided
-	if c.BatchSize <= 0 {
-		c.BatchSize = 10000 // default batch size
 	}
 
 	// default number of threads

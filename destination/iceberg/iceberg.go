@@ -368,7 +368,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		// create new schema from already available schema
 		recordsSchema := copySchema(i.schema)
 		diffThreadSchema := atomic.Bool{}
-		err := utils.Concurrent(ctx, records, int(constants.DefaultBatchSize), func(_ context.Context, record types.RawRecord, idx int) error {
+		err := utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, idx int) error {
 			// set pre configured fields
 			records[idx].Data[constants.OlakeID] = record.OlakeID
 			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
@@ -388,7 +388,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 				if detectedType == types.Null {
 					// remove element from data if it is null
-					delete(record.Data, key)
+					delete(records[idx].Data, key)
 					continue
 				}
 

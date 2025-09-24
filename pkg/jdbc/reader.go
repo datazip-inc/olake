@@ -14,18 +14,16 @@ import (
 type Reader[T types.Iterable] struct {
 	query     string
 	args      []any
-	batchSize int
 	offset    int
 	ctx       context.Context
 
 	exec func(ctx context.Context, query string, args ...any) (T, error)
 }
 
-func NewReader[T types.Iterable](ctx context.Context, baseQuery string, batchSize int,
+func NewReader[T types.Iterable](ctx context.Context, baseQuery string,
 	exec func(ctx context.Context, query string, args ...any) (T, error), args ...any) *Reader[T] {
 	setter := &Reader[T]{
 		query:     baseQuery,
-		batchSize: batchSize,
 		offset:    0,
 		ctx:       ctx,
 		exec:      exec,

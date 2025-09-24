@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -43,6 +42,7 @@ type (
 		config       any
 		init         NewFunc
 		writerSchema sync.Map
+		batchSize    int64
 	}
 
 	// writer thread used by reader
@@ -51,7 +51,7 @@ type (
 		buffer         []types.RawRecord
 		threadID       string
 		writer         Writer
-		batchSize      int
+		batchSize      int64
 		streamArtifact *writerSchema
 		group          *utils.CxGroup
 	}
@@ -83,7 +83,7 @@ func WithThreadID(threadID string) ThreadOptions {
 	}
 }
 
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams, dropStreams []string) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams, dropStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -111,8 +111,9 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 			ThreadCount:        atomic.Int64{},
 			ReadCount:          atomic.Int64{},
 		},
-		config: config.WriterConfig,
-		init:   newfunc,
+		config:    config.WriterConfig,
+		init:      newfunc,
+		batchSize: batchSize,
 	}
 
 	for _, stream := range syncStreams {
@@ -182,7 +183,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
-		batchSize:      constants.DefaultBatchSize,
+		batchSize:      w.batchSize,
 		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,
@@ -201,7 +202,7 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 	default:
 		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
-		if len(wt.buffer) >= wt.batchSize {
+		if len(wt.buffer) >= int(wt.batchSize) {
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
