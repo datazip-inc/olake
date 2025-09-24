@@ -93,6 +93,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, isObjID bool, storageSize float64) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
+		// split-vector only syncs docs with objectID based _id (even when multiple types _id exist)
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
 			objectIDBson := bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}
@@ -252,8 +253,9 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 	case "timestamp":
 		return timestampStrategy()
 	default:
-		// Fallback to auto strategy if _id is not ObjectID or has multiple types
+		// Fallback to bucket-auto strategy if _id is not ObjectID or has multiple types
 		if !isObjID {
+			logger.Debug("falling back to bucket-auto strategy as non-objectID type exist (can be multiple types _id)")
 			return bucketAutoStrategy(storageSize)
 		}
 		// Not using splitVector strategy when _id is not an ObjectID:
