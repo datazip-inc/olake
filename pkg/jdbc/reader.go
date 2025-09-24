@@ -12,10 +12,10 @@ import (
 )
 
 type Reader[T types.Iterable] struct {
-	query     string
-	args      []any
-	offset    int
-	ctx       context.Context
+	query  string
+	args   []any
+	offset int
+	ctx    context.Context
 
 	exec func(ctx context.Context, query string, args ...any) (T, error)
 }
@@ -23,11 +23,11 @@ type Reader[T types.Iterable] struct {
 func NewReader[T types.Iterable](ctx context.Context, baseQuery string,
 	exec func(ctx context.Context, query string, args ...any) (T, error), args ...any) *Reader[T] {
 	setter := &Reader[T]{
-		query:     baseQuery,
-		offset:    0,
-		ctx:       ctx,
-		exec:      exec,
-		args:      args,
+		query:  baseQuery,
+		offset: 0,
+		ctx:    ctx,
+		exec:   exec,
+		args:   args,
 	}
 
 	return setter
