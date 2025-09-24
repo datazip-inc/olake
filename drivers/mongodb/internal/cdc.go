@@ -59,12 +59,12 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
 
-	clusterOpTime, err := m.getClusterOpTime(cdcCtx)
+	LastOplogTime, err := m.getClusterOpTime(cdcCtx)
 	if err != nil {
 		logger.Warnf("Failed to get cluster op time: %s", err)
 		return err
 	}
-	m.clusterOpTime = clusterOpTime
+	m.LastOplogTime = LastOplogTime
 
 	return nil
 }
@@ -110,7 +110,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 				}
 				return err
 			}
-
+			// Wait before for a brief pause before the next iteration of the loop
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
@@ -122,34 +122,34 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 }
 
 func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastDocToken bson.Raw, lastPbrtCheckpoint *time.Time) error {
-	finalTok := cursor.ResumeToken()
-	if finalTok == nil {
+	finalToken := cursor.ResumeToken()
+	if finalToken == nil {
 		logger.Warnf("No resume token available for stream %s after TryNext", stream.ID())
 		return nil
 	}
 
-	tokVal, err := finalTok.LookupErr(cdcCursorField)
+	tokenVal, err := finalToken.LookupErr(cdcCursorField)
 	if err != nil {
-		return fmt.Errorf("_data field not found in resume token: %s", err)
+		return fmt.Errorf("%s field not found in resume token: %s", cdcCursorField, err)
 	}
-	tokValStr := tokVal.StringValue()
+	tokenValStr := tokenVal.StringValue()
 
 	// Persist PBRT if it differs from last document token and interval elapsed
-	if (lastDocToken == nil || !bytes.Equal(finalTok, lastDocToken)) &&
+	if (lastDocToken == nil || !bytes.Equal(finalToken, lastDocToken)) &&
 		time.Since(*lastPbrtCheckpoint) > pbrtCheckpointInterval {
-		m.cdcCursor.Store(stream.ID(), tokValStr)
-		m.state.SetCursor(stream.Self(), cdcCursorField, tokValStr)
+		m.cdcCursor.Store(stream.ID(), tokenValStr)
+		m.state.SetCursor(stream.Self(), cdcCursorField, tokenValStr)
 		*lastPbrtCheckpoint = time.Now()
-		logger.Debugf("Persisted PBRT checkpoint for stream %s with token %s", stream.ID(), tokValStr)
+		logger.Debugf("Persisted PBRT checkpoint for stream %s with token %s", stream.ID(), tokenValStr)
 	}
-	streamOpTime, err := decodeResumeTokenOpTime(tokValStr)
+	streamOpTime, err := decodeResumeTokenOpTime(tokenValStr)
 	if err != nil {
 		logger.Warnf("Failed to decode resume token for stream %s: %s", stream.ID(), err)
 		return nil
 	}
 
 	// If stream is caught up -> request graceful termination
-	if !m.clusterOpTime.After(streamOpTime) {
+	if !m.LastOplogTime.After(streamOpTime) {
 		logger.Infof("Change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
 		return ErrIdleTermination
 	}
@@ -231,17 +231,17 @@ func (m *Mongo) getClusterOpTime(ctx context.Context) (primitive.Timestamp, erro
 		logger.Debug("running 'hello' command failed, falling back to 'isMaster' command")
 		raw, err = runCmd(bson.M{"isMaster": 1})
 		if err != nil {
-			return opTime, fmt.Errorf("fetching 'operationTime' failed: both 'hello' and 'isMaster' failed: %w", err)
+			return opTime, fmt.Errorf("fetching 'operationTime' failed: both 'hello' and 'isMaster' failed: %s", err)
 		}
 	}
 
 	// Extract 'operationTime' field
 	opRaw, err := raw.LookupErr("operationTime")
 	if err != nil {
-		return opTime, fmt.Errorf("operationTime field missing in server response: %w", err)
+		return opTime, fmt.Errorf("operationTime field missing in server response: %s", err)
 	}
 	if err := opRaw.Unmarshal(&opTime); err != nil {
-		return opTime, fmt.Errorf("failed to unmarshal operationTime: %w", err)
+		return opTime, fmt.Errorf("failed to unmarshal operationTime: %s", err)
 	}
 
 	// Sanity check: zero timestamp
