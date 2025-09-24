@@ -36,7 +36,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID, hasMultipleType(stream)), opts)
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, isObjID, m.hasMultipleType(ctx, stream)), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -165,7 +165,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 		}
 		// chunk only ObjectID type _id when multiple types are detected
-		if hasMultipleType(stream) {
+		if m.hasMultipleType(ctx, stream) {
 			logger.Warnf("Caution: collection %s contains multiple _id types. Only documents with ObjectID _id will be synced; other types are skipped, which could result in data loss.", stream.ID())
 			pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}}})
 		}
@@ -256,7 +256,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return timestampStrategy()
 	default:
 		// Fallback to auto strategy if _id is not ObjectID or has multiple types
-		if hasMultipleType(stream) || !isObjID {
+		if m.hasMultipleType(ctx, stream) || !isObjID {
 			return bucketAutoStrategy(storageSize)
 		}
 		// Not using splitVector strategy when _id is not an ObjectID:
@@ -481,10 +481,33 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 	return isObjID, nil
 }
 
-func hasMultipleType(stream types.StreamInterface) bool {
-	_, idProperty := stream.Schema().GetProperty("_id")
-	if idProperty == nil {
+func (m *Mongo) hasMultipleType(ctx context.Context, stream types.StreamInterface) bool {
+	coll := m.client.Database(stream.Namespace()).Collection(stream.Name())
+	pipeline := mongo.Pipeline{{
+		{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$type", Value: "$_id"}}},
+		}},
+	}}
+
+	cursor, err := coll.Aggregate(ctx, pipeline, options.Aggregate().SetHint(bson.D{{Key: "_id", Value: 1}}))
+	if err != nil {
+		logger.Warnf("failure in aggregation, not able to detect multiple _id types")
 		return false
 	}
-	return idProperty.Type.Len() > 1
+	defer cursor.Close(ctx)
+	found := make(map[string]struct{})
+	for cursor.Next(ctx) {
+		var res struct {
+			ID string `bson:"_id"` // BSON type
+		}
+		if err := cursor.Decode(&res); err != nil {
+			continue
+		}
+		found[res.ID] = struct{}{}
+	}
+	types := make([]string, 0, len(found))
+	for t := range found {
+		types = append(types, t)
+	}
+	return len(types) > 1
 }
