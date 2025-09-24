@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	maxAwait = 2 * time.Second
+	maxAwait               = 2 * time.Second
+	changeStreamRetryDelay = 500 * time.Millisecond
 )
 
 var ErrIdleTermination = errors.New("change stream terminated due to idle timeout")
@@ -92,7 +93,6 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	for {
 		if !cursor.TryNext(ctx) {
 			if err := cursor.Err(); err != nil {
-				logger.Errorf("Change stream for stream %s terminated with error: %s", stream.ID(), err)
 				return fmt.Errorf("change stream error: %s", err)
 			}
 
@@ -100,12 +100,13 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 			if err := m.handleIdleCheckpoint(ctx, cursor, stream); err != nil {
 				if errors.Is(err, ErrIdleTermination) {
 					// graceful termination requested by helper
+					logger.Infof("change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
 					return nil
 				}
 				return err
 			}
 			// Wait before for a brief pause before the next iteration of the loop
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(changeStreamRetryDelay)
 			continue
 		}
 
@@ -122,22 +123,22 @@ func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStre
 		return nil
 	}
 
-	Rawtoken, err := finalToken.LookupErr(cdcCursorField)
+	rawtoken, err := finalToken.LookupErr(cdcCursorField)
 	if err != nil {
 		return fmt.Errorf("%s field not found in resume token: %s", cdcCursorField, err)
 	}
-	tokenVal := Rawtoken.StringValue()
+	token := rawtoken.StringValue()
 
-	m.cdcCursor.Store(stream.ID(), tokenVal)
-	streamOpTime, err := decodeResumeTokenOpTime(tokenVal)
+	// check pointing post batch resume token
+	m.cdcCursor.Store(stream.ID(), token)
+
+	streamOpTime, err := decodeResumeTokenOpTime(token)
 	if err != nil {
-		logger.Warnf("Failed to decode resume token for stream %s: %s", stream.ID(), err)
-		return nil
+		return fmt.Errorf("failed to decode resume token for stream %s: %s", stream.ID(), err)
 	}
 
 	// If stream is caught up -> request graceful termination
 	if !m.LastOplogTime.After(streamOpTime) {
-		logger.Infof("Change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
 		return ErrIdleTermination
 	}
 
@@ -169,13 +170,10 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Kind:      record.OperationType,
 	}
 
-	if rt := cursor.ResumeToken(); rt != nil {
-		m.cdcCursor.Store(stream.ID(), rt.Lookup(cdcCursorField).StringValue())
+	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
+		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
 	}
-	if err := OnMessage(ctx, change); err != nil {
-		return fmt.Errorf("failed to process message: %s", err)
-	}
-	return nil
+	return OnMessage(ctx, change)
 }
 
 func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
