@@ -400,7 +400,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				detectedIcebergType := detectedType.ToIceberg()
 				if _, existInBase := baseSchema[key]; existInBase {
 					// Column exists in destination table: restrict to valid promotions only
-					existingAny, _ := schemaMap.Load(key) // not checking existance as schemaMap have baseSchema already
+					existingAny, _ := schemaMap.Load(key) // not checking existence as schemaMap have baseSchema already
 					currentType := existingAny.(string)
 					valid := validIcebergType(currentType, detectedIcebergType)
 					if !valid {
@@ -434,9 +434,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		newColumns.Range(func(columnName, _ any) bool {
 			for _, record := range records {
 				key := columnName.(string)
-				if value, ok := record.Data[key]; !ok {
-					continue
-				} else {
+				if value, ok := record.Data[key]; ok {
 					resultSchema[key] = getCommonAncestorType(resultSchema[key], typeutils.TypeFromValue(value).ToIceberg())
 				}
 			}
