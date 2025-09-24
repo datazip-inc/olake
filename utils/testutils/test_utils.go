@@ -38,6 +38,7 @@ type IntegrationTest struct {
 	ExecuteQuery       func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 	IcebergDB          string
 	CursorField        string
+	PartitionRegex     string
 }
 
 type PerformanceTest struct {
@@ -46,6 +47,7 @@ type PerformanceTest struct {
 	BackfillStreams []string
 	CDCStreams      []string
 	ExecuteQuery    func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+	PartitionRegex  string
 }
 
 type benchmarkStats struct {
@@ -116,7 +118,7 @@ func discoverCommand(config TestConfig) string {
 }
 
 // update normalization=true for selected streams under selected_streams.<namespace> by name
-func updateStreamsCommand(config TestConfig, namespace string, stream []string, isBackfill bool) string {
+func updateStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -127,10 +129,11 @@ func updateStreamsCommand(config TestConfig, namespace string, stream []string, 
 	condition := strings.Join(streamConditions, " or ")
 	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 	jqExpr := fmt.Sprintf(
-		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > %s && mv %s %s`,
+		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s")) }' %s > %s && mv %s %s`,
 		namespace,
 		namespace,
 		condition,
+		partitionRegex,
 		config.CatalogPath,
 		tmpCatalog,
 		tmpCatalog,
@@ -279,14 +282,14 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 							// )
-							streamUpdateCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true)
+							streamUpdateCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json (%d): %s\n%s",
 									code, err, out,
 								)
 							}
 
-							t.Logf("Enabled normalization in %s", cfg.TestConfig.CatalogPath)
+							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
 							// Helper to run sync and verify
 							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
@@ -298,7 +301,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
 								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
 								return nil
 							}
 
@@ -354,7 +357,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// Ensure normalization remains on for selected stream
-							streamUpdateCmd = updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true)
+							streamUpdateCmd = updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json for incremental (%d): %s\n%s",
 									code, err, out,
@@ -411,7 +414,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 }
 
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -482,7 +485,36 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		require.Equal(t, expectedIceType, iceType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
-	t.Logf("Verified datatypes in Iceberg after sync")
+	// Skip if no partitionRegex provided
+	if partitionRegex == "" {
+		t.Log("No partitionRegex provided, skipping partition verification")
+		return
+	}
+
+	// Execute SHOW CREATE TABLE
+	createQuery := fmt.Sprintf("SHOW CREATE TABLE %s.%s.%s", icebergCatalog, icebergDB, tableName)
+	createDf, err := spark.Sql(ctx, createQuery)
+	require.NoError(t, err, "Failed to SHOW CREATE TABLE on Iceberg table")
+
+	// Collect and concatenate the CREATE TABLE statement
+	createRows, err := createDf.Collect(ctx)
+	require.NoError(t, err, "Failed to collect SHOW CREATE TABLE from Iceberg")
+	require.NotEmpty(t, createRows, "No CREATE TABLE statement returned")
+	var createStmt strings.Builder
+	for _, row := range createRows {
+		createStmt.WriteString(row.Value("createtab_stmt").(string) + "\n")
+	}
+	fullStmt := createStmt.String()
+
+	// Parse partitionRegex (e.g., "/{id,identity}" -> ["id", "identity"])
+	regex := strings.TrimPrefix(partitionRegex, "/{")
+	regex = strings.TrimSuffix(regex, "}")
+	partitionCols := strings.Split(regex, ",")
+	expectedPartition := fmt.Sprintf("PARTITIONED BY (%s)", strings.Join(partitionCols, ", "))
+
+	// Verify partition spec
+	require.Contains(t, fullStmt, expectedPartition, "Partition spec mismatch: expected '%s' in CREATE TABLE, got:\n%s", expectedPartition, fullStmt)
+	t.Logf("Verified Iceberg partition spec: %s", expectedPartition)
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
@@ -558,7 +590,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStreams, true)
+							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.BackfillStreams, true)
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -592,7 +624,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStreams, false)
+								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.CDCStreams, false)
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}

@@ -19,6 +19,7 @@ func TestPostgresIntegration(t *testing.T) {
 		ExecuteQuery:       ExecuteQuery,
 		IcebergDB:          "postgres_postgres_public",
 		CursorField:        "col_bigserial",
+		PartitionRegex:     "/{col_bigserial,identity}",
 	}
 	testConfig.TestIntegration(t)
 }

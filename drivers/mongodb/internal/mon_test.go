@@ -18,6 +18,7 @@ func TestMongodbIntegration(t *testing.T) {
 		ExecuteQuery:       ExecuteQuery,
 		IcebergDB:          "mongodb_olake_mongodb_test",
 		CursorField:        "_id",
+		PartitionRegex:     "/{_id,identity}",
 	}
 	testConfig.TestIntegration(t)
 }

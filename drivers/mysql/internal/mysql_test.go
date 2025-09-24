@@ -18,6 +18,7 @@ func TestMySQLIntegration(t *testing.T) {
 		ExecuteQuery:       ExecuteQuery,
 		IcebergDB:          "mysql_olake_mysql_test",
 		CursorField:        "id",
+		PartitionRegex:     "/{id,identity}",
 	}
 	testConfig.TestIntegration(t)
 }
