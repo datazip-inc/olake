@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -365,8 +366,12 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {
-		// create new schema from already available schema
-		recordsSchema := copySchema(i.schema)
+		// create new schema from already available schema (stable view of table schema)
+		baseSchema := copySchema(i.schema)
+		var schemaMap, newColumns sync.Map
+		for k, v := range baseSchema {
+			schemaMap.Store(k, v)
+		}
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, idx int) error {
 			// set pre configured fields
@@ -393,35 +398,52 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				}
 
 				detectedIcebergType := detectedType.ToIceberg()
-				if typeInNewSchema, exists := recordsSchema[key]; exists {
-					// if column exist in iceberg table validate type
-					if _, exist := i.schema[key]; exist {
-						valid := validIcebergType(typeInNewSchema, detectedIcebergType)
-						if !valid {
-							return fmt.Errorf(
-								"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
-								key, typeInNewSchema, detectedIcebergType,
-							)
-						}
+				if _, existInBase := baseSchema[key]; existInBase {
+					// Column exists in destination table: restrict to valid promotions only
+					existingAny, _ := schemaMap.Load(key) // not checking existance as schemaMap have baseSchema already
+					currentType := existingAny.(string)
+					valid := validIcebergType(currentType, detectedIcebergType)
+					if !valid {
+						return fmt.Errorf(
+							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+							key, currentType, detectedIcebergType,
+						)
+					}
 
-						if promotionRequired(typeInNewSchema, detectedIcebergType) {
-							recordsSchema[key] = detectedIcebergType
-							diffThreadSchema.Store(true)
-						}
-					} else {
-						// if column not exist in iceberg table use common ancestor
-						diffThreadSchema.Store(true) // (Note: adding just to maintain consistency)
-						recordsSchema[key] = getCommonAncestorType(typeInNewSchema, detectedIcebergType)
+					if promotionRequired(currentType, detectedIcebergType) {
+						schemaMap.Store(key, detectedIcebergType)
+						diffThreadSchema.Store(true)
 					}
 				} else {
+					// New column: converge to common ancestor across concurrent updates
+					newColumns.Store(key, detectedIcebergType)
+					schemaMap.Store(key, detectedIcebergType)
 					diffThreadSchema.Store(true)
-					recordsSchema[key] = detectedIcebergType
 				}
 			}
 			return nil
 		})
 
-		return diffThreadSchema.Load(), recordsSchema, err
+		resultSchema := make(map[string]string)
+		schemaMap.Range(func(k, v any) bool {
+			resultSchema[k.(string)] = v.(string)
+			return true
+		})
+
+		// merge new columns to there greater schema
+		newColumns.Range(func(columnName, _ any) bool {
+			for _, record := range records {
+				key := columnName.(string)
+				if value, ok := record.Data[key]; !ok {
+					continue
+				} else {
+					resultSchema[key] = getCommonAncestorType(resultSchema[key], typeutils.TypeFromValue(value).ToIceberg())
+				}
+			}
+			return true
+		})
+
+		return diffThreadSchema.Load(), resultSchema, err
 	}
 
 	records = dedupRecords(records)

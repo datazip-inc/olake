@@ -35,13 +35,13 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 	p.socket.CurrentWalPosition = slot.CurrentLSN
 
-	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
-
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, p.socket.ReplicationSlot, p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", strings.Join(p.publications, ","))}})
 	if err != nil {
 		return fmt.Errorf("failed to start replication: %v", err)
 	}
+
+	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
 
 	lastStatusUpdate := time.Now()
 	statusUpdateTimeout := 10 * time.Second
