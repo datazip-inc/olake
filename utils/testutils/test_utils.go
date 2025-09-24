@@ -491,12 +491,9 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		return
 	}
 
-	// Execute SHOW CREATE TABLE
 	createQuery := fmt.Sprintf("SHOW CREATE TABLE %s.%s.%s", icebergCatalog, icebergDB, tableName)
 	createDf, err := spark.Sql(ctx, createQuery)
 	require.NoError(t, err, "Failed to SHOW CREATE TABLE on Iceberg table")
-
-	// Collect and concatenate the CREATE TABLE statement
 	createRows, err := createDf.Collect(ctx)
 	require.NoError(t, err, "Failed to collect SHOW CREATE TABLE from Iceberg")
 	require.NotEmpty(t, createRows, "No CREATE TABLE statement returned")
@@ -505,14 +502,10 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		createStmt.WriteString(row.Value("createtab_stmt").(string) + "\n")
 	}
 	fullStmt := createStmt.String()
-
-	// Parse partitionRegex (e.g., "/{id,identity}" -> ["id", "identity"])
-	regex := strings.TrimPrefix(partitionRegex, "/{")
+	regex := strings.TrimPrefix(string(partitionRegex[0]), "/{")
 	regex = strings.TrimSuffix(regex, "}")
 	partitionCols := strings.Split(regex, ",")
 	expectedPartition := fmt.Sprintf("PARTITIONED BY (%s)", strings.Join(partitionCols, ", "))
-
-	// Verify partition spec
 	require.Contains(t, fullStmt, expectedPartition, "Partition spec mismatch: expected '%s' in CREATE TABLE, got:\n%s", expectedPartition, fullStmt)
 	t.Logf("Verified Iceberg partition spec: %s", expectedPartition)
 }
