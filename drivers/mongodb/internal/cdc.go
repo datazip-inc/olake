@@ -57,12 +57,12 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
 
-	LastOplogTime, err := m.getClusterOpTime(cdcCtx, m.config.AuthDB)
+	lastOplogTime, err := m.getClusterOpTime(cdcCtx, m.config.AuthDB)
 	if err != nil {
 		logger.Warnf("Failed to get cluster op time: %s", err)
 		return err
 	}
-	m.LastOplogTime = LastOplogTime
+	m.LastOplogTime = lastOplogTime
 
 	return nil
 }
@@ -119,15 +119,14 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface) error {
 	finalToken := cursor.ResumeToken()
 	if finalToken == nil {
-		logger.Warnf("No resume token available for stream %s after TryNext", stream.ID())
-		return nil
+		return fmt.Errorf("no resume token available for stream %s after TryNext", stream.ID())
 	}
 
-	rawtoken, err := finalToken.LookupErr(cdcCursorField)
+	rawToken, err := finalToken.LookupErr(cdcCursorField)
 	if err != nil {
 		return fmt.Errorf("%s field not found in resume token: %s", cdcCursorField, err)
 	}
-	token := rawtoken.StringValue()
+	token := rawToken.StringValue()
 
 	// check pointing post batch resume token
 	m.cdcCursor.Store(stream.ID(), token)
