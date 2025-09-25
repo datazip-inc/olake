@@ -491,23 +491,41 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		return
 	}
 
-	createQuery := fmt.Sprintf("SHOW CREATE TABLE %s.%s.%s", icebergCatalog, icebergDB, tableName)
-	createDf, err := spark.Sql(ctx, createQuery)
-	require.NoError(t, err, "Failed to SHOW CREATE TABLE on Iceberg table")
-	createRows, err := createDf.Collect(ctx)
-	require.NoError(t, err, "Failed to collect SHOW CREATE TABLE from Iceberg")
-	require.NotEmpty(t, createRows, "No CREATE TABLE statement returned")
-	var createStmt strings.Builder
-	for _, row := range createRows {
-		createStmt.WriteString(row.Value("createtab_stmt").(string) + "\n")
+	// Parse expected partitions from partitionRegex
+	// Example: "/{_id,identity}" -> Column: _id, Transform: identity
+	clean := strings.TrimPrefix(partitionRegex, "/{")
+	clean = strings.TrimSuffix(clean, "}")
+	parts := strings.Split(clean, ",")
+	expectedCol := strings.TrimSpace(parts[0])
+	expectedTransform := "identity" // default
+	if len(parts) > 1 {
+		expectedTransform = strings.TrimSpace(parts[1])
 	}
-	fullStmt := createStmt.String()
-	regex := strings.TrimPrefix(string(partitionRegex[0]), "/{")
-	regex = strings.TrimSuffix(regex, "}")
-	partitionCols := strings.Split(regex, ",")
-	expectedPartition := fmt.Sprintf("PARTITIONED BY (%s)", strings.Join(partitionCols, ", "))
-	require.Contains(t, fullStmt, expectedPartition, "Partition spec mismatch: expected '%s' in CREATE TABLE, got:\n%s", expectedPartition, fullStmt)
-	t.Logf("Verified Iceberg partition spec: %s", expectedPartition)
+
+	// Query Iceberg partitions metadata table
+	partitionQuery := fmt.Sprintf("SELECT partition, transform FROM %s.%s.%s.partitions", icebergCatalog, icebergDB, tableName)
+	df, err := spark.Sql(ctx, partitionQuery)
+	require.NoError(t, err, "Failed to query Iceberg partitions metadata")
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err, "Failed to collect partitions metadata")
+	require.NotEmpty(t, rows, "No partitions found in Iceberg table")
+
+	// Build map of actual partitions
+	actual := make(map[string]string)
+	for _, row := range rows {
+		col := row.Value("partition").(string)
+		transform := row.Value("transform").(string)
+		actual[col] = transform
+		t.Logf("Found partition in Iceberg: %s (%s)", col, transform)
+	}
+
+	// Compare expected partition with actual
+	got, found := actual[expectedCol]
+	require.Truef(t, found, "Expected partition column %s not found in Iceberg", expectedCol)
+	require.Equalf(t, expectedTransform, got, "Partition transform mismatch for column %s", expectedCol)
+
+	t.Logf("Verified Iceberg partition spec: %s (%s)", expectedCol, expectedTransform)
+
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
