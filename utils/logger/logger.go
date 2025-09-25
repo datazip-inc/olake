@@ -249,9 +249,21 @@ type ProcessOutputReader struct {
 	readinessPattern *regexp.Regexp
 	readinessCh      chan struct{}
 	readinessOnce    sync.Once
-	// simple bounded buffer for startup diagnostics
-	errBuf   []string
-	errLimit int
+}
+
+var errorLines sync.Map // map[string]string → procKey -> first error line
+
+// RecordErrorLine records the first error line for a process
+func RecordErrorLine(procKey, line string) {
+	errorLines.LoadOrStore(procKey, line)
+}
+
+// GetFirstErrorLine returns the first error line for a process required for showing root cause in check command error message
+func GetFirstErrorLine(procKey string) string {
+	if v, ok := errorLines.Load(procKey); ok {
+		return v.(string)
+	}
+	return ""
 }
 
 // NewProcessOutputReader creates a new ProcessOutputReader for a given process
@@ -312,31 +324,14 @@ func (p *ProcessOutputReader) StartReading() {
 				})
 			}
 
-			// Append error/stacktrace lines to a small bounded buffer
-			if isErrorLine || isStackTraceLine || inStackTrace {
-				if p.errLimit > 0 {
-					p.errBuf = append(p.errBuf, line)
-					if len(p.errBuf) > p.errLimit {
-						p.errBuf = p.errBuf[len(p.errBuf)-p.errLimit:]
-					}
-				}
-			}
-
 			if isErrorLine || isStackTraceLine || inStackTrace {
 				Error(fmt.Sprintf("%s %s", p.Name, line))
+				RecordErrorLine(p.Name, line)
 			} else {
 				Info(fmt.Sprintf("%s %s", p.Name, line))
 			}
 		}
 	}()
-}
-
-// StartupErrorTail returns the captured error lines (tail) joined by newlines
-func (p *ProcessOutputReader) StartupErrorTail() string {
-	if len(p.errBuf) == 0 {
-		return ""
-	}
-	return strings.Join(p.errBuf, "\n")
 }
 
 // Close closes the reader
@@ -393,9 +388,6 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	stderrReader.readinessPattern = readinessPattern
 	stderrReader.readinessCh = readyCh
 	// do not fail on error lines; only use errCh for early process exit
-
-	// Capture a tail of startup error lines for diagnostics using bounded buffers
-	stderrReader.errLimit = 200
 
 	// Set the command's stdout and stderr to our pipes
 	cmd.Stdout = stdoutWriter
@@ -454,7 +446,6 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		// Clear notification channels to avoid further sends
 		stdoutReader.readinessCh = nil
 		stderrReader.readinessCh = nil
-		stderrReader.errLimit = 0
 		return nil
 	case e := <-errCh:
 		close(done)
@@ -463,20 +454,20 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 			_ = cmd.Process.Kill()
 		}
 		// Include captured error tail from stderr only
-		stderrTail := stderrReader.StartupErrorTail()
+		stderrTail := GetFirstErrorLine(processName)
 		if stderrTail == "" {
-			return fmt.Errorf("failed to start iceberg java writer: %s", e)
+			return fmt.Errorf("failed to start iceberg writer: %s", e)
 		}
-		return fmt.Errorf("failed to start iceberg java writer: %s\n---- stderr (tail) ----\n%s", e, stderrTail)
+		return fmt.Errorf("failed to start iceberg writer: %s: %s", e, stderrTail)
 	case <-ctx.Done():
 		close(done)
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		stderrTail := stderrReader.StartupErrorTail()
+		stderrTail := GetFirstErrorLine(processName)
 		if stderrTail == "" {
-			return fmt.Errorf("iceberg java writer %s did not become ready within %d seconds", processName, timeoutSec)
+			return fmt.Errorf("iceberg writer %s did not become ready within %d seconds", processName, timeoutSec)
 		}
-		return fmt.Errorf("iceberg java writer %s did not become ready within %d seconds\n---- stderr (tail) ----\n%s", processName, timeoutSec, stderrTail)
+		return fmt.Errorf("iceberg writer %s did not become ready within %d seconds: %s", processName, timeoutSec, stderrTail)
 	}
 }
