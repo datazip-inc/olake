@@ -98,7 +98,13 @@ public class OlakeRpcServer {
             }
         }
 
-        icebergCatalog = CatalogUtil.buildIcebergCatalog(catalogName, icebergProperties, hadoopConf);
+     // q: should we through exception if catalog init fails? or keep it as it is
+        try {
+            icebergCatalog = CatalogUtil.buildIcebergCatalog(catalogName, icebergProperties, hadoopConf);
+        } catch (Throwable t) {
+            throw new Exception("Iceberg catalog init failed: " + t.toString());
+
+        }
 
         // configure and set
         valSerde.configure(Collections.emptyMap(), false);

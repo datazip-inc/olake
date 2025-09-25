@@ -370,7 +370,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 			return ""
 		}
 
-		colName := strings.TrimSpace(strings.Trim(regexVarBlock[0], `'`))
+		colName := utils.Reformat(strings.TrimSpace(strings.Trim(regexVarBlock[0], `'`)))
 		defaultValue := strings.TrimSpace(strings.Trim(regexVarBlock[1], `'`))
 		granularity := strings.TrimSpace(strings.Trim(regexVarBlock[2], `'`))
 

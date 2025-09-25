@@ -296,6 +296,7 @@ func (p *ProcessOutputReader) StartReading() {
 
 			if isErrorLine || isStackTraceLine || inStackTrace {
 				Error(fmt.Sprintf("%s %s", p.Name, line))
+				RecordErrorLine(p.Name, line)
 			} else {
 				Info(fmt.Sprintf("%s %s", p.Name, line))
 			}
@@ -367,4 +368,21 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	stderrWriter.Close()
 
 	return nil
+}
+
+var (
+	errorLines sync.Map // map[string]string → procKey -> first error line
+)
+
+// RecordErrorLine records the first error line for a process
+func RecordErrorLine(procKey, line string) {
+	errorLines.LoadOrStore(procKey, line)
+}
+
+// GetFirstErrorLine returns the first error line for a process required for showing root cause in check command error message
+func GetFirstErrorLine(procKey string) string {
+	if v, ok := errorLines.Load(procKey); ok {
+		return v.(string)
+	}
+	return ""
 }
