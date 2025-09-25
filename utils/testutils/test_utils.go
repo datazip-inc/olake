@@ -513,11 +513,22 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	actualCols := make(map[string]struct{})
 	for _, row := range rows {
 		val := row.Value("partition")
-		colMap, ok := val.(map[string]interface{})
-		require.True(t, ok, "Expected partition to be a map, got %#v", val)
+		var colName string
 
-		colName, ok := colMap["col"].(string) // key may vary by Spark version
-		require.True(t, ok, "Expected col to be a string, got %#v", colMap["col"])
+		switch v := val.(type) {
+		case string:
+			colName = v
+		case map[string]interface{}:
+			if c, ok := v["col"].(string); ok {
+				colName = c
+			} else if f, ok := v["field"].(string); ok {
+				colName = f
+			} else {
+				t.Fatalf("Cannot extract partition column from map: %#v", v)
+			}
+		default:
+			t.Fatalf("Unexpected type for partition column: %#v", v)
+		}
 
 		actualCols[colName] = struct{}{}
 		t.Logf("Found partition in Iceberg: %s", colName)
