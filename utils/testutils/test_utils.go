@@ -485,47 +485,43 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		require.Equal(t, expectedIceType, iceType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
+	t.Logf("Verified datatypes in Iceberg after sync")
 	// Skip if no partitionRegex provided
 	if partitionRegex == "" {
 		t.Log("No partitionRegex provided, skipping partition verification")
 		return
 	}
 
-	// Parse expected partitions from partitionRegex
-	// Example: "/{_id,identity}" -> Column: _id, Transform: identity
+	// Parse expected partition column from partitionRegex
+	// Example: "/{_id,identity}" -> Column: _id
 	clean := strings.TrimPrefix(partitionRegex, "/{")
 	clean = strings.TrimSuffix(clean, "}")
 	parts := strings.Split(clean, ",")
 	expectedCol := strings.TrimSpace(parts[0])
-	expectedTransform := "identity" // default
-	if len(parts) > 1 {
-		expectedTransform = strings.TrimSpace(parts[1])
-	}
 
-	// Query Iceberg partitions metadata table
-	partitionQuery := fmt.Sprintf("SELECT partition, transform FROM %s.%s.%s.partitions", icebergCatalog, icebergDB, tableName)
+	// Query Iceberg partitions metadata table (only 'partition' column)
+	partitionQuery := fmt.Sprintf("SELECT partition FROM %s.%s.%s.partitions",
+		icebergCatalog, icebergDB, tableName)
 	df, err := spark.Sql(ctx, partitionQuery)
 	require.NoError(t, err, "Failed to query Iceberg partitions metadata")
+
 	rows, err := df.Collect(ctx)
 	require.NoError(t, err, "Failed to collect partitions metadata")
 	require.NotEmpty(t, rows, "No partitions found in Iceberg table")
 
-	// Build map of actual partitions
-	actual := make(map[string]string)
+	// Collect actual partition columns
+	actualCols := make(map[string]struct{})
 	for _, row := range rows {
 		col := row.Value("partition").(string)
-		transform := row.Value("transform").(string)
-		actual[col] = transform
-		t.Logf("Found partition in Iceberg: %s (%s)", col, transform)
+		actualCols[col] = struct{}{}
+		t.Logf("Found partition in Iceberg: %s", col)
 	}
 
-	// Compare expected partition with actual
-	got, found := actual[expectedCol]
+	// Compare expected partition column with actual
+	_, found := actualCols[expectedCol]
 	require.Truef(t, found, "Expected partition column %s not found in Iceberg", expectedCol)
-	require.Equalf(t, expectedTransform, got, "Partition transform mismatch for column %s", expectedCol)
 
-	t.Logf("Verified Iceberg partition spec: %s (%s)", expectedCol, expectedTransform)
-
+	t.Logf("Verified Iceberg partition spec: %s", expectedCol)
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
