@@ -130,13 +130,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 }
 
 func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
-	opts := jdbc.IncrementalConditionOptions{
-		Driver: constants.Oracle,
-		Stream: stream,
-		Client: o.client,
-		State:  o.state,
-	}
-	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, opts)
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, o.client, constants.Oracle, stream)
 	if err != nil {
 		return nil, nil, err
 	}

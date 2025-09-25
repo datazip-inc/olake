@@ -480,48 +480,36 @@ func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 		return nil, nil, fmt.Errorf("failed to build filter: %s", err)
 	}
 
-	groupStage := bson.D{
-		{Key: "_id", Value: nil},
-		{Key: "maxPrimaryCursor", Value: bson.D{{Key: "$max", Value: "$" + primaryCursor}}},
-	}
-	if secondaryCursor != "" {
-		groupStage = append(groupStage, bson.E{
-			Key:   "maxSecondaryCursor",
-			Value: bson.D{{Key: "$max", Value: "$" + secondaryCursor}},
-		})
-	}
-
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$group", Value: groupStage}},
+	findMaxCursor := func(maxCursor string) (any, error) {
+		if maxCursor == "" {
+			return nil, nil
+		}
+		opts := options.FindOne().SetSort(bson.D{{Key: maxCursor, Value: -1}})
+		var cursorDoc bson.M
+		err = collection.FindOne(ctx, filter, opts).Decode(&cursorDoc)
+		if err != nil {
+			return nil, err
+		}
+		filterMongoObject(cursorDoc)
+		return cursorDoc[maxCursor], nil
 	}
 
-	cursor, err := collection.Aggregate(ctx, pipeline)
+	maxPrimaryCursor, err := findMaxCursor(primaryCursor)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to execute aggregate pipeline: %s", err)
-	}
-	defer cursor.Close(ctx)
-
-	if cursor.Next(ctx) {
-		var result bson.M
-		if err := cursor.Decode(&result); err != nil {
-			return nil, nil, fmt.Errorf("failed to decode cursor result: %s", err)
+		if err == mongo.ErrNoDocuments {
+			return nil, nil, fmt.Errorf("no documents found for max primary cursor: %s", err)
 		}
-
-		filterMongoObject(result)
-		if secondaryCursor != "" {
-			if maxSecondaryCursor, exists := result["maxSecondaryCursor"]; exists && maxSecondaryCursor != nil {
-				return result["maxPrimaryCursor"], maxSecondaryCursor, nil
-			}
+		return nil, nil, fmt.Errorf("failed to find max primary cursor: %s", err)
+	}
+	maxSecondaryCursor, err := findMaxCursor(secondaryCursor)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil, fmt.Errorf("no documents found for max secondary cursor: %s", err)
 		}
-		return result["maxPrimaryCursor"], nil, nil
+		return nil, nil, fmt.Errorf("failed to find max secondary cursor: %s", err)
 	}
 
-	if err := cursor.Err(); err != nil {
-		return nil, nil, fmt.Errorf("cursor error: %s", err)
-	}
-	logger.Warnf("No documents found for stream: %s", stream.ID())
-	return nil, nil, nil
+	return maxPrimaryCursor, maxSecondaryCursor, nil
 }
 
 func hasMultipleType(stream types.StreamInterface) bool {

@@ -621,18 +621,18 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	return incrementalQuery, queryArgs, nil
 }
 
-func GetMaxCursorValues(ctx context.Context, opts IncrementalConditionOptions) (any, any, error) {
-	primaryCursor, secondaryCursor := opts.Stream.Cursor()
-	quotedTable := QuoteTable(opts.Stream.Namespace(), opts.Stream.Name(), opts.Driver)
+func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constants.DriverType, stream types.StreamInterface) (any, any, error) {
+	primaryCursor, secondaryCursor := stream.Cursor()
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), driverType)
 
-	filter, err := SQLFilter(opts.Stream, string(opts.Driver))
+	filter, err := SQLFilter(stream, string(driverType))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 	filterClause := utils.Ternary(filter == "", "", fmt.Sprintf(" WHERE (%s)", filter)).(string)
 
-	primaryCursorQuoted := QuoteIdentifier(primaryCursor, opts.Driver)
-	secondaryCursorQuoted := QuoteIdentifier(secondaryCursor, opts.Driver)
+	primaryCursorQuoted := QuoteIdentifier(primaryCursor, driverType)
+	secondaryCursorQuoted := QuoteIdentifier(secondaryCursor, driverType)
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
@@ -650,13 +650,13 @@ func GetMaxCursorValues(ctx context.Context, opts IncrementalConditionOptions) (
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable, filterClause)).(string)
 
 	if secondaryCursor != "" {
-		err = opts.Client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %s", err)
 		}
 		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
 	} else {
-		err = opts.Client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %s", err)
 		}

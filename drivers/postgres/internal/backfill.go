@@ -167,13 +167,7 @@ func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd i
 }
 
 func (p *Postgres) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
-	opts := jdbc.IncrementalConditionOptions{
-		Driver: constants.Postgres,
-		Stream: stream,
-		Client: p.client,
-		State:  p.state,
-	}
-	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, opts)
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, p.client, constants.Postgres, stream)
 	if err != nil {
 		return nil, nil, err
 	}
