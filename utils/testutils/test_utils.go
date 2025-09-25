@@ -453,7 +453,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		for key, expected := range schema {
 			icebergValue, ok := icebergMap[key]
 			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.Equal(t, icebergValue, expected, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+			// expected first, actual second
+			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
@@ -486,60 +487,73 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
-	// Skip if no partitionRegex provided
+
+	// Partition verification using only metadata tables
 	if partitionRegex == "" {
 		t.Log("No partitionRegex provided, skipping partition verification")
 		return
 	}
 
-	// Parse expected partition column from partitionRegex
-	// Example: "/{_id,identity}" -> Column: _id
+	// Parse expected partition columns from pattern like "/{col,identity}"
+	// Supports multiple entries like "/{col1,identity}" by taking the first token as the source column
 	clean := strings.TrimPrefix(partitionRegex, "/{")
 	clean = strings.TrimSuffix(clean, "}")
-	parts := strings.Split(clean, ",")
-	expectedCol := strings.TrimSpace(parts[0])
+	toks := strings.Split(clean, ",")
+	expectedCol := strings.TrimSpace(toks[0])
 
-	// Query Iceberg partitions metadata table (only 'partition' column)
-	partitionQuery := fmt.Sprintf("SELECT partition FROM %s.%s.%s.partitions",
-		icebergCatalog, icebergDB, tableName)
-	df, err := spark.Sql(ctx, partitionQuery)
-	require.NoError(t, err, "Failed to query Iceberg partitions metadata")
+	// 1) Verify the declared Partitioning from table metadata (no data scan)
+	//    Checks identity(col) appears in the Partitioning spec string.
+	describeExtQuery := fmt.Sprintf("DESCRIBE TABLE EXTENDED %s.%s.%s", icebergCatalog, icebergDB, tableName)
+	descExtDF, err := spark.Sql(ctx, describeExtQuery)
+	require.NoError(t, err, "Failed to DESCRIBE TABLE EXTENDED for partitioning")
 
-	rows, err := df.Collect(ctx)
-	require.NoError(t, err, "Failed to collect partitions metadata")
-	require.NotEmpty(t, rows, "No partitions found in Iceberg table")
-
-	// Collect actual partition columns
-	actualCols := make(map[string]struct{})
-	for _, row := range rows {
-		val := row.Value("partition")
-		var colName string
-
-		switch v := val.(type) {
-		case string:
-			colName = v
-		case map[string]interface{}:
-			if c, ok := v["col"].(string); ok {
-				colName = c
-			} else if f, ok := v["field"].(string); ok {
-				colName = f
-			} else {
-				t.Fatalf("Cannot extract partition column from map: %#v", v)
-			}
-		default:
-			t.Fatalf("Unexpected type for partition column: %#v", v)
+	descExtRows, err := descExtDF.Collect(ctx)
+	require.NoError(t, err, "Failed to collect DESCRIBE EXTENDED rows")
+	var partitioningLine string
+	for _, r := range descExtRows {
+		cn, _ := r.Value("col_name").(string)
+		dt, _ := r.Value("data_type").(string)
+		if strings.EqualFold(strings.TrimSpace(cn), "Partitioning") {
+			partitioningLine = dt
+			break
 		}
+	}
+	require.NotEmpty(t, partitioningLine, "Partitioning line not found in DESCRIBE TABLE EXTENDED output")
+	// Expect identity transform for this test input
+	require.Containsf(t, strings.ToLower(partitioningLine), fmt.Sprintf("identity(%s)", strings.ToLower(expectedCol)),
+		"Declared partitioning does not include identity(%s): %s", expectedCol, partitioningLine)
 
-		actualCols[colName] = struct{}{}
-		t.Logf("Found partition in Iceberg: %s", colName)
+	// 2) Extract actual partition field names from metadata table by converting struct -> JSON -> MAP -> keys
+	//    This avoids schema-dependent struct access and reads only metadata.
+	partsQuery := fmt.Sprintf(`
+        SELECT DISTINCT k AS part_col
+        FROM (
+            SELECT explode(map_keys(from_json(to_json(partition), 'MAP<STRING,STRING>'))) AS k
+            FROM %s.%s.%s.partitions
+        ) s
+    `, icebergCatalog, icebergDB, tableName)
+
+	pDF, err := spark.Sql(ctx, partsQuery)
+	require.NoError(t, err, "Failed to query Iceberg partitions metadata for keys")
+
+	pRows, err := pDF.Collect(ctx)
+	require.NoError(t, err, "Failed to collect partition keys from metadata")
+	require.NotEmpty(t, pRows, "No partitions found in Iceberg table")
+
+	actualCols := make(map[string]struct{}, len(pRows))
+	for _, r := range pRows {
+		if v := r.Value("part_col"); v != nil {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				actualCols[strings.TrimSpace(s)] = struct{}{}
+				t.Logf("Found partition key: %s", s)
+			}
+		}
 	}
 
-	// Compare expected partition column with actual
 	_, found := actualCols[expectedCol]
-	require.Truef(t, found, "Expected partition column %s not found in Iceberg", expectedCol)
+	require.Truef(t, found, "Expected partition column %s not found in Iceberg metadata", expectedCol)
 
-	t.Logf("Verified Iceberg partition spec: %s", expectedCol)
-
+	t.Logf("Verified Iceberg partitioning via metadata: %s", expectedCol)
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
