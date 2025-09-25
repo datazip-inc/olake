@@ -625,12 +625,6 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 	primaryCursor, secondaryCursor := stream.Cursor()
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), driverType)
 
-	filter, err := SQLFilter(stream, string(driverType))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
-	}
-	filterClause := utils.Ternary(filter == "", "", fmt.Sprintf(" WHERE (%s)", filter)).(string)
-
 	primaryCursorQuoted := QuoteIdentifier(primaryCursor, driverType)
 	secondaryCursorQuoted := QuoteIdentifier(secondaryCursor, driverType)
 
@@ -646,17 +640,17 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 	}
 
 	cursorValueQuery := utils.Ternary(secondaryCursor == "",
-		fmt.Sprintf("SELECT MAX(%s) FROM %s %s", primaryCursorQuoted, quotedTable, filterClause),
-		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable, filterClause)).(string)
+		fmt.Sprintf("SELECT MAX(%s) FROM %s", primaryCursorQuoted, quotedTable),
+		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
 
 	if secondaryCursor != "" {
-		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %s", err)
 		}
 		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
 	} else {
-		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %s", err)
 		}
