@@ -265,4 +265,20 @@ public class IcebergUtil {
     return Integer.parseInt(dtFormater.format(Instant.now()));
   }
 
+  public static boolean dropIcebergTable(String namespace, String tableName, Catalog icebergCatalog) {
+    try{
+      TableIdentifier tableID = TableIdentifier.of(namespace, tableName);
+      // Check if table exists
+      if (!icebergCatalog.tableExists(tableID)) {
+        LOGGER.warn("Table not found: {}", tableID.toString());
+        return false;
+      }
+      icebergCatalog.dropTable(tableID, true);
+      return true;
+    } catch(Exception e){
+      LOGGER.error("Failed to drop table {}.{}: {}", namespace, tableName, e.getMessage());
+      throw new RuntimeException("Failed to drop table: " + namespace + "." + tableName, e);
+    }
+  }
+
 }
