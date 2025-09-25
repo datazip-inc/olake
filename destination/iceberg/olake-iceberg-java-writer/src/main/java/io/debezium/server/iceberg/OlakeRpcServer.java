@@ -45,6 +45,7 @@ public class OlakeRpcServer {
             LOGGER.error("Please provide a JSON config as an argument.");
             System.exit(1);
         }
+
         
 
         String jsonConfig = args[0];

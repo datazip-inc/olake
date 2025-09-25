@@ -249,21 +249,7 @@ type ProcessOutputReader struct {
 	readinessPattern *regexp.Regexp
 	readinessCh      chan struct{}
 	readinessOnce    sync.Once
-}
-
-var errorLines sync.Map // map[string]string → procKey -> first error line
-
-// RecordErrorLine records the first error line for a process
-func RecordErrorLine(procKey, line string) {
-	errorLines.LoadOrStore(procKey, line)
-}
-
-// GetFirstErrorLine returns the first error line for a process required for showing root cause in check command error message
-func GetFirstErrorLine(procKey string) string {
-	if v, ok := errorLines.Load(procKey); ok {
-		return v.(string)
-	}
-	return ""
+	errorLines       sync.Map // map[string]string → procKey -> first error line
 }
 
 // NewProcessOutputReader creates a new ProcessOutputReader for a given process
@@ -326,7 +312,7 @@ func (p *ProcessOutputReader) StartReading() {
 
 			if isErrorLine || isStackTraceLine || inStackTrace {
 				Error(fmt.Sprintf("%s %s", p.Name, line))
-				RecordErrorLine(p.Name, line)
+				p.errorLines.LoadOrStore(p.Name, line)
 			} else {
 				Info(fmt.Sprintf("%s %s", p.Name, line))
 			}
@@ -384,10 +370,10 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	// Configure readers for readiness/error notifications BEFORE starting the process
 	stdoutReader.readinessPattern = readinessPattern
 	stdoutReader.readinessCh = readyCh
+
 	// do not fail on error lines; only use errCh for early process exit
 	stderrReader.readinessPattern = readinessPattern
 	stderrReader.readinessCh = readyCh
-	// do not fail on error lines; only use errCh for early process exit
 
 	// Set the command's stdout and stderr to our pipes
 	cmd.Stdout = stdoutWriter
@@ -409,6 +395,12 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	// since they're only needed by the child process
 	stdoutWriter.Close()
 	stderrWriter.Close()
+	getFirstErrorLine := func(procKey string) string {
+		if v, ok := stderrReader.errorLines.Load(procKey); ok {
+			return v.(string)
+		}
+		return ""
+	}
 
 	timeoutSec := 30
 
@@ -454,7 +446,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 			_ = cmd.Process.Kill()
 		}
 		// Include captured error tail from stderr only
-		stderrTail := GetFirstErrorLine(processName)
+		stderrTail := getFirstErrorLine(processName)
 		if stderrTail == "" {
 			return fmt.Errorf("failed to start iceberg writer: %s", e)
 		}
@@ -464,7 +456,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		stderrTail := GetFirstErrorLine(processName)
+		stderrTail := getFirstErrorLine(processName)
 		if stderrTail == "" {
 			return fmt.Errorf("iceberg writer %s did not become ready within %d seconds", processName, timeoutSec)
 		}
