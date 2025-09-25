@@ -512,9 +512,15 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	// Collect actual partition columns
 	actualCols := make(map[string]struct{})
 	for _, row := range rows {
-		col := row.Value("partition").(string)
-		actualCols[col] = struct{}{}
-		t.Logf("Found partition in Iceberg: %s", col)
+		val := row.Value("partition")
+		colMap, ok := val.(map[string]interface{})
+		require.True(t, ok, "Expected partition to be a map, got %#v", val)
+
+		colName, ok := colMap["col"].(string) // key may vary by Spark version
+		require.True(t, ok, "Expected col to be a string, got %#v", colMap["col"])
+
+		actualCols[colName] = struct{}{}
+		t.Logf("Found partition in Iceberg: %s", colName)
 	}
 
 	// Compare expected partition column with actual
@@ -522,6 +528,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	require.Truef(t, found, "Expected partition column %s not found in Iceberg", expectedCol)
 
 	t.Logf("Verified Iceberg partition spec: %s", expectedCol)
+
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
