@@ -54,8 +54,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			switch {
 			case isKafkaStreaming(a.driver.Type()):
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				partitionData, _ := a.driver.GetPartitions()
-				utils.ConcurrentInGroup(a.GlobalConnGroup, partitionData[streams[index].ID()], func(ctx context.Context, data PartitionMetaData) error {
+				utils.ConcurrentInGroup(a.GlobalConnGroup, a.driver.GetPartitions()[streams[index].ID()], func(ctx context.Context, data PartitionMetaData) error {
 					inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
 					if err != nil {
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)

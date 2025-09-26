@@ -38,6 +38,6 @@ func (o *Oracle) PartitionStreamChanges(ctx context.Context, data abstract.Parti
 	return nil
 }
 
-func (o *Oracle) GetPartitions() (map[string][]abstract.PartitionMetaData, int) {
-	return nil, 0
+func (o *Oracle) GetPartitions() map[string][]abstract.PartitionMetaData {
+	return nil
 }

@@ -18,18 +18,6 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	defer close(backfillWaitChannel)
 
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		if a.driver.Type() == string(constants.Kafka) {
-			kafkaCursor := a.state.GetCursor(stream.Self(), "partitions")
-			if kafkaCursor != nil {
-				logger.Infof("[KAFKA] Skipping backfill for stream[%s], proceeding to incremental sync", stream.ID())
-			} else {
-				logger.Infof("[KAFKA] No previous state for stream[%s], starting incremental sync from beginning", stream.ID())
-			}
-			backfillWaitChannel <- stream.ID()
-			return nil
-		}
-
-		// For non-Kafka drivers
 		primaryCursor, secondaryCursor := stream.Cursor()
 		prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
 		prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
@@ -89,15 +77,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						if a.driver.Type() == string(constants.Kafka) {
-							postIncrementalErr := a.driver.PostIncremental(ctx, stream, err == nil)
-							if postIncrementalErr != nil {
-								err = fmt.Errorf("post incremental error: %s, incremental insert thread error: %s", postIncrementalErr, err)
-							}
-						} else {
-							a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-							a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
-						}
+						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 					} else {
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}

@@ -121,6 +121,6 @@ func (m *MySQL) PartitionStreamChanges(ctx context.Context, data abstract.Partit
 	return nil
 }
 
-func (m *MySQL) GetPartitions() (map[string][]abstract.PartitionMetaData, int) {
-	return nil, 0
+func (m *MySQL) GetPartitions() map[string][]abstract.PartitionMetaData {
+	return nil
 }

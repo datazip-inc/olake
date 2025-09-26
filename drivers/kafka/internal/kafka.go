@@ -19,15 +19,15 @@ import (
 )
 
 type Kafka struct {
-	config          *Config
-	dialer          *kafka.Dialer
-	adminClient     *kafka.Client
-	mutex           sync.Mutex
-	state           *types.State
-	consumerGroupID string
-	readers         sync.Map // map[string]*kafka.Reader
-	lastMessages    sync.Map // map[string]kafka.Message
-	partitionMeta   sync.Map // map[string][]abstract.PartitionMetaData
+	config        *Config
+	dialer        *kafka.Dialer
+	adminClient   *kafka.Client
+	state         *types.State
+	consumerGroup *kafka.ConsumerGroup
+	consumerGen   *kafka.Generation
+	lastOffsets   sync.Map // map[string]int64
+	readers       sync.Map // map[string]*kafka.Reader
+	partitionMeta sync.Map // map[string][]abstract.PartitionMetaData
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -60,8 +60,6 @@ func (k *Kafka) SetupState(state *types.State) {
 }
 
 func (k *Kafka) Setup(ctx context.Context) error {
-	k.mutex.Lock()
-	defer k.mutex.Unlock()
 	if err := k.config.Validate(); err != nil {
 		return fmt.Errorf("config validation failed: %v", err)
 	}
@@ -88,11 +86,13 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (k *Kafka) Close(_ context.Context) error {
-	k.mutex.Lock()
-	defer k.mutex.Unlock()
+func (k *Kafka) Close() error {
 	k.adminClient = nil
 	k.dialer = nil
+	k.partitionMeta.Range(func(key, value any) bool {
+		k.partitionMeta.Delete(key)
+		return true
+	})
 	return nil
 }
 

@@ -122,14 +122,6 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	// For Kafka, default max connections should equal total partitions across selected streams
-	// if isKafkaStreaming(a.driver.Type()) && len(cdcStreams) > 0 {
-	// 	_, partitionLen := a.driver.GetPartitions()
-	// 	if partitionLen > 0 {
-	// 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, partitionLen)
-	// 	}
-	// }
-
 	// run cdc sync
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {

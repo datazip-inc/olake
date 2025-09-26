@@ -132,6 +132,6 @@ func (p *Postgres) PartitionStreamChanges(ctx context.Context, data abstract.Par
 	return nil
 }
 
-func (p *Postgres) GetPartitions() (map[string][]abstract.PartitionMetaData, int) {
-	return nil, 0
+func (p *Postgres) GetPartitions() map[string][]abstract.PartitionMetaData {
+	return nil
 }

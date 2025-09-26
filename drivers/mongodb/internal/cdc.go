@@ -127,6 +127,6 @@ func (m *Mongo) PartitionStreamChanges(ctx context.Context, data abstract.Partit
 	return nil
 }
 
-func (m *Mongo) GetPartitions() (map[string][]abstract.PartitionMetaData, int) {
-	return nil, 0
+func (m *Mongo) GetPartitions() map[string][]abstract.PartitionMetaData {
+	return nil
 }
