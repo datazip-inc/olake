@@ -90,10 +90,6 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (k *Kafka) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.CDCMsgFn) error {
-	return nil
-}
-
 func (k *Kafka) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
 	partitionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -176,7 +172,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data abstract.Partit
 	}
 }
 
-func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, readerID string) error {
+func (k *Kafka) PostCDC(_ context.Context, stream types.StreamInterface, noErr bool, readerID string) error {
 	if !noErr {
 		logger.Warnf("skipping commit for reader %s due to error", readerID)
 		return nil
@@ -252,4 +248,8 @@ func (k *Kafka) GetPartitions() map[string][]abstract.PartitionMetaData {
 	})
 
 	return partitionData
+}
+
+func (k *Kafka) StreamChanges(_ context.Context, _ types.StreamInterface, _ abstract.CDCMsgFn) error {
+	return nil
 }

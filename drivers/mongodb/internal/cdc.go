@@ -247,7 +247,7 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 	}, nil
 }
 
-func (m *Mongo) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
+func (m *Mongo) PartitionStreamChanges(_ context.Context, _ abstract.PartitionMetaData, _ abstract.CDCMsgFn) error {
 	return nil
 }
 

@@ -89,7 +89,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 func (k *Kafka) Close() error {
 	k.adminClient = nil
 	k.dialer = nil
-	k.partitionMeta.Range(func(key, value any) bool {
+	k.partitionMeta.Range(func(key, _ any) bool {
 		k.partitionMeta.Delete(key)
 		return true
 	})

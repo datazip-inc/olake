@@ -34,7 +34,7 @@ func (o *Oracle) SetupState(state *types.State) {
 	o.state = state
 }
 
-func (o *Oracle) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
+func (o *Oracle) PartitionStreamChanges(_ context.Context, _ abstract.PartitionMetaData, _ abstract.CDCMsgFn) error {
 	return nil
 }
 

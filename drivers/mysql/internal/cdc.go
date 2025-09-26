@@ -117,7 +117,7 @@ func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
 	return mysql.Position{Name: file, Pos: position}, nil
 }
 
-func (m *MySQL) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
+func (m *MySQL) PartitionStreamChanges(_ context.Context, _ abstract.PartitionMetaData, _ abstract.CDCMsgFn) error {
 	return nil
 }
 

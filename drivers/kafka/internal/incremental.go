@@ -7,6 +7,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-func (k *Kafka) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
+func (k *Kafka) StreamIncrementalChanges(_ context.Context, _ types.StreamInterface, _ abstract.BackfillMsgFn) error {
 	return nil
 }
