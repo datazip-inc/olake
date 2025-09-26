@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -25,10 +26,24 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		return err
 	}
 	defer tx.Rollback()
+
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.Postgres,
+		Stream: stream,
+		State:  p.state,
+		Client: p.client,
+	}
+
+	filter, args, err := jdbc.FilterUpdater(opts, filter)
+	if err != nil {
+		return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
+	}
+	logger.Infof("Starting backfill with filter: %s, args: %v", filter, args)
+
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
 	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
-	setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	setter := jdbc.NewReader(ctx, stmt, p.config.BatchSize, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		return tx.Query(query, args...)
 	})
 

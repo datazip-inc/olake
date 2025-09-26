@@ -30,11 +30,25 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	}
 	defer tx.Rollback()
 
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.Oracle,
+		Stream: stream,
+		State:  o.state,
+		Client: o.client,
+	}
+
+	filter, args, err := jdbc.FilterUpdater(opts, filter)
+	if err != nil {
+		return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
+	}
+
+	logger.Infof("Starting backfill with filter: %s, args: %v", filter, args)
+
 	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
-	// Use transaction for queries
-	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	// Use transaction for querielen(args)s
+	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
-		return tx.QueryContext(ctx, query)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return setter.Capture(func(rows *sql.Rows) error {

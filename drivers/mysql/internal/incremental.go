@@ -12,16 +12,10 @@ import (
 )
 
 func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, m.Type())
-	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
-	}
-
 	opts := jdbc.IncrementalConditionOptions{
 		Driver: constants.MySQL,
 		Stream: stream,
 		State:  m.state,
-		Filter: filter,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
 	if err != nil {

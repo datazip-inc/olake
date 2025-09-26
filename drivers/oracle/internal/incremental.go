@@ -12,17 +12,11 @@ import (
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, o.Type())
-	if err != nil {
-		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
-	}
-
 	opts := jdbc.IncrementalConditionOptions{
 		Driver: constants.Oracle,
 		Stream: stream,
 		State:  o.state,
 		Client: o.client,
-		Filter: filter,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
 	if err != nil {

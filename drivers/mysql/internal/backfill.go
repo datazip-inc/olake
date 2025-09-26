@@ -29,6 +29,19 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 		sort.Strings(pkColumns)
+
+		opts := jdbc.IncrementalConditionOptions{
+			Driver: constants.MySQL,
+			Stream: stream,
+			State:  m.state,
+			Client: m.client,
+		}
+
+		filter, args, err := jdbc.FilterUpdater(opts, filter)
+		if err != nil {
+			return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
+		}
+		logger.Infof("Starting backfill with filter: %s, args: %v", filter, args)
 		// Get chunks from state or calculate new ones
 		stmt := ""
 		if chunkColumn != "" {
@@ -39,7 +52,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
 		logger.Debugf("Executing chunk query: %s", stmt)
-		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
 		// Capture and process rows
