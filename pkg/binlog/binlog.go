@@ -20,7 +20,8 @@ type Connection struct {
 	CurrentPos      mysql.Position // Current binlog position
 	ServerID        uint32
 	initialWaitTime time.Duration
-	changeFilter    ChangeFilter // Filter for processing binlog events
+	changeFilter    ChangeFilter   // Filter for processing binlog events
+	latestBinlogPos mysql.Position // immutable end watermark (stop-at)
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
@@ -53,20 +54,36 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 }
 
 func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
-	logger.Infof("Starting MySQL CDC from binlog position %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
+	logger.Infof("Starting MySQL CDC from %s:%d to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos, c.latestBinlogPos.Name, c.latestBinlogPos.Pos)
+
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
 	if err != nil {
-		return fmt.Errorf("failed to start binlog sync: %s", err)
+		return fmt.Errorf("failed to start binlog sync: %w", err)
 	}
+
 	startTime := time.Now()
+	messageReceived := false
+
+	// returns true if the current position has reached or passed the latest binlog position
+	reachedStopAt := func() bool {
+		if c.latestBinlogPos.Name == "" || c.latestBinlogPos.Pos == 0 {
+			return false
+		}
+		return c.CurrentPos.Compare(c.latestBinlogPos) >= 0
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			// Check if we’ve been idle too long
-			if time.Since(startTime) > c.initialWaitTime {
+			if !messageReceived && c.initialWaitTime > 0 && time.Since(startTime) > c.initialWaitTime {
 				logger.Debug("Idle timeout reached, exiting bin syncer")
+				return nil
+			}
+
+			if reachedStopAt() {
+				logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
 				return nil
 			}
 
@@ -83,7 +100,6 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 
 			switch e := ev.Event.(type) {
 			case *replication.RotateEvent:
-				startTime = time.Now()
 				c.CurrentPos.Name = string(e.NextLogName)
 				if e.Position > math.MaxUint32 {
 					return fmt.Errorf("binlog position overflow: %d exceeds uint32 max value", e.Position)
@@ -92,16 +108,22 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 				logger.Infof("Binlog rotated to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 
 			case *replication.RowsEvent:
-				startTime = time.Now()
+				messageReceived = true
 				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, callback); err != nil {
 					return err
 				}
 			}
 		}
+
 	}
 }
 
-// Close terminates the binlog syncer.
+// Cleanup terminates the binlog syncer.
 func (c *Connection) Cleanup() {
 	c.syncer.Close()
+}
+
+// SetLatestBinlogPos sets the immutable end binlog position for the connection.
+func (c *Connection) SetLatestBinlogPos(pos mysql.Position) {
+	c.latestBinlogPos = pos
 }

@@ -36,7 +36,17 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 		InitialWaitTime: time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
 		SSHClient:       m.sshClient,
 	}
-	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
+	conn, err := binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare binlog conn: %s", err)
+	}
+	// Determine the currentlatest binlog position on the server.
+	latestBinlogPos, err := m.getCurrentBinlogPosition()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest binlog position: %s", err)
+	}
+	conn.SetLatestBinlogPos(latestBinlogPos)
+	return conn, nil
 }
 
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
