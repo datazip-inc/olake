@@ -61,6 +61,10 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 		return fmt.Errorf("failed to get latest binlog position: %s", err)
 	}
 
+	if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
+		return fmt.Errorf("latest binlog position is not set")
+	}
+
 	logger.Infof("Starting MySQL CDC from %s:%d to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos, latestBinlogPos.Name, latestBinlogPos.Pos)
 
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
@@ -70,14 +74,6 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 
 	startTime := time.Now()
 	messageReceived := false
-
-	// returns true if the current position has reached or passed the latest binlog position
-	reachedToLatest := func() bool {
-		if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
-			return false
-		}
-		return c.CurrentPos.Compare(latestBinlogPos) >= 0
-	}
 
 	for {
 		select {
@@ -89,7 +85,8 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 				return nil
 			}
 
-			if reachedToLatest() {
+			// if the current position has reached or passed the latest binlog position, stop the syncer
+			if c.CurrentPos.Compare(latestBinlogPos) >= 0 {
 				logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
 				return nil
 			}
