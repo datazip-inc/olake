@@ -19,6 +19,8 @@ type Config struct {
 	InitialWaitTime     time.Duration
 	TLSConfig           *tls.Config
 	BatchSize           int
+	// Publications is used with pgoutput
+	Publications []string
 }
 
 type WALState struct {
