@@ -4,9 +4,8 @@ The Kafka Driver enables data synchronization from Kafka to your desired destina
 ---
 
 ## Supported Modes
-1. **Incremental**
-   Tracks and syncs incremental changes or messages from Kafka in real time streaming mode.
-
+1. **Streaming**
+   Tracks and syncs streaming changes or messages from Kafka in real time.
 ---
 
 ## Setup and Configuration
@@ -27,7 +26,7 @@ Add Kafka credentials in following format in `source.json` file. To check more a
             "security_protocol": "PLAINTEXT"
         },
         "consumer_group": "test-consumer",
-        "auto_offset_reset": "earliest",
+        "auto_offset_reset": "latest", 
         "max_threads": 3,
         "wait_time": 30
     }
@@ -121,13 +120,9 @@ Before running the Sync command, the generated `streams.json` file must be confi
    For each stream you want to sync:<br>
    - Add the following properties:
       ```json
-      "sync_mode": "incremental",
+      "sync_mode": "cdc",
       ```
-   - Specify the cursor field (only for incremental syncs):
-      ```json
-      "cursor_field": "<cursor field from available_cursor_fields>"
-      ```
-   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration.
+   - The `append_only` mode, will be `true` by default for Kafka driver in the selected stream configuration.
       ```json
         "selected_streams": {
             "namespace": [
@@ -135,7 +130,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                     "partition_regex": "",
                     "stream_name": "Test-Topic1",
                     "normalization": false,
-                    "append_only": false
+                    "append_only": true
                 }
             ]
         },
@@ -152,16 +147,16 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "partition_regex": "",
                   "stream_name": "topic-1",
                   "normalization": false,
-                  "append_only": false
+                  "append_only": true
                }
          ]
       },
       "streams": [
          {
             "stream": {
-               "name": "incr2",
+               "name": "topic-1",
                ...
-               "sync_mode": "incremental"
+               "sync_mode": "cdc"
             }
          }
       ]
@@ -236,14 +231,12 @@ For Detailed overview check [here.](https://olake.io/docs/category/destinations-
 
 ### Sync Command
 The *Sync* command fetches data from Kafka and ingests it into the destination.
-Supported Sync Mode: Incremental. 
-- In case of Incremental :
-   - For this sync, cursor field from the available cursor field needs to be provided. For Kafka, this is typically "offset".
-   ```json
-   "cursor_field" = "offset"
-   ```
-   - if `auto_offset_reset = earliest` then all the unread messages by the consumer will be synced from the start offset, with any of new incoming messages.
+Supported Sync Mode: Streaming (in CDC format). 
+- In case of Streaming :
+   - The sync mode must be set to cdc. For Kafka, change is streamed through "offset differences"
+   - if `auto_offset_reset = earliest` then all the unread messages by the consumer will be synced from the start offset, with any of new incoming messages. This is equivalent to full-load sync.
    - if `auto_offset_reset = latest` then all the new incoming messages will be synced.
+   - if `consumer_group_id` is provided, it will be used for sync. Otherwise, OLake automatically creates a consumer group and tracks sync using it.
 
 ```bash
 ./build.sh driver-kafka sync --config /Kafka/examples/source.json --catalog /Kafka/examples/streams.json --destination /Kafka/examples/destination.json
@@ -268,12 +261,7 @@ You can save the state in a `state.json` file using the following format:
             "namespace": "",
             "sync_mode": "",
             "state": {
-                "chunks": [],
-                "partitions": {
-                    "0": 125,
-                    "1": 109,
-                    "2": 138
-                }
+                "consumer_group_id": "olake-consumer-group-{timestamp}"
             }
         },
         {
@@ -281,10 +269,7 @@ You can save the state in a `state.json` file using the following format:
             "namespace": "",
             "sync_mode": "",
             "state": {
-                "chunks": [],
-                "partitions": {
-                    "0": 152
-                }
+                "consumer_group_id": "olake-consumer-group-{timestamp}"
             }
         }
     ]
