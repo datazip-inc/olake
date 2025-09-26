@@ -57,6 +57,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
 
+	// TODO:move it to stream change function
 	lastOplogTime, err := m.getClusterOpTime(cdcCtx, m.config.AuthDB)
 	if err != nil {
 		logger.Warnf("Failed to get cluster op time: %s", err)
