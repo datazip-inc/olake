@@ -45,7 +45,3 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 	}
 	return rows.Err()
 }
-
-func (p *Postgres) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
-	return fmt.Errorf("post incremental not supported for Postgres")
-}

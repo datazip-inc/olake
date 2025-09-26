@@ -47,6 +47,3 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}
 	return rows.Err()
 }
-func (o *Oracle) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
-	return fmt.Errorf("post incremental not supported for oracle")
-}

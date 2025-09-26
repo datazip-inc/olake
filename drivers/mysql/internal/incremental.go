@@ -49,6 +49,3 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	return rows.Err()
 }
-func (m *MySQL) PostIncremental(ctx context.Context, stream types.StreamInterface, noErr bool) error {
-	return fmt.Errorf("post incremental not supported for MySQL")
-}
