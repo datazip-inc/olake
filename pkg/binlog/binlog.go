@@ -58,7 +58,7 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
 	if err != nil {
-		return fmt.Errorf("failed to start binlog sync: %w", err)
+		return fmt.Errorf("failed to start binlog sync: %s", err)
 	}
 
 	startTime := time.Now()
