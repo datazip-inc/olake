@@ -81,7 +81,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 			return nil
 		default:
 			if !messageReceived && c.initialWaitTime > 0 && time.Since(startTime) > c.initialWaitTime {
-				logger.Debug("Idle timeout reached, exiting bin syncer")
+				logger.Warnf("no records found in given initial wait time, try increasing it")
 				return nil
 			}
 
