@@ -20,6 +20,9 @@
     <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
         <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
     </a>
+     <a href="https://hacktoberfest.com/">
+        <img alt="Hacktoberfest 2025" src="https://img.shields.io/badge/Hacktoberfest-2025%20🎃-orange"/>
+    </a>
 </p>
 
 ## OLake — Super-fast Sync to Apache Iceberg
