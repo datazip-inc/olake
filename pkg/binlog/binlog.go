@@ -114,7 +114,6 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 				}
 			}
 		}
-
 	}
 }
 
