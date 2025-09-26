@@ -11,16 +11,10 @@ import (
 )
 
 func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, p.Type())
-	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
-	}
-
 	opts := jdbc.IncrementalConditionOptions{
 		Driver: constants.Postgres,
 		Stream: stream,
 		State:  p.state,
-		Filter: filter,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
 	if err != nil {

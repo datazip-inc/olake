@@ -30,11 +30,25 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	}
 	defer tx.Rollback()
 
+	opts := jdbc.IncrementalConditionOptions{
+		Driver: constants.Oracle,
+		Stream: stream,
+		State:  o.state,
+		Client: o.client,
+	}
+
+	filter, args, err := jdbc.FilterUpdater(opts, filter)
+	if err != nil {
+		return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
+	}
+
+	logger.Infof("Starting backfill with filter: %s, args: %v", filter, args)
+
 	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
-	// Use transaction for queries
-	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	// Use transaction for querielen(args)s
+	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
-		return tx.QueryContext(ctx, query)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return setter.Capture(func(rows *sql.Rows) error {
@@ -48,16 +62,9 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	splitViaRowId := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var currentSCN string
-		query := jdbc.OracleCurrentSCNQuery()
-		err := o.client.QueryRow(query).Scan(&currentSCN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get current SCN: %s", err)
-		}
-
 		// TODO: Add implementation of AddRecordsToSync function which expects total number of records to be synced
-		query = jdbc.OracleEmptyCheckQuery(stream)
-		err = o.client.QueryRow(query).Scan(new(interface{}))
+		query := jdbc.OracleEmptyCheckQuery(stream)
+		err := o.client.QueryRow(query).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
@@ -126,7 +133,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			}
 
 			chunks.Insert(types.Chunk{
-				Min: fmt.Sprintf("%s,%s", currentSCN, startRowID),
+				Min: startRowID,
 				Max: maxRowID,
 			})
 		}
@@ -134,4 +141,12 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		return chunks, rows.Err()
 	}
 	return splitViaRowId(stream)
+}
+
+func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, o.client, constants.Oracle, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }

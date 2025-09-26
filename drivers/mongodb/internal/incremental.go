@@ -6,7 +6,6 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -16,25 +15,16 @@ import (
 func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 
-	filter, err := buildFilter(stream)
-	if err != nil {
-		return fmt.Errorf("failed to build filter: %s", err)
-	}
-
-	incrementalFilter, err := m.buildIncrementalCondition(stream)
+	incrementalCondition, err := m.buildIncrementalCondition(stream)
 	if err != nil {
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
-
-	// Merge cursor filter with stream filter using $and
-	filter = utils.Ternary(len(filter) > 0, bson.D{{Key: "$and", Value: bson.A{incrementalFilter, filter}}}, incrementalFilter).(bson.D)
-
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
-	logger.Infof("Starting incremental sync for stream[%s] with filter: %v", stream.ID(), filter)
+	logger.Infof("Starting incremental sync for stream[%s] with filter: %v", stream.ID(), incrementalCondition)
 
-	cursor, err := collection.Find(ctx, filter, findOpts)
+	cursor, err := collection.Find(ctx, incrementalCondition, findOpts)
 	if err != nil {
 		return fmt.Errorf("failed to execute incremental query: %s", err)
 	}

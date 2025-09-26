@@ -25,7 +25,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	filter, err := buildFilter(stream)
+	filter, err := m.buildFilter(stream)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -427,24 +427,41 @@ func buildMongoCondition(cond types.Condition) bson.D {
 }
 
 // buildFilter generates a BSON document for MongoDB
-func buildFilter(stream types.StreamInterface) (bson.D, error) {
+func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
+	primaryCursor, secondaryCursor := stream.Cursor()
+	maxPrimaryCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
+	maxSecondaryCursorValue := m.state.GetCursor(stream.Self(), secondaryCursor)
+
+	var conditions bson.A
+
+	if stream.GetSyncMode() == types.INCREMENTAL {
+		if maxPrimaryCursorValue != nil {
+			conditions = append(conditions, bson.D{
+				{Key: primaryCursor, Value: bson.D{{Key: "$lte", Value: maxPrimaryCursorValue}}},
+			})
+		}
+
+		if maxSecondaryCursorValue != nil && secondaryCursor != "" {
+			conditions = append(conditions, bson.D{
+				{Key: secondaryCursor, Value: bson.D{{Key: "$lte", Value: maxSecondaryCursorValue}}},
+			})
+		}
+	}
+
 	filter, err := stream.GetFilter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
-	if len(filter.Conditions) == 0 {
+	if len(filter.Conditions) == 1 {
+		conditions = append(conditions, buildMongoCondition(filter.Conditions[0]))
+	} else if len(filter.Conditions) == 2 {
+		conditions = append(conditions, bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}})
+	}
+	if len(conditions) == 0 {
 		return bson.D{}, nil
 	}
-
-	switch {
-	case len(filter.Conditions) == 0:
-		return bson.D{}, nil
-	case len(filter.Conditions) == 1:
-		return buildMongoCondition(filter.Conditions[0]), nil
-	default:
-		return bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}}, nil
-	}
+	return bson.D{{Key: "$and", Value: conditions}}, nil
 }
 
 func reformatID(v interface{}) (interface{}, error) {
@@ -470,6 +487,57 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 		return false, err
 	}
 	return true, nil
+}
+
+func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
+	primaryCursor, secondaryCursor := stream.Cursor()
+
+	groupStage := bson.D{
+		{Key: "_id", Value: nil},
+		{Key: "maxPrimaryCursor", Value: bson.D{{Key: "$max", Value: "$" + primaryCursor}}},
+	}
+	if secondaryCursor != "" {
+		groupStage = append(groupStage, bson.E{
+			Key:   "maxSecondaryCursor",
+			Value: bson.D{{Key: "$max", Value: "$" + secondaryCursor}},
+		})
+	}
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$group", Value: groupStage}},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute find max cursor values: %s", err)
+	}
+	defer cursor.Close(ctx)
+
+	var result struct {
+		MaxPrimaryCursor   any `bson:"maxPrimaryCursor"`
+		MaxSecondaryCursor any `bson:"maxSecondaryCursor"`
+	}
+
+	if cursor.Next(ctx) {
+		if err := cursor.Decode(&result); err != nil {
+			return nil, nil, fmt.Errorf("failed to decode cursor result: %s", err)
+		}
+
+		if result.MaxPrimaryCursor == nil {
+			logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
+		}
+		if secondaryCursor != "" && result.MaxSecondaryCursor == nil {
+			logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
+		}
+		return result.MaxPrimaryCursor, result.MaxSecondaryCursor, nil
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, nil, fmt.Errorf("cursor error: %s", err)
+	}
+	logger.Warnf("No documents found for stream: %s", stream.ID())
+	return nil, nil, cursor.Err()
 }
 
 func hasMultipleType(stream types.StreamInterface) bool {
