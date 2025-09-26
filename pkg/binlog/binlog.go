@@ -8,10 +8,13 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/jmoiron/sqlx"
 )
 
 // Connection manages the binlog syncer and streamer for multiple streams.
@@ -20,8 +23,7 @@ type Connection struct {
 	CurrentPos      mysql.Position // Current binlog position
 	ServerID        uint32
 	initialWaitTime time.Duration
-	changeFilter    ChangeFilter   // Filter for processing binlog events
-	latestBinlogPos mysql.Position // immutable end watermark (stop-at)
+	changeFilter    ChangeFilter // Filter for processing binlog events
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
@@ -53,8 +55,13 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 	}, nil
 }
 
-func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMsgFn) error {
-	logger.Infof("Starting MySQL CDC from %s:%d to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos, c.latestBinlogPos.Name, c.latestBinlogPos.Pos)
+func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callback abstract.CDCMsgFn) error {
+	latestBinlogPos, err := GetCurrentBinlogPosition(client)
+	if err != nil {
+		return fmt.Errorf("failed to get latest binlog position: %s", err)
+	}
+
+	logger.Infof("Starting MySQL CDC from %s:%d to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos, latestBinlogPos.Name, latestBinlogPos.Pos)
 
 	streamer, err := c.syncer.StartSync(c.CurrentPos)
 	if err != nil {
@@ -65,11 +72,11 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 	messageReceived := false
 
 	// returns true if the current position has reached or passed the latest binlog position
-	reachedStopAt := func() bool {
-		if c.latestBinlogPos.Name == "" || c.latestBinlogPos.Pos == 0 {
+	reachedToLatest := func() bool {
+		if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
 			return false
 		}
-		return c.CurrentPos.Compare(c.latestBinlogPos) >= 0
+		return c.CurrentPos.Compare(latestBinlogPos) >= 0
 	}
 
 	for {
@@ -82,7 +89,7 @@ func (c *Connection) StreamMessages(ctx context.Context, callback abstract.CDCMs
 				return nil
 			}
 
-			if reachedStopAt() {
+			if reachedToLatest() {
 				logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
 				return nil
 			}
@@ -122,7 +129,35 @@ func (c *Connection) Cleanup() {
 	c.syncer.Close()
 }
 
-// SetLatestBinlogPos sets the immutable end binlog position for the connection.
-func (c *Connection) SetLatestBinlogPos(pos mysql.Position) {
-	c.latestBinlogPos = pos
+// GetCurrentBinlogPosition retrieves the current binlog position from MySQL.
+func GetCurrentBinlogPosition(client *sqlx.DB) (mysql.Position, error) {
+	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
+
+	// Get MySQL version
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(client)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
+	}
+
+	// Use the appropriate query based on the MySQL version
+	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+
+	rows, err := client.Query(query)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return mysql.Position{}, fmt.Errorf("no binlog position available")
+	}
+
+	var file string
+	var position uint32
+	var binlogDoDB, binlogIgnoreDB, executeGtidSet string
+	if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to scan binlog position: %s", err)
+	}
+
+	return mysql.Position{Name: file, Pos: position}, nil
 }

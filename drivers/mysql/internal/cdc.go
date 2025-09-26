@@ -7,10 +7,8 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/binlog"
-	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalState, streams []types.StreamInterface) (*binlog.Connection, error) {
@@ -36,24 +34,15 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 		InitialWaitTime: time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
 		SSHClient:       m.sshClient,
 	}
-	conn, err := binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare binlog conn: %s", err)
-	}
-	// Determine the currentlatest binlog position on the server.
-	latestBinlogPos, err := m.getCurrentBinlogPosition()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest binlog position: %s", err)
-	}
-	conn.SetLatestBinlogPos(latestBinlogPos)
-	return conn, nil
+
+	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
 }
 
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		binlogPos, err := m.getCurrentBinlogPosition()
+		binlogPos, err := binlog.GetCurrentBinlogPosition(m.client)
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
@@ -76,6 +65,10 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
+func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
+}
+
 func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
 	if noErr {
 		m.state.SetGlobal(MySQLGlobalState{
@@ -88,41 +81,4 @@ func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 	}
 	m.BinlogConn.Cleanup()
 	return nil
-}
-
-func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
-	return m.BinlogConn.StreamMessages(ctx, OnMessage)
-}
-
-// getCurrentBinlogPosition retrieves the current binlog position from MySQL.
-func (m *MySQL) getCurrentBinlogPosition() (mysql.Position, error) {
-	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
-
-	// Get MySQL version
-	majorVersion, minorVersion, err := jdbc.MySQLVersion(m.client)
-	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
-	}
-
-	// Use the appropriate query based on the MySQL version
-	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
-
-	rows, err := m.client.Query(query)
-	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
-	}
-	defer rows.Close()
-
-	if !rows.Next() {
-		return mysql.Position{}, fmt.Errorf("no binlog position available")
-	}
-
-	var file string
-	var position uint32
-	var binlogDoDB, binlogIgnoreDB, executeGtidSet string
-	if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to scan binlog position: %s", err)
-	}
-
-	return mysql.Position{Name: file, Pos: position}, nil
 }
