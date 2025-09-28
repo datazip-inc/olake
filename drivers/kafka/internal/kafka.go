@@ -19,15 +19,23 @@ import (
 )
 
 type Kafka struct {
-	config        *Config
-	dialer        *kafka.Dialer
-	adminClient   *kafka.Client
-	state         *types.State
-	consumerGroup *kafka.ConsumerGroup
-	consumerGen   *kafka.Generation
-	lastOffsets   sync.Map // map[string]int64
-	readers       sync.Map // map[string]*kafka.Reader
-	partitionMeta sync.Map // map[string][]abstract.PartitionMetaData
+	config      *Config
+	dialer      *kafka.Dialer
+	adminClient *kafka.Client
+	state       *types.State
+	// group-based reader fields
+	consumerGroup   *kafka.ConsumerGroup
+	consumerGen     *kafka.Generation
+	consumerGroupID string
+	isNewGroup      bool
+	// per-reader kafka-go Readers participating in the same GroupID
+	readers      sync.Map // map[string]*kafka.Reader
+	lastMessages sync.Map // map[string]map[int]kafka.Message
+	// mapping topic -> stream
+	streamsByTopic sync.Map // map[string]types.StreamInterface
+	// expose reader metadata to abstract layer (only once for first stream)
+	firstStreamID string
+	partitionMeta sync.Map // map[string][]abstract.PartitionMetaData (used to expose readerIDs once)
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -75,9 +83,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	// Test connectivity by fetching metadata for a dummy topic
-	_, err = adminClient.Metadata(ctx, &kafka.MetadataRequest{
-		Topics: []string{"__test"},
-	})
+	_, err = adminClient.Metadata(ctx, &kafka.MetadataRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to ping Kafka brokers: %v", err)
 	}
@@ -87,6 +93,18 @@ func (k *Kafka) Setup(ctx context.Context) error {
 }
 
 func (k *Kafka) Close() error {
+	// close readers
+	k.readers.Range(func(key, val any) bool {
+		if r, ok := val.(*kafka.Reader); ok && r != nil {
+			_ = r.Close()
+		}
+		k.readers.Delete(key)
+		return true
+	})
+	if k.consumerGroup != nil {
+		_ = k.consumerGroup.Close()
+		k.consumerGroup = nil
+	}
 	k.adminClient = nil
 	k.dialer = nil
 	k.partitionMeta.Range(func(key, _ any) bool {
@@ -105,6 +123,9 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 
 	var topicNames []string
 	for _, topic := range resp.Topics {
+		if strings.HasPrefix(topic.Name, "__") {
+			continue
+		}
 		topicNames = append(topicNames, topic.Name)
 	}
 	return topicNames, nil
