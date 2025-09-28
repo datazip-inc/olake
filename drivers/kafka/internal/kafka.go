@@ -25,9 +25,7 @@ type Kafka struct {
 	state       *types.State
 	// group-based reader fields
 	consumerGroup   *kafka.ConsumerGroup
-	consumerGen     *kafka.Generation
 	consumerGroupID string
-	isNewGroup      bool
 	// per-reader kafka-go Readers participating in the same GroupID
 	readers      sync.Map // map[string]*kafka.Reader
 	lastMessages sync.Map // map[string]map[int]kafka.Message
