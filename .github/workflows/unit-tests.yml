@@ -1,0 +1,33 @@
+name: Unit Tests
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+    branches:
+      - staging
+
+jobs:
+  unit-tests:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v3
+        with:
+          check-latest: true
+          go-version: 1.23.x
+
+      - name: Install Dependencies
+        run: go mod download
+
+      - name: Run Catalog Tests
+        run: go test -v ./types -run "TestCatalog"
+
+      - name: Run Flatten Tests
+        run: go test -v ./utils/typeutils -run "TestFlatten"
+
+      - name: Run Resolve Tests
+        run: go test -v ./utils/typeutils -run "TestResolve"
