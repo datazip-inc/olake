@@ -32,7 +32,7 @@ Let’s hack, learn, and grow together this Hacktoberfest. Happy contributing & 
 For any questions, concerns, or queries:
 - Start a discussion on our [**Slack**](https://olake.io/slack/) channel.  
 - Check [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) for ongoing conversations.  
-- Don’t hesitate to open an issue if something feels unclear.  
+- Don’t hesitate to open an issue if something is unclear.
 
 ---
 
