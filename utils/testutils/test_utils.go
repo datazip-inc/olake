@@ -413,6 +413,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	})
 }
 
+// TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
 func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string) {
 	t.Helper()
@@ -492,11 +493,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		t.Log("No partitionRegex provided, skipping partition verification")
 		return
 	}
-
-	require.NoError(t, err, "Failed to collect describe data from Iceberg")
-
+	// Extract partition columns from describe rows
 	partitionCols := extractFirstPartitionColFromRows(describeRows)
-
 	require.NotEmpty(t, partitionCols, "Partition columns not found in Iceberg metadata")
 
 	// Parse expected partition columns from pattern like "/{col,identity}"
