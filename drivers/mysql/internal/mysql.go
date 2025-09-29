@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -15,15 +16,17 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 
 	// MySQL driver
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 )
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
 	config     *Config
 	client     *sqlx.DB
+	sshClient  *ssh.Client
 	CDCSupport bool // indicates if the MySQL instance supports CDC
 	cdcConfig  CDC
 	BinlogConn *binlog.Connection
@@ -57,10 +60,39 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
-	// Open database connection
-	client, err := sqlx.Open("mysql", m.config.URI())
-	if err != nil {
-		return fmt.Errorf("failed to open database connection: %s", err)
+
+	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
+	}
+
+	var client *sqlx.DB
+	if m.sshClient != nil {
+		logger.Info("Connecting to MySQL via SSH tunnel")
+
+		cfg, err := mysql.ParseDSN(m.config.URI())
+		if err != nil {
+			return fmt.Errorf("failed to parse mysql DSN: %s", err)
+		}
+
+		// Allows mysql driver to use the SSH client to connect to the database
+		cfg.Net = "mysqlTcp"
+		mysql.RegisterDialContext(cfg.Net, func(ctx context.Context, addr string) (net.Conn, error) {
+			return m.sshClient.Dial("tcp", addr)
+		})
+
+		client, err = sqlx.Open("mysql", cfg.FormatDSN())
+		if err != nil {
+			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+		}
+	} else {
+		client, err = sqlx.Open("mysql", m.config.URI())
+		if err != nil {
+			return fmt.Errorf("failed to open database connection: %s", err)
+		}
 	}
 	// Test connection
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -193,16 +225,27 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 // Close ensures proper cleanup
 func (m *MySQL) Close() error {
 	if m.client != nil {
-		return m.client.Close()
+		err := m.client.Close()
+		if err != nil {
+			logger.Errorf("failed to close connection with MySQL: %s", err)
+		}
+	}
+
+	if m.sshClient != nil {
+		err := m.sshClient.Close()
+		if err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+		}
 	}
 	return nil
 }
 
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
-	if _, err := m.getCurrentBinlogPosition(); err != nil {
+	if _, err := binlog.GetCurrentBinlogPosition(m.client); err != nil {
 		return false, fmt.Errorf("failed to get binlog position: %s", err)
 	}
+
 	// checkMySQLConfig checks a MySQL configuration value against an expected value
 	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
 		var name, value string

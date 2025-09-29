@@ -34,29 +34,45 @@ const MongoDBUISchema = `{
 }`
 
 const PostgresUISchema = `{
-  "ui:grid": [
-    { "host": 12, "database": 12 },
-    { "username": 12, "password": 12 },
-    { "port": 12, "jdbc_url_params": 12 },
-    { "ssl": 12, "max_threads": 12 },
-    { "retry_count": 12, "update_method": 12 }
-  ],
-  "ssl": {
-    "ui:options": {
-      "title": false
-    }
-  },
-  "update_method": {
-    "ui:widget": "radio",
-    "ui:grid": [
-      { "replication_slot": 12, "initial_wait_time": 12 }
-    ],
-    "ui:options": {
-      "title": false,
-      "description": false
-    }
-  }
-}`
+      "ui:grid": [
+        { "host": 12, "database": 12 },
+        { "username": 12, "password": 12 },
+        { "port": 12, "jdbc_url_params": 12 },
+        { "ssl": 12, "max_threads": 12 },
+        { "update_method": 12, "retry_count": 12 },
+        { "ssh_config": 12 }
+      ],
+      "ssl": {
+        "ui:options": {
+          "title": false
+        }
+      },
+      "update_method": {
+        "ui:widget": "radio",
+        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12 }],
+        "ui:options": {
+          "title": false,
+          "description": false
+        }
+      },
+      "ssh_config": {
+        "ui:options": {
+          "title": false,
+          "description": false
+        },
+        "ui:grid": [
+          { "host": 12, "port": 12 },
+          { "username": 12, "private_key": 12 },
+          { "passphrase": 12, "password": 12 }
+        ],
+        "private_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        }
+      }
+    }`
 
 const MySQLUISchema = `{
   "ui:grid": [
@@ -64,7 +80,7 @@ const MySQLUISchema = `{
     { "username": 12, "password": 12 },
     { "port": 12, "max_threads": 12 },
     { "backoff_retry_count": 12, "tls_skip_verify": 12 },
-    { "update_method": 12 }
+    { "ssh_config": 12 , "update_method": 12 }
   ],
   "tls_skip_verify": {
     "ui:widget": "boolean"
@@ -77,6 +93,23 @@ const MySQLUISchema = `{
     },
     "type": {
       "ui:widget": "hidden"
+    }
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
     }
   }
 }`
@@ -112,9 +145,9 @@ const ParquetUISchema = `{
   },
   "writer": {
     "ui:grid": [
-        { "s3_bucket": 12, "s3_region": 12 },
-        { "s3_access_key": 12, "s3_secret_key": 12 },
-        { "s3_path": 12 }
+      { "s3_bucket": 12, "s3_region": 12 },
+      { "s3_endpoint": 12, "s3_access_key": 12 },
+      { "s3_secret_key": 12, "s3_path": 12 }
     ],
     "ui:options": {
       "label": false
