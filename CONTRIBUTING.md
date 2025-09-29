@@ -13,10 +13,9 @@ To ensure consistency, we follow a structured contribution process. All guidelin
 
 OLake is officially open for **Hacktoberfest contributions**! 🚀  
 
-If you’re participating in Hacktoberfest, look out for issues labeled:
+If you’re participating in Hacktoberfest, look out for any issues labeled:
 - **`hacktoberfest`**
 - **`good first issue`**
-- **`help wanted`**
 
 These are designed to help new contributors get started quickly.  
 We welcome everything — bug fixes, documentation updates, tests, or feature enhancements.  
