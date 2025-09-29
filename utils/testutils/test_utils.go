@@ -515,7 +515,6 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	expectedCol := strings.TrimSpace(toks[0])
 	require.Equal(t, expectedCol, partitionColsStr, "Partition column does not match expected '%s'", expectedCol)
 	t.Logf("Verified partition column: %s", expectedCol)
-
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
