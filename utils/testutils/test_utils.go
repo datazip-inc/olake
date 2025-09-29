@@ -48,7 +48,6 @@ type PerformanceTest struct {
 	BackfillStreams []string
 	CDCStreams      []string
 	ExecuteQuery    func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
-	PartitionRegex  string
 }
 
 type benchmarkStats struct {
@@ -119,7 +118,7 @@ func discoverCommand(config TestConfig) string {
 }
 
 // update normalization=true for selected streams under selected_streams.<namespace> by name
-func updateStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool) string {
+func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -144,12 +143,12 @@ func updateStreamsCommand(config TestConfig, namespace, partitionRegex string, s
 }
 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
-func setStreamSyncModeCommand(config TestConfig, namespace, streamName, syncMode, cursorField string, stateRequired bool) string {
+func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
-	// --argjson is used for boolean state; map/select pattern updates nested array members
+	// map/select pattern updates nested array members
 	return fmt.Sprintf(
-		`jq --arg ns "%s" --arg name "%s" --arg mode "%s" --arg cursor "%s" --argjson state %t '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = $mode | .stream.cursor_field = $cursor | .stream.state_required = $state) | . else . end))' %s > %s && mv %s %s`,
-		namespace, streamName, syncMode, cursorField, stateRequired,
+		`jq --arg ns "%s" --arg name "%s" --arg mode "%s" --arg cursor "%s" '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = $mode | .stream.cursor_field = $cursor) else . end))' %s > %s && mv %s %s`,
+		namespace, streamName, syncMode, cursorField,
 		config.CatalogPath, tmpCatalog, tmpCatalog, config.CatalogPath,
 	)
 }
@@ -283,7 +282,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 							// )
-							streamUpdateCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
+							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json (%d): %s\n%s",
 									code, err, out,
@@ -358,15 +357,15 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// Ensure normalization remains on for selected stream
-							streamUpdateCmd = updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
+							streamUpdateCmd = updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization in streams.json for incremental (%d): %s\n%s",
 									code, err, out,
 								)
 							}
 
-							// Patch: sync_mode = incremental, cursor_field = "id", state_required = true
-							incPatch := setStreamSyncModeCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable, "incremental", cfg.CursorField, true)
+							// Patch: sync_mode = incremental, cursor_field = "id"
+							incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable, "incremental", cfg.CursorField)
 							if code, out, err := utils.ExecCommand(ctx, c, incPatch); err != nil || code != 0 {
 								return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
 							}
@@ -378,13 +377,13 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// Initial incremental run (equivalent to full on first run)
-							t.Log("Running Incremental - initial load")
+							t.Log("Running Incremental - full load")
 							if err := runSync(c, true, "", "r", cfg.ExpectedData); err != nil {
 								return err
 							}
 
 							// Delta incremental: add new rows and sync again
-							t.Log("Running Incremental - delta load (inserts)")
+							t.Log("Running Incremental - inserts")
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "insert", false)
 							if err := runSync(c, true, "", "u", cfg.ExpectedData); err != nil {
 								return err
@@ -454,7 +453,6 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		for key, expected := range schema {
 			icebergValue, ok := icebergMap[key]
 			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			// expected first, actual second
 			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
 	}
@@ -495,17 +493,11 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		return
 	}
 
-	// DESCRIBE TABLE EXTENDED to get partition info
-	describeExtQuery := fmt.Sprintf("DESCRIBE TABLE EXTENDED %s.%s.%s", icebergCatalog, icebergDB, tableName)
-	describeExtDf, err := spark.Sql(ctx, describeExtQuery)
-	require.NoError(t, err, "Failed to describe Iceberg table (extended)")
+	require.NoError(t, err, "Failed to collect describe data from Iceberg")
 
-	describeExtRows, err := describeExtDf.Collect(ctx)
-	require.NoError(t, err, "Failed to collect extended describe data")
+	partitionCols := extractFirstPartitionColFromRows(describeRows)
 
-	partitionColsStr := extractFirstPartitionColFromRows(describeExtRows)
-
-	require.NotEmpty(t, partitionColsStr, "Partition columns not found in Iceberg metadata")
+	require.NotEmpty(t, partitionCols, "Partition columns not found in Iceberg metadata")
 
 	// Parse expected partition columns from pattern like "/{col,identity}"
 	// Supports multiple entries like "/{col1,identity}" by taking the first token as the source column
@@ -513,7 +505,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	clean = strings.TrimSuffix(clean, "}")
 	toks := strings.Split(clean, ",")
 	expectedCol := strings.TrimSpace(toks[0])
-	require.Equal(t, expectedCol, partitionColsStr, "Partition column does not match expected '%s'", expectedCol)
+	require.Equal(t, expectedCol, partitionCols, "Partition column does not match expected '%s'", expectedCol)
 	t.Logf("Verified partition column: %s", expectedCol)
 }
 
@@ -590,7 +582,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.BackfillStreams, true)
+							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.BackfillStreams, true)
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -624,7 +616,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.CDCStreams, false)
+								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.CDCStreams, false)
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
