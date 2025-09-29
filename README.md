@@ -53,14 +53,11 @@
 
 | Source → Destination | Throughput            | Relative Performance        |Full Report        |
 |----------------------|-----------------------|-----------------------------|-------------------|
-| Postgres → Iceberg   | 46,262 RPS (Full load)| 101× faster than Airbyte    |[Full Report](https://olake.io/docs/connectors/postgres/benchmarks) |
+| Postgres → Iceberg   | 2,35,411 RPS (Full load)| 515.1× faster than Airbyte    |[Full Report](https://olake.io/docs/connectors/postgres/benchmarks) |
 | MySQL → Iceberg      | 64,334 RPS (Full load)| 9× faster than Airbyte     |[Full Report](https://olake.io/docs/connectors/mysql/benchmarks) |
 | MongoDB → Iceberg    | WIP          |                                     | |
 | Oracle → Iceberg     | WIP          |                             | |
-| Postgres → Object Store (Parquet)    | WIP          |                                     | |
-| MySQL → Object Store (Parquet)     | WIP          |                             | |
-| MongoDB → Object Store (Parquet)    | WIP          |                                     | |
-| Oracle → Object Store (Parquet)     | WIP          |                             | |
+
 
 
 **These are preliminary results. Fully reproducible benchmark scores will be published soon.*
