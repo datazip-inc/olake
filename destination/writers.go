@@ -57,6 +57,12 @@ type (
 	}
 )
 
+// PartitionInfo represents a Iceberg partition column with its transform, preserving order
+type PartitionInfo struct {
+	Field     string
+	Transform string
+}
+
 var RegisteredWriters = map[types.DestinationType]NewFunc{}
 
 type ArrowToggle interface {
@@ -242,19 +248,8 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 		}
 	}
 
-	arrowWrites := false
-	if toggle, ok := wt.writer.(ArrowToggle); ok {
-		arrowWrites = toggle.UseArrowWrites()
-	}
-
-	if arrowWrites {
-		if err := wt.writer.ArrowWrites(flushCtx, buf); err != nil {
-			return fmt.Errorf("failed to write arrow records: %s", err)
-		}
-	} else {
-		if err := wt.writer.Write(flushCtx, buf); err != nil {
-			return fmt.Errorf("failed to write records: %s", err)
-		}
+	if err := wt.writer.Write(flushCtx, buf); err != nil {
+		return fmt.Errorf("failed to write records: %s", err)
 	}
 
 	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))

@@ -69,7 +69,7 @@ type Config struct {
 	RestScope         string `json:"scope,omitempty"`
 	RestCredential    string `json:"credential,omitempty"`
 
-	ArrowWrites 	   bool `json:"arrow_writes,omitempty"`
+	ArrowWrites bool `json:"arrow_writes,omitempty"`
 }
 
 func (c *Config) Validate() error {

@@ -21,19 +21,13 @@ type Iceberg struct {
 	options          *destination.Options
 	config           *Config
 	stream           types.StreamInterface
-	partitionInfo    []PartitionInfo   // ordered slice to preserve partition column order
-	server           *serverInstance   // java server instance
-	schema           map[string]string // schema for current thread associated with java writer (col -> type)
-	createdFilePaths []string          // list of created parquet file paths
-	batchedWriter    interface{}       // Per-thread streaming arrow writer
+	partitionInfo    []destination.PartitionInfo // ordered slice to preserve partition column order
+	server           *serverInstance             // java server instance
+	schema           map[string]string           // schema for current thread associated with java writer (col -> type)
+	createdFilePaths []string                    // list of created parquet file paths
+	arrowWriter      *ArrowWriter2               // Per-thread streaming arrow writer
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
-}
-
-// PartitionInfo represents a Iceberg partition column with its transform, preserving order
-type PartitionInfo struct {
-	field     string
-	transform string
 }
 
 func (i *Iceberg) GetConfigRef() destination.Config {
@@ -48,7 +42,7 @@ func (i *Iceberg) Spec() any {
 func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, error) {
 	i.options = options
 	i.stream = stream
-	i.partitionInfo = make([]PartitionInfo, 0)
+	i.partitionInfo = make([]destination.PartitionInfo, 0)
 	i.schema = make(map[string]string)
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -111,6 +105,23 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 // note: java server parses time from long value which will in milliseconds
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
+	if i.UseArrowWrites() {
+		// Initialize ArrowWriter2 only once per thread/instance
+		if i.arrowWriter == nil {
+			bucketName, prefix, err := i.parseS3Path()
+			if err != nil {
+				return fmt.Errorf("failed to parse S3 path: %w", err)
+			}
+
+			i.arrowWriter, err = i.NewArrowWriter2(bucketName, prefix, i.config.AccessKey, i.config.SecretKey, i.config.Region)
+			if err != nil {
+				return fmt.Errorf("failed to create arrow writer: %w", err)
+			}
+		}
+
+		return i.arrowWriter.ArrowWrites(ctx, records)
+	}
+
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(i.schema))
 	for field, dType := range i.schema {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
@@ -139,6 +150,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 					protoColumnsValue = append(protoColumnsValue, nil)
 					continue
 				}
+
 				switch field.IceType {
 				case "boolean":
 					boolValue, err := typeutils.ReformatBool(val)
@@ -220,19 +232,18 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 }
 
 func (i *Iceberg) Close(ctx context.Context) error {
-	if i.batchedWriter != nil {
-		if writer, ok := i.batchedWriter.(*ArrowWriter); ok {
-			finalFilePath, err := writer.closeAndGetFinalPath()
-			if err != nil {
-				logger.Errorf("Thread[%s]: failed to close batched writer: %v", i.options.ThreadID, err)
-			} else if finalFilePath != "" {
-				if i.createdFilePaths == nil {
-					i.createdFilePaths = make([]string, 0)
-				}
-				i.createdFilePaths = append(i.createdFilePaths, finalFilePath)
+	// Close ArrowWriter2 and collect any final file paths
+	if i.arrowWriter != nil {
+		finalFilePaths, err := i.arrowWriter.Close()
+		if err != nil {
+			logger.Errorf("Thread[%s]: failed to close arrow writer: %v", i.options.ThreadID, err)
+		} else if len(finalFilePaths) > 0 {
+			if i.createdFilePaths == nil {
+				i.createdFilePaths = make([]string, 0)
 			}
+			i.createdFilePaths = append(i.createdFilePaths, finalFilePaths...)
 		}
-		i.batchedWriter = nil
+		i.arrowWriter = nil
 	}
 
 	// skip flushing on error
@@ -255,26 +266,26 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-    var request *proto.IcebergPayload
-    if i.UseArrowWrites() {
-        logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
-        request = &proto.IcebergPayload{
-            Type: proto.IcebergPayload_REGISTER,
+	var request *proto.IcebergPayload
+	if i.UseArrowWrites() {
+		logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
+		request = &proto.IcebergPayload{
+			Type: proto.IcebergPayload_REGISTER,
 			Metadata: &proto.IcebergPayload_Metadata{
 				ThreadId:      i.server.serverID,
 				DestTableName: i.stream.GetDestinationTable(),
 				FilePaths:     i.createdFilePaths,
 			},
-        }
-    } else {
-        request = &proto.IcebergPayload{
-            Type: proto.IcebergPayload_COMMIT,
+		}
+	} else {
+		request = &proto.IcebergPayload{
+			Type: proto.IcebergPayload_COMMIT,
 			Metadata: &proto.IcebergPayload_Metadata{
 				ThreadId:      i.server.serverID,
 				DestTableName: i.stream.GetDestinationTable(),
 			},
-        }
-    }
+		}
+	}
 
 	res, err := i.server.sendClientRequest(ctx, request)
 	if err != nil {
@@ -294,7 +305,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		ThreadID: "test_iceberg_destination",
 	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
+	server, err := newIcebergClient(i.config, []destination.PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -356,11 +367,11 @@ func (i *Iceberg) Check(ctx context.Context) error {
 }
 
 func (i *Iceberg) Type() string {
-     return string(types.Iceberg)
+	return string(types.Iceberg)
 }
 
 func (i *Iceberg) UseArrowWrites() bool {
-     return i.config.ArrowWrites
+	return i.config.ArrowWrites
 }
 
 func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
@@ -598,9 +609,9 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
 		// Append to ordered slice to preserve partition order
-		i.partitionInfo = append(i.partitionInfo, PartitionInfo{
-			field:     colName,
-			transform: transform,
+		i.partitionInfo = append(i.partitionInfo, destination.PartitionInfo{
+			Field:     colName,
+			Transform: transform,
 		})
 	}
 

@@ -10,8 +10,10 @@ type Config interface {
 	Validate() error
 }
 
-type Write = func(ctx context.Context, channel <-chan types.Record) error
-type FlattenFunction = func(record types.Record) (types.Record, error)
+type (
+	Write           = func(ctx context.Context, channel <-chan types.Record) error
+	FlattenFunction = func(record types.Record) (types.Record, error)
+)
 
 type Writer interface {
 	GetConfigRef() Config
@@ -26,8 +28,6 @@ type Writer interface {
 	Setup(ctx context.Context, stream types.StreamInterface, schema any, opts *Options) (any, error)
 	// Write function being used by drivers
 	Write(ctx context.Context, record []types.RawRecord) error
-	// Arrow Write function being used by drivers
-	ArrowWrites(ctx context.Context, record []types.RawRecord) error
 	// flatten data and validates thread schema (return true if thread schema is different w.r.t records)
 	FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error)
 	// EvolveSchema updates the schema based on changes.
