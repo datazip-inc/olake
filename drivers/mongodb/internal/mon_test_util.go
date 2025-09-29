@@ -31,6 +31,11 @@ var (
 		"nested_string": "nested_value",
 		"nested_int":    42,
 	}
+
+	pqNestedDoc = bson.M{
+		"nested_string": "pq_nested_value",
+		"nested_int":    789,
+	}
 )
 
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
@@ -104,8 +109,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert document")
 
-	case "update":
-		filter := bson.M{"id_int": int32(100)}
+	case "update-iceberg":
+		filter := bson.M{"id": int32(1)}
 		update := bson.M{
 			"$set": bson.M{
 				"id_bigint":         int64(987654321098765),
@@ -125,8 +130,34 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err := collection.UpdateOne(ctx, filter, update)
 		require.NoError(t, err, "Failed to update document")
 
-	case "delete":
-		filter := bson.M{"id_int": 200}
+	case "update-parquet":
+		filter := bson.M{"id": int32(2)}
+		update := bson.M{
+			"$set": bson.M{
+				"id_bigint":         int64(5243623234247324),
+				"id_int":            int32(500),
+				"id_timestamp":      time.Date(2023, 12, 19, 15, 30, 0, 0, time.UTC),
+				"id_double":         float64(302.295),
+				"id_bool":           false,
+				"created_timestamp": primitive.Timestamp{T: uint32(1754907699), I: 1},
+				"id_nil":            nil,
+				"id_regex":          primitive.Regex{Pattern: "updated.*", Options: "i"},
+				"id_nested":         pqNestedDoc,
+				"id_minkey":         primitive.MinKey{},
+				"id_maxkey":         primitive.MaxKey{},
+				"name_varchar":      "new updated varchar",
+			},
+		}
+		_, err := collection.UpdateOne(ctx, filter, update)
+		require.NoError(t, err, "Failed to update document")
+
+	case "delete-iceberg":
+		filter := bson.M{"id": 1}
+		_, err := collection.DeleteOne(ctx, filter)
+		require.NoError(t, err, "Failed to delete document")
+
+	case "delete-parquet":
+		filter := bson.M{"id": 2}
 		_, err := collection.DeleteOne(ctx, filter)
 		require.NoError(t, err, "Failed to delete document")
 
@@ -180,8 +211,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 }
 
 func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collection) {
-	testData := []bson.M{
-		{
+	t.Helper()
+	for i := 1; i <= 5; i++ {
+		doc := bson.M{
+			"id":                i,
 			"id_bigint":         int64(123456789012345),
 			"id_int":            int32(100),
 			"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
@@ -194,10 +227,8 @@ func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collect
 			"id_minkey":         primitive.MinKey{},
 			"id_maxkey":         primitive.MaxKey{},
 			"name_varchar":      "varchar_val",
-		},
-	}
+		}
 
-	for i, doc := range testData {
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
@@ -217,7 +248,7 @@ var ExpectedMongoData = map[string]interface{}{
 	"name_varchar":      "varchar_val",
 }
 
-var ExpectedUpdatedMongoData = map[string]interface{}{
+var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"id_bigint":         int64(987654321098765),
 	"id_int":            int32(200),
 	"id_timestamp":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -231,7 +262,21 @@ var ExpectedUpdatedMongoData = map[string]interface{}{
 	"name_varchar":      "updated varchar",
 }
 
-var MongoToIcebergSchema = map[string]string{
+var ExpectedParquetUpdatedData = map[string]interface{}{
+	"id_bigint":         int64(5243623234247324),
+	"id_int":            int32(500),
+	"id_timestamp":      arrow.Timestamp(time.Date(2023, 12, 19, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"id_double":         float64(302.295),
+	"id_bool":           false,
+	"created_timestamp": int32(1754907699),
+	"id_regex":          `{"pattern": "updated.*", "options": "i"}`,
+	"id_nested":         `{"nested_int":789,"nested_string":"pq_nested_value"}`,
+	"id_minkey":         `{}`,
+	"id_maxkey":         `{}`,
+	"name_varchar":      "new updated varchar",
+}
+
+var MongoToDestinationSchema = map[string]string{
 	"id_bigint":         "bigint",
 	"id_int":            "int",
 	"id_timestamp":      "timestamp",
