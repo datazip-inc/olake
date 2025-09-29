@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -329,6 +329,7 @@ func (i *Iceberg) Type() string {
 
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+	// dedup records according to cdc timestamp and olakeID
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
 		// only dedup if it is upsert mode
 		if !isUpsertMode(i.stream, i.options.Backfill) {
@@ -366,14 +367,55 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {
-		// create new schema from already available schema (stable view of table schema)
-		baseSchema := copySchema(i.schema)
-		var schemaMap, newColumns sync.Map
-		for k, v := range baseSchema {
-			schemaMap.Store(k, v)
+		// detectOrUpdateSchema detects difference in current thread schema and the batch that being received when detectChange is true
+		// else updates the schemaMap with the new schema
+		detectOrUpdateSchema := func(record types.RawRecord, detectChange bool, threadSchema, schemaMap map[string]string) (bool, error) {
+			for key, value := range record.Data {
+				detectedType := typeutils.TypeFromValue(value)
+
+				if detectedType == types.Null {
+					// remove element from data if it is null
+					delete(record.Data, key)
+					continue
+				}
+
+				detectedIcebergType := detectedType.ToIceberg()
+				if _, existInBase := threadSchema[key]; existInBase {
+					// Column exists in destination table: restrict to valid promotions only
+					valid := validIcebergType(schemaMap[key], detectedIcebergType)
+					if !valid {
+						return false, fmt.Errorf(
+							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+							key, schemaMap[key], detectedIcebergType,
+						)
+					}
+
+					if promotionRequired(schemaMap[key], detectedIcebergType) {
+						if detectChange {
+							return true, nil
+						} else {
+							schemaMap[key] = detectedIcebergType
+						}
+					}
+				} else {
+					// New column: converge to common ancestor across concurrent updates
+					if detectChange {
+						return true, nil
+					} else {
+						if existingType, exists := schemaMap[key]; exists {
+							schemaMap[key] = getCommonAncestorType(existingType, detectedIcebergType)
+						} else {
+							schemaMap[key] = detectedIcebergType
+						}
+					}
+				}
+			}
+			return false, nil
 		}
+
+		// parallel flatten data and detect schema difference
 		diffThreadSchema := atomic.Bool{}
-		err := utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, idx int) error {
+		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 			// set pre configured fields
 			records[idx].Data[constants.OlakeID] = record.OlakeID
 			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
@@ -388,60 +430,31 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			}
 			records[idx].Data = flattenedRecord
 
-			for key, value := range flattenedRecord {
-				detectedType := typeutils.TypeFromValue(value)
-
-				if detectedType == types.Null {
-					// remove element from data if it is null
-					delete(records[idx].Data, key)
-					continue
+			// if schema difference is not detected, detect schema difference
+			if !diffThreadSchema.Load() {
+				changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, nil)
+				if err != nil {
+					return fmt.Errorf("failed to detect schema: %s", err)
 				}
 
-				detectedIcebergType := detectedType.ToIceberg()
-				if _, existInBase := baseSchema[key]; existInBase {
-					// Column exists in destination table: restrict to valid promotions only
-					existingAny, _ := schemaMap.Load(key) // not checking existence as schemaMap have baseSchema already
-					currentType := existingAny.(string)
-					valid := validIcebergType(currentType, detectedIcebergType)
-					if !valid {
-						return fmt.Errorf(
-							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
-							key, currentType, detectedIcebergType,
-						)
-					}
-
-					if promotionRequired(currentType, detectedIcebergType) {
-						schemaMap.Store(key, detectedIcebergType)
-						diffThreadSchema.Store(true)
-					}
-				} else {
-					// New column: converge to common ancestor across concurrent updates
-					newColumns.Store(key, detectedIcebergType)
-					schemaMap.Store(key, detectedIcebergType)
-					diffThreadSchema.Store(true)
-				}
+				diffThreadSchema.Store(changeDetected)
 			}
+
 			return nil
 		})
 
-		resultSchema := make(map[string]string)
-		schemaMap.Range(func(k, v any) bool {
-			resultSchema[k.(string)] = v.(string)
-			return true
-		})
-
-		// merge new columns to there greater schema
-		newColumns.Range(func(columnName, _ any) bool {
+		// if schema difference is detected, update schemaMap with the new schema
+		schemaMap := make(map[string]string)
+		if diffThreadSchema.Load() {
 			for _, record := range records {
-				key := columnName.(string)
-				if value, ok := record.Data[key]; ok {
-					resultSchema[key] = getCommonAncestorType(resultSchema[key], typeutils.TypeFromValue(value).ToIceberg())
+				_, err := detectOrUpdateSchema(record, false, i.schema, schemaMap)
+				if err != nil {
+					return false, nil, fmt.Errorf("failed to update schema: %s", err)
 				}
 			}
-			return true
-		})
+		}
 
-		return diffThreadSchema.Load(), resultSchema, err
+		return diffThreadSchema.Load(), schemaMap, err
 	}
 
 	records = dedupRecords(records)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -314,7 +315,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
-	err := utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, idx int) error {
+	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
 		records[idx].Data[constants.OlakeID] = record.OlakeID
 		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
@@ -336,7 +337,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				detectedType := typeutils.TypeFromValue(columnValue)
 				if _, columnExist := p.schema[columnName]; !columnExist {
 					diffFound.Store(true)
-					continue
+					break
 				}
 
 				persistedTypes := p.schema[columnName].Types()
@@ -344,12 +345,12 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 					return elem == detectedType
 				}); !exist {
 					diffFound.Store(true)
+					break
 				}
 			}
 		}
 		return nil
 	})
-
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to process records: %s", err)
 	}
@@ -364,7 +365,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 	}
 
-	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, len(records), func(_ context.Context, record types.RawRecord, _ int) error {
+	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
 	})
 }

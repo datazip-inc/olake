@@ -18,10 +18,11 @@ import (
 
 // pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
-	socket        *Socket
-	publications  []string
-	txnCommitTime time.Time
-	relationID    map[uint32]*pglogrepl.RelationMessage // map to store relation id
+	socket               *Socket
+	publications         []string
+	txnCommitTime        time.Time
+	relationIdToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
+	transactionCompleted bool
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -43,10 +44,10 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 
 	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
 
-	lastStatusUpdate := time.Now()
-	statusUpdateTimeout := 10 * time.Second
 	cdcStartTime := time.Now()
 	messageReceived := false
+	// transactionCompleted default true
+	p.transactionCompleted = true
 
 	for {
 		select {
@@ -58,7 +59,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				return nil
 			}
 
-			if p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
+			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
 				logger.Infof("finishing sync, reached wal position: %s", p.socket.CurrentWalPosition)
 				return nil
 			}
@@ -86,7 +87,6 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 					return err
 				}
 				p.socket.ClientXLogPos = xld.WALStart
-				lastStatusUpdate = time.Now()
 				messageReceived = true
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
@@ -94,11 +94,10 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
-				if pkm.ReplyRequested || time.Since(lastStatusUpdate) >= statusUpdateTimeout {
+				if pkm.ReplyRequested {
 					if err := AcknowledgeLSN(ctx, p.socket, true); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)
 					}
-					lastStatusUpdate = time.Now()
 				}
 			default:
 				logger.Debugf("pgoutput: unhandled message type: %d", copyData.Data[0])
@@ -115,9 +114,10 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
-		p.relationID[msg.RelationID] = msg
+		p.relationIdToMsgMap[msg.RelationID] = msg
 		return nil
 	case *pglogrepl.BeginMessage:
+		p.transactionCompleted = false
 		p.txnCommitTime = msg.CommitTime
 		return nil
 	case *pglogrepl.InsertMessage:
@@ -127,6 +127,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	case *pglogrepl.DeleteMessage:
 		return p.emitDelete(ctx, msg, insertFn)
 	case *pglogrepl.CommitMessage:
+		p.transactionCompleted = true
 		return nil
 	default:
 		return nil
@@ -162,7 +163,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.relationID[m.RelationID]
+	rel, ok := p.relationIdToMsgMap[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
@@ -181,7 +182,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.relationID[m.RelationID]
+	rel, ok := p.relationIdToMsgMap[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
@@ -200,7 +201,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.relationID[m.RelationID]
+	rel, ok := p.relationIdToMsgMap[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
