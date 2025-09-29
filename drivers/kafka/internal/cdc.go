@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -29,103 +28,68 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		}
 	}
 	groupID = utils.Ternary(groupID == "", utils.Ternary(k.config.ConsumerGroupID != "", k.config.ConsumerGroupID, fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())), groupID).(string)
-	logger.Infof("using consumer group id: %s", groupID)
+	k.consumerGroupID = groupID
+	logger.Infof("using consumer group id: %s", k.consumerGroupID)
 
-	var topics []string
+	// Set partitions for all streams
 	for _, stream := range streams {
-		topics = append(topics, stream.Name())
+		if err := k.SetPartitions(ctx, stream); err != nil {
+			return fmt.Errorf("failed to set partitions for stream %s: %w", stream.ID(), err)
+		}
 	}
 
-	// Create consumer group
-	consumerGroup, err := kafka.NewConsumerGroup(kafka.ConsumerGroupConfig{
-		ID:      groupID,
-		Brokers: strings.Split(k.config.BootstrapServers, ","),
-		Topics:  topics,
-		Dialer:  k.dialer,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create consumer group: %v", err)
-	}
-	k.consumerGroup = consumerGroup
-
-	// Get current generation
-	gen, err := consumerGroup.Next(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get consumer group generation: %v", err)
-	}
-	k.consumerGen = gen
-
-	// Set partitions for all streams using assignments
-	for _, stream := range streams {
-		var allPartitions []abstract.PartitionMetaData
-		assignments, ok := gen.Assignments[stream.Name()]
+	// Iterate over all stored partition metadata and create readers
+	k.partitionMeta.Range(func(key, value any) bool {
+		streamID, ok := key.(string)
 		if !ok {
-			return fmt.Errorf("no assignments found for topic %s", stream.Name())
+			return true // skip invalid key
 		}
-		for _, assignment := range assignments {
-			startOffset := assignment.Offset
-			partition := assignment.ID
-			readerID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-			// creating reader
+		partitions, ok := value.([]types.PartitionMetaData)
+		if !ok {
+			return true // skip invalid value
+		}
+
+		for idx, p := range partitions {
+			readerID := fmt.Sprintf("%s_%s", streamID, utils.ULID())
 			reader := kafka.NewReader(kafka.ReaderConfig{
-				Brokers:   strings.Split(k.config.BootstrapServers, ","),
-				Topic:     stream.Name(),
-				Partition: partition,
-				MinBytes:  1,
-				MaxBytes:  10e6,
-				Dialer:    k.dialer,
+				Brokers:  strings.Split(k.config.BootstrapServers, ","),
+				Topic:    p.Stream.Name(),
+				GroupID:  k.consumerGroupID,
+				MinBytes: 1,
+				MaxBytes: 10e6,
+				Dialer:   k.dialer,
 			})
-			allPartitions = append(allPartitions, abstract.PartitionMetaData{
-				ReaderID:    readerID,
-				Stream:      stream,
-				PartitionID: assignment.ID,
-				StartOffset: startOffset,
-			})
-			// persisting reader
+			// Save reader and update partition metadata
 			k.readers.Store(readerID, reader)
+			partitions[idx].ReaderID = readerID
 		}
-		// saved for usage in getPartition
-		k.partitionMeta.Store(stream.ID(), allPartitions)
-	}
+		return true
+	})
+
 	return nil
 }
 
-func (k *Kafka) PartitionStreamChanges(ctx context.Context, data abstract.PartitionMetaData, processFn abstract.CDCMsgFn) error {
+func (k *Kafka) StreamChanges(_ context.Context, _ types.StreamInterface, _ abstract.CDCMsgFn) error {
+	return nil
+}
+
+func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.PartitionMetaData, processFn abstract.CDCMsgFn) error {
 	partitionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	logger.Infof("starting kafka streaming for topic %s (reader %s)", data.Stream.Name(), data.ReaderID)
+	reader, ok := k.readers.Load(data.ReaderID)
 	var readerInstance *kafka.Reader
-	// loading reader
-	if reader, ok := k.readers.Load(data.ReaderID); ok {
+	if ok {
 		readerInstance, _ = reader.(*kafka.Reader)
 	}
-	if k.config.AutoOffsetReset == "earliest" {
-		if setErr := readerInstance.SetOffset(kafka.FirstOffset); setErr != nil {
-			return fmt.Errorf("failed to reset offset: %v", setErr)
-		}
-	} else {
-		if err := readerInstance.SetOffset(data.StartOffset); err != nil {
-			return fmt.Errorf("failed to set offset: %v", err)
-		}
-	}
-	// wait time
-	partitionIdleWait := time.Duration(k.config.WaitTime) * time.Second
-	for {
-		deadline := time.Now().Add(partitionIdleWait)
-		fetchCtx, cancel := context.WithDeadline(partitionCtx, deadline)
-		msg, err := readerInstance.FetchMessage(fetchCtx)
-		cancel()
 
+	for {
+		msg, err := readerInstance.FetchMessage(partitionCtx)
 		if err != nil {
 			if errors.Is(err, kafka.ErrGenerationEnded) {
 				// rebalance / generation end - keep reader alive and let membership reassign
 				logger.Infof("generation ended (rebalance) for partition %d, continuing", data.PartitionID)
-				time.Sleep(100 * time.Millisecond)
 				continue
-			}
-			if errors.Is(err, context.DeadlineExceeded) {
-				logger.Infof("no messages in topic %s within wait time for reader %s", data.Stream.Name(), data.ReaderID)
-				return nil
 			}
 			if errors.Is(err, context.Canceled) {
 				logger.Infof("context canceled for reader %s", data.ReaderID)
@@ -134,7 +98,6 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data abstract.Partit
 			return fmt.Errorf("error reading message in incremental sync: %v", err)
 		}
 
-		// message from partitions
 		messageData := func() map[string]any {
 			var result map[string]any
 			if msg.Value == nil {
@@ -151,6 +114,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data abstract.Partit
 			result["kafka_timestamp"] = msg.Time.UnixMilli()
 			return result
 		}()
+		lastOffsetCheckPoint := msg.HighWaterMark - 1
 
 		if messageData == nil {
 			// we skip storing nil-valued messages
@@ -165,91 +129,167 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data abstract.Partit
 		}); procErr != nil {
 			return procErr
 		}
-
-		// save offset processed message for commit
-		k.lastOffsets.Store(data.ReaderID, msg.Offset)
+		// save last processed message
+		k.lastMessages.Store(data.ReaderID, msg)
 		logger.Infof("processed message at offset %d for topic %s, partition %d", msg.Offset, data.Stream.Name(), msg.Partition)
+
+		// when message reaches the last offset
+		if msg.Offset == lastOffsetCheckPoint {
+			return nil
+		}
 	}
 }
 
-func (k *Kafka) PostCDC(_ context.Context, stream types.StreamInterface, noErr bool, readerID string) error {
-	if !noErr {
-		logger.Warnf("skipping commit for reader %s due to error", readerID)
-		return nil
-	}
-
-	load := func(m *sync.Map, key string) (any, bool) {
-		v, ok := m.Load(key)
+func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, readerID string) error {
+	if noErr {
+		value, ok := k.lastMessages.Load(readerID)
 		if !ok {
-			logger.Warnf("missing key %s for reader", key)
+			// No last message, nothing to commit
+			return nil
 		}
-		return v, ok
-	}
-
-	// loaded the relevant sync maps
-	offsetValue, _ := load(&k.lastOffsets, readerID)
-	readerVal, _ := load(&k.readers, readerID)
-	lastOffset, ok1 := offsetValue.(int64)
-	reader, ok2 := readerVal.(*kafka.Reader)
-	if !ok1 || !ok2 || reader == nil {
-		logger.Warnf("invalid data for reader %s", readerID)
-		return nil
-	}
-
-	var partition int
-	if raw, ok := load(&k.partitionMeta, stream.ID()); ok {
-		for _, p := range raw.([]abstract.PartitionMetaData) {
-			if p.ReaderID == readerID {
-				partition = p.PartitionID
-				break
-			}
+		lastMsg, ok := value.(kafka.Message)
+		if !ok {
+			logger.Warnf("last message for %s is not kafka.Message", readerID)
+			return nil
 		}
+		readerVal, ok := k.readers.Load(readerID)
+		if !ok {
+			logger.Warnf("reader not found for %s", readerID)
+			return nil
+		}
+		r, ok := readerVal.(*kafka.Reader)
+		if !ok || r == nil {
+			logger.Warnf("invalid reader for %s", readerID)
+			return nil
+		}
+		if commitErr := r.CommitMessages(ctx, lastMsg); commitErr != nil {
+			logger.Errorf("failed to commit last message at offset %d for reader %s: %v", lastMsg.Offset, readerID, commitErr)
+		}
+		if closeErr := r.Close(); closeErr != nil {
+			logger.Errorf("failed to close reader %s: %v", readerID, closeErr)
+		}
+		logger.Infof("committed and closed for reader: %s", readerID)
+
+		k.readers.Delete(readerID)
+		k.lastMessages.Delete(readerID)
+
+		// Save consumer group id to state (safe to set multiple times as it's idempotent)
+		k.state.SetCursor(stream.Self(), "consumer_group_id", k.consumerGroupID)
 	}
-
-	if k.consumerGen == nil {
-		return fmt.Errorf("no active consumer generation for commit")
-	}
-
-	topic := stream.Name()
-	commitOffsets := map[string]map[int]int64{topic: {partition: lastOffset + 1}}
-	// commit message of current topic, partition
-	if err := k.consumerGen.CommitOffsets(commitOffsets); err != nil {
-		return fmt.Errorf("failed to commit offset %d for reader %s: %w", lastOffset+1, readerID, err)
-	}
-
-	// closing current reader
-	if err := reader.Close(); err != nil {
-		return fmt.Errorf("failed to close reader %s: %w", readerID, err)
-	}
-
-	logger.Infof("committed offset %d for reader %s", lastOffset+1, readerID)
-	k.readers.Delete(readerID)
-	k.lastOffsets.Delete(readerID)
-
-	// Save consumer group ID to state
-	k.state.SetCursor(stream.Self(), "consumer_group_id", k.consumerGen.GroupID)
 	return nil
 }
 
-func (k *Kafka) GetPartitions() map[string][]abstract.PartitionMetaData {
-	partitionData := make(map[string][]abstract.PartitionMetaData)
+func (k *Kafka) SetPartitions(ctx context.Context, stream types.StreamInterface) error {
+	var allPartitions []types.PartitionMetaData
+	topic := stream.Name()
+
+	// Fetch topic metadata
+	metadataReq := &kafka.MetadataRequest{Topics: []string{topic}}
+	metadataResp, err := k.adminClient.Metadata(ctx, metadataReq)
+	if err != nil {
+		return fmt.Errorf("failed to fetch topic metadata: %v", err)
+	}
+
+	var topicDetail kafka.Topic
+	for _, t := range metadataResp.Topics {
+		if t.Name == topic {
+			topicDetail = t
+			break
+		}
+	}
+	if topicDetail.Error != nil {
+		return fmt.Errorf("topic %s not found in metadata: %v", topic, topicDetail.Error)
+	}
+
+	// fetch first and last offset of the all partition
+	offsetRequests := make([]kafka.OffsetRequest, 0, len(topicDetail.Partitions)*2)
+	for _, p := range topicDetail.Partitions {
+		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.FirstOffset})
+		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.LastOffset})
+	}
+	offsetsResp, err := k.adminClient.ListOffsets(ctx, &kafka.ListOffsetsRequest{Topics: map[string][]kafka.OffsetRequest{topic: offsetRequests}})
+	if err != nil {
+		return fmt.Errorf("failed to list offsets for topic %s: %w", topic, err)
+	}
+	topicOffsets := offsetsResp.Topics[topic]
+
+	// Fetch already committed offset of partition
+	committedTopicOffsets := k.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
+
+	// Build partition metadata
+	for _, partition := range topicDetail.Partitions {
+		firstOffset := topicOffsets[partition.ID].FirstOffset
+		lastOffset := topicOffsets[partition.ID].LastOffset
+		committedOffset, hasCommittedOffset := committedTopicOffsets[partition.ID]
+
+		// check if the partition has any messages at all
+		if firstOffset >= lastOffset {
+			logger.Infof("skipping empty partition %d for topic %s (first: %d, last: %d)", partition.ID, topic, firstOffset, lastOffset)
+			continue
+		}
+
+		// If a committed offset is available and there are no new messages, skip
+		if hasCommittedOffset && committedOffset >= lastOffset {
+			logger.Infof("skipping partition %d for topic %s, no new messages (committed: %d, last: %d)", partition.ID, topic, committedOffset, lastOffset)
+			continue
+		}
+
+		allPartitions = append(allPartitions, types.PartitionMetaData{
+			Stream:      stream,
+			PartitionID: partition.ID,
+			EndOffset:   lastOffset,
+		})
+	}
+
+	k.partitionMeta.Store(stream.ID(), allPartitions)
+	return nil
+}
+
+func (k *Kafka) GetPartitions() (map[string][]types.PartitionMetaData, int) {
+	partitionData := make(map[string][]types.PartitionMetaData)
+	totalLen := 0
+
 	k.partitionMeta.Range(func(key, value any) bool {
 		streamID, ok := key.(string)
 		if !ok {
 			return true // skip invalid keys
 		}
-		partitions, ok := value.([]abstract.PartitionMetaData)
+		partitions, ok := value.([]types.PartitionMetaData)
 		if !ok {
 			return true // skip invalid values
 		}
 
 		partitionData[streamID] = partitions
+		totalLen += len(partitions)
 		return true
 	})
 
-	return partitionData
+	return partitionData, totalLen
 }
 
-func (k *Kafka) StreamChanges(_ context.Context, _ types.StreamInterface, _ abstract.CDCMsgFn) error {
-	return nil
+func (k *Kafka) FetchCommittedOffsets(ctx context.Context, topic string, partitions []kafka.Partition) map[int]int64 {
+	partitionsToFetch := make([]int, 0, len(partitions))
+	for _, p := range partitions {
+		partitionsToFetch = append(partitionsToFetch, p.ID)
+	}
+
+	fetchOffsetReq := &kafka.OffsetFetchRequest{
+		GroupID: k.consumerGroupID,
+		Topics:  map[string][]int{topic: partitionsToFetch},
+	}
+
+	committedOffsetsResp, err := k.adminClient.OffsetFetch(ctx, fetchOffsetReq)
+	if err != nil {
+		logger.Warnf("could not fetch committed offsets for group %s", k.consumerGroupID)
+	}
+
+	committedTopicOffsets := make(map[int]int64)
+	if committedOffsetsResp != nil && committedOffsetsResp.Topics != nil {
+		if offsets, ok := committedOffsetsResp.Topics[topic]; ok {
+			for _, p := range offsets {
+				committedTopicOffsets[p.Partition] = p.CommittedOffset
+			}
+		}
+	}
+	return committedTopicOffsets
 }

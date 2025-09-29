@@ -83,10 +83,10 @@ func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 	return nil
 }
 
-func (m *MySQL) PartitionStreamChanges(_ context.Context, _ abstract.PartitionMetaData, _ abstract.CDCMsgFn) error {
+func (m *MySQL) PartitionStreamChanges(_ context.Context, _ types.PartitionMetaData, _ abstract.CDCMsgFn) error {
 	return nil
 }
 
-func (m *MySQL) GetPartitions() map[string][]abstract.PartitionMetaData {
-	return nil
+func (m *MySQL) GetPartitions() (map[string][]types.PartitionMetaData, int) {
+	return nil, 0
 }

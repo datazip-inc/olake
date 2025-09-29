@@ -34,10 +34,10 @@ func (o *Oracle) SetupState(state *types.State) {
 	o.state = state
 }
 
-func (o *Oracle) PartitionStreamChanges(_ context.Context, _ abstract.PartitionMetaData, _ abstract.CDCMsgFn) error {
+func (o *Oracle) PartitionStreamChanges(_ context.Context, _ types.PartitionMetaData, _ abstract.CDCMsgFn) error {
 	return nil
 }
 
-func (o *Oracle) GetPartitions() map[string][]abstract.PartitionMetaData {
-	return nil
+func (o *Oracle) GetPartitions() (map[string][]types.PartitionMetaData, int) {
+	return nil, 0
 }

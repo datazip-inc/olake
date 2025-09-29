@@ -28,8 +28,6 @@ const (
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
 	EffectiveParquetSize = int64(256) * 1024 * 1024 * int64(8)
-	// Default wait time of kafka per partition
-	DefaultWaitTime = 30
 )
 
 type DriverType string

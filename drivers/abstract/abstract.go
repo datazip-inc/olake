@@ -86,7 +86,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		if isKafkaStreaming(a.driver.Type()) {
+		if !isKafkaDriver(a.driver.Type()) {
 			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 			convStream.SyncMode = types.FULLREFRESH
 		}

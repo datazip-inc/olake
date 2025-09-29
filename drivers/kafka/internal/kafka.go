@@ -19,15 +19,14 @@ import (
 )
 
 type Kafka struct {
-	config        *Config
-	dialer        *kafka.Dialer
-	adminClient   *kafka.Client
-	state         *types.State
-	consumerGroup *kafka.ConsumerGroup
-	consumerGen   *kafka.Generation
-	lastOffsets   sync.Map // map[string]int64
-	readers       sync.Map // map[string]*kafka.Reader
-	partitionMeta sync.Map // map[string][]abstract.PartitionMetaData
+	config          *Config
+	dialer          *kafka.Dialer
+	adminClient     *kafka.Client
+	state           *types.State
+	consumerGroupID string
+	readers         sync.Map // map[string]*kafka.Reader
+	partitionMeta   sync.Map // map[string][]abstract.PartitionMetaData
+	lastMessages    sync.Map
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
