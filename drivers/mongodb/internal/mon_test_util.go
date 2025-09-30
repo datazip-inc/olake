@@ -114,7 +114,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		update := bson.M{
 			"$set": bson.M{
 				"id_bigint":         int64(987654321098765),
-				"id_int":            int32(200),
+				"id_int":            int64(200),
 				"id_timestamp":      time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC),
 				"id_double":         float64(202.456),
 				"id_bool":           false,
@@ -250,7 +250,7 @@ var ExpectedMongoData = map[string]interface{}{
 
 var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"id_bigint":         int64(987654321098765),
-	"id_int":            int32(200),
+	"id_int":            int64(200),
 	"id_timestamp":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"id_double":         float64(202.456),
 	"id_bool":           false,

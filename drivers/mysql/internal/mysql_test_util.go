@@ -183,6 +183,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		return
 
+	case "evolve-schema":
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE;", integrationTestTable)
+
+	case "devolve-schema":
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int INT, MODIFY COLUMN price_float FLOAT", integrationTestTable)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
@@ -256,7 +262,7 @@ var ExpectedMySQLData = map[string]interface{}{
 
 var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"id_bigint":              int64(987654321098765),
-	"id_int":                 int32(200),
+	"id_int":                 int64(200),
 	"id_int_unsigned":        int32(201),
 	"id_integer":             int32(202),
 	"id_integer_unsigned":    int32(203),
@@ -269,7 +275,7 @@ var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"price_decimal":          float32(543.21),
 	"price_double":           float64(654.321),
 	"price_double_precision": float64(654.321),
-	"price_float":            float32(543.21),
+	"price_float":            float64(543.21),
 	"price_numeric":          float32(543.21),
 	"price_real":             float64(654.321),
 	"name_char":              "X",
@@ -333,6 +339,38 @@ var MySQLToDestinationSchema = map[string]string{
 	"price_double":           "double",
 	"price_double_precision": "double",
 	"price_float":            "float",
+	"price_numeric":          "decimal",
+	"price_real":             "double",
+	"name_char":              "char",
+	"name_varchar":           "varchar",
+	"name_text":              "text",
+	"name_tinytext":          "tinytext",
+	"name_mediumtext":        "mediumtext",
+	"name_longtext":          "longtext",
+	"created_date":           "datetime",
+	"created_timestamp":      "timestamp",
+	"is_active":              "tinyint",
+	"long_varchar":           "mediumtext",
+	"name_bool":              "tinyint",
+}
+
+var EvolvedMySQLToDestinationSchema = map[string]string{
+	"id":                     "unsigned int",
+	"id_bigint":              "bigint",
+	"id_int":                 "bigint",
+	"id_int_unsigned":        "unsigned int",
+	"id_integer":             "int",
+	"id_integer_unsigned":    "unsigned int",
+	"id_mediumint":           "mediumint",
+	"id_mediumint_unsigned":  "unsigned mediumint",
+	"id_smallint":            "smallint",
+	"id_smallint_unsigned":   "unsigned smallint",
+	"id_tinyint":             "tinyint",
+	"id_tinyint_unsigned":    "unsigned tinyint",
+	"price_decimal":          "decimal",
+	"price_double":           "double",
+	"price_double_precision": "double",
+	"price_float":            "double",
 	"price_numeric":          "decimal",
 	"price_real":             "double",
 	"name_char":              "char",

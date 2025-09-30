@@ -30,14 +30,15 @@ const (
 )
 
 type IntegrationTest struct {
-	TestConfig                *TestConfig
-	ExpectedData              map[string]interface{}
-	ExpectedIcebergUpdateData map[string]interface{}
-	ExpectedParquetUpdateData map[string]interface{}
-	DestinationDataTypeSchema map[string]string
-	Namespace                 string
-	ExecuteQuery              func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
-	DestinationDB             string
+	TestConfig                       *TestConfig
+	ExpectedData                     map[string]interface{}
+	ExpectedIcebergUpdateData        map[string]interface{}
+	ExpectedParquetUpdateData        map[string]interface{}
+	DestinationDataTypeSchema        map[string]string
+	UpdatedDestinationDataTypeSchema map[string]string
+	Namespace                        string
+	ExecuteQuery                     func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+	DestinationDB                    string
 }
 
 type PerformanceTest struct {
@@ -307,12 +308,22 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									dummySchema:     cfg.ExpectedData,
 								},
 								{
+									syncMode:        "Iceberg - evolve schema",
+									destinationType: "iceberg",
+									operation:       "evolve-schema",
+								},
+								{
 									syncMode:        "Iceberg CDC - update",
 									destinationType: "iceberg",
 									operation:       "update-iceberg",
 									useState:        true,
 									opSymbol:        "u",
 									dummySchema:     cfg.ExpectedIcebergUpdateData,
+								},
+								{
+									syncMode:        "Iceberg - devolve schema",
+									destinationType: "iceberg",
+									operation:       "devolve-schema",
 								},
 								{
 									syncMode:        "Iceberg CDC - delete",
@@ -369,7 +380,13 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
 								switch destinationType {
 								case "iceberg":
-									VerifyIcebergSync(t, currentTestTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+									{
+										if opSymbol == "u" {
+											VerifyIcebergSync(t, currentTestTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										} else {
+											VerifyIcebergSync(t, currentTestTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										}
+									}
 								case "parquet":
 									VerifyParquetSync(t, currentTestTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
 								}
@@ -379,6 +396,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 3. Run Sync command and verify records in Iceberg and Parquet
 							for _, test := range testCases {
 								t.Logf("Running test for: %s", test.syncMode)
+								if strings.Contains(test.operation, "schema") {
+									if cfg.TestConfig.Driver != "mongodb" {
+										cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, test.operation, false)
+									}
+									continue
+								}
 								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.destinationType, test.dummySchema); err != nil {
 									return err
 								}
