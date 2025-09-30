@@ -20,6 +20,9 @@
     <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
         <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
     </a>
+     <a href="https://hacktoberfest.com/">
+        <img alt="Hacktoberfest 2025" src="https://img.shields.io/badge/Hacktoberfest-2025%20🎃-orange"/>
+    </a>
 </p>
 
 ## OLake — Super-fast Sync to Apache Iceberg
@@ -47,17 +50,14 @@
 
 ### 📊 Benchmarks & possible connections
 
+| Source → Destination | Throughput               | Relative Performance                 | Full Report                                                  |
+|----------------------|--------------------------|--------------------------------------|--------------------------------------------------------------|
+| Postgres → Iceberg   | 2,35,411 RPS (Full load) | 15.9× faster than Debezium (memiiso) | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| MySQL → Iceberg      | 64,334 RPS (Full load)   | 9× faster than Airbyte               | WIP                                                          |
+| MongoDB → Iceberg    | WIP                      |                                      |                                                              |
+| Oracle → Iceberg     | WIP                      |                                      |                                                              |
 
-| Source → Destination | Throughput            | Relative Performance        |Full Report        |
-|----------------------|-----------------------|-----------------------------|-------------------|
-| Postgres → Iceberg   | 46,262 RPS (Full load)| 101× faster than Airbyte    |[Full Report](https://olake.io/docs/connectors/postgres/benchmarks) |
-| MySQL → Iceberg      | 64,334 RPS (Full load)| 9× faster than Airbyte     |[Full Report](https://olake.io/docs/connectors/mysql/benchmarks) |
-| MongoDB → Iceberg    | WIP          |                                     | |
-| Oracle → Iceberg     | WIP          |                             | |
-| Postgres → Object Store (Parquet)    | WIP          |                                     | |
-| MySQL → Object Store (Parquet)     | WIP          |                             | |
-| MongoDB → Object Store (Parquet)    | WIP          |                                     | |
-| Oracle → Object Store (Parquet)     | WIP          |                             | |
+
 
 
 **These are preliminary results. Fully reproducible benchmark scores will be published soon.*
