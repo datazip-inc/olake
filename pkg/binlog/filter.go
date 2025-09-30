@@ -7,7 +7,6 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -56,7 +55,6 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	for i, ct := range e.Table.ColumnType {
 		columnTypes[i] = mysqlTypeName(ct)
 	}
-	logger.Debugf("Column types: %v", columnTypes)
 
 	var rowsToProcess [][]interface{}
 	if operationType == "update" {
