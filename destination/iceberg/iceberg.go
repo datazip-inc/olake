@@ -380,8 +380,8 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				}
 
 				detectedIcebergType := detectedType.ToIceberg()
-				if _, existInBase := threadSchema[key]; existInBase {
-					// Column exists in destination table: restrict to valid promotions only
+				if _, existInIceberg := threadSchema[key]; existInIceberg {
+					// Column exists in iceberg table: restrict to valid promotions only
 					valid := validIcebergType(finalSchema[key], detectedIcebergType)
 					if !valid {
 						return false, fmt.Errorf(
@@ -434,7 +434,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 			// if schema difference is not detected, detect schema difference
 			if !diffThreadSchema.Load() {
-				changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, nil)
+				changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, copySchema(i.schema))
 				if err != nil {
 					return fmt.Errorf("failed to detect schema: %s", err)
 				}
@@ -444,6 +444,9 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 			return nil
 		})
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to flatten schema concurrently and detect change in records: %s", err)
+		}
 
 		// if schema difference is detected, update schemaMap with the new schema
 		schemaMap := copySchema(i.schema)

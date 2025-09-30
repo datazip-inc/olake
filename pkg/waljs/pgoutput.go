@@ -70,7 +70,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			msg, err := p.socket.pgConn.ReceiveMessage(msgCtx)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					logger.Debugf("pgoutput: no message received in given initial wait time, try increasing it or do full load")
+					logger.Warnf("pgoutput: no message received in given initial wait time, try increasing it or do full load")
 					return nil
 				}
 
