@@ -20,9 +20,9 @@ import (
 type pgoutputReplicator struct {
 	socket               *Socket
 	publications         []string
-	txnCommitTime        time.Time
-	relationIdToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
-	transactionCompleted bool
+	txnCommitTime        time.Time                             // transaction commit time
+	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
+	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -64,9 +64,17 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				return nil
 			}
 
-			msg, err := p.socket.pgConn.ReceiveMessage(ctx)
+			// receive message with timeout
+			msgCtx, cancel := context.WithTimeout(ctx, p.socket.initialWaitTime)
+			defer cancel()
+			msg, err := p.socket.pgConn.ReceiveMessage(msgCtx)
 			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "EOF") {
+				if errors.Is(err, context.DeadlineExceeded) {
+					logger.Debugf("pgoutput: no message received in given initial wait time, try increasing it or do full load")
+					return nil
+				}
+
+				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {
 					return nil
 				}
 				return err
@@ -114,7 +122,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
-		p.relationIdToMsgMap[msg.RelationID] = msg
+		p.relationIDToMsgMap[msg.RelationID] = msg
 		return nil
 	case *pglogrepl.BeginMessage:
 		p.transactionCompleted = false
@@ -163,7 +171,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.relationIdToMsgMap[m.RelationID]
+	rel, ok := p.relationIDToMsgMap[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
@@ -182,7 +190,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.relationIdToMsgMap[m.RelationID]
+	rel, ok := p.relationIDToMsgMap[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}
@@ -201,7 +209,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
-	rel, ok := p.relationIdToMsgMap[m.RelationID]
+	rel, ok := p.relationIDToMsgMap[m.RelationID]
 	if !ok {
 		return fmt.Errorf("unknown relation id: %d", m.RelationID)
 	}

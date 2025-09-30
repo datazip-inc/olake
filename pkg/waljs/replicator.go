@@ -119,7 +119,7 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		if len(config.Publications) == 0 {
 			return nil, fmt.Errorf("publication names are required for pgoutput")
 		}
-		return &pgoutputReplicator{socket: socket, publications: config.Publications, relationIdToMsgMap: make(map[uint32]*pglogrepl.RelationMessage)}, nil
+		return &pgoutputReplicator{socket: socket, publications: config.Publications, relationIDToMsgMap: make(map[uint32]*pglogrepl.RelationMessage)}, nil
 	default:
 		return &wal2jsonReplicator{socket: socket}, nil
 	}
