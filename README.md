@@ -50,13 +50,13 @@
 
 ### 📊 Benchmarks & possible connections
 
+| Source → Destination | Throughput               | Relative Performance                 | Full Report                                                  |
+|----------------------|--------------------------|--------------------------------------|--------------------------------------------------------------|
+| Postgres → Iceberg   | 2,35,411 RPS (Full load) | 15.9× faster than Debezium (memiiso) | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| MySQL → Iceberg      | 64,334 RPS (Full load)   | 9× faster than Airbyte               | WIP                                                          |
+| MongoDB → Iceberg    | WIP                      |                                      |                                                              |
+| Oracle → Iceberg     | WIP                      |                                      |                                                              |
 
-| Source → Destination | Throughput            | Relative Performance        |Full Report                            |
-|----------------------|-----------------------|-----------------------------|---------------------------------------|
-| Postgres → Iceberg   | 14,839 RPS (Full load)| 15.9× faster than Debezium (memiiso)|[Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
-| MySQL → Iceberg      | 64,334 RPS (Full load)| 9× faster than Airbyte      |WIP                                                                  |
-| MongoDB → Iceberg    | WIP                   |                             |                                                                    |
-| Oracle → Iceberg     | WIP                   |                             |                                                                    |
 
 
 
