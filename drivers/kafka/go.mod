@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/kafka
 
-go 1.24.0
+go 1.23.2
 
 toolchain go1.24.3
 
