@@ -22,7 +22,7 @@ type DriverInterface interface {
 	Setup(ctx context.Context) error
 	SetupState(state *types.State)
 	// sync artifacts
-	MaxConnections() int
+	MaxConnections(ctx context.Context, streams []types.StreamInterface) int
 	MaxRetries() int
 	// specific to discover
 	GetStreamNames(ctx context.Context) ([]string, error)
@@ -37,7 +37,15 @@ type DriverInterface interface {
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error
 	PostCDC(ctx context.Context, stream types.StreamInterface, success bool, readerID string) error // to save state
+}
+
+type PartitionInterface interface {
 	// kafka-specific get partition
-	GetPartitions() (map[string][]types.PartitionMetaData, int)
+	GetPartitions() map[string][]types.PartitionMetaData
 	PartitionStreamChanges(ctx context.Context, partitionData types.PartitionMetaData, processFn CDCMsgFn) error
+}
+
+type KafkaInterface interface {
+	DriverInterface
+	PartitionInterface
 }

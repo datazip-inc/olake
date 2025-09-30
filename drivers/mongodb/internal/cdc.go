@@ -247,11 +247,3 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 		I: binary.BigEndian.Uint32(dataBytes[5:9]),
 	}, nil
 }
-
-func (m *Mongo) PartitionStreamChanges(_ context.Context, _ types.PartitionMetaData, _ abstract.CDCMsgFn) error {
-	return nil
-}
-
-func (m *Mongo) GetPartitions() (map[string][]types.PartitionMetaData, int) {
-	return nil, 0
-}

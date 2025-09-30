@@ -21,6 +21,7 @@ type CDCChange struct {
 
 type AbstractDriver struct { //nolint:gosec,revive
 	driver          DriverInterface
+	kafkaDriver     KafkaInterface
 	state           *types.State
 	GlobalConnGroup *utils.CxGroup
 	GlobalCtxGroup  *utils.CxGroup
@@ -34,11 +35,16 @@ var DefaultColumns = map[string]types.DataType{
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
-	return &AbstractDriver{
+	abstractDriver := &AbstractDriver{
 		driver:          driver,
 		GlobalCtxGroup:  utils.NewCGroup(ctx),
 		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, constants.DefaultThreadCount), // default max connections
 	}
+	// Check if driver implements KafkaInterface
+	if kafkaDriver, ok := driver.(KafkaInterface); ok {
+		abstractDriver.kafkaDriver = kafkaDriver
+	}
+	return abstractDriver
 }
 
 func (a *AbstractDriver) SetupState(state *types.State) {
@@ -58,10 +64,14 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
+func (a *AbstractDriver) IsKafkaDriver() bool {
+	return a.kafkaDriver != nil
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
-	if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
+	if a.driver.MaxConnections(ctx, []types.StreamInterface{}) > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections(ctx, []types.StreamInterface{}))
 	}
 
 	streams, err := a.driver.GetStreamNames(ctx)
@@ -86,7 +96,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		if !isKafkaDriver(a.driver.Type()) {
+		if !a.IsKafkaDriver() {
 			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 			convStream.SyncMode = types.FULLREFRESH
 		}
@@ -118,8 +128,14 @@ func (a *AbstractDriver) Setup(ctx context.Context) error {
 // Read handles different sync modes for data retrieval
 func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
 	// set max read connections
-	if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
+	if a.IsKafkaDriver() {
+		if len(cdcStreams) > 0 && a.driver.MaxConnections(ctx, cdcStreams) > 0 {
+			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections(ctx, cdcStreams))
+		}
+	} else {
+		if a.driver.MaxConnections(ctx, []types.StreamInterface{}) > 0 {
+			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections(ctx, []types.StreamInterface{}))
+		}
 	}
 
 	// run cdc sync

@@ -69,10 +69,6 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (k *Kafka) StreamChanges(_ context.Context, _ types.StreamInterface, _ abstract.CDCMsgFn) error {
-	return nil
-}
-
 func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.PartitionMetaData, processFn abstract.CDCMsgFn) error {
 	partitionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -131,8 +127,6 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 		}
 		// save last processed message
 		k.lastMessages.Store(data.ReaderID, msg)
-		logger.Infof("processed message at offset %d for topic %s, partition %d", msg.Offset, data.Stream.Name(), msg.Partition)
-
 		// when message reaches the last offset
 		if msg.Offset == lastOffsetCheckPoint {
 			return nil
@@ -165,15 +159,9 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 		if commitErr := r.CommitMessages(ctx, lastMsg); commitErr != nil {
 			logger.Errorf("failed to commit last message at offset %d for reader %s: %v", lastMsg.Offset, readerID, commitErr)
 		}
-		if closeErr := r.Close(); closeErr != nil {
-			logger.Errorf("failed to close reader %s: %v", readerID, closeErr)
-		}
-		logger.Infof("committed and closed for reader: %s", readerID)
+		logger.Infof("committed message at offset %d for reader: %s", lastMsg.Offset, readerID)
 
-		k.readers.Delete(readerID)
-		k.lastMessages.Delete(readerID)
-
-		// Save consumer group id to state (safe to set multiple times as it's idempotent)
+		// Save consumer group id to state
 		k.state.SetCursor(stream.Self(), "consumer_group_id", k.consumerGroupID)
 	}
 	return nil
@@ -181,24 +169,11 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 
 func (k *Kafka) SetPartitions(ctx context.Context, stream types.StreamInterface) error {
 	var allPartitions []types.PartitionMetaData
+	// get topic metadata
 	topic := stream.Name()
-
-	// Fetch topic metadata
-	metadataReq := &kafka.MetadataRequest{Topics: []string{topic}}
-	metadataResp, err := k.adminClient.Metadata(ctx, metadataReq)
+	topicDetail, err := k.GetTopicMetadata(ctx, topic)
 	if err != nil {
-		return fmt.Errorf("failed to fetch topic metadata: %v", err)
-	}
-
-	var topicDetail kafka.Topic
-	for _, t := range metadataResp.Topics {
-		if t.Name == topic {
-			topicDetail = t
-			break
-		}
-	}
-	if topicDetail.Error != nil {
-		return fmt.Errorf("topic %s not found in metadata: %v", topic, topicDetail.Error)
+		return err
 	}
 
 	// fetch first and last offset of the all partition
@@ -222,7 +197,7 @@ func (k *Kafka) SetPartitions(ctx context.Context, stream types.StreamInterface)
 		lastOffset := topicOffsets[partition.ID].LastOffset
 		committedOffset, hasCommittedOffset := committedTopicOffsets[partition.ID]
 
-		// check if the partition has any messages at all
+		// check if the partition has any messages at all, if not then skip
 		if firstOffset >= lastOffset {
 			logger.Infof("skipping empty partition %d for topic %s (first: %d, last: %d)", partition.ID, topic, firstOffset, lastOffset)
 			continue
@@ -245,9 +220,8 @@ func (k *Kafka) SetPartitions(ctx context.Context, stream types.StreamInterface)
 	return nil
 }
 
-func (k *Kafka) GetPartitions() (map[string][]types.PartitionMetaData, int) {
+func (k *Kafka) GetPartitions() map[string][]types.PartitionMetaData {
 	partitionData := make(map[string][]types.PartitionMetaData)
-	totalLen := 0
 
 	k.partitionMeta.Range(func(key, value any) bool {
 		streamID, ok := key.(string)
@@ -260,11 +234,9 @@ func (k *Kafka) GetPartitions() (map[string][]types.PartitionMetaData, int) {
 		}
 
 		partitionData[streamID] = partitions
-		totalLen += len(partitions)
 		return true
 	})
-
-	return partitionData, totalLen
+	return partitionData
 }
 
 func (k *Kafka) FetchCommittedOffsets(ctx context.Context, topic string, partitions []kafka.Partition) map[int]int64 {
@@ -292,4 +264,8 @@ func (k *Kafka) FetchCommittedOffsets(ctx context.Context, topic string, partiti
 		}
 	}
 	return committedTopicOffsets
+}
+
+func (k *Kafka) StreamChanges(_ context.Context, _ types.StreamInterface, _ abstract.CDCMsgFn) error {
+	return nil
 }

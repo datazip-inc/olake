@@ -74,7 +74,7 @@ func (o *Oracle) Type() string {
 }
 
 // MaxConnections returns the maximum number of connections
-func (o *Oracle) MaxConnections() int {
+func (o *Oracle) MaxConnections(_ context.Context, _ []types.StreamInterface) int {
 	return o.config.MaxThreads
 }
 

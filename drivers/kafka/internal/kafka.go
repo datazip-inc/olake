@@ -26,7 +26,7 @@ type Kafka struct {
 	consumerGroupID string
 	readers         sync.Map // map[string]*kafka.Reader
 	partitionMeta   sync.Map // map[string][]abstract.PartitionMetaData
-	lastMessages    sync.Map
+	lastMessages    sync.Map //// map[string]kafka.Message
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -42,8 +42,12 @@ func (k *Kafka) Type() string {
 	return string(constants.Kafka)
 }
 
-func (k *Kafka) MaxConnections() int {
-	return k.config.MaxThreads
+func (k *Kafka) MaxConnections(ctx context.Context, streams []types.StreamInterface) int {
+	partitionLen, err := k.GetTotalPartitions(ctx, streams)
+	if k.config.MaxThreads > 0 || err != nil {
+		return k.config.MaxThreads
+	}
+	return partitionLen
 }
 
 func (k *Kafka) MaxRetries() int {
@@ -90,6 +94,17 @@ func (k *Kafka) Close() error {
 	k.dialer = nil
 	k.partitionMeta.Range(func(key, _ any) bool {
 		k.partitionMeta.Delete(key)
+		return true
+	})
+	k.readers.Range(func(key, value any) bool {
+		readerID, _ := key.(string)
+		if r, ok := value.(*kafka.Reader); ok && r != nil {
+			if err := r.Close(); err != nil {
+				logger.Warnf("failed to close reader %s: %v\n", readerID, err)
+			}
+		}
+		k.readers.Delete(key)
+		k.lastMessages.Delete(key)
 		return true
 	})
 	return nil
@@ -191,4 +206,35 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid sasl_jaas_config for PLAIN")
 	}
 	return matches[1], matches[2], nil
+}
+
+func (k *Kafka) GetTopicMetadata(ctx context.Context, topic string) (*kafka.Topic, error) {
+	metadataReq := &kafka.MetadataRequest{Topics: []string{topic}}
+	metadataResp, err := k.adminClient.Metadata(ctx, metadataReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %w", topic, err)
+	}
+
+	for _, t := range metadataResp.Topics {
+		if t.Name == topic {
+			if t.Error != nil {
+				return nil, fmt.Errorf("topic %s not found in metadata: %v", topic, t.Error)
+			}
+			return &t, nil
+		}
+	}
+
+	return nil, fmt.Errorf("topic %s not found in metadata", topic)
+}
+
+func (k *Kafka) GetTotalPartitions(ctx context.Context, streams []types.StreamInterface) (int, error) {
+	totalPartitions := 0
+	for _, stream := range streams {
+		topicDetail, err := k.GetTopicMetadata(ctx, stream.Name())
+		if err != nil {
+			return 0, err
+		}
+		totalPartitions += len(topicDetail.Partitions)
+	}
+	return totalPartitions, nil
 }

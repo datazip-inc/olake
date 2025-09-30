@@ -52,9 +52,9 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			}
 			backfilledStreams = append(backfilledStreams, streamID)
 			switch {
-			case isKafkaDriver(a.driver.Type()):
+			case a.IsKafkaDriver():
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				partitionData, _ := a.driver.GetPartitions()
+				partitionData := a.kafkaDriver.GetPartitions()
 				utils.ConcurrentInGroup(a.GlobalConnGroup, partitionData[streams[index].ID()], func(ctx context.Context, data types.PartitionMetaData) error {
 					inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
 					if err != nil {
@@ -81,7 +81,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						}
 					}()
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-						return a.driver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
+						return a.kafkaDriver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
 							pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							return inserter.Push(ctx, types.CreateRawRecord(
 								utils.GetKeysHash(message.Data, pkFields...),
@@ -141,7 +141,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			}
 		}
 	}
-	if isParallelChangeStream(a.driver.Type()) || isKafkaDriver(a.driver.Type()) {
+	if isParallelChangeStream(a.driver.Type()) || a.IsKafkaDriver() {
 		// parallel change streams or kafka message already processed
 		return nil
 	}
@@ -195,8 +195,4 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 
 func isParallelChangeStream(driverType string) bool {
 	return driverType == string(constants.MongoDB)
-}
-
-func isKafkaDriver(driverType string) bool {
-	return driverType == string(constants.Kafka)
 }

@@ -127,11 +127,3 @@ func validateReplicationSlot(conn *sqlx.DB, slotName string) error {
 
 	return nil
 }
-
-func (p *Postgres) PartitionStreamChanges(_ context.Context, _ types.PartitionMetaData, _ abstract.CDCMsgFn) error {
-	return nil
-}
-
-func (p *Postgres) GetPartitions() (map[string][]types.PartitionMetaData, int) {
-	return nil, 0
-}

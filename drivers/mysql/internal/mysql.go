@@ -140,7 +140,7 @@ func (m *MySQL) SetupState(state *types.State) {
 	m.state = state
 }
 
-func (m *MySQL) MaxConnections() int {
+func (m *MySQL) MaxConnections(_ context.Context, _ []types.StreamInterface) int {
 	return m.config.MaxThreads
 }
 
