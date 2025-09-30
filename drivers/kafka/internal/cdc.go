@@ -55,8 +55,8 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 				Brokers:  strings.Split(k.config.BootstrapServers, ","),
 				Topic:    p.Stream.Name(),
 				GroupID:  k.consumerGroupID,
-				MinBytes: 1,
-				MaxBytes: 10e6,
+				MinBytes: 1,    // can be taken from user
+				MaxBytes: 10e6, // can be taken from user
 				Dialer:   k.dialer,
 			})
 			// Save reader and update partition metadata
@@ -83,7 +83,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 		msg, err := readerInstance.FetchMessage(partitionCtx)
 		if err != nil {
 			if errors.Is(err, kafka.ErrGenerationEnded) {
-				// rebalance / generation end - keep reader alive and let membership reassign
+				// note: rebalance / generation end - do we need to keep reader alive or return nil?
 				logger.Infof("generation ended (rebalance) for partition %d, continuing", data.PartitionID)
 				continue
 			}

@@ -26,7 +26,7 @@ type Kafka struct {
 	consumerGroupID string
 	readers         sync.Map // map[string]*kafka.Reader
 	partitionMeta   sync.Map // map[string][]abstract.PartitionMetaData
-	lastMessages    sync.Map //// map[string]kafka.Message
+	lastMessages    sync.Map // map[string]kafka.Message
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -55,7 +55,7 @@ func (k *Kafka) MaxRetries() int {
 }
 
 func (k *Kafka) CDCSupported() bool {
-	return true // Kafka uses streaming mode with offsets
+	return true
 }
 
 func (k *Kafka) SetupState(state *types.State) {
