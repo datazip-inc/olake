@@ -112,6 +112,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 }
 
+// TODO: can we parallelize this function
 func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []byte, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {
