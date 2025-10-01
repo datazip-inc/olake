@@ -421,7 +421,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 	return filepath.Join(p.basePath, strings.TrimSuffix(result, "/"))
 }
 
-func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) error {
+func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.StreamInterface) error {
 	if len(selectedStreams) == 0 {
 		logger.Infof("Thread[%s]: no streams selected for clearing, skipping clear operation", p.options.ThreadID)
 		return nil
@@ -429,12 +429,17 @@ func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) err
 
 	logger.Infof("Thread[%s]: clearing destination for %d selected streams: %v", p.options.ThreadID, len(selectedStreams), selectedStreams)
 
+	paths := make([]string, 0, len(selectedStreams))
+	for _, stream := range selectedStreams {
+		paths = append(paths, stream.GetDestinationDatabase(nil)+"."+stream.GetDestinationTable())
+	}
+
 	if p.s3Client == nil {
-		if err := p.clearLocalFiles(selectedStreams); err != nil {
+		if err := p.clearLocalFiles(paths); err != nil {
 			return fmt.Errorf("failed to clear local files: %s", err)
 		}
 	} else {
-		if err := p.clearS3Files(ctx, selectedStreams); err != nil {
+		if err := p.clearS3Files(ctx, paths); err != nil {
 			return fmt.Errorf("failed to clear S3 files: %s", err)
 		}
 	}
@@ -443,16 +448,15 @@ func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) err
 	return nil
 }
 
-func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
-	for _, streamID := range selectedStreams {
+func (p *Parquet) clearLocalFiles(paths []string) error {
+	for _, streamID := range paths {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
 			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
 			continue
 		}
-
-		namespace, streamName := parts[0], parts[1]
-		streamPath := filepath.Join(p.config.Path, namespace, streamName)
+		namespace, tableName := parts[0], parts[1]
+		streamPath := filepath.Join(p.config.Path, namespace, tableName)
 
 		logger.Infof("Thread[%s]: clearing local path: %s", p.options.ThreadID, streamPath)
 
@@ -471,7 +475,7 @@ func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
 	return nil
 }
 
-func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) error {
+func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 	deleteS3PrefixStandard := func(filtPath string) error {
 		iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
 			Bucket: aws.String(p.config.Bucket),
@@ -484,15 +488,15 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 		return nil
 	}
 
-	for _, streamID := range selectedStreams {
+	for _, streamID := range paths {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
 			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
 			continue
 		}
+		namespace, tableName := parts[0], parts[1]
+		s3TablePath := filepath.Join(p.config.Prefix, namespace, tableName, "/")
 
-		namespace, streamName := parts[0], parts[1]
-		s3TablePath := filepath.Join(p.config.Prefix, namespace, streamName, "/")
 		logger.Debugf("Thread[%s]: clearing S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
 		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
 			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
