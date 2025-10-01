@@ -169,6 +169,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		}
 		return
 
+	case "devolve-schema":
+		_, err := collection.DeleteMany(ctx, bson.M{})
+		require.NoError(t, err, "Failed to clean collection")
+		// Re-insert test data after cleaning
+		insertTestData(t, ctx, collection)
+
 	case "bulk_cdc_data_insert":
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 		totalRows := 15000000
@@ -282,7 +288,21 @@ var MongoToDestinationSchema = map[string]string{
 	"id_timestamp":      "timestamp",
 	"id_double":         "double",
 	"id_bool":           "boolean",
-	"created_timestamp": "string",
+	"created_timestamp": "int",
+	"id_regex":          "string",
+	"id_nested":         "string",
+	"id_minkey":         "string",
+	"id_maxkey":         "string",
+	"name_varchar":      "string",
+}
+
+var UpdatedMongoToDestinationSchema = map[string]string{
+	"id_bigint":         "bigint",
+	"id_int":            "bigint",
+	"id_timestamp":      "timestamp",
+	"id_double":         "double",
+	"id_bool":           "boolean",
+	"created_timestamp": "int",
 	"id_regex":          "string",
 	"id_nested":         "string",
 	"id_minkey":         "string",

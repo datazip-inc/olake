@@ -16,7 +16,7 @@ func TestMongodbIntegration(t *testing.T) {
 		ExpectedIcebergUpdateData:        ExpectedIcebergUpdatedData,
 		ExpectedParquetUpdateData:        ExpectedParquetUpdatedData,
 		DestinationDataTypeSchema:        MongoToDestinationSchema,
-		UpdatedDestinationDataTypeSchema: MongoToDestinationSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "mongodb_olake_mongodb_test",
 	}
