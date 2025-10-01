@@ -87,7 +87,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, c
 	return p.Socket.StreamMessages(ctx, p.client, callback)
 }
 
-func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
+func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool, _ string) error {
 	defer p.Socket.Cleanup(ctx)
 	if noErr {
 		p.state.SetGlobal(waljs.WALState{LSN: p.Socket.ClientXLogPos.String()})

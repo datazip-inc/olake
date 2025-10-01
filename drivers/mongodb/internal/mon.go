@@ -87,7 +87,7 @@ func (m *Mongo) SetupState(state *types.State) {
 	m.state = state
 }
 
-func (m *Mongo) MaxConnections() int {
+func (m *Mongo) MaxConnections(_ context.Context, _ []types.StreamInterface) int {
 	return m.config.MaxThreads
 }
 

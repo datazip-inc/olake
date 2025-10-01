@@ -10,7 +10,7 @@ import (
 // CDC is not supported yet
 
 // PostCDC is called after CDC operation completes
-func (o *Oracle) PostCDC(ctx context.Context, stream types.StreamInterface, success bool) error {
+func (o *Oracle) PostCDC(ctx context.Context, stream types.StreamInterface, success bool, _ string) error {
 	return nil
 }
 
