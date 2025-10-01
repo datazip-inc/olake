@@ -25,9 +25,9 @@ type Writer interface {
 	// avoiding the headover for different streams
 	Setup(ctx context.Context, stream types.StreamInterface, schema any, opts *Options) (any, error)
 	// Write function being used by drivers
-	Write(ctx context.Context, record []types.RawRecord) error
+	Write(ctx context.Context, record []types.ProcessedRecord) error
 	// flatten data and validates thread schema (return true if thread schema is different w.r.t records)
-	FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error)
+	FlattenAndCleanData(records []types.RawRecord) (bool, []types.ProcessedRecord, any, error)
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
 	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
