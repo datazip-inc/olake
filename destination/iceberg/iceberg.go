@@ -256,11 +256,15 @@ func (i *Iceberg) Close(ctx context.Context) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
+	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	threadID := fmt.Sprintf("test_iceberg_destination_%s", uniqueSuffix)
+	destTable := fmt.Sprintf("test_olake_%s", uniqueSuffix)
+
 	i.options = &destination.Options{
-		ThreadID: "test_iceberg_destination",
+		ThreadID: threadID,
 	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destTable)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -279,7 +283,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: "test_olake",
+			DestTableName: destTable,
 			Schema:        icebergRawSchema(),
 		},
 	}
@@ -303,7 +307,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: "test_olake",
+			DestTableName: destTable,
 			Schema:        protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{

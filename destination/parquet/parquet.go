@@ -184,8 +184,11 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 
 // Check validates local paths and S3 credentials if applicable.
 func (p *Parquet) Check(_ context.Context) error {
+	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	threadID := fmt.Sprintf("test_parquet_destination_%s", uniqueSuffix)
+
 	p.options = &destination.Options{
-		ThreadID: "test_parquet_destination",
+		ThreadID: threadID,
 	}
 
 	// check for s3 writer configuration
