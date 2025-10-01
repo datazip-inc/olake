@@ -109,7 +109,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 }
 
 // note: java server parses time from long value which will in milliseconds
-func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
+func (i *Iceberg) Write(ctx context.Context, records []types.ProcessedRecord) error {
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(i.schema))
 	for field, dType := range i.schema {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
@@ -295,7 +295,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	currentTime := time.Now().UTC()
 	protoSchema := icebergRawSchema()
 	record := types.CreateRawRecord("olake_test", map[string]any{"name": "olake"}, "r", &currentTime)
-	protoColumns, err := rawDataColumnBuffer(record, protoSchema)
+	protoColumns, err := rawDataColumnBuffer(record.ToProcessedRecord(), protoSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
 	}
@@ -326,7 +326,7 @@ func (i *Iceberg) Type() string {
 }
 
 // validate schema change & evolution and removes null records
-func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
 		// only dedup if it is upsert mode
 		if !isUpsertMode(i.stream, i.options.Backfill) {
@@ -427,7 +427,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 	records = dedupRecords(records)
 
 	if !i.stream.NormalizationEnabled() {
-		return false, records, i.schema, nil
+		return false, types.ToProcessedRecords(records), i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(records)
@@ -435,7 +435,7 @@ func (i *Iceberg) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		return false, nil, nil, err
 	}
 
-	return schemaDifference, records, recordsSchema, err
+	return schemaDifference, types.ToProcessedRecords(records), recordsSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly
@@ -624,7 +624,7 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 	return fields, nil
 }
 
-func rawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
+func rawDataColumnBuffer(record types.ProcessedRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
 	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
 	protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 
