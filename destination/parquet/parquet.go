@@ -99,7 +99,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[types.ProcessedRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
@@ -150,7 +150,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 }
 
 // Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
+func (p *Parquet) Write(_ context.Context, records []types.ProcessedRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
@@ -172,7 +172,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.ProcessedRecord]).Write([]types.ProcessedRecord{record})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
@@ -249,7 +249,7 @@ func (p *Parquet) closePqFiles() error {
 		if p.stream.NormalizationEnabled() {
 			err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
 		} else {
-			err = parquetFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
+			err = parquetFile.writer.(*pqgo.GenericWriter[types.ProcessedRecord]).Close()
 		}
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
@@ -302,9 +302,9 @@ func (p *Parquet) Close(_ context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return false, records, nil, nil
+		return false, types.ToProcessedRecords(records), nil, nil
 	}
 
 	schemaChange := false
@@ -332,7 +332,7 @@ func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 		records[idx].Data = flattenedRecord // use idx to update slice record
 	}
 
-	return schemaChange, records, p.schema, nil
+	return schemaChange, types.ToProcessedRecords(records), p.schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
