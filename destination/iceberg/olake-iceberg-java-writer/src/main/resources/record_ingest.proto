@@ -14,6 +14,7 @@ message IcebergPayload {
     DROP_TABLE = 3;
     GET_OR_CREATE_TABLE = 4;
     REFRESH_TABLE_SCHEMA = 5;
+    REGISTER = 6;
   }
   
   PayloadType type = 1;
@@ -23,6 +24,7 @@ message IcebergPayload {
     string thread_id = 2;
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
+    repeated string file_paths = 5;
   }
 
   message SchemaField {

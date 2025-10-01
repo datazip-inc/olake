@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/backoff"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -31,7 +31,7 @@ type serverInstance struct {
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []destination.PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
@@ -50,8 +50,8 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		partitionFields := make([]map[string]string, 0, len(partitionInfo))
 		for _, info := range partitionInfo {
 			partitionFields = append(partitionFields, map[string]string{
-				"field":     info.field,
-				"transform": info.transform,
+				"field":     info.Field,
+				"transform": info.Transform,
 			})
 		}
 		serverConfig["partition-fields"] = partitionFields
@@ -124,87 +124,66 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 }
 
 // setup java client
-func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
+func newIcebergClient(config *Config, partitionInfo []destination.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
 	// validate configuration
 	err := config.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	var (
-		port      int
-		serverCmd *exec.Cmd
-	)
-
-	shouldRetry := func(err error) bool {
-		low := strings.ToLower(err.Error())
-		return strings.Contains(low, "bind") || strings.Contains(low, "address already in use") || strings.Contains(low, "failed to bind")
+	// get available port
+	port, err := FindAvailablePort(config.ServerHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find available ports: %s", err)
 	}
 
-	startErr := backoff.Retry(5, time.Second, func() error {
-		// choose a fresh port each attempt
-		p, findErr := FindAvailablePort(config.ServerHost)
-		if findErr != nil {
-			return findErr
-		}
-		port = p
+	// Get the server configuration JSON
+	configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create server config: %s", err)
+	}
 
-		// Get the server configuration JSON for this port
-		configJSON, cfgErr := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
-		if cfgErr != nil {
-			portMap.Delete(port)
-			return cfgErr
-		}
+	// setup command
+	var serverCmd *exec.Cmd
+	// If debug mode is enabled and it is not check command
+	if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
+		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
+	} else {
+		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
+	}
 
-		// setup command
-		if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
-		} else {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
-		}
+	// Get current environment
+	serverCmd.Env = os.Environ()
 
-		// Get current environment
-		serverCmd.Env = os.Environ()
-		addEnvIfSet := func(key, value string) {
-			if value != "" {
-				keyPrefix := fmt.Sprintf("%s=", key)
-				for idx := range serverCmd.Env {
-					if strings.HasPrefix(serverCmd.Env[idx], keyPrefix) {
-						serverCmd.Env[idx] = fmt.Sprintf("%s=%s", key, value)
-						return
-					}
+	addEnvIfSet := func(key, value string) {
+		if value != "" {
+			keyPrefix := fmt.Sprintf("%s=", key)
+			for idx := range serverCmd.Env {
+				// if prefix exist through env, override it with config
+				if strings.HasPrefix(serverCmd.Env[idx], keyPrefix) {
+					serverCmd.Env[idx] = fmt.Sprintf("%s=%s", key, value)
+					return
 				}
-				serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
 			}
+			// if prefix does not exist add it
+			serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
 		}
-		addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
-		addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
-		addEnvIfSet("AWS_REGION", config.Region)
-		addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
-		addEnvIfSet("AWS_PROFILE", config.ProfileName)
+	}
+	addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
+	addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
+	addEnvIfSet("AWS_REGION", config.Region)
+	addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
+	addEnvIfSet("AWS_PROFILE", config.ProfileName)
 
-		// Set up and start the process with logging
-		if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
-			// ensure process is not left running
-			if serverCmd != nil && serverCmd.Process != nil {
-				_ = serverCmd.Process.Kill()
-			}
-			// release reserved port
-			portMap.Delete(port)
-			return err
-		}
-		return nil
-	}, shouldRetry)
-
-	if startErr != nil {
-		return nil, fmt.Errorf("failed to start iceberg java writer process after retries: %s", startErr)
+	// Set up and start the process with logging
+	if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
+		return nil, fmt.Errorf("failed to setup logger: %s", err)
 	}
 
 	// Connect to gRPC server
 	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
-
 	if err != nil {
 		// If connection fails, clean up the process
 		if serverCmd != nil && serverCmd.Process != nil {
@@ -212,7 +191,6 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 				logger.Errorf("Thread[%s]: Failed to kill process: %s", threadID, killErr)
 			}
 		}
-		portMap.Delete(port)
 		return nil, fmt.Errorf("failed to create new grpc client: %s", err)
 	}
 

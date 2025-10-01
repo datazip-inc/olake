@@ -57,7 +57,17 @@ type (
 	}
 )
 
+// PartitionInfo represents a Iceberg partition column with its transform, preserving order
+type PartitionInfo struct {
+	Field     string
+	Transform string
+}
+
 var RegisteredWriters = map[types.DestinationType]NewFunc{}
+
+type ArrowToggle interface {
+	UseArrowWrites() bool
+}
 
 func WithIdentifier(identifier string) ThreadOptions {
 	return func(opt *Options) {
@@ -183,7 +193,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
-		batchSize:      10000,
+		batchSize:      5000,
 		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,

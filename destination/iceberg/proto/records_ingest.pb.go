@@ -30,6 +30,7 @@ const (
 	IcebergPayload_DROP_TABLE           IcebergPayload_PayloadType = 3
 	IcebergPayload_GET_OR_CREATE_TABLE  IcebergPayload_PayloadType = 4
 	IcebergPayload_REFRESH_TABLE_SCHEMA IcebergPayload_PayloadType = 5
+	IcebergPayload_REGISTER             IcebergPayload_PayloadType = 6
 )
 
 // Enum value maps for IcebergPayload_PayloadType.
@@ -41,6 +42,7 @@ var (
 		3: "DROP_TABLE",
 		4: "GET_OR_CREATE_TABLE",
 		5: "REFRESH_TABLE_SCHEMA",
+		6: "REGISTER",
 	}
 	IcebergPayload_PayloadType_value = map[string]int32{
 		"RECORDS":              0,
@@ -49,6 +51,7 @@ var (
 		"DROP_TABLE":           3,
 		"GET_OR_CREATE_TABLE":  4,
 		"REFRESH_TABLE_SCHEMA": 5,
+		"REGISTER":             6,
 	}
 )
 
@@ -197,6 +200,7 @@ type IcebergPayload_Metadata struct {
 	ThreadId        string                        `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
 	IdentifierField *string                       `protobuf:"bytes,3,opt,name=identifier_field,json=identifierField,proto3,oneof" json:"identifier_field,omitempty"`
 	Schema          []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`
+	FilePaths       []string                      `protobuf:"bytes,5,rep,name=file_paths,json=filePaths,proto3" json:"file_paths,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -255,6 +259,13 @@ func (x *IcebergPayload_Metadata) GetIdentifierField() string {
 func (x *IcebergPayload_Metadata) GetSchema() []*IcebergPayload_SchemaField {
 	if x != nil {
 		return x.Schema
+	}
+	return nil
+}
+
+func (x *IcebergPayload_Metadata) GetFilePaths() []string {
+	if x != nil {
+		return x.FilePaths
 	}
 	return nil
 }
