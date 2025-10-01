@@ -102,7 +102,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'<tag>value</tag>'
 			)`, integrationTestTable)
 
-	case "update":
+	case "update-iceberg":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
 				col_bigint = 123456789012340,
@@ -131,8 +131,40 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_xml = '<updated>value</updated>'
 			WHERE col_bigserial = 1`, integrationTestTable)
 
-	case "delete":
+	case "update-parquet":
+		query = fmt.Sprintf(`
+			UPDATE %s SET
+				col_bigint = 987654321098765,
+				col_bool = TRUE,
+				col_char = 'p',
+				col_character = 'parquet__',
+				col_character_varying = 'parquet val',
+				col_date = '2024-08-01',
+				col_decimal = 999.99,
+				col_double_precision = 111.222333,
+				col_float4 = 999.99,
+				col_int = 999,
+				col_int2 = 999,
+				col_integer = 99999,
+				col_interval = '3 hours',
+				col_json = '{"parquet": "json"}',
+				col_jsonb = '{"parquet": "jsonb"}',
+				col_name = 'parquet_name',
+				col_numeric = 999.00,
+				col_real = 999.00,
+				col_text = 'parquet text',
+				col_timestamp = '2024-08-01 16:45:00',
+				col_timestamptz = '2024-08-01 16:45:00+00',
+				col_uuid = '11111111-1111-1111-1111-111111111111',
+				col_varbit = B'000111',
+				col_xml = '<parquet>value</parquet>'
+			WHERE col_bigserial = 2`, integrationTestTable)
+
+	case "delete-iceberg":
 		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
+
+	case "delete-parquet":
+		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 2", integrationTestTable)
 
 	case "setup_cdc":
 		for _, cdcStream := range streams {
@@ -164,6 +196,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		})
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		return
+
+	case "evolve-schema":
+		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT`, integrationTestTable)
+
+	case "devolve-schema":
+		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE INT, ALTER COLUMN col_float4 TYPE REAL`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -229,7 +267,7 @@ var ExpectedPostgresData = map[string]interface{}{
 	"col_xml":               "<tag>value</tag>",
 }
 
-var ExpectedUpdatedPostgresData = map[string]interface{}{
+var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"col_bigint":            int64(123456789012340),
 	"col_bool":              false,
 	"col_char":              "d",
@@ -238,8 +276,8 @@ var ExpectedUpdatedPostgresData = map[string]interface{}{
 	"col_date":              arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":           float64(543.21),
 	"col_double_precision":  987.654321,
-	"col_float4":            float32(543.21),
-	"col_int":               int32(321),
+	"col_float4":            float64(543.21),
+	"col_int":               int64(321),
 	"col_int2":              int32(321),
 	"col_integer":           int32(54321),
 	"col_interval":          "02:00:00",
@@ -256,7 +294,34 @@ var ExpectedUpdatedPostgresData = map[string]interface{}{
 	"col_xml":               "<updated>value</updated>",
 }
 
-var PostgresToIcebergSchema = map[string]string{
+var ExpectedParquetUpdatedData = map[string]interface{}{
+	"col_bigint":            int64(987654321098765),
+	"col_bool":              true,
+	"col_char":              "p",
+	"col_character":         "parquet__ ",
+	"col_character_varying": "parquet val",
+	"col_date":              arrow.Timestamp(time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_decimal":           float64(999.99),
+	"col_double_precision":  111.222333,
+	"col_float4":            float32(999.99),
+	"col_int":               int32(999),
+	"col_int2":              int32(999),
+	"col_integer":           int32(99999),
+	"col_interval":          "03:00:00",
+	"col_json":              `{"parquet": "json"}`,
+	"col_jsonb":             `{"parquet": "jsonb"}`,
+	"col_name":              "parquet_name",
+	"col_numeric":           float64(999.00),
+	"col_real":              float32(999.00),
+	"col_text":              "parquet text",
+	"col_timestamp":         arrow.Timestamp(time.Date(2024, 8, 1, 16, 45, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":       arrow.Timestamp(time.Date(2024, 8, 1, 16, 45, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_uuid":              "11111111-1111-1111-1111-111111111111",
+	"col_varbit":            "000111",
+	"col_xml":               "<parquet>value</parquet>",
+}
+
+var PostgresToDestinationSchema = map[string]string{
 	"col_bigint":            "bigint",
 	"col_bigserial":         "bigserial",
 	"col_bool":              "boolean",
@@ -268,6 +333,34 @@ var PostgresToIcebergSchema = map[string]string{
 	"col_double_precision":  "double precision",
 	"col_float4":            "real",
 	"col_int":               "int",
+	"col_int2":              "smallint",
+	"col_integer":           "integer",
+	"col_interval":          "interval",
+	"col_json":              "json",
+	"col_jsonb":             "jsonb",
+	"col_name":              "name",
+	"col_numeric":           "double",
+	"col_real":              "real",
+	"col_text":              "text",
+	"col_timestamp":         "timestamp",
+	"col_timestamptz":       "timestamptz",
+	"col_uuid":              "uuid",
+	"col_varbit":            "varbit",
+	"col_xml":               "xml",
+}
+
+var UpdatedPostgresToDestinationSchema = map[string]string{
+	"col_bigint":            "bigint",
+	"col_bigserial":         "bigserial",
+	"col_bool":              "boolean",
+	"col_char":              "char",
+	"col_character":         "character",
+	"col_character_varying": "varchar",
+	"col_date":              "date",
+	"col_decimal":           "double",
+	"col_double_precision":  "double precision",
+	"col_float4":            "double",
+	"col_int":               "bigint",
 	"col_int2":              "smallint",
 	"col_integer":           "integer",
 	"col_interval":          "interval",
