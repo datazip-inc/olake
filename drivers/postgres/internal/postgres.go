@@ -115,12 +115,12 @@ func (p *Postgres) Setup(ctx context.Context) error {
 
 		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
 
-		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
+		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot, cdc.Publication)
 		if err != nil {
 			if strings.Contains(err.Error(), "sql: no rows in result set") {
 				err = fmt.Errorf("no record found")
 			}
-			return fmt.Errorf("failed to check existence of replication slot %s: %s", cdc.ReplicationSlot, err)
+			return fmt.Errorf("failed to valicate cdc configuration for slot %s: %s", cdc.ReplicationSlot, err)
 		}
 
 		if !exists {

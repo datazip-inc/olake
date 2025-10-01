@@ -116,10 +116,7 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	plugin := strings.ToLower(strings.TrimSpace(slot.Plugin))
 	switch plugin {
 	case "pgoutput":
-		if len(config.Publications) == 0 {
-			return nil, fmt.Errorf("publication names are required for pgoutput")
-		}
-		return &pgoutputReplicator{socket: socket, publications: config.Publications, relationIDToMsgMap: make(map[uint32]*pglogrepl.RelationMessage)}, nil
+		return &pgoutputReplicator{socket: socket, publication: config.Publication, relationIDToMsgMap: make(map[uint32]*pglogrepl.RelationMessage)}, nil
 	default:
 		return &wal2jsonReplicator{socket: socket}, nil
 	}

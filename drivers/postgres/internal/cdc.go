@@ -25,7 +25,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet(streams...),
-		Publications:        p.config.Publications,
+		Publication:         p.cdcConfig.Publication,
 	}, nil
 }
 
@@ -100,7 +100,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr b
 	return nil
 }
 
-func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {
+func doesReplicationSlotExists(conn *sqlx.DB, slotName string, publication string) (bool, error) {
 	var exists bool
 	err := conn.QueryRow(
 		"SELECT EXISTS(Select 1 from pg_replication_slots where slot_name = $1)",
@@ -110,10 +110,10 @@ func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {
 		return false, err
 	}
 
-	return exists, validateReplicationSlot(conn, slotName)
+	return exists, validateReplicationSlot(conn, slotName, publication)
 }
 
-func validateReplicationSlot(conn *sqlx.DB, slotName string) error {
+func validateReplicationSlot(conn *sqlx.DB, slotName string, publication string) error {
 	slot := waljs.ReplicationSlot{}
 	err := conn.Get(&slot, fmt.Sprintf(waljs.ReplicationSlotTempl, slotName))
 	if err != nil {
@@ -125,5 +125,8 @@ func validateReplicationSlot(conn *sqlx.DB, slotName string) error {
 	}
 
 	logger.Debugf("replication slot[%s] with pluginType[%s] found", slotName, slot.Plugin)
+	if slot.Plugin == "pgoutput" && publication == "" {
+		return fmt.Errorf("publication is required for pgoutput")
+	}
 	return nil
 }

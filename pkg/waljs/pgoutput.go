@@ -19,7 +19,7 @@ import (
 // pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
 	socket               *Socket
-	publications         []string
+	publication          string
 	txnCommitTime        time.Time                             // transaction commit time
 	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
 	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
@@ -37,7 +37,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	p.socket.CurrentWalPosition = slot.CurrentLSN
 
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, p.socket.ReplicationSlot, p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
-		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", strings.Join(p.publications, ","))}})
+		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {
 		return fmt.Errorf("failed to start replication: %v", err)
 	}
@@ -55,8 +55,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			return nil
 		default:
 			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
-				logger.Warnf("no records found in given initial wait time, try increasing it or do full load")
-				return nil
+				return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
 			}
 
 			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
@@ -70,8 +69,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			cancel()
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					logger.Warnf("pgoutput: no message received in given initial wait time, try increasing it or do full load")
-					return nil
+					return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
 				}
 
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {

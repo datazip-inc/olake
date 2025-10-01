@@ -22,8 +22,6 @@ type Config struct {
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
-	// Publications used when OutputPlugin is pgoutput
-	Publications []string `json:"publications"`
 }
 
 // Capture Write Ahead Logs
@@ -31,6 +29,8 @@ type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
 	// initial wait time must be in range [120,2400), default value 1200
 	InitialWaitTime int `json:"initial_wait_time"`
+	// Publications used when OutputPlugin is pgoutput
+	Publication string `json:"publication"`
 }
 
 func (c *Config) Validate() error {

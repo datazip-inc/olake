@@ -64,8 +64,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 			return nil
 		default:
 			if !messageReceived && w.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > w.socket.initialWaitTime {
-				logger.Warnf("no records found in given initial wait time, try increasing it or do full load")
-				return nil
+				return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
 			}
 
 			if w.socket.ClientXLogPos >= w.socket.CurrentWalPosition {

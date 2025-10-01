@@ -101,6 +101,11 @@
                             "type": "string",
                             "title": "Replication Slot",
                             "description": "Slot to retain WAL logs for consistent replication"
+                        },
+                        "publication": {
+                            "type": "string",
+                            "title": "Publication",
+                            "description": "Publication defines which tables need to be consumed"
                         }
                     },
                     "required": [

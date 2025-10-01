@@ -20,7 +20,7 @@ type Config struct {
 	TLSConfig           *tls.Config
 	BatchSize           int
 	// Publications is used with pgoutput
-	Publications []string
+	Publication string
 }
 
 type WALState struct {
