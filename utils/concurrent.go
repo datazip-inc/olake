@@ -17,7 +17,7 @@ func Concurrent[T any](ctx context.Context, array []T, concurrency int, execute 
 		// schedule an execution
 		// hold loop till a slot is available
 		executor.Go(func() error {
-			return execute(ctx, one, idx+1)
+			return execute(ctx, one, idx)
 		})
 	}
 

@@ -145,7 +145,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		// TODO: insert data in batch
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
-			srcColl := client.Database(config.Database).Collection(backfillStreams[executionNumber-1])
+			srcColl := client.Database(config.Database).Collection(backfillStreams[executionNumber])
 			destColl := client.Database(config.Database).Collection(cdcStream)
 
 			cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
