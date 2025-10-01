@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -159,7 +161,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
 			if err != nil {
-				return fmt.Errorf("failed to create parititon file: %s", err)
+				return fmt.Errorf("failed to create partition file: %s", err)
 			}
 			partitionFile = p.partitionedFiles[partitionedPath]
 		}
@@ -305,14 +307,19 @@ func (p *Parquet) Close(_ context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, records, nil, nil
 	}
 
-	schemaChange := false
-	for idx, record := range records {
-		// add common fields
+	if len(records) == 0 {
+		return false, records, p.schema, nil
+	}
+
+	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
+
+	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
+		// Add common fields
 		records[idx].Data[constants.OlakeID] = record.OlakeID
 		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
 		records[idx].Data[constants.OpType] = record.OperationType
@@ -322,20 +329,48 @@ func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
+			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
 
-		// just process the changes and upgrade new schema
-		change, typeChange, _ := p.schema.Process(flattenedRecord)
-		schemaChange = change || typeChange || schemaChange
-		err = typeutils.ReformatRecord(p.schema, flattenedRecord)
-		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
+		// Store flattened result back to the record
+		records[idx].Data = flattenedRecord
+
+		if !diffFound.Load() {
+			for columnName, columnValue := range flattenedRecord {
+				detectedType := typeutils.TypeFromValue(columnValue)
+				if _, columnExist := p.schema[columnName]; !columnExist {
+					diffFound.Store(true)
+					break
+				}
+
+				persistedTypes := p.schema[columnName].Types()
+				if _, exist := utils.ArrayContains(persistedTypes, func(elem types.DataType) bool {
+					return elem == detectedType
+				}); !exist {
+					diffFound.Store(true)
+					break
+				}
+			}
 		}
-		records[idx].Data = flattenedRecord // use idx to update slice record
+		return nil
+	})
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to process records: %s", err)
 	}
 
-	return schemaChange, records, p.schema, nil
+	schemaChange := false // note: diff schema already detected so we can avoid this in future
+
+	if diffFound.Load() {
+		for _, record := range records {
+			// Process the changes and upgrade new schema
+			change, typeChange, _ := p.schema.Process(record.Data)
+			schemaChange = change || typeChange || schemaChange
+		}
+	}
+
+	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
+		return typeutils.ReformatRecord(p.schema, record.Data)
+	})
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.

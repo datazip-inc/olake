@@ -186,7 +186,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					 SELECT * FROM %s
 					 ORDER BY id
 					 LIMIT %d OFFSET %d`,
-					cdcStream, backfillStreams[executionNumber-1], batchSize, offset,
+					cdcStream, backfillStreams[executionNumber], batchSize, offset,
 				)
 				if _, err := db.ExecContext(ctx, query); err != nil {
 					return fmt.Errorf("stream: %s, offset: %d, error: %s", cdcStream, offset, err)

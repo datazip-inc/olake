@@ -9,6 +9,7 @@ const (
 	DefaultThreadCount     = 3
 	DefaultDiscoverTimeout = 5 * time.Minute
 	DefaultRetryTimeout    = 60 * time.Second
+	DestError              = "destination error"
 	ParquetFileExt         = "parquet"
 	PartitionRegexIceberg  = `\{([^,]+),\s*([^}]+)\}`
 	PartitionRegexParquet  = `\{([^}]+)\}`
