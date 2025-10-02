@@ -151,8 +151,8 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	return fields, nil
 }
 
-// Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
+// Write writes processed records to the Parquet file.
+func (p *Parquet) Write(_ context.Context, records []types.ProcessedRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
@@ -174,7 +174,9 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+			// Convert ProcessedRecord back to RawRecord for backward compatibility
+			rawRecord := types.RawRecord(record)
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{rawRecord})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
@@ -304,13 +306,13 @@ func (p *Parquet) Close(_ context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return false, records, nil, nil
+		return false, types.ToProcessedRecords(records), nil, nil
 	}
 
 	if len(records) == 0 {
-		return false, records, p.schema, nil
+		return false, []types.ProcessedRecord{}, p.schema, nil
 	}
 
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
@@ -365,7 +367,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 	}
 
-	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
+	return schemaChange, types.ToProcessedRecords(records), p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
 	})
 }

@@ -232,12 +232,12 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
+	evolution, processedBuf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
 
-	// TODO: after flattening record type raw_record not make sense
+	// After flattening, records are now ProcessedRecords, not RawRecords
 	if evolution {
 		wt.streamArtifact.mu.Lock()
 		newSchema, err := wt.writer.EvolveSchema(flushCtx, wt.streamArtifact.schema, threadSchema)
@@ -250,11 +250,11 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 		}
 	}
 
-	if err := wt.writer.Write(flushCtx, buf); err != nil {
+	if err := wt.writer.Write(flushCtx, processedBuf); err != nil {
 		return fmt.Errorf("failed to write records: %s", err)
 	}
 
-	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
+	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(processedBuf))
 	return nil
 }
 

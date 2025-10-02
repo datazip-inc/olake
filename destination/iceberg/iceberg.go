@@ -111,7 +111,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 }
 
 // note: java server parses time from long value which will in milliseconds
-func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
+func (i *Iceberg) Write(ctx context.Context, records []types.ProcessedRecord) error {
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(i.schema))
 	for field, dType := range i.schema {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
@@ -128,7 +128,9 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 
 		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 		if !i.stream.NormalizationEnabled() {
-			protoCols, err := rawDataColumnBuffer(record, protoSchema)
+			// Convert ProcessedRecord back to RawRecord for backward compatibility
+			rawRecord := types.RawRecord(record)
+			protoCols, err := rawDataColumnBuffer(rawRecord, protoSchema)
 			if err != nil {
 				return fmt.Errorf("failed to create raw data column buffer: %s", err)
 			}
@@ -328,7 +330,7 @@ func (i *Iceberg) Type() string {
 }
 
 // validate schema change & evolution and removes null records
-func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
 	// dedup records according to cdc timestamp and olakeID
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
 		// only dedup if it is upsert mode
@@ -447,7 +449,6 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			return false, nil, fmt.Errorf("failed to flatten schema concurrently and detect change in records: %s", err)
 		}
 
-		// if schema difference is detected, update schemaMap with the new schema
 		schemaMap := copySchema(i.schema)
 		if diffThreadSchema.Load() {
 			for _, record := range records {
@@ -464,7 +465,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	records = dedupRecords(records)
 
 	if !i.stream.NormalizationEnabled() {
-		return false, records, i.schema, nil
+		return false, types.ToProcessedRecords(records), i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
@@ -472,7 +473,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
-	return schemaDifference, records, recordsSchema, err
+	return schemaDifference, types.ToProcessedRecords(records), recordsSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly
