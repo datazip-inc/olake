@@ -204,9 +204,9 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	}
 
 	// manage year limit
-	// even after data being parsed if year doesn't lie in range [0,9999] it failed to get marshaled
-	if parsed.Year() < 0 {
-		parsed = parsed.AddDate(0-parsed.Year(), 0, 0)
+	// even after data being parsed if year doesn't lie in range [1,9999] it failed to get marshaled
+	if parsed.Year() <= 0 {
+		parsed = parsed.AddDate(1-parsed.Year(), 0, 0)
 	} else if parsed.Year() > 9999 {
 		parsed = parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
 	}
