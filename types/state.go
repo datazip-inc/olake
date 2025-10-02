@@ -24,6 +24,9 @@ const (
 	MixedType StateType = "MIXED"
 	// constant key for chunks
 	ChunksKey = "chunks"
+	// constant keys for stats
+	TotalRecordCountKey  = "total_record_count"
+	SyncedRecordCountKey = "synced_record_count"
 )
 
 type GlobalState struct {
@@ -252,6 +255,90 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) int {
 		}
 	}
 	return -1
+}
+
+// GetTotalRecordCount retrieves the total record count for a stream from state
+func (s *State) GetTotalRecordCount(stream *ConfiguredStream) int64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		if count, loaded := s.Streams[index].State.Load(TotalRecordCountKey); loaded {
+			if countInt64, ok := count.(int64); ok {
+				return countInt64
+			}
+			// Handle case where count might be stored as float64 (from JSON unmarshalling)
+			if countFloat64, ok := count.(float64); ok {
+				return int64(countFloat64)
+			}
+		}
+	}
+	return 0
+}
+
+// SetTotalRecordCount stores the total record count for a stream in state
+func (s *State) SetTotalRecordCount(stream *ConfiguredStream, count int64) {
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Store(TotalRecordCountKey, count)
+		s.Streams[index].HoldsValue.Store(true)
+	} else {
+		newStream := s.initStreamState(stream)
+		newStream.State.Store(TotalRecordCountKey, count)
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+	s.LogState()
+}
+
+// GetSyncedRecordCount retrieves the synced record count for a stream from state
+func (s *State) GetSyncedRecordCount(stream *ConfiguredStream) int64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		if count, loaded := s.Streams[index].State.Load(SyncedRecordCountKey); loaded {
+			if countInt64, ok := count.(int64); ok {
+				return countInt64
+			}
+			// Handle case where count might be stored as float64 (from JSON unmarshalling)
+			if countFloat64, ok := count.(float64); ok {
+				return int64(countFloat64)
+			}
+		}
+	}
+	return 0
+}
+
+// SetSyncedRecordCount stores the synced record count for a stream in state
+func (s *State) SetSyncedRecordCount(stream *ConfiguredStream, count int64) {
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Store(SyncedRecordCountKey, count)
+		s.Streams[index].HoldsValue.Store(true)
+	} else {
+		newStream := s.initStreamState(stream)
+		newStream.State.Store(SyncedRecordCountKey, count)
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+	s.LogState()
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {
