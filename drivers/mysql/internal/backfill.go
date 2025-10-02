@@ -52,7 +52,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
 		logger.Debugf("Executing chunk query: %s", stmt)
-		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
 		// Capture and process rows

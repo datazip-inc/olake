@@ -46,7 +46,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
 	// Use transaction for querielen(args)s
-	setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
 		return tx.QueryContext(ctx, query, args...)
 	})
