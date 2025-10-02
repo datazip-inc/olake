@@ -70,6 +70,10 @@ type RawRecord struct {
 	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
 }
 
+// ProcessedRecord represents a record that has undergone normalization/flattening
+// It has the same structure as RawRecord but semantically represents processed data
+type ProcessedRecord RawRecord
+
 func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
@@ -77,6 +81,20 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 		OperationType: operationType,
 		CdcTimestamp:  cdcTimestamp,
 	}
+}
+
+// ToProcessedRecord converts a RawRecord to ProcessedRecord after normalization
+func (r RawRecord) ToProcessedRecord() ProcessedRecord {
+	return ProcessedRecord(r)
+}
+
+// ToProcessedRecords converts a slice of RawRecord to ProcessedRecord after normalization
+func ToProcessedRecords(rawRecords []RawRecord) []ProcessedRecord {
+	processedRecords := make([]ProcessedRecord, len(rawRecords))
+	for i, record := range rawRecords {
+		processedRecords[i] = record.ToProcessedRecord()
+	}
+	return processedRecords
 }
 
 func (d DataType) ToNewParquet() parquet.Node {
