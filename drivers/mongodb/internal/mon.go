@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
 	"sync"
 	"time"
 
@@ -213,8 +214,99 @@ func filterMongoObject(doc bson.M) {
 			} else {
 				doc[key] = value
 			}
-		default:
+		case bson.M:
+			// Recursively process nested documents
+			filterMongoObject(value)
 			doc[key] = value
+		case bson.A:
+			// Process arrays containing nested objects and primitive types
+			for i, item := range value {
+				switch itemVal := item.(type) {
+				case bson.M:
+					filterMongoObject(itemVal)
+					value[i] = itemVal
+				case primitive.D:
+					// Handle primitive.D documents within arrays
+					tempDoc := bson.M{}
+					for _, elem := range itemVal {
+						tempDoc[elem.Key] = elem.Value
+					}
+					filterMongoObject(tempDoc)
+					value[i] = tempDoc
+				case primitive.DateTime:
+					value[i] = itemVal.Time()
+				case primitive.Timestamp:
+					value[i] = itemVal.T
+				case primitive.Binary:
+					value[i] = fmt.Sprintf("%x", itemVal.Data)
+				case primitive.Decimal128:
+					value[i] = itemVal.String()
+				case primitive.ObjectID:
+					value[i] = itemVal.Hex()
+				case primitive.Null:
+					value[i] = nil
+				case float64:
+					if math.IsNaN(itemVal) || math.IsInf(itemVal, 0) {
+						value[i] = nil
+					}
+				}
+			}
+			doc[key] = value
+		case primitive.D:
+			// Handle BSON document type (primitive ordered document)
+			// Convert to regular bson.M for recursive processing
+			tempDoc := bson.M{}
+			for _, elem := range value {
+				tempDoc[elem.Key] = elem.Value
+			}
+			filterMongoObject(tempDoc)
+			
+			// Keep as bson.M (converted from primitive.D for simplicity)
+			doc[key] = tempDoc
+		default:
+			// Check for slice types that might contain nested structures or primitive types
+			v := reflect.ValueOf(value)
+			if v.Kind() == reflect.Slice {
+				newSlice := make([]interface{}, v.Len())
+				for i := 0; i < v.Len(); i++ {
+					elem := v.Index(i).Interface()
+					switch elemVal := elem.(type) {
+					case bson.M:
+						filterMongoObject(elemVal)
+						newSlice[i] = elemVal
+					case primitive.D:
+						tempDoc := bson.M{}
+						for _, e := range elemVal {
+							tempDoc[e.Key] = e.Value
+						}
+						filterMongoObject(tempDoc)
+						newSlice[i] = tempDoc
+					case primitive.DateTime:
+						newSlice[i] = elemVal.Time()
+					case primitive.Timestamp:
+						newSlice[i] = elemVal.T
+					case primitive.Binary:
+						newSlice[i] = fmt.Sprintf("%x", elemVal.Data)
+					case primitive.Decimal128:
+						newSlice[i] = elemVal.String()
+					case primitive.ObjectID:
+						newSlice[i] = elemVal.Hex()
+					case primitive.Null:
+						newSlice[i] = nil
+					case float64:
+						if math.IsNaN(elemVal) || math.IsInf(elemVal, 0) {
+							newSlice[i] = nil
+						} else {
+							newSlice[i] = elemVal
+						}
+					default:
+						newSlice[i] = elem
+					}
+				}
+				doc[key] = newSlice
+			} else {
+				doc[key] = value
+			}
 		}
 	}
 }
