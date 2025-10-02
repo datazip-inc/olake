@@ -89,31 +89,50 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
-	// TODO: handle special characters in column name in filter
-	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
-	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
+	// Column names can now be:
+	// 1. Regular word characters: column_name
+	// 2. Quoted with double quotes: "column-name" or "column name"
+	// 3. Quoted with backticks: `column-name` or `column name`
+	// example: "user-id">5, `order date`="2024-01-01", status="active" and `item.price`>100
+	var FilterRegex = regexp.MustCompile(`^("([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*("([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
 	}
+
+	// Helper function to extract column name from multiple capture groups
+	extractColumn := func(groups ...string) string {
+		for _, group := range groups {
+			if group != "" {
+				return group
+			}
+		}
+		return ""
+	}
+
 	var conditions []Condition
+
+	// Extract first column name (could be in matches[2], matches[3], or matches[4])
+	column1 := extractColumn(matches[2], matches[3], matches[4])
 	conditions = append(conditions, Condition{
-		Column:   matches[1],
-		Operator: matches[2],
-		Value:    matches[3],
+		Column:   column1,
+		Operator: matches[5],
+		Value:    matches[6],
 	})
 
-	if matches[4] != "" {
+	if matches[7] != "" {
+		// Extract second column name (could be in matches[9], matches[10], or matches[11])
+		column2 := extractColumn(matches[9], matches[10], matches[11])
 		conditions = append(conditions, Condition{
-			Column:   matches[5],
-			Operator: matches[6],
-			Value:    matches[7],
+			Column:   column2,
+			Operator: matches[12],
+			Value:    matches[13],
 		})
 	}
 
 	return Filter{
 		Conditions:      conditions,
-		LogicalOperator: matches[4],
+		LogicalOperator: matches[7],
 	}, nil
 }
 
