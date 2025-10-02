@@ -172,10 +172,12 @@ func (f *Field) getType() types.DataType {
 }
 
 func (f *Field) Types() []types.DataType {
-	if f.isNullable() {
-		return []types.DataType{types.Null, f.getType()}
+	var typs []types.DataType
+	for t := range f.typeOccurrence {
+		typs = append(typs, t)
 	}
-	return []types.DataType{f.getType()}
+
+	return typs
 }
 
 func (f *Field) setNullable() {
