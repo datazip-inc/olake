@@ -113,9 +113,10 @@ func (r *RollingDataWriter) Write(record arrow.Record) (string, error) {
 	r.currentCompressedSize = sizeSoFar
 
 	if r.currentCompressedSize >= targetFileSize {
-		if filePath, err := r.flush(); err != nil {
+		filePath, err := r.flush()
+		if err != nil {
 			return "", err
-		} else {
+		} else if filePath != "" {
 			return filePath, nil
 		}
 	}

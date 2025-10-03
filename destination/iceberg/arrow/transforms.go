@@ -10,6 +10,9 @@ import (
 	"github.com/twmb/murmur3"
 )
 
+// The current transforms logic is limited to the data types which are handled by OLake
+// As we start handling more data types, we will update the transformations logic here
+
 type Transform interface {
 	canTransform(colType string) bool
 	apply(val any, colType string) (string, error)

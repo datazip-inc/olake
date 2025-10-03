@@ -79,9 +79,7 @@ func (aw *ArrowWriter2) ArrowWrites(ctx context.Context, records []types.RawReco
 			aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, filePaths...)
 		}
 	} else {
-		// Initialize unpartitioned writer once
 		if aw.unpartitionedWriter == nil {
-			// Use background context to avoid cancellation issues during Close()
 			aw.unpartitionedWriter = arrow_writer.NewRollingDataWriter(context.Background(), "")
 			aw.unpartitionedWriter.S3Config = arrow_writer.NewS3Config(aw.s3Client, aw.bucketName, aw.prefix)
 		}

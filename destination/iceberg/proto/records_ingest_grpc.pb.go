@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.21.12
-// source: iceberg/proto/records_ingest.proto
+// source: records_ingest.proto
 
 package proto
 
@@ -117,5 +117,5 @@ var RecordIngestService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "iceberg/proto/records_ingest.proto",
+	Metadata: "records_ingest.proto",
 }
