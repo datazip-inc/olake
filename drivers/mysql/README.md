@@ -37,6 +37,17 @@ Add MySql credentials in following format in `config.json` file. [More details.]
       "initial_wait_time": 10
      },
     "tls_skip_verify": true,
+    "jdbc_url_params": {
+      "charset": "utf8mb4",
+      "parseTime": "true",
+      "loc": "Local"
+    },
+    "ssl": {
+      "mode": "verify-full",
+      "server_ca": "/path/to/ca-cert.pem",
+      "client_cert": "/path/to/client-cert.pem",
+      "client_key": "/path/to/client-key.pem"
+    },
     "max_threads":10,
     "backoff_retry_count": 2,
     "ssh_config":{
@@ -47,6 +58,30 @@ Add MySql credentials in following format in `config.json` file. [More details.]
     }
   }
 ```
+
+#### Configuration Options
+
+**JDBC URL Parameters** (`jdbc_url_params`):
+Custom connection parameters to append to the JDBC connection string. Common parameters include:
+- `charset`: Character set for the connection (e.g., `utf8mb4`)
+- `parseTime`: Enable parsing of DATE and DATETIME values to Go's time.Time
+- `loc`: Location for time.Time values (e.g., `Local`, `UTC`)
+- `timeout`: Connection timeout
+- `readTimeout`: I/O read timeout
+- `writeTimeout`: I/O write timeout
+
+**SSL Configuration** (`ssl`):
+Secure your MySQL connection with SSL/TLS:
+- `mode`: SSL mode - `disable`, `require`, `verify-ca`, or `verify-full`
+  - `disable`: No SSL/TLS connection
+  - `require`: Require SSL/TLS but don't verify certificates
+  - `verify-ca`: Require SSL/TLS and verify the server certificate against the CA
+  - `verify-full`: Require SSL/TLS, verify the server certificate, and check the hostname
+- `server_ca`: Path to the CA certificate file for server verification
+- `client_cert`: Path to the client certificate file (for mutual TLS authentication)
+- `client_key`: Path to the client private key file (for mutual TLS authentication)
+
+**Note**: The `tls_skip_verify` field is maintained for backward compatibility but using the `ssl` configuration is recommended for more granular control.
 
 
 ## Commands

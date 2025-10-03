@@ -42,9 +42,47 @@
       "description": "Determines if TLS certificate verification should be skipped for secure connections",
       "default": true
     },
+    "jdbc_url_params": {
+      "type": "object",
+      "title": "JDBC URL Parameters",
+      "description": "Additional connection parameters to pass to the MySQL JDBC driver",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "ssl": {
+      "type": "object",
+      "title": "SSL Configuration",
+      "description": "SSL/TLS configuration for secure database connections",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "SSL Mode",
+          "description": "The SSL/TLS mode to use for the connection",
+          "enum": ["disable", "require", "verify-ca", "verify-full"],
+          "default": "disable"
+        },
+        "server_ca": {
+          "type": "string",
+          "title": "Server CA Certificate",
+          "description": "Path to the CA certificate file for server verification"
+        },
+        "client_cert": {
+          "type": "string",
+          "title": "Client Certificate",
+          "description": "Path to the client certificate file for mutual TLS authentication"
+        },
+        "client_key": {
+          "type": "string",
+          "title": "Client Key",
+          "description": "Path to the client private key file for mutual TLS authentication"
+        }
+      },
+      "required": ["mode"]
+    },
     "update_method": {
       "title": "Update Method",
-      "description" : "Define how OLake captures data updates from your source",
+      "description": "Define how OLake captures data updates from your source",
       "oneOf": [
         {
           "type": "object",
@@ -54,9 +92,7 @@
               "const": "Standalone"
             }
           },
-          "required": [
-            "type"
-          ]
+          "required": ["type"]
         },
         {
           "type": "object",
@@ -71,10 +107,7 @@
               "const": "CDC"
             }
           },
-          "required": [
-            "type",
-            "initial_wait_time"
-          ],
+          "required": ["type", "initial_wait_time"],
           "additionalProperties": false
         }
       ]
@@ -127,13 +160,7 @@
               "format": "password"
             }
           },
-          "required": [
-            "host",
-            "port",
-            "username",
-            "private_key",
-            "type"
-          ]
+          "required": ["host", "port", "username", "private_key", "type"]
         },
         {
           "type": "object",
@@ -165,13 +192,7 @@
               "minLength": 1
             }
           },
-          "required": [
-            "host",
-            "port",
-            "username",
-            "password",
-            "type"
-          ]
+          "required": ["host", "port", "username", "password", "type"]
         }
       ]
     },
@@ -181,11 +202,5 @@
       "description": "Username used to authenticate with the database"
     }
   },
-  "required": [
-    "hosts",
-    "username",
-    "password",
-    "database",
-    "port"
-  ]
+  "required": ["hosts", "username", "password", "database", "port"]
 }
