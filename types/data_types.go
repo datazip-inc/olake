@@ -65,7 +65,7 @@ type Record map[string]any
 type RawRecord struct {
 	Data           map[string]any `parquet:"data,json"`
 	OlakeID        string         `parquet:"_olake_id"`
-	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
+	OlakeTimestamp time.Time      `parquet:"_olake_timestamp,timestamp(microsecond)"`
 	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
 	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
 }
@@ -77,6 +77,16 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 		OperationType: operationType,
 		CdcTimestamp:  cdcTimestamp,
 	}
+}
+
+func GetRawRecordSchema() *parquet.Schema {
+	return parquet.NewSchema("RawRecord", parquet.Group{
+		"data":             parquet.JSON(),
+		"_olake_id":        parquet.String(),
+		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
+		"_op_type":         parquet.String(),
+		"_cdc_timestamp":   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
+	})
 }
 
 func (d DataType) ToNewParquet() parquet.Node {
