@@ -17,6 +17,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/spf13/viper"
 )
 
 type Iceberg struct {
@@ -261,8 +262,13 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	i.options = &destination.Options{
 		ThreadID: "test_iceberg_destination",
 	}
+
+	destinationDB := "test_olake"
+	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
+		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
+	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
