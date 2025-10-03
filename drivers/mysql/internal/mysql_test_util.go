@@ -151,7 +151,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 		// insert the data into the cdc tables concurrently
 		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
-			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber-1]))
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber]))
 			if err != nil {
 				return err
 			}
