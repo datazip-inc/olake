@@ -44,7 +44,7 @@ type Postgres struct {
 	config     *Config // postgres driver connection config
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
 	cdcConfig  CDC
-	Socket     *waljs.Socket
+	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
 }
 
@@ -113,12 +113,14 @@ func (p *Postgres) Setup(ctx context.Context) error {
 			return fmt.Errorf("the CDC initial wait time must be at least 120 seconds and less than 2400 seconds")
 		}
 
-		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
+		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
+
+		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot, cdc.Publication)
 		if err != nil {
 			if strings.Contains(err.Error(), "sql: no rows in result set") {
 				err = fmt.Errorf("no record found")
 			}
-			return fmt.Errorf("failed to check existence of replication slot %s: %s", cdc.ReplicationSlot, err)
+			return fmt.Errorf("failed to valicate cdc configuration for slot %s: %s", cdc.ReplicationSlot, err)
 		}
 
 		if !exists {
