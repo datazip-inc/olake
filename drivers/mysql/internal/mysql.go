@@ -110,9 +110,9 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		if cdc.InitialWaitTime == 0 {
-			// default set 10 sec
-			cdc.InitialWaitTime = 10
+		if cdc.InitialWaitTime <= 0 {
+			// Fail the setup if initial_wait_time is 0 or negative
+			return fmt.Errorf("Failed to setup CDC: Initial wait time must be greater than 0")
 		}
 		m.cdcConfig = *cdc
 	}
