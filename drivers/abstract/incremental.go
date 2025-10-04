@@ -28,6 +28,23 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 		}
 		// Reset only mentioned cursor state while preserving other state values
 		a.state.ResetCursor(stream.Self())
+
+		maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
+		if err != nil {
+			return fmt.Errorf("failed to fetch max cursor values: %s", err)
+		}
+
+		a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+		if maxPrimaryCursorValue == nil {
+			logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
+		}
+		if secondaryCursor != "" {
+			a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+			if maxSecondaryCursorValue == nil {
+				logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
+			}
+		}
+
 		return a.Backfill(ctx, backfillWaitChannel, pool, stream)
 	})
 	if err != nil {
