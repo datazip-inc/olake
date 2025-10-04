@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <!-- S3A Configuration for MinIO -->
+    <property>
+        <name>fs.s3a.endpoint</name>
+        <value>http://minio:9090</value>
+        <description>MinIO S3 endpoint</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.access.key</name>
+        <value>minio</value>
+        <description>MinIO access key</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.secret.key</name>
+        <value>minio123</value>
+        <description>MinIO secret key</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+        <description>Enable path-style access for S3</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+        <description>Disable SSL for local MinIO</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+        <description>S3A FileSystem implementation</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+        <description>AWS credentials provider</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.connection.timeout</name>
+        <value>200000</value>
+        <description>S3A connection timeout</description>
+    </property>
+
+    <property>
+        <name>fs.s3a.attempts.maximum</name>
+        <value>20</value>
+        <description>Maximum number of retry attempts</description>
+    </property>
+</configuration>
