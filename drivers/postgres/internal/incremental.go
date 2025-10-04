@@ -39,3 +39,11 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 	}
 	return rows.Err()
 }
+
+func (p *Postgres) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, p.client, constants.Postgres, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+}

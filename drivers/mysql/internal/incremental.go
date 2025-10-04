@@ -43,3 +43,11 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	return rows.Err()
 }
+
+func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, m.client, constants.MySQL, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+}

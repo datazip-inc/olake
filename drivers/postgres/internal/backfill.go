@@ -34,15 +34,15 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		Client: p.client,
 	}
 
-	filter, args, err := jdbc.FilterUpdater(opts, filter)
+	thresholdFilter, args, err := jdbc.ThresholdFilter(opts, filter)
 	if err != nil {
 		return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
 	}
-	logger.Infof("Starting backfill with filter: %s, args: %v", filter, args)
+	logger.Infof("Starting backfill with filter: %s, args: %v", thresholdFilter, args)
 
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
-	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
+	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, thresholdFilter)
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		return tx.Query(query, args...)
 	})
@@ -179,12 +179,4 @@ func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd i
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
 	}
 	return chunkEnd, nil
-}
-
-func (p *Postgres) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
-	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, p.client, constants.Postgres, stream)
-	if err != nil {
-		return nil, nil, err
-	}
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }

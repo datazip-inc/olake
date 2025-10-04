@@ -19,7 +19,7 @@ import (
 func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	switch driver {
 	case constants.MySQL:
-		return fmt.Sprintf("`%s`", identifier)
+		return fmt.Sprintf("`%s`", identifier) // MySQL uses backticks for quoting identifiers
 	case constants.Postgres:
 		return fmt.Sprintf("%q", identifier)
 	case constants.Oracle:
@@ -461,11 +461,11 @@ func OracleChunkRetrievalQuery(taskName string) string {
 }
 
 // OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, greaterThan bool, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
+func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// in case of incremental sync, during backfill to avoid duplicate records we need to use <= else use >
-	operator := utils.Ternary(greaterThan, ">", "<=").(string)
+	operator := utils.Ternary(isBackfill, "<=", ">").(string)
 	// remove cursorField conversion to lower case once column normalization is based on writer side
 	datatype, err := stream.Self().Stream.Schema.GetType(cursorField)
 	if err != nil {
@@ -590,7 +590,7 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), true, lastCursorValue, opts)
+			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
 		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
@@ -651,9 +651,6 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %s", err)
 		}
-		if maxSecondaryCursorValue == nil {
-			logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
-		}
 		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
 	} else {
 		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
@@ -661,15 +658,12 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %s", err)
 		}
 	}
-	if maxPrimaryCursorValue == nil {
-		logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
-	}
 	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
-// FilterUpdater is used to update the filter for initial run of incremental sync during backfill.
-// This is to avoid dupliction of records, as cursor value is fetched before the chunk creation.
-func FilterUpdater(opts IncrementalConditionOptions, filter string) (string, []any, error) {
+// ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
+// This is to avoid dupliction of records, as max cursor value is fetched before the chunk creation.
+func ThresholdFilter(opts IncrementalConditionOptions, filter string) (string, []any, error) {
 	if opts.Stream.GetSyncMode() != types.INCREMENTAL {
 		return filter, nil, nil
 	}
@@ -677,35 +671,33 @@ func FilterUpdater(opts IncrementalConditionOptions, filter string) (string, []a
 	primaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
 	placeholder := GetPlaceholder(opts.Driver)
 
-	conditionMaker := func(opts IncrementalConditionOptions, argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
-		var conditionFilter string
-
+	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), false, cursorValue, opts)
+			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
-		conditionFilter = fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
+		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil
 	}
 
-	incrementalFilter, argument, err := conditionMaker(opts, 1, primaryCursor, primaryCursorValue)
+	thresholdFilter, argument, err := createThresholdCondition(1, primaryCursor, primaryCursorValue)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to format primary cursor value: %s", err)
 	}
 	// IS NULL condition is required to handle the case where cursor value is NULL for some rows.
 	// Some driver will avoid returning such rows when <= condition is used.
-	incrementalFilter = fmt.Sprintf("(%s IS NULL OR %s)", QuoteIdentifier(primaryCursor, opts.Driver), incrementalFilter)
+	thresholdFilter = fmt.Sprintf("(%s IS NULL OR %s)", QuoteIdentifier(primaryCursor, opts.Driver), thresholdFilter)
 	arguments := []any{argument}
 	if secondaryCursor != "" {
 		secondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
-		secondaryCondition, argument, err := conditionMaker(opts, 2, secondaryCursor, secondaryCursorValue)
+		secondaryCondition, argument, err := createThresholdCondition(2, secondaryCursor, secondaryCursorValue)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to format secondary cursor value: %s", err)
 		}
-		incrementalFilter = fmt.Sprintf("%s AND (%s IS NULL OR %s)", incrementalFilter, QuoteIdentifier(secondaryCursor, opts.Driver), secondaryCondition)
+		thresholdFilter = fmt.Sprintf("%s AND (%s IS NULL OR %s)", thresholdFilter, QuoteIdentifier(secondaryCursor, opts.Driver), secondaryCondition)
 		arguments = append(arguments, argument)
 	}
 
-	filter = utils.Ternary(filter == "", incrementalFilter, fmt.Sprintf("(%s) AND %s", filter, incrementalFilter)).(string)
+	thresholdFilter = utils.Ternary(filter == "", thresholdFilter, fmt.Sprintf("(%s) AND %s", filter, thresholdFilter)).(string)
 
-	return filter, arguments, nil
+	return thresholdFilter, arguments, nil
 }

@@ -8,7 +8,9 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
 // StreamIncrementalChanges implements incremental sync for MongoDB
@@ -82,4 +84,51 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 	}
 
 	return incrementalCondition, nil
+}
+
+func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
+	primaryCursor, secondaryCursor := stream.Cursor()
+
+	groupStage := bson.D{
+		{Key: "_id", Value: nil},
+		{Key: "maxPrimaryCursor", Value: bson.D{{Key: "$max", Value: "$" + primaryCursor}}},
+	}
+	if secondaryCursor != "" {
+		groupStage = append(groupStage, bson.E{
+			Key:   "maxSecondaryCursor",
+			Value: bson.D{{Key: "$max", Value: "$" + secondaryCursor}},
+		})
+	}
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$group", Value: groupStage}},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute find max cursor values: %s", err)
+	}
+	defer cursor.Close(ctx)
+
+	var result struct {
+		MaxPrimaryCursor   any `bson:"maxPrimaryCursor"`
+		MaxSecondaryCursor any `bson:"maxSecondaryCursor"`
+	}
+
+	if cursor.Next(ctx) {
+		if err := cursor.Decode(&result); err != nil {
+			return nil, nil, fmt.Errorf("failed to decode cursor result: %s", err)
+		}
+
+		if result.MaxPrimaryCursor == nil {
+			logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
+		}
+		if secondaryCursor != "" && result.MaxSecondaryCursor == nil {
+			logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
+		}
+		return result.MaxPrimaryCursor, result.MaxSecondaryCursor, nil
+	}
+
+	return nil, nil, cursor.Err()
 }

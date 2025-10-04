@@ -37,14 +37,14 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 		Client: o.client,
 	}
 
-	filter, args, err := jdbc.FilterUpdater(opts, filter)
+	thresholdFilter, args, err := jdbc.ThresholdFilter(opts, filter)
 	if err != nil {
 		return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
 	}
 
-	logger.Infof("Starting backfill with filter: %s, args: %v", filter, args)
+	logger.Infof("Starting backfill with filter: %s, args: %v", thresholdFilter, args)
 
-	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
+	stmt := jdbc.OracleChunkScanQuery(stream, chunk, thresholdFilter)
 	// Use transaction for querielen(args)s
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
@@ -141,12 +141,4 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		return chunks, rows.Err()
 	}
 	return splitViaRowId(stream)
-}
-
-func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
-	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, o.client, constants.Oracle, stream)
-	if err != nil {
-		return nil, nil, err
-	}
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }

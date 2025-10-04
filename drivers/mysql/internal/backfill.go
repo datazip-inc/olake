@@ -37,19 +37,19 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			Client: m.client,
 		}
 
-		filter, args, err := jdbc.FilterUpdater(opts, filter)
+		thresholdFilter, args, err := jdbc.ThresholdFilter(opts, filter)
 		if err != nil {
 			return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
 		}
-		logger.Infof("Starting backfill with filter: %s, args: %v", filter, args)
+		logger.Infof("Starting backfill with filter: %s, args: %v", thresholdFilter, args)
 		// Get chunks from state or calculate new ones
 		stmt := ""
 		if chunkColumn != "" {
-			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, thresholdFilter)
 		} else if len(pkColumns) > 0 {
-			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, thresholdFilter)
 		} else {
-			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
+			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, thresholdFilter)
 		}
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
@@ -202,10 +202,3 @@ func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []strin
 	return min, max, err
 }
 
-func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
-	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, m.client, constants.MySQL, stream)
-	if err != nil {
-		return nil, nil, err
-	}
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
-}

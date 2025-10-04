@@ -41,3 +41,11 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}
 	return rows.Err()
 }
+
+func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, o.client, constants.Oracle, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+}
