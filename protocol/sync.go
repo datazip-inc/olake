@@ -145,7 +145,7 @@ var syncCmd = &cobra.Command{
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
 		fullLoadStreams = utils.Ternary(clearDestinationFlag, selectedStreams, fullLoadStreams).([]string)
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, fullLoadStreams)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, fullLoadStreams, batchSize)
 		if err != nil {
 			return err
 		}
