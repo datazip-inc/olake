@@ -88,15 +88,6 @@ func (r RawRecord) ToProcessedRecord() ProcessedRecord {
 	return ProcessedRecord(r)
 }
 
-// ToProcessedRecords converts a slice of RawRecord to ProcessedRecord after normalization
-func ToProcessedRecords(rawRecords []RawRecord) []ProcessedRecord {
-	processedRecords := make([]ProcessedRecord, len(rawRecords))
-	for i, record := range rawRecords {
-		processedRecords[i] = record.ToProcessedRecord()
-	}
-	return processedRecords
-}
-
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 

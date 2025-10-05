@@ -101,7 +101,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[types.ProcessedRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
@@ -174,9 +174,7 @@ func (p *Parquet) Write(_ context.Context, records []types.ProcessedRecord) erro
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			// Convert ProcessedRecord back to RawRecord for backward compatibility
-			rawRecord := types.RawRecord(record)
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{rawRecord})
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.ProcessedRecord]).Write([]types.ProcessedRecord{record})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
@@ -253,7 +251,7 @@ func (p *Parquet) closePqFiles() error {
 		if p.stream.NormalizationEnabled() {
 			err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
 		} else {
-			err = parquetFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
+			err = parquetFile.writer.(*pqgo.GenericWriter[types.ProcessedRecord]).Close()
 		}
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
@@ -307,8 +305,14 @@ func (p *Parquet) Close(_ context.Context) error {
 
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
+	// Convert to ProcessedRecord slice once at the beginning
+	processedRecords := make([]types.ProcessedRecord, len(records))
+	for i, record := range records {
+		processedRecords[i] = types.ProcessedRecord(record)
+	}
+
 	if !p.stream.NormalizationEnabled() {
-		return false, types.ToProcessedRecords(records), nil, nil
+		return false, processedRecords, nil, nil
 	}
 
 	if len(records) == 0 {
@@ -367,7 +371,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 	}
 
-	return schemaChange, types.ToProcessedRecords(records), p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
+	return schemaChange, processedRecords, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
 	})
 }
