@@ -85,23 +85,18 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
-	filter := s.StreamMetadata.Filter
+	filter := strings.TrimSpace(s.StreamMetadata.Filter)
 	if filter == "" {
 		return Filter{}, nil
 	}
-	// Column names can now be:
-	// 1. Regular word characters: column_name
-	// 2. Quoted with double quotes: "column-name" or "column name"
-	// 3. Quoted with backticks: `column-name` or `column name`
-	// example: "user-id">5, `order date`="2024-01-01", status="active" and `item.price`>100
-	var FilterRegex = regexp.MustCompile(`^("([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*("([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
+	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|<>|!=|>|<|=)\s*((?:"[^"]*"|` + "`[^`]*`" + `|-?\d+\.?\d*|\d*\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|<>|!=|>|<|=)\s*((?:"[^"]*"|` + "`[^`]*`" + `|-?\d+\.?\d*|\d*\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
 	}
 
-	// Helper function to extract column name from multiple capture groups
-	extractColumn := func(groups ...string) string {
+	// Helper function to extract value from multiple capture groups
+	extractValue := func(groups ...string) string {
 		for _, group := range groups {
 			if group != "" {
 				return group
@@ -112,27 +107,37 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 
 	var conditions []Condition
 
-	// Extract first column name (could be in matches[2], matches[3], or matches[4])
-	column1 := extractColumn(matches[2], matches[3], matches[4])
+	// Extract first condition
+	// Column can be in matches[1] (quoted), matches[2] (backtick), or matches[3] (unquoted)
+	column1 := extractValue(matches[1], matches[2], matches[3])
+	operator1 := matches[4]
+	value1 := matches[5]
+
 	conditions = append(conditions, Condition{
 		Column:   column1,
-		Operator: matches[5],
-		Value:    matches[6],
+		Operator: operator1,
+		Value:    value1,
 	})
 
-	if matches[7] != "" {
-		// Extract second column name (could be in matches[9], matches[10], or matches[11])
-		column2 := extractColumn(matches[9], matches[10], matches[11])
+	// Check if there's a logical operator (and/or)
+	logicalOp := matches[6]
+	if logicalOp != "" {
+		// Extract second condition
+		// Column can be in matches[7] (quoted), matches[8] (backtick), or matches[9] (unquoted)
+		column2 := extractValue(matches[7], matches[8], matches[9])
+		operator2 := matches[10]
+		value2 := matches[11]
+
 		conditions = append(conditions, Condition{
 			Column:   column2,
-			Operator: matches[12],
-			Value:    matches[13],
+			Operator: operator2,
+			Value:    value2,
 		})
 	}
 
 	return Filter{
 		Conditions:      conditions,
-		LogicalOperator: matches[7],
+		LogicalOperator: logicalOp,
 	}, nil
 }
 
