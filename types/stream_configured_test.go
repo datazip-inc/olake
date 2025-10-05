@@ -206,15 +206,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "decimal number with trailing dot",
-			filter: "count = 5.",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "count", Operator: "=", Value: "5."},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "decimal number with trailing dot (invalid)",
+			filter:      "count = 5.",
+			expectError: true,
 		},
 		{
 			name:   "quoted empty string value",
