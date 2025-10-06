@@ -50,14 +50,14 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	splitViaRowId := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		var currentSCN string
 		query := jdbc.OracleCurrentSCNQuery()
-		err := o.client.QueryRow(query).Scan(&currentSCN)
+		err := o.client.QueryRowContext(ctx, query).Scan(&currentSCN)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get current SCN: %s", err)
 		}
 
 		// TODO: Add implementation of AddRecordsToSync function which expects total number of records to be synced
 		query = jdbc.OracleEmptyCheckQuery(stream)
-		err = o.client.QueryRow(query).Scan(new(interface{}))
+		err = o.client.QueryRowContext(ctx, query).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
@@ -68,7 +68,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 
 		query = jdbc.OracleBlockSizeQuery()
 		var blockSize int64
-		err = o.client.QueryRow(query).Scan(&blockSize)
+		err = o.client.QueryRowContext(ctx, query).Scan(&blockSize)
 		if err != nil || blockSize == 0 {
 			logger.Warnf("failed to get block size from query, switching to default block size value 8192")
 			blockSize = 8192

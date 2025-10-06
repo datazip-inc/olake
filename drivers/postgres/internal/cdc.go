@@ -100,9 +100,11 @@ func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr b
 	return nil
 }
 
-func doesReplicationSlotExists(conn *sqlx.DB, slotName string, publication string) (bool, error) {
+
+func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string) (bool, error) {
 	var exists bool
-	err := conn.QueryRow(
+	err := conn.QueryRowContext(
+		ctx,
 		"SELECT EXISTS(Select 1 from pg_replication_slots where slot_name = $1)",
 		slotName,
 	).Scan(&exists)

@@ -58,7 +58,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var approxRowCount int64
 	var avgRowSize any
 	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
-	err := m.client.QueryRow(approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
+	err := m.client.QueryRowContext(ctx, approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err)
 	}
@@ -99,7 +99,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			}
 			sort.Strings(pkColumns)
 			// Get table extremes
-			minVal, maxVal, err := m.getTableExtremes(stream, pkColumns, tx)
+			minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkColumns, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
 			}
@@ -129,7 +129,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 					}
 				}
 				var nextValRaw interface{}
-				err := tx.QueryRow(query, args...).Scan(&nextValRaw)
+				err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
 				if err == sql.ErrNoRows || nextValRaw == nil {
 					break
 				} else if err != nil {
@@ -183,8 +183,8 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, err
 }
 
-func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
 	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
-	err = tx.QueryRow(query).Scan(&min, &max)
+	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
 }
