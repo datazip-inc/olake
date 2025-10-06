@@ -147,7 +147,7 @@ var syncCmd = &cobra.Command{
 		if clearDestinationFlag {
 			dropStreams = append(dropStreams, append(cdcStreams, incrementalStreams...)...)
 		}
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, dropStreams)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, dropStreams, batchSize)
 		if err != nil {
 			return err
 		}
