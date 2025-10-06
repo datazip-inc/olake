@@ -36,12 +36,6 @@
       "description": "Database server listening port",
       "default": 3306
     },
-    "tls_skip_verify": {
-      "type": "boolean",
-      "title": "Skip TLS Verification",
-      "description": "Determines if TLS certificate verification should be skipped for secure connections",
-      "default": true
-    },
     "jdbc_url_params": {
       "type": "object",
       "title": "JDBC URL Parameters",
@@ -65,17 +59,17 @@
         "server_ca": {
           "type": "string",
           "title": "Server CA Certificate",
-          "description": "Path to the CA certificate file for server verification"
+          "description": "CA certificate content (PEM format) for server verification"
         },
         "client_cert": {
           "type": "string",
           "title": "Client Certificate",
-          "description": "Path to the client certificate file for mutual TLS authentication"
+          "description": "Client certificate content (PEM format) for mutual TLS authentication"
         },
         "client_key": {
           "type": "string",
           "title": "Client Key",
-          "description": "Path to the client private key file for mutual TLS authentication"
+          "description": "Client private key content (PEM format) for mutual TLS authentication"
         }
       },
       "required": ["mode"]

@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"os"
+	"maps"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
@@ -20,7 +20,6 @@ type Config struct {
 	Password         string            `json:"password"`
 	Database         string            `json:"database"`
 	Port             int               `json:"port"`
-	TLSSkipVerify    bool              `json:"tls_skip_verify"`
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	UpdateMethod     interface{}       `json:"update_method"`
@@ -54,7 +53,6 @@ func (c *Config) URI() string {
 		AllowNativePasswords: true,
 	}
 
-	// Apply SSL/TLS configuration
 	if c.SSLConfiguration != nil {
 		switch c.SSLConfiguration.Mode {
 		case utils.SSLModeDisable:
@@ -62,47 +60,35 @@ func (c *Config) URI() string {
 		case utils.SSLModeRequire:
 			cfg.TLSConfig = "true"
 		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
-			// For certificate-based SSL, we need to register a custom TLS config
-			if err := c.registerTLSConfig(); err == nil {
-				cfg.TLSConfig = "custom"
+			if tlsConfig, err := c.buildTLSConfig(); err == nil {
+				if err := mysql.RegisterTLSConfig("custom", tlsConfig); err == nil {
+					cfg.TLSConfig = "custom"
+				} else {
+					cfg.TLSConfig = "skip-verify"
+				}
 			} else {
-				// Fallback to skip-verify if registration fails
 				cfg.TLSConfig = "skip-verify"
 			}
 		}
-	} else if c.TLSSkipVerify {
-		// Fallback to legacy TLSSkipVerify field for backward compatibility
-		cfg.TLSConfig = "skip-verify"
 	}
 
-	// Apply custom JDBC URL parameters
 	if len(c.JDBCURLParams) > 0 {
-		params := make(map[string]string)
-		for k, v := range c.JDBCURLParams {
-			params[k] = v
+		if cfg.Params == nil {
+			cfg.Params = make(map[string]string)
 		}
-		cfg.Params = params
+		maps.Copy(cfg.Params, c.JDBCURLParams)
 	}
 
 	return cfg.FormatDSN()
 }
 
-// registerTLSConfig registers a custom TLS configuration for certificate-based SSL
-func (c *Config) registerTLSConfig() error {
-	if c.SSLConfiguration == nil {
-		return fmt.Errorf("SSL configuration is nil")
-	}
-
+// buildTLSConfig builds a custom TLS configuration for certificate-based SSL
+func (c *Config) buildTLSConfig() (*tls.Config, error) {
 	rootCertPool := x509.NewCertPool()
-	
-	// Load CA certificate if provided
+
 	if c.SSLConfiguration.ServerCA != "" {
-		pem, err := os.ReadFile(c.SSLConfiguration.ServerCA)
-		if err != nil {
-			return fmt.Errorf("failed to read CA certificate: %s", err)
-		}
-		if ok := rootCertPool.AppendCertsFromPEM(pem); !ok {
-			return fmt.Errorf("failed to append CA certificate")
+		if ok := rootCertPool.AppendCertsFromPEM([]byte(c.SSLConfiguration.ServerCA)); !ok {
+			return nil, fmt.Errorf("failed to append CA certificate")
 		}
 	}
 
@@ -110,26 +96,19 @@ func (c *Config) registerTLSConfig() error {
 		RootCAs: rootCertPool,
 	}
 
-	// Set InsecureSkipVerify based on SSL mode
 	if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA {
 		tlsConfig.InsecureSkipVerify = true
 	}
 
-	// Load client certificate and key if provided (for mutual TLS)
 	if c.SSLConfiguration.ClientCert != "" && c.SSLConfiguration.ClientKey != "" {
-		cert, err := tls.LoadX509KeyPair(c.SSLConfiguration.ClientCert, c.SSLConfiguration.ClientKey)
+		cert, err := tls.X509KeyPair([]byte(c.SSLConfiguration.ClientCert), []byte(c.SSLConfiguration.ClientKey))
 		if err != nil {
-			return fmt.Errorf("failed to load client certificate and key: %s", err)
+			return nil, fmt.Errorf("failed to load client certificate and key: %s", err)
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	// Register the TLS config with the MySQL driver
-	if err := mysql.RegisterTLSConfig("custom", tlsConfig); err != nil {
-		return fmt.Errorf("failed to register TLS config: %s", err)
-	}
-
-	return nil
+	return tlsConfig, nil
 }
 
 // Validate checks the configuration for any missing or invalid fields

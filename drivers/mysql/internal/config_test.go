@@ -75,45 +75,6 @@ func TestConfig_URI_WithSSLRequired(t *testing.T) {
 	}
 }
 
-func TestConfig_URI_WithLegacyTLSSkipVerify(t *testing.T) {
-	config := &Config{
-		Host:          "localhost",
-		Port:          3306,
-		Username:      "testuser",
-		Password:      "testpass",
-		Database:      "testdb",
-		TLSSkipVerify: true,
-	}
-
-	uri := config.URI()
-
-	// Check that TLS skip-verify is set
-	if !strings.Contains(uri, "tls=skip-verify") {
-		t.Errorf("Expected tls=skip-verify in URI, got: %s", uri)
-	}
-}
-
-func TestConfig_URI_SSLConfigTakesPrecedence(t *testing.T) {
-	config := &Config{
-		Host:          "localhost",
-		Port:          3306,
-		Username:      "testuser",
-		Password:      "testpass",
-		Database:      "testdb",
-		TLSSkipVerify: true,
-		SSLConfiguration: &utils.SSLConfig{
-			Mode: utils.SSLModeDisable,
-		},
-	}
-
-	uri := config.URI()
-
-	// SSL configuration should take precedence over TLSSkipVerify
-	if !strings.Contains(uri, "tls=false") {
-		t.Errorf("Expected SSL config to take precedence, got: %s", uri)
-	}
-}
-
 func TestConfig_Validate_WithSSLConfig(t *testing.T) {
 	tests := []struct {
 		name      string
