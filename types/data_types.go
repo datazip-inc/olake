@@ -2,6 +2,7 @@ package types
 
 import (
 	"time"
+	"unsafe"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/parquet-go/parquet-go"
@@ -86,6 +87,12 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 // ToProcessedRecord converts a RawRecord to ProcessedRecord after normalization
 func (r RawRecord) ToProcessedRecord() ProcessedRecord {
 	return ProcessedRecord(r)
+}
+
+// ToProcessedRecords converts a slice of RawRecord to ProcessedRecord with zero-copy optimization
+// Since ProcessedRecord is just a type alias for RawRecord, we can use unsafe pointer casting
+func ToProcessedRecords(rawRecords []RawRecord) []ProcessedRecord {
+	return *(*[]ProcessedRecord)(unsafe.Pointer(&rawRecords))
 }
 
 func (d DataType) ToNewParquet() parquet.Node {

@@ -464,14 +464,8 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	records = dedupRecords(records)
 
-	// Convert to ProcessedRecord slice once
-	processedRecords := make([]types.ProcessedRecord, len(records))
-	for i, record := range records {
-		processedRecords[i] = types.ProcessedRecord(record)
-	}
-
 	if !i.stream.NormalizationEnabled() {
-		return false, processedRecords, i.schema, nil
+		return false, types.ToProcessedRecords(records), i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
@@ -479,7 +473,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
-	return schemaDifference, processedRecords, recordsSchema, err
+	return schemaDifference, types.ToProcessedRecords(records), recordsSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly

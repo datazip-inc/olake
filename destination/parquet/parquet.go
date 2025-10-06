@@ -305,14 +305,8 @@ func (p *Parquet) Close(_ context.Context) error {
 
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
-	// Convert to ProcessedRecord slice once at the beginning
-	processedRecords := make([]types.ProcessedRecord, len(records))
-	for i, record := range records {
-		processedRecords[i] = types.ProcessedRecord(record)
-	}
-
 	if !p.stream.NormalizationEnabled() {
-		return false, processedRecords, nil, nil
+		return false, types.ToProcessedRecords(records), nil, nil
 	}
 
 	if len(records) == 0 {
@@ -371,7 +365,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 	}
 
-	return schemaChange, processedRecords, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
+	return schemaChange, types.ToProcessedRecords(records), p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
 	})
 }
