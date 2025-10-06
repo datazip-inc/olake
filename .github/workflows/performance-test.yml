@@ -3,13 +3,10 @@ name: Performance Tests
 on:
   push:
     branches:
-    - "*" # change after testing 
-    # paths:
-    # - '**/*.go'
-    # - '**/*.java'
-  pull_request:
-    branches:
-    - "*" #
+    - "staging"
+    paths:
+    - '**/*.go'
+    - '**/*.java'
 
 permissions:
   id-token: write
