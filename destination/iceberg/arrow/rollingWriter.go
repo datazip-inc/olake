@@ -22,9 +22,8 @@ import (
 
 var totalDataFiles atomic.Int64
 
-// keeping ~1 MB headroom for parquet footer similar to previous impl
 const (
-	targetFileSize  = int64(27*1024*1024 - 1*1024*1024)
+	targetFileSize  = int64(27 * 1024*1024 - 1 * 1024 * 1024)
 	streamChunkSize = int64(8 * 1024 * 1024)
 )
 
@@ -62,7 +61,6 @@ func (r *RollingDataWriter) Write(record arrow.Record) (string, error) {
 		r.currentFile = GenerateDataFileName()
 		r.currentBuffer = &bytes.Buffer{}
 
-		// Use memory allocator for better performance
 		allocator := memory.NewGoAllocator()
 
 		writerProps := parquet.NewWriterProperties(
@@ -102,7 +100,6 @@ func (r *RollingDataWriter) Write(record arrow.Record) (string, error) {
 	record.Release()
 	r.currentRowCount += record.NumRows()
 
-	// Calculate size more accurately like previous implementation
 	sizeSoFar := int64(0)
 	if r.currentBuffer != nil {
 		sizeSoFar += int64(r.currentBuffer.Len())
@@ -159,7 +156,6 @@ func (r *RollingDataWriter) flush() (string, error) {
 	s3Path := fmt.Sprintf("s3://%s/%s", r.S3Config.BucketName, s3Key)
 	logger.Infof("Successfully uploaded file: %s (%.2f MB, %d records)", s3Path, float64(fileSize)/1024/1024, r.currentRowCount)
 
-	// Reset state like previous implementation
 	if r.currentBuffer != nil {
 		r.currentBuffer.Reset()
 		r.currentBuffer = nil

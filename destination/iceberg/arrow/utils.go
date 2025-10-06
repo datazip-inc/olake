@@ -65,16 +65,12 @@ func CreateDeNormFields() []arrow.Field {
 	return fields
 }
 
-// CreateArrowRecordWithFields creates an Arrow record using explicit fields (preferred)
 func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field, normalization bool) (arrow.Record, error) {
 	if len(records) == 0 {
 		return nil, fmt.Errorf("no records provided")
 	}
 
-	// Use the provided fields to construct the schema. This keeps parity with the
-	// previous implementation which derived types from the configured schema.
 	if !normalization {
-		// For denormalized mode, ignore any provided fields and use fixed set
 		fields = CreateDeNormFields()
 	}
 
@@ -119,13 +115,9 @@ func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field
 	return arrowRecord, nil
 }
 
-// CreateArrowRecord is a backwards-compatible helper that infers fields for
-// normalized mode (string-typed) and uses fixed denormalized fields otherwise.
-// Prefer CreateArrowRecordWithFields to preserve configured Arrow types.
 func CreateArrowRecord(records []types.RawRecord, normalization bool) (arrow.Record, error) {
 	var fields []arrow.Field
 	if normalization {
-		// Infer fields from first record keys, defaulting to string types
 		firstRecord := records[0]
 		fieldNames := make([]string, 0, len(firstRecord.Data))
 		for fieldName := range firstRecord.Data {

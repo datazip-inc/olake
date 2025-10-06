@@ -25,7 +25,9 @@ type Iceberg struct {
 	server           *serverInstance             // java server instance
 	schema           map[string]string           // schema for current thread associated with java writer (col -> type)
 	createdFilePaths []string                    // list of created parquet file paths
-	arrowWriter      *ArrowWriter2               // Per-thread streaming arrow writer
+	arrowWriter      *ArrowWriter                // Per-thread streaming arrow writer
+	// Why Schema On Thread Level ?
+
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
 }
@@ -106,14 +108,13 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 // note: java server parses time from long value which will in milliseconds
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	if i.UseArrowWrites() {
-		// Initialize ArrowWriter2 only once per thread/instance
 		if i.arrowWriter == nil {
 			bucketName, prefix, err := i.parseS3Path()
 			if err != nil {
 				return fmt.Errorf("failed to parse S3 path: %w", err)
 			}
 
-			i.arrowWriter, err = i.NewArrowWriter2(bucketName, prefix, i.config.AccessKey, i.config.SecretKey, i.config.Region)
+			i.arrowWriter, err = i.NewArrowWriter(bucketName, prefix, i.config.AccessKey, i.config.SecretKey, i.config.Region)
 			if err != nil {
 				return fmt.Errorf("failed to create arrow writer: %w", err)
 			}
@@ -232,7 +233,6 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 }
 
 func (i *Iceberg) Close(ctx context.Context) error {
-	// Close ArrowWriter2 and collect any final file paths
 	if i.arrowWriter != nil {
 		finalFilePaths, err := i.arrowWriter.Close()
 		if err != nil {

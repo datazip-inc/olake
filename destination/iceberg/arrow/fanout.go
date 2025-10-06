@@ -44,8 +44,6 @@ func (f *Fanout) getOrCreateRollingDataWriter(partitionKey string) *RollingDataW
 		return nil
 	}
 
-	// Use background context to avoid cancellation issues during Close()
-	// The original context f.ctx may be cancelled before Close() is called
 	writer := NewRollingDataWriter(context.Background(), partitionKey)
 	writer.S3Config = f.S3Config
 

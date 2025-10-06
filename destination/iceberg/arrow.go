@@ -13,7 +13,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-type ArrowWriter2 struct {
+type ArrowWriter struct {
 	iceberg             *Iceberg
 	unpartitionedWriter *arrow_writer.RollingDataWriter
 	partitionedWriter   *arrow_writer.Fanout
@@ -22,18 +22,17 @@ type ArrowWriter2 struct {
 	bucketName string
 	prefix     string
 
-	// Cache arrow fields to avoid recreation on every write
 	cachedArrowFields []arrow.Field
 	isNormalized      bool
 }
 
-func (i *Iceberg) NewArrowWriter2(bucketName, prefix, accessKey, secretKey, region string) (*ArrowWriter2, error) {
+func (i *Iceberg) NewArrowWriter(bucketName, prefix, accessKey, secretKey, region string) (*ArrowWriter, error) {
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")), config.WithRegion(region))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	arrowWriter := &ArrowWriter2{
+	arrowWriter := &ArrowWriter{
 		iceberg:      i,
 		s3Client:     s3.NewFromConfig(cfg),
 		bucketName:   bucketName,
@@ -41,7 +40,6 @@ func (i *Iceberg) NewArrowWriter2(bucketName, prefix, accessKey, secretKey, regi
 		isNormalized: i.stream.NormalizationEnabled(),
 	}
 
-	// Pre-compute and cache arrow fields to avoid recreation on every write
 	if arrowWriter.isNormalized {
 		arrowWriter.cachedArrowFields = arrow_writer.CreateNormFields(i.schema)
 	} else {
@@ -51,18 +49,15 @@ func (i *Iceberg) NewArrowWriter2(bucketName, prefix, accessKey, secretKey, regi
 	return arrowWriter, nil
 }
 
-func (aw *ArrowWriter2) ArrowWrites(ctx context.Context, records []types.RawRecord) error {
+func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 
-	// Use cached arrow fields instead of recreating them
 	arrowFields := aw.cachedArrowFields
 
 	if len(aw.iceberg.partitionInfo) != 0 {
-		// Initialize partitioned writer once
 		if aw.partitionedWriter == nil {
-			// Use background context to avoid cancellation issues during Close()
 			aw.partitionedWriter = arrow_writer.NewFanoutWriter(context.Background(), aw.iceberg.partitionInfo, aw.iceberg.schema)
 			aw.partitionedWriter.S3Config = arrow_writer.NewS3Config(aw.s3Client, aw.bucketName, aw.prefix)
 			aw.partitionedWriter.Normalization = aw.iceberg.stream.NormalizationEnabled()
@@ -72,6 +67,7 @@ func (aw *ArrowWriter2) ArrowWrites(ctx context.Context, records []types.RawReco
 		if err != nil {
 			return fmt.Errorf("failed to write partitioned data using fanout writer: %v", err)
 		}
+
 		if len(filePaths) != 0 {
 			if aw.iceberg.createdFilePaths == nil {
 				aw.iceberg.createdFilePaths = make([]string, 0, len(filePaths))
@@ -94,6 +90,7 @@ func (aw *ArrowWriter2) ArrowWrites(ctx context.Context, records []types.RawReco
 		if err != nil {
 			return fmt.Errorf("failed to write arrow record to parquet: %w", err)
 		}
+
 		if filePath != "" {
 			if aw.iceberg.createdFilePaths == nil {
 				aw.iceberg.createdFilePaths = make([]string, 0)
@@ -125,8 +122,7 @@ func (i *Iceberg) parseS3Path() (bucketName, prefix string, err error) {
 	return bucketName, prefix, nil
 }
 
-// Close flushes any remaining data and closes all writers
-func (aw *ArrowWriter2) Close() ([]string, error) {
+func (aw *ArrowWriter) Close() ([]string, error) {
 	outputFilePaths := make([]string, 0)
 	if aw.partitionedWriter != nil {
 		filePaths, err := aw.partitionedWriter.Close()
