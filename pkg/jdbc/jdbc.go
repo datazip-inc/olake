@@ -127,12 +127,12 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int) string {
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
 	quotedColumn := QuoteIdentifier(filterColumn, constants.Postgres)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
 	baseCond := fmt.Sprintf(`%s > %v`, quotedColumn, filterValue)
 	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM %s WHERE %s ORDER BY %s ASC LIMIT %d) AS T`,
-		quotedColumn, quotedColumn, quotedTable, baseCond, quotedColumn, batchSize)
+		quotedColumn, quotedColumn, quotedTable, baseCond, quotedColumn, 10000)
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
@@ -284,6 +284,12 @@ func MySQLTableRowStatsQuery() string {
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
 	`
+}
+
+// MySQLTableExistsQuery returns the query to check if a table has any rows using EXISTS
+func MySQLTableExistsQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	return fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s LIMIT 1)", quotedTable)
 }
 
 // MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.3 and below

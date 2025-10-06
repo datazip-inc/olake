@@ -1,62 +1,40 @@
-# Contributing to Olake
+# Contributing to OLake
 
-Thanks for taking the time and for your help in improving this project!
+We truly value and appreciate all contributions — every effort makes a difference, and proper credit will always be given.  
+To ensure consistency, we follow a structured contribution process. All guidelines and details have been consolidated into the official OLake documentation. Please refer to the links below for more information:
 
-## Table of contents
-- [Olake Framework Structure](#olake-framework-structure)
-- [Olake Contributing Agreement](#olake-contributor-agreement)
-- [How You Can Contribute to Olake](#how-you-can-contribute-to-olake)
-- [Submitting a Pull Request](#submitting-a-pull-request)
-- [Committing](#committing)
-- [Installing and Setting Up Olake](#installing-and-setting-up-olake)
-- [Getting Help](#getting-help)
+- [Contribute To OLake](https://olake.io/docs/community/contributing)
+- [How To Raise A PR](https://olake.io/docs/community/issues-and-prs)
+- [Setting Up A Development Environment](https://olake.io/docs/community/setting-up-a-dev-env)
 
-## Olake Framework Structure
-![diagram](/.github/assets/Olake.jpg)
+---
 
-## Olake Contributor Agreement
+## 🎃 Hacktoberfest 2025 @ OLake
 
-To contribute to this project, we need you to sign the [**Contributor License Agreement (“CLA”)**][CLA] for the first commit you make. By agreeing to the [**CLA**][CLA]
-we can add you to list of approved contributors and review the changes proposed by you.
+OLake is officially open for **Hacktoberfest contributions**! 🚀  
 
-## How you can contribute to Olake
+If you’re participating in Hacktoberfest, look out for any issues labeled:
+- **`hacktoberfest`**
+- **`good first issue`**
 
-You can contribute to open-source Olake project. View our [**Issues Page**](https://github.com/datazip-inc/olake/issues) to see all open issues. If you encounter a bug or have an improvement suggestion, you can [**submit an issue**](https://github.com/datazip-inc/olake/issues/new) describing your proposed change.
+These are designed to help new contributors get started quickly.  
+We welcome everything — bug fixes, documentation updates, tests, or feature enhancements.  
 
-One way you can contribute to Olake is to create an Driver. An Driver is a connection between Olake and a Source from where you would like to fetch your event data. There are several reasons why you may want to build an Driver:
+👉 [Check our open issues here](../../issues)
 
-- Custom Database Support: If your organization uses a unique or proprietary database not currently supported by Olake, creating a Driver allows seamless integration and data ingestion.
-- Optimized Performance: By building a custom Driver, you can tailor it to optimize for your specific use case, improving performance and reducing latency during data fetch operations
-- Advanced Features: Implement additional capabilities, such as support for custom queries, change data capture, or enhanced data transformation, to better suit your data workflows.
+Let’s hack, learn, and grow together this Hacktoberfest. Happy contributing & happy engineering! ⚡
 
-For more information on the different ways in which you can contribute to Olake, you can chat with us on our [**Slack**](https://olake.io/slack/) channel.
+---
 
+## Getting Help
 
-## Submitting a pull request
+For any questions, concerns, or queries:
+- Start a discussion on our [**Slack**](https://olake.io/slack/) channel.  
+- Check [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) for ongoing conversations.  
+- Don’t hesitate to open an issue if something is unclear.
 
-For every suggested change or issue, you can make a pull request to the appropriate branch based on the type of change. You can reach out to us on our [**Slack**](https://olake.io/slack/) channel if you have any questions.
+---
 
-For example to contribute a new driver, you need to create a pull request (PR). Follow these steps to ensure your PR is well-prepared:
-- Provide a clear and concise PR title.
-- Write a detailed and descriptive PR description.
-- Request a code review from the maintainers.
-
-## Committing
-
-Make sure to pull the latest changes from the respective branch before committing. Run `make pre-commit` to validate your changes. Use a clear and descriptive commit message that reflects the purpose of your changes. Your pull request will be reviewed by the appropriate OLake maintainers.
-
-## Installing and setting up Olake
-
-To contribute to this project, you may need to install Olake on your machine. You can do so by following our [**docs**](https://olake.io/docs) and set up Olake in no time.
-
-## Getting help
-
-For any questions, concerns, or queries, you can start by asking a question on our [**Slack**](https://olake.io/slack/) channel.
-<br><br>
-
-### We look forward to your feedback on improving this project!
-
-
-<!----variables---->
-
+### 💡 We look forward to your feedback and contributions to improve this project!
+<!----variables----> 
 [CLA]: https://docs.google.com/forms/d/e/1FAIpQLSdze2q6gn81fmbIp2bW5cIpAXcpv7Y5OQjQyXflNvoYWiO4OQ/viewform
