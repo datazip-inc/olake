@@ -287,7 +287,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: "test_olake",
+			DestTableName: destinationDB,
 			Schema:        icebergRawSchema(),
 		},
 	}
