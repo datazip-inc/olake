@@ -17,7 +17,18 @@ import (
 )
 
 func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, p.Type())
+	opts := jdbc.DriverOptions{
+		Driver: constants.Postgres,
+		Stream: stream,
+		State:  p.state,
+		Client: p.client,
+	}
+	thresholdFilter, args, err := jdbc.ThresholdFilter(opts)
+	if err != nil {
+		return fmt.Errorf("failed to set threshold filter: %s", err)
+	}
+
+	filter, err := jdbc.SQLFilter(stream, p.Type(), thresholdFilter)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -27,22 +38,11 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	}
 	defer tx.Rollback()
 
-	opts := jdbc.IncrementalConditionOptions{
-		Driver: constants.Postgres,
-		Stream: stream,
-		State:  p.state,
-		Client: p.client,
-	}
-
-	thresholdFilter, args, err := jdbc.ThresholdFilter(opts, filter)
-	if err != nil {
-		return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
-	}
-	logger.Infof("Starting backfill with filter: %s, args: %v", thresholdFilter, args)
+	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
-	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, thresholdFilter)
+	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		return tx.Query(query, args...)
 	})

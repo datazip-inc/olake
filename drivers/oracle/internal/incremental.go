@@ -12,7 +12,7 @@ import (
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	opts := jdbc.IncrementalConditionOptions{
+	opts := jdbc.DriverOptions{
 		Driver: constants.Oracle,
 		Stream: stream,
 		State:  o.state,

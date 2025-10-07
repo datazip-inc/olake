@@ -19,7 +19,18 @@ import (
 )
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, m.Type())
+	opts := jdbc.DriverOptions{
+		Driver: constants.MySQL,
+		Stream: stream,
+		State:  m.state,
+		Client: m.client,
+	}
+	thresholdFilter, args, err := jdbc.ThresholdFilter(opts)
+	if err != nil {
+		return fmt.Errorf("failed to set threshold filter: %s", err)
+	}
+
+	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -30,26 +41,15 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 		sort.Strings(pkColumns)
 
-		opts := jdbc.IncrementalConditionOptions{
-			Driver: constants.MySQL,
-			Stream: stream,
-			State:  m.state,
-			Client: m.client,
-		}
-
-		thresholdFilter, args, err := jdbc.ThresholdFilter(opts, filter)
-		if err != nil {
-			return fmt.Errorf("failed to update filter limiting the cursor values: %s", err)
-		}
-		logger.Infof("Starting backfill with filter: %s, args: %v", thresholdFilter, args)
+		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 		// Get chunks from state or calculate new ones
 		stmt := ""
 		if chunkColumn != "" {
-			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, thresholdFilter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
 		} else if len(pkColumns) > 0 {
-			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, thresholdFilter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
 		} else {
-			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, thresholdFilter)
+			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
@@ -201,4 +201,3 @@ func (m *MySQL) getTableExtremes(stream types.StreamInterface, pkColumns []strin
 	err = tx.QueryRow(query).Scan(&min, &max)
 	return min, max, err
 }
-

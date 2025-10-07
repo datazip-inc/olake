@@ -132,3 +132,32 @@ func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 
 	return nil, nil, cursor.Err()
 }
+
+// ThresholdFilter creates MongoDB cursor conditions for incremental sync
+// This is used to avoid duplication of records during backfill by filtering out
+// documents with cursor values greater than the max cursor value
+func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
+	if stream.GetSyncMode() != types.INCREMENTAL {
+		return bson.A{}, nil
+	}
+
+	primaryCursor, secondaryCursor := stream.Cursor()
+	maxPrimaryCursorValue := m.state.GetCursor(stream.Self(), primaryCursor)
+	maxSecondaryCursorValue := m.state.GetCursor(stream.Self(), secondaryCursor)
+
+	var conditions bson.A
+
+	if maxPrimaryCursorValue != nil {
+		conditions = append(conditions, bson.D{
+			{Key: primaryCursor, Value: bson.D{{Key: "$lte", Value: maxPrimaryCursorValue}}},
+		})
+	}
+
+	if maxSecondaryCursorValue != nil && secondaryCursor != "" {
+		conditions = append(conditions, bson.D{
+			{Key: secondaryCursor, Value: bson.D{{Key: "$lte", Value: maxSecondaryCursorValue}}},
+		})
+	}
+
+	return conditions, nil
+}

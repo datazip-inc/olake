@@ -11,7 +11,7 @@ import (
 )
 
 func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	opts := jdbc.IncrementalConditionOptions{
+	opts := jdbc.DriverOptions{
 		Driver: constants.Postgres,
 		Stream: stream,
 		State:  p.state,

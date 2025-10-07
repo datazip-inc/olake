@@ -461,10 +461,10 @@ func OracleChunkRetrievalQuery(taskName string) string {
 }
 
 // OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
+func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
-	// in case of incremental sync, during backfill to avoid duplicate records we need to use <= else use >
+	// in case of incremental sync mode, during backfill to avoid duplicate records we need to use '<=', otherwise use '>'
 	operator := utils.Ternary(isBackfill, "<=", ">").(string)
 	// remove cursorField conversion to lower case once column normalization is based on writer side
 	datatype, err := stream.Self().Stream.Schema.GetType(cursorField)
@@ -491,8 +491,8 @@ func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, is
 	return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), formattedValue, nil
 }
 
-// ParseFilter converts a filter string to a valid SQL WHERE condition
-func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
+// ParseFilter converts a filter string to a valid SQL WHERE condition, also appends the threshold filter if present
+func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter string) (string, error) {
 	buildCondition := func(cond types.Condition, driver string) (string, error) {
 		var driverType constants.DriverType
 		switch driver {
@@ -544,13 +544,14 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 		return "", fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
+	var finalFilter string
+	var filterErr error
 	switch {
 	case len(filter.Conditions) == 0:
-		return "", nil // No conditions, return empty string
+		finalFilter, filterErr = thresholdFilter, nil
 	case len(filter.Conditions) == 1:
-		return buildCondition(filter.Conditions[0], driver)
+		finalFilter, filterErr = buildCondition(filter.Conditions[0], driver)
 	default:
-		// for size 2
 		conditions := make([]string, 0, len(filter.Conditions))
 		err := utils.ForEach(filter.Conditions, func(cond types.Condition) error {
 			formatted, err := buildCondition(cond, driver)
@@ -560,12 +561,14 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 			conditions = append(conditions, formatted)
 			return nil
 		})
-		return strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
+		finalFilter, filterErr = strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
 	}
+
+	return utils.Ternary(thresholdFilter == "", finalFilter, fmt.Sprintf("(%s) AND (%s)", thresholdFilter, finalFilter)).(string), filterErr
 }
 
-// IncrementalConditionOptions contains options for building incremental conditions
-type IncrementalConditionOptions struct {
+// DriverOptions contains options for creating various queries
+type DriverOptions struct {
 	Driver constants.DriverType
 	Stream types.StreamInterface
 	State  *types.State
@@ -573,7 +576,7 @@ type IncrementalConditionOptions struct {
 }
 
 // BuildIncrementalQuery generates the incremental query SQL based on driver type
-func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, error) {
+func BuildIncrementalQuery(opts DriverOptions) (string, []any, error) {
 	primaryCursor, secondaryCursor := opts.Stream.Cursor()
 	lastPrimaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
 	lastSecondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
@@ -663,9 +666,9 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
 // This is to avoid dupliction of records, as max cursor value is fetched before the chunk creation.
-func ThresholdFilter(opts IncrementalConditionOptions, filter string) (string, []any, error) {
+func ThresholdFilter(opts DriverOptions) (string, []any, error) {
 	if opts.Stream.GetSyncMode() != types.INCREMENTAL {
-		return filter, nil, nil
+		return "", nil, nil
 	}
 	primaryCursor, secondaryCursor := opts.Stream.Cursor()
 	primaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
@@ -696,8 +699,5 @@ func ThresholdFilter(opts IncrementalConditionOptions, filter string) (string, [
 		thresholdFilter = fmt.Sprintf("%s AND (%s IS NULL OR %s)", thresholdFilter, QuoteIdentifier(secondaryCursor, opts.Driver), secondaryCondition)
 		arguments = append(arguments, argument)
 	}
-
-	thresholdFilter = utils.Ternary(filter == "", thresholdFilter, fmt.Sprintf("(%s) AND %s", filter, thresholdFilter)).(string)
-
 	return thresholdFilter, arguments, nil
 }
