@@ -24,4 +24,11 @@ Please delete options that are not relevant. -->
 # Screenshots or Recordings
 <!-- Attach related screenshots or recordings here -->
 
+## Documentation
+
+<!-- REQUIRED for new features, user-facing changes, and API modifications -->
+
+- [ ] Documentation Link: [link to README, olake.io/docs, or olake-docs]
+- [ ] N/A (bug fix, refactor, or test changes only)
+
 ## Related PR's (If Any):
