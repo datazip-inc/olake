@@ -29,7 +29,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
 	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-		return tx.Query(query, args...)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return setter.Capture(func(rows *sql.Rows) error {
@@ -157,7 +157,6 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 
 func (p *Postgres) nextChunkEnd(ctx context.Context, stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
 	var chunkEnd interface{}
-
 	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd)
 	err := p.client.QueryRowContext(ctx, nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {

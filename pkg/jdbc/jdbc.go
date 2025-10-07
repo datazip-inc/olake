@@ -329,9 +329,9 @@ func MySQLTableColumnsQuery() string {
 
 // MySQLVersion returns the version of the MySQL server
 // It returns the major and minor version of the MySQL server
-func MySQLVersion(client *sqlx.DB) (int, int, error) {
+func MySQLVersion(ctx context.Context, client *sqlx.DB) (int, int, error) {
 	var version string
-	err := client.QueryRow("SELECT @@version").Scan(&version)
+	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
@@ -469,7 +469,7 @@ func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, la
 	}
 
 	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
-	err = opts.Client.QueryRow(query).Scan(&datatype)
+	err = opts.Client.QueryRowContext(context.Background(), query).Scan(&datatype)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
 	}

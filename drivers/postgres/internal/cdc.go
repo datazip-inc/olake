@@ -100,7 +100,6 @@ func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr b
 	return nil
 }
 
-
 func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string) (bool, error) {
 	var exists bool
 	err := conn.QueryRowContext(
@@ -112,12 +111,12 @@ func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName stri
 		return false, err
 	}
 
-	return exists, validateReplicationSlot(conn, slotName, publication)
+	return exists, validateReplicationSlot(ctx, conn, slotName, publication)
 }
 
-func validateReplicationSlot(conn *sqlx.DB, slotName string, publication string) error {
+func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string, publication string) error {
 	slot := waljs.ReplicationSlot{}
-	err := conn.Get(&slot, fmt.Sprintf(waljs.ReplicationSlotTempl, slotName))
+	err := conn.GetContext(ctx, &slot, fmt.Sprintf(waljs.ReplicationSlotTempl, slotName))
 	if err != nil {
 		return err
 	}
