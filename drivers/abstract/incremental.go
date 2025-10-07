@@ -114,27 +114,28 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	return nil
 }
 
+func ReformatCursorValue(cursorField string, cursorValue any, stream types.StreamInterface) (any, error) {
+	if cursorField == "" {
+		return cursorValue, nil
+	}
+	cursorColType, err := stream.Schema().GetType(cursorField)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
+	}
+	return typeutils.ReformatValue(cursorColType, cursorValue)
+}
+
 // returns typecasted increment cursor
 func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface) (any, any, error) {
 	primaryStateCursorValue := a.state.GetCursor(stream.Self(), primaryCursorField)
 	secondaryStateCursorValue := a.state.GetCursor(stream.Self(), secondaryCursorField)
 
-	getCursorValue := func(cursorField string, cursorValue any) (any, error) {
-		if cursorField == "" {
-			return cursorValue, nil
-		}
-		cursorColType, err := stream.Schema().GetType(cursorField)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get cursor column type: %s", err)
-		}
-		return typeutils.ReformatValue(cursorColType, cursorValue)
-	}
 	// typecast in case state was read from file
-	primaryCursorValue, err := getCursorValue(primaryCursorField, primaryStateCursorValue)
+	primaryCursorValue, err := ReformatCursorValue(primaryCursorField, primaryStateCursorValue, stream)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to typecast primary cursor value: %s", err)
 	}
-	secondaryCursorValue, err := getCursorValue(secondaryCursorField, secondaryStateCursorValue)
+	secondaryCursorValue, err := ReformatCursorValue(secondaryCursorField, secondaryStateCursorValue, stream)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to typecast secondary cursor value: %s", err)
 	}

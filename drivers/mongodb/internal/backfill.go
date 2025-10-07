@@ -30,6 +30,8 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
+	logger.Debugf("Starting backfill from %v to %v with filter: %s", chunk.Min, chunk.Max, filter)
+
 	// check for _id type
 	ObjectIDPresent, err := isObjectID(ctx, collection)
 	if err != nil {
@@ -441,15 +443,17 @@ func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
 	var allConditions bson.A
 	allConditions = append(allConditions, thresholdConditions...)
 
+	logger.Debugf("all conditions len: %d, filter conditions len: %d", len(allConditions), len(filter.Conditions))
+
 	switch {
-	case len(filter.Conditions) == 0 && len(allConditions) == 0:
+	case len(filter.Conditions) == 0:
 		return bson.D{}, nil
 	case len(filter.Conditions) == 1:
 		allConditions = append(allConditions, buildMongoCondition(filter.Conditions[0]))
 	case len(filter.Conditions) == 2:
 		allConditions = append(allConditions, bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}})
 	default:
-		logger.Errorf("multiple conditions are not supported in filter")
+		return nil, fmt.Errorf("multiple conditions are not supported in filter")
 	}
 
 	return bson.D{{Key: "$and", Value: allConditions}}, nil
