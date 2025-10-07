@@ -302,7 +302,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
 	protoSchema := icebergRawSchema()
-	record := types.CreateRawRecord("olake_test", map[string]any{"name": "olake"}, "r", &currentTime)
+	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime)
 	protoColumns, err := rawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
@@ -311,7 +311,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: "test_olake",
+			DestTableName: destinationDB,
 			Schema:        protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{

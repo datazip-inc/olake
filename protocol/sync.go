@@ -40,6 +40,7 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
+		// to set prefix for "test_olake" db created by OLake
 		if destinationDatabasePrefix != "" {
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
