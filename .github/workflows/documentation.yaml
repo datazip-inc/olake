@@ -1,0 +1,43 @@
+name: Documentation Check
+
+on:
+  pull_request:
+    types: [ opened, edited, synchronize ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-documentation:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Validate Documentation
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { body } = context.payload.pull_request;
+
+          // If N/A is checked, we're done
+          if (/-\s*\[\s*x\s*\]\s*N\/A/.test(body)) return;
+
+          // Check for valid documentation link in the Documentation Link line
+          const docLine = body.match(/-\s*\[\s*x\s*\]\s*Documentation Link:[^\n]*/i);
+          if (!docLine) {
+            core.setFailed(
+              'Documentation Required: Please either check "Documentation Link" and provide a valid link, or check "N/A" for bug fixes, refactors, or test changes.'
+            );
+            return;
+          }
+
+          const validLinkPatterns = [
+            /https:\/\/olake\.io\/docs[^\s)]*/,
+            /https:\/\/github\.com\/datazip-inc\/olake-docs[^\s)]*/,
+            /\[[^\]]*\]\([^)]*README[^)]*\)/i
+          ];
+
+          const hasValidLink = validLinkPatterns.some(pattern => pattern.test(docLine[0]));
+          if (!hasValidLink) {
+            core.setFailed(
+              'Documentation Required: Please provide a valid documentation link next to the checked "Documentation Link" option. Valid sources: README files, olake.io/docs, or olake-docs repository.'
+            );
+          }
