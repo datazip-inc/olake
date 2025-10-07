@@ -44,15 +44,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "backtick quoted column name",
-			filter: "`order date` = \"2024-01-01\"",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "order date", Operator: "=", Value: "\"2024-01-01\""},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "backtick quoted column name (now invalid - backticks not supported)",
+			filter:      "`order date` = \"2024-01-01\"",
+			expectError: true,
 		},
 		{
 			name:   "double quoted column with spaces",
@@ -66,15 +60,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "backtick quoted column with special chars",
-			filter: "`item.price` >= 100.50",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "item.price", Operator: ">=", Value: "100.50"},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "backtick quoted column with special chars (now invalid - backticks not supported)",
+			filter:      "`item.price` >= 100.50",
+			expectError: true,
 		},
 		{
 			name:   "two conditions with AND - mixed quotes",
@@ -89,28 +77,14 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "two conditions with OR - backticks and quotes",
-			filter: "`order date` = \"2024-01-01\" or \"user-type\" != admin",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "order date", Operator: "=", Value: "\"2024-01-01\""},
-					{Column: "user-type", Operator: "!=", Value: "admin"},
-				},
-				LogicalOperator: "or",
-			},
-			expectError: false,
+			name:        "two conditions with OR - backticks and quotes (now invalid - backticks not supported)",
+			filter:      "`order date` = \"2024-01-01\" or \"user-type\" != admin",
+			expectError: true,
 		},
 		{
-			name:   "complex example from comment",
-			filter: `"user-id" > 5 and ` + "`item.price` <= 100",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "user-id", Operator: ">", Value: "5"},
-					{Column: "item.price", Operator: "<=", Value: "100"},
-				},
-				LogicalOperator: "and",
-			},
-			expectError: false,
+			name:        "complex example from comment (now invalid - backticks not supported)",
+			filter:      `"user-id" > 5 and ` + "`item.price` <= 100",
+			expectError: true,
 		},
 		{
 			name:   "all operators test",
@@ -167,15 +141,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "test case from user: backtick a with not equal",
-			filter: "`a` != b",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "a", Operator: "!=", Value: "b"},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "test case from user: backtick a with not equal (now invalid - backticks not supported)",
+			filter:      "`a` != b",
+			expectError: true,
 		},
 		{
 			name:        "test case from user: invalid operator",
@@ -222,15 +190,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "backtick quoted column with underscores",
-			filter: "`user_full_name` = john",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "user_full_name", Operator: "=", Value: "john"},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "backtick quoted column with underscores (now invalid - backticks not supported)",
+			filter:      "`user_full_name` = john",
+			expectError: true,
 		},
 		{
 			name:   "mixed case logical operator - lowercase and",
@@ -303,15 +265,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "backtick value (unusual but valid)",
-			filter: "status = `active`",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "status", Operator: "=", Value: "`active`"},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "backtick value (now invalid - backticks not supported)",
+			filter:      "status = `active`",
+			expectError: true,
 		},
 		{
 			name:   "all different operators in sequence",
@@ -359,15 +315,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:   "backtick column with hyphen and dot",
-			filter: "`user-data.field` != null",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "user-data.field", Operator: "!=", Value: "null"},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "backtick column with hyphen and dot (now invalid - backticks not supported)",
+			filter:      "`user-data.field` != null",
+			expectError: true,
 		},
 		// Error cases - more tricky failures
 		{
@@ -450,15 +400,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:   "SQL-style not equal (valid)",
-			filter: "a <> b",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "a", Operator: "<>", Value: "b"},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
+			name:        "SQL-style not equal (now invalid - <> not supported)",
+			filter:      "a <> b",
+			expectError: true,
 		},
 		{
 			name:        "logical operator without second condition",

@@ -89,7 +89,9 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
-	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|<>|!=|>|<|=)\s*((?:"[^"]*"|` + "`[^`]*`" + `|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|` + "`([^`]*)`" + `|(\w+))\s*(>=|<=|<>|!=|>|<|=)\s*((?:"[^"]*"|` + "`[^`]*`" + `|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
+	// Supports double-quoted or unquoted column names (backticks removed)
+	// Operators: >=, <=, !=, >, <, =
+	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
@@ -108,10 +110,10 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	var conditions []Condition
 
 	// Extract first condition
-	// Column can be in matches[1] (quoted), matches[2] (backtick), or matches[3] (unquoted)
-	column1 := extractValue(matches[1], matches[2], matches[3])
-	operator1 := matches[4]
-	value1 := matches[5]
+	// Column can be in matches[1] (quoted) or matches[2] (unquoted)
+	column1 := extractValue(matches[1], matches[2])
+	operator1 := matches[3]
+	value1 := matches[4]
 
 	conditions = append(conditions, Condition{
 		Column:   column1,
@@ -120,13 +122,13 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	})
 
 	// Check if there's a logical operator (and/or)
-	logicalOp := matches[6]
+	logicalOp := matches[5]
 	if logicalOp != "" {
 		// Extract second condition
-		// Column can be in matches[7] (quoted), matches[8] (backtick), or matches[9] (unquoted)
-		column2 := extractValue(matches[7], matches[8], matches[9])
-		operator2 := matches[10]
-		value2 := matches[11]
+		// Column can be in matches[6] (quoted) or matches[7] (unquoted)
+		column2 := extractValue(matches[6], matches[7])
+		operator2 := matches[8]
+		value2 := matches[9]
 
 		conditions = append(conditions, Condition{
 			Column:   column2,
