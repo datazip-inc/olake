@@ -131,15 +131,13 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 	}
 
 	if len(a.state.Streams) > 0 {
-		var newState []*types.StreamState
 		for _, streamState := range a.state.Streams {
-			if !dropStreams[fmt.Sprintf("%s.%s", streamState.Namespace, streamState.Stream)] {
-				newState = append(newState, streamState)
+			if dropStreams[fmt.Sprintf("%s.%s", streamState.Namespace, streamState.Stream)] {
+				streamState.HoldsValue.Store(false)
+				streamState.State = sync.Map{}
 			}
 		}
-		a.state.Streams = newState
 	}
-
 	return a.state, nil
 }
 
