@@ -24,7 +24,6 @@ var (
 	syncID                    string
 	batchSize                 int64
 	noSave                    bool
-	clearDestinationFlag      bool
 	encryptionKey             string
 	destinationType           string
 	catalog                   *types.Catalog
@@ -85,7 +84,7 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 
 func init() {
 	// TODO: replace --catalog flag with --streams
-	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
+	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd, clearCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationType, "destination-type", "", "not-set", "Destination type for spec")
@@ -94,7 +93,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "destination-buffer-size", "", 10000, "(Optional) Batch size for destination")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
-	RootCmd.PersistentFlags().BoolVarP(&clearDestinationFlag, "clear-destination", "", false, "(Optional) Flag to clear destination and reset sync state for selected streams to force full refresh. Note: Destination is automatically cleared for full refresh streams regardless of this flag.")
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")

@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -49,7 +48,7 @@ var syncCmd = &cobra.Command{
 		state = &types.State{
 			Type: types.StreamType,
 		}
-		if statePath != "" && !clearDestinationFlag {
+		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
@@ -72,82 +71,25 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
-		streamsMap := types.StreamsToMap(streams...)
-
-		// create a map for namespace and streamMetadata
-		selectedStreamsMap := make(map[string]types.StreamMetadata)
-		for namespace, streamsMetadata := range catalog.SelectedStreams {
-			for _, streamMetadata := range streamsMetadata {
-				selectedStreamsMap[fmt.Sprintf("%s.%s", namespace, streamMetadata.StreamName)] = streamMetadata
-			}
+		// get all types of selected streams
+		selectedStreamsMetadata, err := types.IdentifySelectedStreams(catalog, streams, state)
+		if err != nil {
+			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
 
-		// Validating Streams and attaching State
-		selectedStreams := []string{}
-		cdcStreams := []types.StreamInterface{}
-		incrementalStreams := []types.StreamInterface{}
-		standardModeStreams := []types.StreamInterface{}
-		newStreamsState := []*types.StreamState{}
+		// for clearing streams
 		dropStreams := []types.StreamInterface{}
-
-		var stateStreamMap = make(map[string]*types.StreamState)
-		for _, stream := range state.Streams {
-			stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
-		}
-		_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
-			sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
-			// Check if the stream is in the selectedStreamMap
-			if !(catalog.SelectedStreams == nil || selected) {
-				logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
-				return false
+		dropStreams = append(dropStreams, selectedStreamsMetadata.StandardStreams...)
+		if len(dropStreams) > 0 {
+			logger.Infof("Clearing state for full refresh streams")
+			// get the state for modification in clearstate
+			connector.SetupState(state)
+			if state, err = connector.ClearState(dropStreams); err != nil {
+				return fmt.Errorf("error clearing state for full refresh streams: %w", err)
 			}
-
-			source, found := streamsMap[elem.ID()]
-			if !found {
-				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
-				return false
-			}
-
-			elem.StreamMetadata = sMetadata
-
-			err := elem.Validate(source)
-			if err != nil {
-				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
-				return false
-			}
-
-			selectedStreams = append(selectedStreams, elem.ID())
-			switch elem.Stream.SyncMode {
-			case types.CDC, types.STRICTCDC:
-				cdcStreams = append(cdcStreams, elem)
-				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
-				if exists {
-					newStreamsState = append(newStreamsState, streamState)
-				}
-			case types.INCREMENTAL:
-				incrementalStreams = append(incrementalStreams, elem)
-				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
-				if exists {
-					newStreamsState = append(newStreamsState, streamState)
-				}
-			default:
-				standardModeStreams = append(standardModeStreams, elem)
-			}
-
-			return false
-		})
-		state.Streams = newStreamsState
-		if len(selectedStreams) == 0 {
-			return fmt.Errorf("no valid streams found in catalog")
 		}
 
-		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
-
-		dropStreams = append(dropStreams, standardModeStreams...)
-		if clearDestinationFlag {
-			dropStreams = append(dropStreams, append(cdcStreams, incrementalStreams...)...)
-		}
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, dropStreams, batchSize)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, dropStreams, batchSize)
 		if err != nil {
 			return err
 		}
@@ -161,7 +103,7 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 		// Sync Telemetry tracking
-		telemetry.TrackSyncStarted(syncID, streams, selectedStreams, cdcStreams, connector.Type(), destinationConfig, catalog)
+		telemetry.TrackSyncStarted(syncID, streams, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
 			telemetry.TrackSyncCompleted(err == nil, pool.GetStats().ReadCount.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
@@ -169,7 +111,7 @@ var syncCmd = &cobra.Command{
 		}()
 
 		// init group
-		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams, incrementalStreams)
+		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.StandardStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
