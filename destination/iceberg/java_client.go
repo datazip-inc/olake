@@ -183,6 +183,12 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 
 	// Set up and start the process with logging
 	if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
+		// If process setup fails, clean up the process
+		if serverCmd != nil && serverCmd.Process != nil {
+			if killErr := serverCmd.Process.Kill(); killErr != nil {
+				logger.Errorf("Thread[%s]: Failed to kill process: %s", threadID, killErr)
+			}
+		}
 		// Mark port for cooldown since it failed to start
 		portStatus.Store(port, &portState{
 			inUse:      false,
