@@ -89,8 +89,6 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
-	// Supports double-quoted or unquoted column names (backticks removed)
-	// Operators: >=, <=, !=, >, <, =
 	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
@@ -109,31 +107,21 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 
 	var conditions []Condition
 
-	// Extract first condition
-	// Column can be in matches[1] (quoted) or matches[2] (unquoted)
-	column1 := extractValue(matches[1], matches[2])
-	operator1 := matches[3]
-	value1 := matches[4]
-
+	Column := extractValue(matches[1], matches[2])
 	conditions = append(conditions, Condition{
-		Column:   column1,
-		Operator: operator1,
-		Value:    value1,
+		Column:   Column,
+		Operator: matches[3],
+		Value:    matches[4],
 	})
 
 	// Check if there's a logical operator (and/or)
 	logicalOp := matches[5]
 	if logicalOp != "" {
-		// Extract second condition
-		// Column can be in matches[6] (quoted) or matches[7] (unquoted)
-		column2 := extractValue(matches[6], matches[7])
-		operator2 := matches[8]
-		value2 := matches[9]
-
+		Column := extractValue(matches[6], matches[7])
 		conditions = append(conditions, Condition{
-			Column:   column2,
-			Operator: operator2,
-			Value:    value2,
+			Column: Column,
+			Operator: matches[8],
+			Value:    matches[9],
 		})
 	}
 
