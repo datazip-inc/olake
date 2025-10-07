@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -14,13 +13,20 @@ import (
 
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/backoff"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-var portMap sync.Map
+var (
+	portStatus     sync.Map // map[int]*portState - tracks port usage and cooldown state
+	cooldownPeriod = 300 * time.Second
+)
+
+type portState struct {
+	inUse      bool
+	releasedAt time.Time
+}
 
 type serverInstance struct {
 	port     int
@@ -131,73 +137,58 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 		return nil, fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	var (
-		port      int
-		serverCmd *exec.Cmd
-	)
-
-	shouldRetry := func(err error) bool {
-		low := strings.ToLower(err.Error())
-		return strings.Contains(low, "bind") || strings.Contains(low, "address already in use") || strings.Contains(low, "failed to bind")
+	// get available port
+	port, err := FindAvailablePort(config.ServerHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find available ports: %s", err)
 	}
 
-	startErr := backoff.Retry(5, time.Second, func() error {
-		// choose a fresh port each attempt
-		p, findErr := FindAvailablePort(config.ServerHost)
-		if findErr != nil {
-			return findErr
-		}
-		port = p
+	// Get the server configuration JSON
+	configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create server config: %s", err)
+	}
 
-		// Get the server configuration JSON for this port
-		configJSON, cfgErr := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
-		if cfgErr != nil {
-			portMap.Delete(port)
-			return cfgErr
-		}
+	// setup command
+	var serverCmd *exec.Cmd
+	// If debug mode is enabled and it is not check command
+	if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
+		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
+	} else {
+		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
+	}
 
-		// setup command
-		if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
-		} else {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
-		}
+	// Get current environment
+	serverCmd.Env = os.Environ()
 
-		// Get current environment
-		serverCmd.Env = os.Environ()
-		addEnvIfSet := func(key, value string) {
-			if value != "" {
-				keyPrefix := fmt.Sprintf("%s=", key)
-				for idx := range serverCmd.Env {
-					if strings.HasPrefix(serverCmd.Env[idx], keyPrefix) {
-						serverCmd.Env[idx] = fmt.Sprintf("%s=%s", key, value)
-						return
-					}
+	addEnvIfSet := func(key, value string) {
+		if value != "" {
+			keyPrefix := fmt.Sprintf("%s=", key)
+			for idx := range serverCmd.Env {
+				// if prefix exist through env, override it with config
+				if strings.HasPrefix(serverCmd.Env[idx], keyPrefix) {
+					serverCmd.Env[idx] = fmt.Sprintf("%s=%s", key, value)
+					return
 				}
-				serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
 			}
+			// if prefix does not exist add it
+			serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
 		}
-		addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
-		addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
-		addEnvIfSet("AWS_REGION", config.Region)
-		addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
-		addEnvIfSet("AWS_PROFILE", config.ProfileName)
+	}
+	addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
+	addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
+	addEnvIfSet("AWS_REGION", config.Region)
+	addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
+	addEnvIfSet("AWS_PROFILE", config.ProfileName)
 
-		// Set up and start the process with logging
-		if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
-			// ensure process is not left running
-			if serverCmd != nil && serverCmd.Process != nil {
-				_ = serverCmd.Process.Kill()
-			}
-			// release reserved port
-			portMap.Delete(port)
-			return err
-		}
-		return nil
-	}, shouldRetry)
-
-	if startErr != nil {
-		return nil, fmt.Errorf("failed to start iceberg java writer process after retries: %s", startErr)
+	// Set up and start the process with logging
+	if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
+		// Mark port for cooldown since it failed to start
+		portStatus.Store(port, &portState{
+			inUse:      false,
+			releasedAt: time.Now(),
+		})
+		return nil, fmt.Errorf("failed to setup logger: %s", err)
 	}
 
 	// Connect to gRPC server
@@ -212,7 +203,11 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 				logger.Errorf("Thread[%s]: Failed to kill process: %s", threadID, killErr)
 			}
 		}
-		portMap.Delete(port)
+		// Mark port for cooldown since connection failed
+		portStatus.Store(port, &portState{
+			inUse:      false,
+			releasedAt: time.Now(),
+		})
 		return nil, fmt.Errorf("failed to create new grpc client: %s", err)
 	}
 
@@ -245,52 +240,55 @@ func (s *serverInstance) closeIcebergClient() error {
 			logger.Errorf("Thread[%s]: Failed to kill Iceberg server: %s", s.serverID, err)
 		}
 	}
-	portMap.Delete(s.port)
+	// Mark port as released (cooldown period to allow OS to clean up TIME_WAIT state)
+	portStatus.Store(s.port, &portState{
+		inUse:      false,
+		releasedAt: time.Now(),
+	})
 	return nil
 }
 
 // findAvailablePort finds an available port for the RPC server
-func FindAvailablePort(serverHost string) (int, error) {
+func FindAvailablePort(_ string) (int, error) {
 	for p := 50051; p <= 59051; p++ {
-		// Try to store port in map - returns false if already exists
-		if _, loaded := portMap.LoadOrStore(p, true); !loaded {
-			// Check if the port is already in use by another process
-			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", serverHost, p), time.Second)
-			if err == nil {
-				// Port is in use, close our test connection
-				conn.Close()
-
-				// Find the process using this port
-				cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", p), "-t")
-				output, err := cmd.Output()
-				if err != nil {
-					// Failed to find process, continue to next port
-					portMap.Delete(p)
-					continue
-				}
-
-				// Get the PID
-				pid := strings.TrimSpace(string(output))
-				if pid == "" {
-					// No process found, continue to next port
-					portMap.Delete(p)
-					continue
-				}
-
-				// Kill the process
-				killCmd := exec.Command("kill", "-9", pid)
-				err = killCmd.Run()
-				if err != nil {
-					logger.Warnf("Failed to kill process using port %d: %v", p, err)
-					portMap.Delete(p)
-					continue
-				}
-
-				logger.Infof("Killed process %s that was using port %d", pid, p)
-
-				// Wait a moment for the port to be released
-				time.Sleep(time.Second * 5)
+		// Check port state
+		if state, exists := portStatus.Load(p); exists {
+			ps := state.(*portState)
+			if ps.inUse {
+				// Port is currently in use by our process
+				continue
 			}
+			// Port was released, check if cooldown period has elapsed
+			if time.Since(ps.releasedAt) < cooldownPeriod {
+				// Still in cooldown, skip this port
+				continue
+			}
+			// Cooldown period expired, remove from map and allow reuse
+			portStatus.Delete(p)
+		}
+
+		// Port not tracked or cooldown expired - try to acquire it
+		// Use LoadOrStore to atomically claim the port
+		if _, loaded := portStatus.LoadOrStore(p, &portState{inUse: true}); !loaded {
+			// Successfully claimed the port, try to kill any process using it
+			cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", p), "-t")
+			output, err := cmd.Output()
+			if err == nil {
+				// Process found using this port
+				pid := strings.TrimSpace(string(output))
+				if pid != "" {
+					// Kill the process
+					killCmd := exec.Command("kill", "-9", pid)
+					if killErr := killCmd.Run(); killErr == nil {
+						logger.Infof("Killed process %s that was using port %d", pid, p)
+						// Wait for the port to be released
+						time.Sleep(time.Second * 5)
+					} else {
+						logger.Warnf("Failed to kill process %s using port %d: %v", pid, p, killErr)
+					}
+				}
+			}
+			// Return the port (either it was free, or we attempted to free it)
 			return p, nil
 		}
 	}
