@@ -20,7 +20,7 @@ import (
 
 var (
 	portStatus     sync.Map // map[int]*portState - tracks port usage and cooldown state
-	cooldownPeriod = 300 * time.Second
+	cooldownPeriod = 180 * time.Second
 )
 
 type portState struct {
