@@ -162,7 +162,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
 	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)
-	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -195,7 +194,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// 3. Run discover command
-							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
+							discoverCmd := discoverCommand(*cfg.TestConfig)
 							if code, out, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("discover failed (%d): %s\n%s", code, err, string(out))
 							}
@@ -317,6 +316,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								},
 							}
 
+							destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
 								cmd := syncCommand(*cfg.TestConfig, useState, "--destination-database-prefix", destDBPrefix)
 								if useState && operation != "" {
