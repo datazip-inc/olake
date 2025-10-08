@@ -18,10 +18,12 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 
 	opts := jdbc.IncrementalConditionOptions{
-		Driver: constants.MySQL,
-		Stream: stream,
-		State:  m.state,
-		Filter: filter,
+		Context: ctx,
+		Driver:  constants.MySQL,
+		Stream:  stream,
+		State:   m.state,
+		Client:  m.client,
+		Filter:  filter,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
 	if err != nil {
