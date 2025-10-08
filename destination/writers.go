@@ -237,7 +237,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
 
-	// After flattening, records are now ProcessedRecords, not RawRecords
+	// After flattening, records are now Record maps, not RawRecords
 	if evolution {
 		wt.streamArtifact.mu.Lock()
 		newSchema, err := wt.writer.EvolveSchema(flushCtx, wt.streamArtifact.schema, threadSchema)

@@ -101,7 +101,8 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.ProcessedRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
+		// For non-normalized mode, we'll write Record maps directly, not ProcessedRecord structs
+		return pqgo.NewGenericWriter[types.Record](pqFile, pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
@@ -152,11 +153,16 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 }
 
 // Write writes processed records to the Parquet file.
-func (p *Parquet) Write(_ context.Context, records []types.ProcessedRecord) error {
+func (p *Parquet) Write(_ context.Context, records []types.Record) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
-		record.OlakeTimestamp = time.Now().UTC()
-		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
+		// Update timestamp if not set
+		if _, exists := record[constants.OlakeTimestamp]; !exists {
+			record[constants.OlakeTimestamp] = time.Now().UTC()
+		}
+		
+		olakeTimestamp := record[constants.OlakeTimestamp].(time.Time)
+		partitionedPath := p.getPartitionedFilePath(record, olakeTimestamp)
 		partitionFile, exists := p.partitionedFiles[partitionedPath]
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
@@ -172,9 +178,11 @@ func (p *Parquet) Write(_ context.Context, records []types.ProcessedRecord) erro
 
 		var err error
 		if p.stream.NormalizationEnabled() {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
+			// For normalized mode, write the Record directly (it's already a map)
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record})
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.ProcessedRecord]).Write([]types.ProcessedRecord{record})
+			// For non-normalized mode, write the Record directly - no ProcessedRecord conversion needed
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.Record]).Write([]types.Record{record})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
@@ -251,7 +259,7 @@ func (p *Parquet) closePqFiles() error {
 		if p.stream.NormalizationEnabled() {
 			err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
 		} else {
-			err = parquetFile.writer.(*pqgo.GenericWriter[types.ProcessedRecord]).Close()
+			err = parquetFile.writer.(*pqgo.GenericWriter[types.Record]).Close()
 		}
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
@@ -304,33 +312,29 @@ func (p *Parquet) Close(_ context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
+func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.Record, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return false, types.ToProcessedRecords(records), nil, nil
+		return false, types.ToRecords(records), nil, nil
 	}
 
 	if len(records) == 0 {
-		return false, []types.ProcessedRecord{}, p.schema, nil
+		return false, []types.Record{}, p.schema, nil
 	}
 
+	// Work with Record maps directly - as requested by reviewer
+	processedRecords := make([]types.Record, len(records))
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
-	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-		// Add common fields
-		records[idx].Data[constants.OlakeID] = record.OlakeID
-		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
-		records[idx].Data[constants.OpType] = record.OperationType
-		if record.CdcTimestamp != nil {
-			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
-		}
-
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+	flattener := typeutils.NewFlattener()
+	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, rawRecord types.RawRecord, idx int) error {
+		// Use centralized function to avoid DRY violations
+		flattenedRecord, err := types.ProcessRawRecordToRecord(rawRecord, flattener)
 		if err != nil {
-			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
+			return fmt.Errorf("failed to process record at index %d, pq writer: %s", idx, err)
 		}
 
-		// Store flattened result back to the record
-		records[idx].Data = flattenedRecord
+		// Store the complete record
+		processedRecords[idx] = flattenedRecord
 
 		if !diffFound.Load() {
 			for columnName, columnValue := range flattenedRecord {
@@ -358,16 +362,19 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	schemaChange := false // note: diff schema already detected so we can avoid this in future
 
 	if diffFound.Load() {
-		for _, record := range records {
-			// Process the changes and upgrade new schema
-			change, typeChange, _ := p.schema.Process(record.Data)
+		for _, record := range processedRecords {
+			// Process the changes and upgrade new schema using the Record map directly
+			change, typeChange, _ := p.schema.Process(record)
 			schemaChange = change || typeChange || schemaChange
 		}
 	}
 
-	return schemaChange, types.ToProcessedRecords(records), p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
-		return typeutils.ReformatRecord(p.schema, record.Data)
+	// Apply reformatting to the processed records
+	reformatErr := utils.Concurrent(ctx, processedRecords, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.Record, _ int) error {
+		return typeutils.ReformatRecord(p.schema, record)
 	})
+
+	return schemaChange, processedRecords, p.schema, reformatErr
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.

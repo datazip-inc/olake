@@ -111,7 +111,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 }
 
 // note: java server parses time from long value which will in milliseconds
-func (i *Iceberg) Write(ctx context.Context, records []types.ProcessedRecord) error {
+func (i *Iceberg) Write(ctx context.Context, records []types.Record) error {
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(i.schema))
 	for field, dType := range i.schema {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
@@ -122,14 +122,14 @@ func (i *Iceberg) Write(ctx context.Context, records []types.ProcessedRecord) er
 
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
 	for _, record := range records {
-		if record.Data == nil {
+		if len(record) == 0 {
 			continue
 		}
 
 		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 		if !i.stream.NormalizationEnabled() {
-			// Convert ProcessedRecord back to RawRecord for backward compatibility
-			rawRecord := types.RawRecord(record)
+			// Convert Record back to RawRecord for backward compatibility with raw data buffer
+			rawRecord := types.RecordToRawRecord(record)
 			protoCols, err := rawDataColumnBuffer(rawRecord, protoSchema)
 			if err != nil {
 				return fmt.Errorf("failed to create raw data column buffer: %s", err)
@@ -137,7 +137,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.ProcessedRecord) er
 			protoColumnsValue = protoCols
 		} else {
 			for _, field := range protoSchema {
-				val, exist := record.Data[field.Key]
+				val, exist := record[field.Key]
 				if !exist {
 					protoColumnsValue = append(protoColumnsValue, nil)
 					continue
@@ -186,9 +186,13 @@ func (i *Iceberg) Write(ctx context.Context, records []types.ProcessedRecord) er
 		}
 
 		if len(protoColumnsValue) > 0 {
+			operationType, ok := record[constants.OpType].(string)
+			if !ok {
+				operationType = "r" // default to read operation
+			}
 			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
 				Fields:     protoColumnsValue,
-				RecordType: record.OperationType,
+				RecordType: operationType,
 			})
 		}
 	}
@@ -330,7 +334,7 @@ func (i *Iceberg) Type() string {
 }
 
 // validate schema change & evolution and removes null records
-func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.ProcessedRecord, any, error) {
+func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.Record, any, error) {
 	// dedup records according to cdc timestamp and olakeID
 	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
 		// only dedup if it is upsert mode
@@ -367,8 +371,8 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
-	// Also extracts current batch schema
-	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {
+	// Also extracts current batch schema and returns processed records
+	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, []types.Record, error) {
 		// detectOrUpdateSchema detects difference in current thread schema and the batch that being received when detectChange is true
 		// else updates the schemaMap with the new schema
 		detectOrUpdateSchema := func(record types.RawRecord, detectChange bool, threadSchema, finalSchema map[string]string) (bool, error) {
@@ -417,26 +421,25 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			return false, nil
 		}
 
+		// Convert to Records immediately and work with them - following reviewer's suggestion
+		recordMaps := make([]types.Record, len(records))
+		
 		// parallel flatten data and detect schema difference
 		diffThreadSchema := atomic.Bool{}
+		flattener := typeutils.NewFlattener()
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			// set pre configured fields
-			records[idx].Data[constants.OlakeID] = record.OlakeID
-			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
-			records[idx].Data[constants.OpType] = record.OperationType
-			if record.CdcTimestamp != nil {
-				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
-			}
-
-			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			// Use centralized function to avoid DRY violations
+			flattenedRecord, err := types.ProcessRawRecordToRecord(record, flattener)
 			if err != nil {
-				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
+				return fmt.Errorf("failed to process record, iceberg writer: %s", err)
 			}
-			records[idx].Data = flattenedRecord
+			recordMaps[idx] = flattenedRecord
 
 			// if schema difference is not detected, detect schema difference
+			// Create a temporary RawRecord for schema detection (legacy compatibility)
 			if !diffThreadSchema.Load() {
-				if changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, copySchema(i.schema)); err != nil {
+				tempRecord := types.RawRecord{Data: flattenedRecord}
+				if changeDetected, err := detectOrUpdateSchema(tempRecord, true, i.schema, copySchema(i.schema)); err != nil {
 					return fmt.Errorf("failed to detect schema: %s", err)
 				} else if changeDetected {
 					diffThreadSchema.Store(true)
@@ -446,34 +449,37 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			return nil
 		})
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to flatten schema concurrently and detect change in records: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to flatten schema concurrently and detect change in records: %s", err)
 		}
 		// if schema difference is detected, update schemaMap with the new schema
 		schemaMap := copySchema(i.schema)
 		if diffThreadSchema.Load() {
-			for _, record := range records {
-				_, err := detectOrUpdateSchema(record, false, i.schema, schemaMap)
+			for _, recordMap := range recordMaps {
+				// Create temp RawRecord for schema update (legacy compatibility)
+				tempRecord := types.RawRecord{Data: recordMap}
+				_, err := detectOrUpdateSchema(tempRecord, false, i.schema, schemaMap)
 				if err != nil {
-					return false, nil, fmt.Errorf("failed to update schema: %s", err)
+					return false, nil, nil, fmt.Errorf("failed to update schema: %s", err)
 				}
 			}
 		}
 
-		return diffThreadSchema.Load(), schemaMap, err
+		return diffThreadSchema.Load(), schemaMap, recordMaps, err
 	}
 
 	records = dedupRecords(records)
 
 	if !i.stream.NormalizationEnabled() {
-		return false, types.ToProcessedRecords(records), i.schema, nil
+		return false, types.ToRecords(records), i.schema, nil
 	}
 
-	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
+	schemaDifference, recordsSchema, recordMaps, err := extractSchemaFromRecords(ctx, records)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
-	return schemaDifference, types.ToProcessedRecords(records), recordsSchema, err
+	// Return the record maps directly - following reviewer's suggestion
+	return schemaDifference, recordMaps, recordsSchema, err
 }
 
 // compares with global schema and update schema in destination accordingly

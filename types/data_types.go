@@ -2,7 +2,6 @@ package types
 
 import (
 	"time"
-	"unsafe"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/parquet-go/parquet-go"
@@ -71,10 +70,6 @@ type RawRecord struct {
 	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
 }
 
-// ProcessedRecord represents a record that has undergone normalization/flattening
-// It has the same structure as RawRecord but semantically represents processed data
-type ProcessedRecord RawRecord
-
 func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
@@ -84,16 +79,134 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 	}
 }
 
-// ToProcessedRecord converts a RawRecord to ProcessedRecord after normalization
-func (r RawRecord) ToProcessedRecord() ProcessedRecord {
-	return ProcessedRecord(r)
+// ToRecord converts a RawRecord to a Record map with all metadata included
+// This is the centralized function to avoid DRY violations across writers
+func (r RawRecord) ToRecord() Record {
+	if r.Data == nil {
+		r.Data = make(map[string]any)
+	}
+	
+	// Create record with pre-allocated capacity for better performance
+	record := make(Record, len(r.Data)+4) // +4 for metadata fields
+	
+	// Copy all data fields in single iteration
+	for key, value := range r.Data {
+		record[key] = value
+	}
+	
+	// Add Olake metadata fields with current timestamp
+	record[constants.OlakeID] = r.OlakeID
+	record[constants.OlakeTimestamp] = time.Now().UTC()
+	record[constants.OpType] = r.OperationType
+	if r.CdcTimestamp != nil {
+		record[constants.CdcTimestamp] = *r.CdcTimestamp
+	}
+	
+	return record
 }
 
-// ToProcessedRecords converts a slice of RawRecord to ProcessedRecord with zero-copy optimization
-// Since ProcessedRecord is just a type alias for RawRecord, we can use unsafe pointer casting
-func ToProcessedRecords(rawRecords []RawRecord) []ProcessedRecord {
-	return *(*[]ProcessedRecord)(unsafe.Pointer(&rawRecords))
+// RecordToRawRecord converts a Record map back to RawRecord structure with proper error handling
+func RecordToRawRecord(record Record) RawRecord {
+	if record == nil {
+		return RawRecord{Data: make(map[string]any)}
+	}
+	
+	rawRecord := RawRecord{
+		Data: make(map[string]any, len(record)), // Pre-allocate with estimated capacity
+	}
+	
+	// Extract metadata fields with safe type assertions
+	if olakeID, exists := record[constants.OlakeID]; exists && olakeID != nil {
+		if id, ok := olakeID.(string); ok {
+			rawRecord.OlakeID = id
+		}
+	}
+	
+	if olakeTimestamp, exists := record[constants.OlakeTimestamp]; exists && olakeTimestamp != nil {
+		if ts, ok := olakeTimestamp.(time.Time); ok {
+			rawRecord.OlakeTimestamp = ts
+		}
+	}
+	
+	if opType, exists := record[constants.OpType]; exists && opType != nil {
+		if op, ok := opType.(string); ok {
+			rawRecord.OperationType = op
+		}
+	}
+	
+	if cdcTimestamp, exists := record[constants.CdcTimestamp]; exists && cdcTimestamp != nil {
+		if ts, ok := cdcTimestamp.(time.Time); ok {
+			rawRecord.CdcTimestamp = &ts
+		}
+	}
+	
+	// Copy data fields (excluding metadata fields) in single iteration
+	for key, value := range record {
+		if !isMetadataField(key) {
+			rawRecord.Data[key] = value
+		}
+	}
+	
+	return rawRecord
 }
+
+// isMetadataField checks if a field is an Olake metadata field
+// This centralizes the metadata field checking logic
+func isMetadataField(key string) bool {
+	return key == constants.OlakeID || 
+		   key == constants.OlakeTimestamp || 
+		   key == constants.OpType || 
+		   key == constants.CdcTimestamp
+}
+
+// ToRecords converts a slice of RawRecord to Records efficiently
+// Uses pre-allocation to minimize memory allocations
+func ToRecords(rawRecords []RawRecord) []Record {
+	if rawRecords == nil {
+		return nil
+	}
+	
+	records := make([]Record, len(rawRecords))
+	for i, rawRecord := range rawRecords {
+		records[i] = rawRecord.ToRecord()
+	}
+	return records
+}
+
+// Flattener interface matches the typeutils Flattener for centralized processing
+type Flattener interface {
+	Flatten(data Record) (Record, error)
+}
+
+// ProcessRawRecordToRecord creates a Record from RawRecord with flattening
+// This centralizes the common logic used by both Iceberg and Parquet writers
+func ProcessRawRecordToRecord(rawRecord RawRecord, flattener Flattener) (Record, error) {
+	// Create Record map with all data and olake metadata
+	record := make(Record)
+	
+	// Copy data fields
+	for key, value := range rawRecord.Data {
+		record[key] = value
+	}
+	
+	// Add olake metadata directly to the same map
+	record[constants.OlakeID] = rawRecord.OlakeID
+	record[constants.OlakeTimestamp] = time.Now().UTC()
+	record[constants.OpType] = rawRecord.OperationType
+	if rawRecord.CdcTimestamp != nil {
+		record[constants.CdcTimestamp] = *rawRecord.CdcTimestamp
+	}
+
+	// Flatten the entire record (data + metadata)
+	flattenedRecord, err := flattener.Flatten(record)
+	if err != nil {
+		return nil, err
+	}
+
+	return flattenedRecord, nil
+}
+
+
 
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
