@@ -77,6 +77,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 				return nil, fmt.Errorf("failed to parse integer: %v", err)
 			}
 			if dataType == types.Int32 {
+				//nolint:gosec,G115
 				return int32(intVal), nil
 			}
 			return intVal, nil
