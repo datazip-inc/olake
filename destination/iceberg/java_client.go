@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
@@ -277,20 +278,35 @@ func FindAvailablePort(_ string) (int, error) {
 		// Use LoadOrStore to atomically claim the port
 		if _, loaded := portStatus.LoadOrStore(p, &portState{inUse: true}); !loaded {
 			// Successfully claimed the port, try to kill any process using it
-			cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", p), "-t")
+			// Use -nP to avoid DNS/port name lookups and keep output minimal
+			cmd := exec.Command("lsof", "-nP", "-i", fmt.Sprintf(":%d", p), "-t")
 			output, err := cmd.Output()
 			if err == nil {
 				// Process found using this port
-				pid := strings.TrimSpace(string(output))
-				if pid != "" {
-					// Kill the process
-					killCmd := exec.Command("kill", "-9", pid)
-					if killErr := killCmd.Run(); killErr == nil {
-						logger.Infof("Killed process %s that was using port %d", pid, p)
-						// Wait for the port to be released
-						time.Sleep(time.Second * 5)
+				// lsof -t may return multiple PIDs separated by whitespace/newlines
+				tokens := strings.Fields(string(output))
+				seen := make(map[int]struct{})
+				for _, t := range tokens {
+					t = strings.TrimSpace(t)
+					if t == "" {
+						continue
+					}
+					pidInt, convErr := strconv.Atoi(t)
+					if convErr != nil {
+						logger.Warnf("Ignoring non-numeric PID token '%s' for port %d", t, p)
+						continue
+					}
+					if _, exists := seen[pidInt]; exists {
+						continue
+					}
+					seen[pidInt] = struct{}{}
+					// Send SIGKILL directly without invoking /bin/kill to avoid arg parsing issues
+					if killErr := syscall.Kill(pidInt, syscall.SIGKILL); killErr == nil {
+						logger.Infof("Killed process %d that was using port %d", pidInt, p)
+						// Give the OS a moment to release the port
+						time.Sleep(5 * time.Second)
 					} else {
-						logger.Warnf("Failed to kill process %s using port %d: %v", pid, p, killErr)
+						logger.Warnf("Failed to kill process %d using port %d: %v", pidInt, p, killErr)
 					}
 				}
 			}
