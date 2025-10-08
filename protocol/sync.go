@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/datazip-inc/olake/destination"
-
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -27,27 +28,29 @@ var syncCmd = &cobra.Command{
 		}
 
 		// unmarshal source config
-		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef()); err != nil {
+		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
 
 		// unmarshal destination config
 		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig); err != nil {
+		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
 			return err
 		}
 
 		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog); err != nil {
+		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
 			return err
 		}
+
+		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// default state
 		state = &types.State{
 			Type: types.StreamType,
 		}
-		if statePath != "" {
-			if err := utils.UnmarshalFile(statePath, state); err != nil {
+		if statePath != "" && !clearDestinationFlag {
+			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
 		}
@@ -58,12 +61,8 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		pool, err := destination.NewWriter(cmd.Context(), destinationConfig)
-		if err != nil {
-			return err
-		}
 		// setup conector first
-		err = connector.Setup(cmd.Context())
+		err := connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -86,8 +85,10 @@ var syncCmd = &cobra.Command{
 		// Validating Streams and attaching State
 		selectedStreams := []string{}
 		cdcStreams := []types.StreamInterface{}
+		incrementalStreams := []types.StreamInterface{}
 		standardModeStreams := []types.StreamInterface{}
-		cdcStreamsState := []*types.StreamState{}
+		newStreamsState := []*types.StreamState{}
+		fullLoadStreams := []string{}
 
 		var stateStreamMap = make(map[string]*types.StreamState)
 		for _, stream := range state.Streams {
@@ -107,48 +108,71 @@ var syncCmd = &cobra.Command{
 				return false
 			}
 
+			elem.StreamMetadata = sMetadata
+
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
 			}
 
-			elem.StreamMetadata = sMetadata
 			selectedStreams = append(selectedStreams, elem.ID())
-
-			if elem.Stream.SyncMode == types.CDC || elem.Stream.SyncMode == types.STRICTCDC {
+			switch elem.Stream.SyncMode {
+			case types.CDC, types.STRICTCDC:
 				cdcStreams = append(cdcStreams, elem)
 				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
 				if exists {
-					cdcStreamsState = append(cdcStreamsState, streamState)
+					newStreamsState = append(newStreamsState, streamState)
 				}
-			} else {
+			case types.INCREMENTAL:
+				incrementalStreams = append(incrementalStreams, elem)
+				streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+				if exists {
+					newStreamsState = append(newStreamsState, streamState)
+				}
+			default:
+				fullLoadStreams = append(fullLoadStreams, elem.ID())
 				standardModeStreams = append(standardModeStreams, elem)
 			}
 
 			return false
 		})
-		state.Streams = cdcStreamsState
+		state.Streams = newStreamsState
 		if len(selectedStreams) == 0 {
 			return fmt.Errorf("no valid streams found in catalog")
 		}
 
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
+		fullLoadStreams = utils.Ternary(clearDestinationFlag, selectedStreams, fullLoadStreams).([]string)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, fullLoadStreams, batchSize)
+		if err != nil {
+			return err
+		}
+
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
-			return pool.SyncedRecords(), pool.ThreadCounter.Load(), pool.GetRecordsToSync()
+			stats := pool.GetStats()
+			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load()
 		})
 
 		// Setup State for Connector
 		connector.SetupState(state)
+		// Sync Telemetry tracking
+		telemetry.TrackSyncStarted(syncID, streams, selectedStreams, cdcStreams, connector.Type(), destinationConfig, catalog)
+		defer func() {
+			telemetry.TrackSyncCompleted(err == nil, pool.GetStats().ReadCount.Load())
+			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
+			time.Sleep(5 * time.Second)
+		}()
+
 		// init group
-		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams)
+		err = connector.Read(cmd.Context(), pool, standardModeStreams, cdcStreams, incrementalStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
-		logger.Infof("Total records read: %d", pool.SyncedRecords())
 		state.LogWithLock()
+		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
 		return nil
 	},
 }

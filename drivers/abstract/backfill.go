@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
@@ -34,18 +35,28 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 
 	// Sort chunks by their minimum value
 	sort.Slice(chunks, func(i, j int) bool {
-		return utils.CompareInterfaceValue(chunks[i].Min, chunks[j].Min) < 0
+		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
-		errorChannel := make(chan error, 1)
-		inserter := pool.NewThread(ctx, stream, errorChannel, destination.WithBackfill(true))
+		var maxPrimaryCursorValue, maxSecondaryCursorValue any
+		primaryCursor, secondaryCursor := stream.Cursor()
+		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+		if err != nil {
+			return fmt.Errorf("failed to create new writer thread: %s", err)
+		}
+		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		defer func() {
-			inserter.Close()
 			// wait for chunk completion
-			if writerErr := <-errorChannel; writerErr != nil {
+			if writerErr := inserter.Close(ctx); writerErr != nil {
 				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
+			}
+
+			// check for panics before saving state
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic recovered in backfill: %v, prev error: %s", r, err)
 			}
 
 			if err == nil {
@@ -54,12 +65,41 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
+
+				// if it is incremental update the max cursor value received in chunk
+				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
+					prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
+					if cursorErr != nil {
+						err = cursorErr
+						return
+					}
+					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+					}
+					if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
+						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+					}
+				}
+			} else {
+				err = fmt.Errorf("thread[%s]: %s", threadID, err)
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.ChunkIterator(ctx, stream, chunk, func(data map[string]any) error {
+			return a.driver.ChunkIterator(ctx, stream, chunk, func(ctx context.Context, data map[string]any) error {
+				// if incremental enabled check cursor value
+				if stream.GetSyncMode() == types.INCREMENTAL {
+					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
+				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-				return inserter.Insert(types.CreateRawRecord(olakeID, data, "r", time.Unix(0, 0)))
+
+				// persist cdc timestamp for cdc full load
+				var cdcTimestamp *time.Time
+				if stream.GetSyncMode() == types.CDC {
+					t := time.Unix(0, 0)
+					cdcTimestamp = &t
+				}
+
+				return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
 			})
 		})
 	}

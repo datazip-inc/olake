@@ -7,28 +7,27 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 type Reader[T types.Iterable] struct {
-	query     string
-	args      []any
-	batchSize int
-	offset    int
-	ctx       context.Context
+	query  string
+	args   []any
+	offset int
+	ctx    context.Context
 
 	exec func(ctx context.Context, query string, args ...any) (T, error)
 }
 
-func NewReader[T types.Iterable](ctx context.Context, baseQuery string, batchSize int,
+func NewReader[T types.Iterable](ctx context.Context, baseQuery string,
 	exec func(ctx context.Context, query string, args ...any) (T, error), args ...any) *Reader[T] {
 	setter := &Reader[T]{
-		query:     baseQuery,
-		batchSize: batchSize,
-		offset:    0,
-		ctx:       ctx,
-		exec:      exec,
-		args:      args,
+		query:  baseQuery,
+		offset: 0,
+		ctx:    ctx,
+		exec:   exec,
+		args:   args,
 	}
 
 	return setter
@@ -81,7 +80,12 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	for i, col := range columns {
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
-			conv, err := converter(rawData, types[i].DatabaseTypeName())
+			datatype := types[i].DatabaseTypeName()
+			precision, scale, hasPrecisionScale := types[i].DecimalSize()
+			if datatype == "NUMBER" && hasPrecisionScale && scale == 0 {
+				datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
+			}
+			conv, err := converter(rawData, datatype)
 			if err != nil && err != typeutils.ErrNullValue {
 				return err
 			}

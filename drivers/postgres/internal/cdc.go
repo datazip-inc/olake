@@ -21,10 +21,11 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 
 	return &waljs.Config{
 		Connection:          *p.config.Connection,
+		SSHClient:           p.sshClient,
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
-		Tables:              types.NewSet[types.StreamInterface](streams...),
-		BatchSize:           p.config.BatchSize,
+		Tables:              types.NewSet(streams...),
+		Publication:         p.cdcConfig.Publication,
 	}, nil
 }
 
@@ -34,18 +35,28 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 		return fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
-	socket, err := waljs.NewConnection(ctx, p.client, config, p.dataTypeConverter)
+	replicator, err := waljs.NewReplicator(ctx, p.client, config, p.dataTypeConverter)
 	if err != nil {
 		return fmt.Errorf("failed to create wal connection: %s", err)
 	}
 
-	p.Socket = socket
-	currentLSN := p.Socket.ConfirmedFlushLSN
+	p.replicator = replicator
+	socket := p.replicator.Socket()
 	globalState := p.state.GetGlobal()
+	fullLoadAck := func() error {
+		p.state.SetGlobal(waljs.WALState{LSN: socket.CurrentWalPosition.String()})
+		p.state.ResetStreams()
+
+		// set lsn to start cdc from
+		socket.ConfirmedFlushLSN = socket.CurrentWalPosition
+		socket.ClientXLogPos = socket.CurrentWalPosition
+		return waljs.AdvanceLSN(ctx, p.client, socket.ReplicationSlot, socket.CurrentWalPosition.String())
+	}
 
 	if globalState == nil || globalState.State == nil {
-		p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-		p.state.ResetStreams()
+		if err := fullLoadAck(); err != nil {
+			return fmt.Errorf("failed to ack lsn for full load: %s", err)
+		}
 	} else {
 		// global state exist check for cursor and cursor mismatch
 		var postgresGlobalState waljs.WALState
@@ -53,18 +64,21 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			return fmt.Errorf("failed to unmarshal global state: %s", err)
 		}
 		if postgresGlobalState.LSN == "" {
-			p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-			p.state.ResetStreams()
+			if err := fullLoadAck(); err != nil {
+				return fmt.Errorf("failed to ack lsn for full load: %s", err)
+			}
 		} else {
 			parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
 				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
 			}
 			// TODO: handle cursor mismatch with user input (Example: user provide if it has to fail or do full load with new resume token)
-			if parsed != currentLSN {
-				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, currentLSN)
-				p.state.SetGlobal(waljs.WALState{LSN: currentLSN.String()})
-				p.state.ResetStreams()
+			// if confirmed flush lsn is not same as stored in state
+			if parsed != socket.ConfirmedFlushLSN {
+				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
+				if err := fullLoadAck(); err != nil {
+					return fmt.Errorf("failed to ack lsn for full load: %s", err)
+				}
 			}
 		}
 	}
@@ -72,20 +86,21 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 }
 
 func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
-	return p.Socket.StreamMessages(ctx, callback)
+	// choose replicator via factory based on OutputPlugin config (default wal2json)
+	return p.replicator.StreamChanges(ctx, p.client, callback)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
-	defer p.Socket.Cleanup(ctx)
+	defer waljs.Cleanup(ctx, p.replicator.Socket())
 	if noErr {
-		p.state.SetGlobal(waljs.WALState{LSN: p.Socket.ClientXLogPos.String()})
-		// TODO: acknowledge message should be called every batch_size records synced or so to reduce the size of the WAL.
-		return p.Socket.AcknowledgeLSN(ctx, false)
+		socket := p.replicator.Socket()
+		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
+		return waljs.AcknowledgeLSN(ctx, socket, false)
 	}
 	return nil
 }
 
-func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {
+func doesReplicationSlotExists(conn *sqlx.DB, slotName string, publication string) (bool, error) {
 	var exists bool
 	err := conn.QueryRow(
 		"SELECT EXISTS(Select 1 from pg_replication_slots where slot_name = $1)",
@@ -95,23 +110,23 @@ func doesReplicationSlotExists(conn *sqlx.DB, slotName string) (bool, error) {
 		return false, err
 	}
 
-	return exists, validateReplicationSlot(conn, slotName)
+	return exists, validateReplicationSlot(conn, slotName, publication)
 }
 
-func validateReplicationSlot(conn *sqlx.DB, slotName string) error {
+func validateReplicationSlot(conn *sqlx.DB, slotName string, publication string) error {
 	slot := waljs.ReplicationSlot{}
 	err := conn.Get(&slot, fmt.Sprintf(waljs.ReplicationSlotTempl, slotName))
 	if err != nil {
 		return err
 	}
 
-	if slot.Plugin != "wal2json" {
-		return fmt.Errorf("plugin not supported[%s]: driver only supports wal2json", slot.Plugin)
-	}
-
 	if slot.SlotType != "logical" {
 		return fmt.Errorf("only logical slots are supported: %s", slot.SlotType)
 	}
 
+	logger.Debugf("replication slot[%s] with pluginType[%s] found", slotName, slot.Plugin)
+	if slot.Plugin == "pgoutput" && publication == "" {
+		return fmt.Errorf("publication is required for pgoutput")
+	}
 	return nil
 }

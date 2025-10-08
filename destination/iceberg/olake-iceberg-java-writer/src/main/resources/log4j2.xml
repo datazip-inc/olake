@@ -18,5 +18,8 @@
         <Logger name="io.grpc" level="error" additivity="false">
             <AppenderRef ref="Console"/>
         </Logger>
+        <Logger name="org.apache.hadoop.io.compress.CodecPool" level="warn" additivity="false">
+            <AppenderRef ref="Console"/>
+        </Logger>
     </Loggers>
 </Configuration> 

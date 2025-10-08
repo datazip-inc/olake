@@ -1,0 +1,49 @@
+services:
+  init-keyfile:
+    image: mongo:8.0   
+    container_name: init_keyfile                    
+    command: >
+      sh -c "
+      mkdir -p /etc/mongodb/pki &&
+      if [ ! -f /etc/mongodb/pki/keyfile ]; then
+        echo 'Generating keyfile...';
+        openssl rand -base64 756 > /etc/mongodb/pki/keyfile &&
+        chmod 400 /etc/mongodb/pki/keyfile;
+      else
+        echo 'Keyfile already exists.';
+      fi
+      "
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume that stores the keyfile.
+    networks:
+      - mongo-cluster                                 
+    restart: "on-failure"                                     
+
+  # Primary MongoDB container that sets up a replica set and creates an admin user.
+  primary_mongo:
+    container_name: primary_mongo                     
+    image: mongo:8.0
+    hostname: primary_mongo                           
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "27017:27017"                                 
+    depends_on:
+      - init-keyfile                                  
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            
+      - ./mongodb-init.sh:/mongodb-init.sh:ro         
+    command: ["bash", "/mongodb-init.sh"]             
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"] 
+      interval: 10s                                  
+      timeout: 10s                                   
+      retries: 10                                     
+    networks:
+      - mongo-cluster                                
+
+networks:
+  mongo-cluster:
+
+volumes:
+  mongo-keyfile-vol:

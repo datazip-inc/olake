@@ -2,7 +2,9 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -13,8 +15,10 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -36,10 +40,11 @@ const (
 
 type Postgres struct {
 	client     *sqlx.DB
+	sshClient  *ssh.Client
 	config     *Config // postgres driver connection config
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
 	cdcConfig  CDC
-	Socket     *waljs.Socket
+	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
 }
 
@@ -53,10 +58,35 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	sqlxDB, err := sqlx.Open("pgx", p.config.Connection.String())
-	if err != nil {
-		return fmt.Errorf("failed to connect database: %s", err)
+	if p.config.SSHConfig != nil && p.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		p.sshClient, err = p.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
 	}
+
+	var db *sql.DB
+	if p.sshClient != nil {
+		logger.Info("Connecting to Postgres via SSH tunnel")
+		pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
+		if err != nil {
+			return fmt.Errorf("failed to parse postgres connection string: %s", err)
+		}
+
+		// Allows pgx to use the SSH client to connect to the database
+		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
+			return p.sshClient.Dial("tcp", addr)
+		}
+		db = stdlib.OpenDB(*pgCfg)
+	} else {
+		db, err = sql.Open("pgx", p.config.Connection.String())
+		if err != nil {
+			return fmt.Errorf("failed to open database connection: %s", err)
+		}
+	}
+
+	sqlxDB := sqlx.NewDb(db, "pgx")
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -80,15 +110,17 @@ func (p *Postgres) Setup(ctx context.Context) error {
 
 		// check if initial wait time is valid or not
 		if cdc.InitialWaitTime < 120 || cdc.InitialWaitTime > 2400 {
-			return fmt.Errorf("The CDC initial wait time must be at least 120 seconds and less than 2400 seconds.")
+			return fmt.Errorf("the CDC initial wait time must be at least 120 seconds and less than 2400 seconds")
 		}
 
-		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot)
+		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
+
+		exists, err := doesReplicationSlotExists(pgClient, cdc.ReplicationSlot, cdc.Publication)
 		if err != nil {
 			if strings.Contains(err.Error(), "sql: no rows in result set") {
 				err = fmt.Errorf("no record found")
 			}
-			return fmt.Errorf("failed to check existence of replication slot %s: %s", cdc.ReplicationSlot, err)
+			return fmt.Errorf("failed to valicate cdc configuration for slot %s: %s", cdc.ReplicationSlot, err)
 		}
 
 		if !exists {
@@ -130,6 +162,13 @@ func (p *Postgres) CloseConnection() {
 			logger.Error("failed to close connection with postgres: %s", err)
 		}
 	}
+
+	if p.sshClient != nil {
+		err := p.sshClient.Close()
+		if err != nil {
+			logger.Error("failed to close SSH connection: %s", err)
+		}
+	}
 }
 
 func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
@@ -150,7 +189,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 	populateStream := func(streamName string) (*types.Stream, error) {
 		streamParts := strings.Split(streamName, ".")
 		schemaName, streamName := streamParts[0], streamParts[1]
-		stream := types.NewStream(streamName, schemaName)
+		stream := types.NewStream(streamName, schemaName, &p.config.Database)
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.Select(&columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {
@@ -169,6 +208,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		}
 
 		for _, column := range columnSchemaOutput {
+			stream.WithCursorField(column.Name)
 			datatype := types.Unknown
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val
@@ -177,7 +217,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				datatype = types.String
 			}
 
-			stream.UpsertField(typeutils.Reformat(column.Name), datatype, strings.EqualFold("yes", *column.IsNullable))
+			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
 		}
 
 		// add primary keys for stream

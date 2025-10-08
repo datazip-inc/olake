@@ -1,12 +1,9 @@
 package types
 
 import (
-	"fmt"
-	"sort"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -31,15 +28,15 @@ const (
 
 // Tree Representation of TypeWeights
 //
-//                                5 (String)
-//                               /       	 \
-//                3 (Float64)  /              \ 9 (TimestampNano)
-//                           /  \             /
-//             2 (Int64)   /     \ 4(Float32)/ 8 (TimestampMicro)
-//                        /                 /
-//            1 (Int32) /                  / 7 (TimestampMilli)
-//                     /                  /
-//        0 (Bool)   /                   / 6 (Timestamp)
+//                              5 (String)
+//                            /       	   \
+//             3 (Float64)   /              \ 9 (TimestampNano)
+//                         /  \             /
+//             2 (Int64)  /    \4(Float32) / 8 (TimestampMicro)
+//                       /                /
+//            1 (Int32) /                / 7 (TimestampMilli)
+//                     /                /
+//           0 (Bool) /                / 6 (Timestamp)
 //
 
 var TypeWeights = map[DataType]int{
@@ -55,174 +52,30 @@ var TypeWeights = map[DataType]int{
 	Timestamp:      6,
 }
 
+var RawSchema = map[string]DataType{
+	constants.StringifiedData: String,
+	constants.CdcTimestamp:    Timestamp,
+	constants.OlakeTimestamp:  Timestamp,
+	constants.OpType:          String,
+	constants.OlakeID:         String,
+}
+
 type Record map[string]any
 
 type RawRecord struct {
 	Data           map[string]any `parquet:"data,json"`
 	OlakeID        string         `parquet:"_olake_id"`
 	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
-	OperationType  string         `parquet:"_op_type"` // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
-	CdcTimestamp   time.Time      `parquet:"_cdc_timestamp"`
+	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
+	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp time.Time) RawRecord {
+func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
 		OperationType: operationType,
 		CdcTimestamp:  cdcTimestamp,
-	}
-}
-
-func (r *RawRecord) ToDebeziumFormat(db string, stream string, normalization bool) (string, error) {
-	// First create the schema and track field types
-	schema := r.createDebeziumSchema(db, stream, normalization)
-
-	// Create the payload with the actual data
-	payload := make(map[string]interface{})
-
-	// Add olake_id to payload
-	payload[constants.OlakeID] = r.OlakeID
-
-	// Handle data based on normalization flag
-	if normalization {
-		for key, value := range r.Data {
-			payload[key] = value
-		}
-	} else {
-		dataBytes, err := json.Marshal(r.Data)
-		if err != nil {
-			return "", err
-		}
-		payload["data"] = string(dataBytes)
-	}
-
-	// Add the metadata fields
-	payload[constants.OpType] = r.OperationType // "r" for read/backfill, "c" for create, "u" for update
-	payload[constants.DBName] = db
-	payload[constants.CdcTimestamp] = r.CdcTimestamp
-	payload[constants.OlakeTimestamp] = r.OlakeTimestamp
-
-	// Create Debezium format
-	debeziumRecord := map[string]interface{}{
-		"destination_table": stream,
-		"key": map[string]interface{}{
-			"schema": map[string]interface{}{
-				"type": "struct",
-				"fields": []map[string]interface{}{
-					{
-						"type":     "string",
-						"optional": true,
-						"field":    constants.OlakeID,
-					},
-				},
-				"optional": false,
-			},
-			"payload": map[string]interface{}{
-				constants.OlakeID: r.OlakeID,
-			},
-		},
-		"value": map[string]interface{}{
-			"schema":  schema,
-			"payload": payload,
-		},
-	}
-
-	jsonBytes, err := json.Marshal(debeziumRecord)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
-}
-
-func (r *RawRecord) createDebeziumSchema(db string, stream string, normalization bool) map[string]interface{} {
-	fields := make([]map[string]interface{}, 0)
-
-	// Add olake_id field first
-	fields = append(fields, map[string]interface{}{
-		"type":     "string",
-		"optional": true,
-		"field":    constants.OlakeID,
-	})
-
-	if normalization {
-		// Collect data fields for sorting
-		dataFields := make([]map[string]interface{}, 0, len(r.Data))
-
-		// Add individual data fields
-		for key, value := range r.Data {
-			field := map[string]interface{}{
-				"optional": true,
-				"field":    key,
-			}
-
-			switch value.(type) {
-			case bool:
-				field["type"] = "boolean"
-			case int, int8, int16, int32:
-				field["type"] = "int32"
-			case int64:
-				field["type"] = "int64"
-			case float32:
-				field["type"] = "float32"
-			case float64:
-				field["type"] = "float64"
-			case time.Time:
-				field["type"] = "timestamptz" // use with timezone as we use default utc
-			default:
-				field["type"] = "string"
-			}
-
-			dataFields = append(dataFields, field)
-		}
-
-		// Sorting basis on field names is needed because
-		// Iceberg writer detects different schemas for
-		// schema evolution based on order columns passed
-		sort.Slice(dataFields, func(i, j int) bool {
-			return dataFields[i]["field"].(string) < dataFields[j]["field"].(string)
-		})
-
-		fields = append(fields, dataFields...)
-	} else {
-		// For non-normalized mode, add a single data field as string
-		fields = append(fields, map[string]interface{}{
-			"type":     "string",
-			"optional": true,
-			"field":    "data",
-		})
-	}
-
-	// Add metadata fields
-	fields = append(fields, []map[string]interface{}{
-		{
-			"type":     "string",
-			"optional": true,
-			"field":    constants.OpType,
-		},
-		{
-			"type":     "string",
-			"optional": true,
-			"field":    constants.DBName,
-		},
-		{
-			"type":     "timestamptz",
-			"optional": true,
-			"field":    constants.CdcTimestamp,
-		},
-		{
-			"type":     "timestamptz",
-			"optional": true,
-			"field":    constants.OlakeTimestamp,
-		},
-	}...)
-
-	return map[string]interface{}{
-		"type":     "struct",
-		"fields":   fields,
-		"optional": false,
-		"name":     fmt.Sprintf("%s.%s", db, stream),
 	}
 }
 
@@ -253,4 +106,42 @@ func (d DataType) ToNewParquet() parquet.Node {
 
 	n = parquet.Optional(n) // Ensure the field is nullable
 	return n
+}
+
+func (d DataType) ToIceberg() string {
+	switch d {
+	case Bool:
+		return "boolean"
+	case Int32:
+		return "int"
+	case Int64:
+		return "long"
+	case Float32:
+		return "float"
+	case Float64:
+		return "double"
+	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
+		return "timestamptz" // use with timezone as we use default utc
+	default:
+		return "string"
+	}
+}
+
+func IcebergTypeToDatatype(d string) DataType {
+	switch d {
+	case "boolean":
+		return Bool
+	case "int":
+		return Int32
+	case "long":
+		return Int64
+	case "float":
+		return Float32
+	case "double":
+		return Float64
+	case "timestamptz":
+		return TimestampMilli
+	default:
+		return String
+	}
 }

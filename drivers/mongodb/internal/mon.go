@@ -24,11 +24,12 @@ const (
 )
 
 type Mongo struct {
-	config     *Config
-	client     *mongo.Client
-	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
-	cdcCursor  sync.Map
-	state      *types.State // reference to globally present state
+	config        *Config
+	client        *mongo.Client
+	CDCSupport    bool // indicates if the MongoDB instance supports Change Streams
+	cdcCursor     sync.Map
+	state         *types.State        // reference to globally present state
+	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
 }
 
 // config reference; must be pointer
@@ -60,7 +61,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	// Validate the connection by pinging the database
 	if err := conn.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("failed to connect to MongoDB: %w", err)
+		return fmt.Errorf("failed to connect to MongoDB: %s", err)
 	}
 
 	m.client = conn
@@ -125,7 +126,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.FULLREFRESH, types.CDC)
+		stream := types.NewStream(streamName, db.Name(), nil)
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
@@ -178,6 +179,14 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
+
+	// Add all discovered fields as potential cursor fields
+	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+		if fieldName, ok := key.(string); ok {
+			stream.WithCursorField(fieldName)
+		}
+		return true
+	})
 	return stream, err
 }
 
@@ -185,7 +194,6 @@ func filterMongoObject(doc bson.M) {
 	for key, value := range doc {
 		// first make key small case as data being typeresolved with small case keys
 		delete(doc, key)
-		key = typeutils.Reformat(key)
 		switch value := value.(type) {
 		case primitive.Timestamp:
 			doc[key] = value.T

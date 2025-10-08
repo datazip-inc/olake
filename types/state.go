@@ -5,9 +5,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
+	"github.com/spf13/viper"
 )
 
 type StateType string
@@ -87,6 +89,22 @@ func (s *State) ResetStreams() {
 	s.LogState()
 }
 
+func (s *State) ResetCursor(stream *ConfiguredStream) {
+	s.Lock()
+	defer s.Unlock()
+
+	primaryCursor, secondaryCursor := stream.Cursor()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Delete(primaryCursor)
+		s.Streams[index].State.Delete(secondaryCursor)
+	}
+	s.LogState()
+}
+
 func (s *State) HasCompletedBackfill(stream *ConfiguredStream) bool {
 	if s.Type == GlobalType {
 		s.RLock()
@@ -132,8 +150,12 @@ func (s *State) SetGlobal(state any, streams ...string) {
 }
 
 func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
+	if key == "" {
+		return nil
+	}
 	s.RLock()
 	defer s.RUnlock()
+
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
@@ -145,6 +167,9 @@ func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
 }
 
 func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
+	if key == "" {
+		return
+	}
 	s.Lock()
 	defer s.Unlock()
 
@@ -230,12 +255,12 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) int {
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {
-	if s.isZero() {
-		return json.Marshal(nil)
-	}
-
 	type Alias State
 	p := Alias(*s)
+
+	if s.isZero() {
+		return json.Marshal(p)
+	}
 
 	populatedStreams := []*StreamState{}
 	for _, stream := range p.Streams {
@@ -257,7 +282,7 @@ func (s *State) LogWithLock() {
 func (s *State) LogState() {
 	// function need to be called after state lock
 	if s.isZero() {
-		logger.Info("state is empty")
+		logger.Debug("state is empty")
 		return
 	}
 
@@ -268,10 +293,9 @@ func (s *State) LogState() {
 	// TODO: Only Log in logs file, not in CLI
 	// logger.Info(message)
 
-	// log to state file
-	err := logger.FileLogger(s, "state", ".json")
+	err := logger.FileLoggerWithPath(s, viper.GetString(constants.StatePath))
 	if err != nil {
-		logger.Fatalf("failed to create state file: %s", err)
+		logger.Fatalf("failed to write state file: %s", err)
 	}
 }
 

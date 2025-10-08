@@ -2,113 +2,123 @@ package io.debezium.server.iceberg.rpc;
 
 import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
-import io.debezium.server.iceberg.RecordConverter;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
+import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
+import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
+
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.HashMap;
 
-// This class is used to receive rows from the Olake Golang project and dump it into iceberg using prebuilt code here.
 @Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRowsIngester.class);
 
-    private String icebergNamespace = "public";
-    Catalog icebergCatalog;
+    private final String icebergNamespace;
+    private final Catalog icebergCatalog;
+    private final boolean upsertRecords;
     private final IcebergTableOperator icebergTableOperator;
-    // Create a single reusable ObjectMapper instance
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-    // Map to store partition fields and their transforms
-    private Map<String, String> partitionTransforms = new HashMap<>();
+    private final List<Map<String, String>> partitionTransforms;
+    private Table icebergTable;
 
-    public OlakeRowsIngester() {
-        icebergTableOperator = new IcebergTableOperator();
-    }
-
-    public OlakeRowsIngester(boolean upsert_records) {
-        icebergTableOperator = new IcebergTableOperator(upsert_records);
-    }
-
-    public void setIcebergNamespace(String icebergNamespace) {
+    public OlakeRowsIngester(boolean upsertRecords, String icebergNamespace, Catalog icebergCatalog, 
+                           List<Map<String, String>> partitionTransforms) {
+        this.upsertRecords = upsertRecords;
         this.icebergNamespace = icebergNamespace;
-    }
-
-    public void setIcebergCatalog(Catalog icebergCatalog) {
         this.icebergCatalog = icebergCatalog;
-    }
-
-    public void setPartitionTransforms(Map<String, String> partitionTransforms) {
         this.partitionTransforms = partitionTransforms;
+        this.icebergTable = null;
+        this.icebergTableOperator = new IcebergTableOperator(upsertRecords);
     }
 
     @Override
-    public void sendRecords(RecordIngest.RecordIngestRequest request, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
+    public void sendRecords(IcebergPayload request, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
         String requestId = String.format("[Thread-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
         long startTime = System.currentTimeMillis();
-        // Retrieve the array of strings from the request
-        List<String> messages = request.getMessagesList();
-
+        
         try {
-            long parsingStartTime = System.currentTimeMillis();
-            Map<String, List<RecordConverter>> result =
-                    messages.parallelStream() // Use parallel stream for concurrent processing
-                            .map(message -> {
-                                try {
-                                    // Read the entire JSON message into a Map<String, Object>:
-                                    Map<String, Object> messageMap = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
-
-                                    // Get the destination table:
-                                    String destinationTable = (String) messageMap.get("destination_table");
-
-                                    // Get key and value objects directly without re-serializing
-                                    Object key = messageMap.get("key");
-                                    Object value = messageMap.get("value");
-
-                                    // Convert to bytes only once
-                                    byte[] keyBytes = key != null ? objectMapper.writeValueAsBytes(key) : null;
-                                    byte[] valueBytes = objectMapper.writeValueAsBytes(value);
-
-                                    return new RecordConverter(destinationTable, valueBytes, keyBytes);
-                                } catch (Exception e) {
-                                    String errorMessage = String.format("%s Failed to parse message: %s", requestId, message);
-                                    LOGGER.error(errorMessage, e);
-                                    throw new RuntimeException(errorMessage, e);
-                                }
-                            })
-                            .collect(Collectors.groupingBy(RecordConverter::destination));
-            LOGGER.info("{} Parsing messages took: {} ms", requestId, (System.currentTimeMillis() - parsingStartTime));
-
-            // consume list of events for each destination table
-            long processingStartTime = System.currentTimeMillis();
-            for (Map.Entry<String, List<RecordConverter>> tableEvents : result.entrySet()) {
-                try {
-                    Table icebergTable = this.loadIcebergTable(TableIdentifier.of(icebergNamespace, tableEvents.getKey()), tableEvents.getValue().get(0));
-                    icebergTableOperator.addToTable(icebergTable, tableEvents.getValue());
-                } catch (Exception e) {
-                    String errorMessage = String.format("%s Failed to process table events for table: %s", requestId, tableEvents.getKey());
-                    LOGGER.error(errorMessage, e);
-                    throw e;
-                }
+            IcebergPayload.Metadata metadata = request.getMetadata();
+            String threadId = metadata.getThreadId();
+            String destTableName = metadata.getDestTableName();
+            String identifierField = metadata.getIdentifierField();
+            List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
+            
+            if (threadId == null || threadId.isEmpty()) {
+                // file references are being stored through thread id
+                throw new Exception("Thread id not present in metadata");
             }
-            LOGGER.info("{} Processing tables took: {} ms", requestId, (System.currentTimeMillis() - processingStartTime));
 
-            // Build and send a response
-            RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
-                    .setResult(requestId + " Received " + messages.size() + " messages")
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
+            if (destTableName == null || destTableName.isEmpty()) {
+                throw new Exception("Destination table name not present in metadata");
+            }
+
+            if (this.icebergTable == null) {
+                SchemaConvertor schemaConvertor = new SchemaConvertor(identifierField, schemaMetadata);
+                this.icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
+                                        schemaConvertor.convertToIcebergSchema());
+            }
+            
+            // NOTE: on EVOLVE_SCHEMA and REFRESH_TABLE_SCHEMA we need to complete writer as schema is updated in iceberg table instance
+            // but the writer instance still using schema when it got created
+
+            switch (request.getType()) {
+                case COMMIT:
+                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
+                    icebergTableOperator.commitThread(threadId, this.icebergTable);
+                    sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
+                    LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
+                    break;
+                    
+                case EVOLVE_SCHEMA:
+                    SchemaConvertor convertor = new SchemaConvertor(identifierField, schemaMetadata);
+                    icebergTableOperator.applyFieldAddition(this.icebergTable, convertor.convertToIcebergSchema());
+                    this.icebergTable.refresh();
+                    // complete current writer 
+                    icebergTableOperator.completeWriter();
+                    sendResponse(responseObserver, this.icebergTable.schema().toString());
+                    LOGGER.info("{} Successfully applied schema evolution for table: {}", requestId, destTableName);
+                    break;
+                
+                case REFRESH_TABLE_SCHEMA:
+                    this.icebergTable.refresh();
+                    // complete current writer 
+                    icebergTableOperator.completeWriter();
+                    sendResponse(responseObserver, this.icebergTable.schema().toString());
+                    break;
+
+                case GET_OR_CREATE_TABLE:
+                    sendResponse(responseObserver, this.icebergTable.schema().toString());
+                    LOGGER.info("{} Successfully returned iceberg table {}", requestId, destTableName);
+                    break;
+
+                case RECORDS:
+                    LOGGER.debug("{} Received records request for  {} records to table {}", requestId, request.getRecordsCount(), destTableName);
+                    SchemaConvertor recordsConvertor = new SchemaConvertor(identifierField, schemaMetadata);
+                    List<RecordWrapper> finalRecords = recordsConvertor.convert(upsertRecords, this.icebergTable.schema(), request.getRecordsList());
+                    icebergTableOperator.addToTablePerSchema(threadId, this.icebergTable, finalRecords);
+                    sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
+                    LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
+                    break;
+                    
+                case DROP_TABLE:
+                    LOGGER.warn("{} Table {} not dropped, drop table not implemented", requestId, destTableName);
+                    sendResponse(responseObserver, "Drop table not implemented");
+                    break;
+                
+                default:
+                    throw new IllegalArgumentException("Unknown payload type: " + request.getType());
+            }
+            
             LOGGER.info("{} Total time taken: {} ms", requestId, (System.currentTimeMillis() - startTime));
         } catch (Exception e) {
             String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
@@ -117,16 +127,24 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         }
     }
 
-    public Table loadIcebergTable(TableIdentifier tableId, RecordConverter sampleEvent) {
+    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message) {
+        RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
+            .setResult(message)
+            .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    public Table loadIcebergTable(TableIdentifier tableId, Schema schema) {
         return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
             try {
-                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, sampleEvent.icebergSchema(true), "parquet", partitionTransforms);
+                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
             } catch (Exception e) {
-                String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", tableId, e.getMessage());
+                String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", 
+                                                    tableId, e.getMessage());
                 LOGGER.error(errorMessage, e);
                 throw new DebeziumException(errorMessage, e);
             }
         });
     }
 }
-

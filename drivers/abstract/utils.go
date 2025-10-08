@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -13,8 +13,8 @@ func RetryOnBackoff(attempts int, sleep time.Duration, f func() error) (err erro
 		if err = f(); err == nil {
 			return nil
 		}
-		if strings.Contains(err.Error(), destination.DestError) {
-			break // if destination error, break the retry loop
+		if strings.Contains(err.Error(), constants.DestError) || strings.Contains(err.Error(), "context canceled") {
+			break // if destination error or global context canceled, break the retry loop
 		}
 		if attempts > 1 && cur != attempts-1 {
 			logger.Infof("retry attempt[%d], retrying after %.2f seconds due to err: %s", cur+1, sleep.Seconds(), err)

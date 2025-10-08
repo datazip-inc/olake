@@ -7,8 +7,8 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-type BackfillMsgFn func(message map[string]any) error
-type CDCMsgFn func(message CDCChange) error
+type BackfillMsgFn func(ctx context.Context, message map[string]any) error
+type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
 type Config interface {
 	Validate() error
@@ -30,6 +30,8 @@ type DriverInterface interface {
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
+	//incremental specific
+	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state

@@ -22,8 +22,8 @@ var pgTypeToDataTypes = map[string]types.DataType{
 	"bigserial":   types.Int64,
 
 	// numbers
-	"decimal":          types.Float32,
-	"numeric":          types.Float32,
+	"decimal":          types.Float64,
+	"numeric":          types.Float64,
 	"double precision": types.Float64,
 	"float":            types.Float32,
 	"float4":           types.Float32,
@@ -70,6 +70,7 @@ var pgTypeToDataTypes = map[string]types.DataType{
 	"xml":               types.String,
 	"enum":              types.String,
 	"tsrange":           types.String,
+	"bpchar":            types.String, // blank-padded character
 
 	// date/time
 	"time":                        types.String,
@@ -80,8 +81,23 @@ var pgTypeToDataTypes = map[string]types.DataType{
 	"timestampz":                  types.Timestamp,
 	"timestamp with time zone":    types.Timestamp,
 	"timestamp without time zone": types.Timestamp,
+	"timestamptz":                 types.Timestamp,
 
 	// arrays
-	"ARRAY": types.Array,
-	"array": types.Array,
+	"ARRAY":         types.Array,
+	"array":         types.Array,
+	"bool[]":        types.Array,
+	"int2[]":        types.Array,
+	"int4[]":        types.Array,
+	"text[]":        types.Array,
+	"bytea[]":       types.Array,
+	"int8[]":        types.Array,
+	"float4[]":      types.Array,
+	"float8[]":      types.Array,
+	"timestamp[]":   types.Array,
+	"date[]":        types.Array,
+	"timestamptz[]": types.Array,
+	"numeric[]":     types.Array,
+	"uuid[]":        types.Array,
+	"jsonb[]":       types.Array,
 }

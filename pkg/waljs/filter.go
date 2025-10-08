@@ -2,6 +2,7 @@ package waljs
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -29,7 +30,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 	return filter
 }
 
-func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) (*pglogrepl.LSN, int, error) {
+func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFiltered abstract.CDCMsgFn) (*pglogrepl.LSN, int, error) {
 	var changes WALMessage
 	decoder := json.NewDecoder(bytes.NewReader(change))
 	// Use UseNumber() to convert numbers into json.Number and not float64.
@@ -77,10 +78,10 @@ func (c ChangeFilter) FilterChange(change []byte, OnFiltered abstract.CDCMsgFn) 
 			return nil, rowsCount, fmt.Errorf("failed to convert change data: %s", err)
 		}
 
-		if err := OnFiltered(abstract.CDCChange{
+		if err := OnFiltered(ctx, abstract.CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,
-			Timestamp: changes.Timestamp,
+			Timestamp: changes.Timestamp.Time,
 			Data:      changesMap,
 		}); err != nil {
 			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)

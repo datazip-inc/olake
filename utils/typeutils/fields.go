@@ -9,43 +9,6 @@ import (
 
 type Fields map[string]*Field
 
-type typeNode struct {
-	t     types.DataType
-	left  *typeNode
-	right *typeNode
-}
-
-var typecastTree = &typeNode{
-	t: types.String,
-	left: &typeNode{
-		t: types.Float64,
-		left: &typeNode{
-			t: types.Int64,
-			left: &typeNode{
-				t: types.Int32,
-				left: &typeNode{
-					t: types.Bool,
-				},
-			},
-		},
-		right: &typeNode{
-			t: types.Float32,
-		},
-	},
-	right: &typeNode{
-		t: types.TimestampNano,
-		left: &typeNode{
-			t: types.TimestampMicro,
-			left: &typeNode{
-				t: types.TimestampMilli,
-				left: &typeNode{
-					t: types.Timestamp,
-				},
-			},
-		},
-	},
-}
-
 // Merge adds all fields from other to current instance or merge if exists
 func (f Fields) Merge(other Fields) {
 	for otherName, otherField := range other {
@@ -200,7 +163,7 @@ func (f *Field) getType() types.DataType {
 
 	common := typs[0]
 	for i := 1; i < len(typs); i++ {
-		common = GetCommonAncestorType(common, typs[i])
+		common = types.GetCommonAncestorType(common, typs[i])
 	}
 
 	//put result to dataType (it will be wiped(in Merge) if a new type is added)
@@ -209,10 +172,12 @@ func (f *Field) getType() types.DataType {
 }
 
 func (f *Field) Types() []types.DataType {
-	if f.isNullable() {
-		return []types.DataType{types.Null, f.getType()}
+	var typs []types.DataType
+	for t := range f.typeOccurrence {
+		typs = append(typs, t)
 	}
-	return []types.DataType{f.getType()}
+
+	return typs
 }
 
 func (f *Field) setNullable() {
@@ -242,43 +207,4 @@ func (f *Field) Merge(anotherField *Field) {
 			f.dataType = nil
 		}
 	}
-}
-
-// GetCommonAncestorType returns lowest common ancestor type
-func GetCommonAncestorType(t1, t2 types.DataType) types.DataType {
-	return lowestCommonAncestor(typecastTree, t1, t2)
-}
-
-func lowestCommonAncestor(
-	root *typeNode,
-	t1, t2 types.DataType,
-) types.DataType {
-	node := root
-
-	for node != nil {
-		wt1, t1Exist := types.TypeWeights[t1]
-		wt2, t2Exist := types.TypeWeights[t2]
-		rootW, rootExist := types.TypeWeights[node.t]
-
-		if !rootExist {
-			return types.Unknown
-		}
-
-		// If any type is not found in weights map, return Unknown
-		if !t1Exist || !t2Exist {
-			return node.t
-		}
-
-		if wt1 > rootW && wt2 > rootW {
-			// If both t1 and t2 have greater weights than parent
-			node = node.right
-		} else if wt1 < rootW && wt2 < rootW {
-			// If both t1 and t2 have lesser weights than parent
-			node = node.left
-		} else {
-			// We have found the split point, i.e. the LCA node.
-			return node.t
-		}
-	}
-	return types.Unknown
 }
