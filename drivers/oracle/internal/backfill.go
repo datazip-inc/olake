@@ -55,12 +55,21 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			return nil, fmt.Errorf("failed to get current SCN: %s", err)
 		}
 
-		// TODO: Add implementation of AddRecordsToSync function which expects total number of records to be synced
+		// Get approximate row count from Oracle statistics for progress tracking
+		var approxRowCount sql.NullInt64
+		approxRowCountQuery := jdbc.OracleTableRowStatsQuery()
+		err = o.client.QueryRow(approxRowCountQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount)
+		if err == nil && approxRowCount.Valid && approxRowCount.Int64 > 0 {
+			pool.AddRecordsToSyncStats(approxRowCount.Int64)
+		} else {
+			logger.Debugf("Table statistics not available for %s.%s, progress tracking disabled. Run DBMS_STATS.GATHER_TABLE_STATS to enable.", stream.Namespace(), stream.Name())
+		}
+
 		query = jdbc.OracleEmptyCheckQuery(stream)
 		err = o.client.QueryRow(query).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
-				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
+				logger.Warnf("Table %s.%s is empty, skipping chunking", stream.Namespace(), stream.Name())
 				return types.NewSet[types.Chunk](), nil
 			}
 			return nil, fmt.Errorf("failed to check for rows: %s", err)
