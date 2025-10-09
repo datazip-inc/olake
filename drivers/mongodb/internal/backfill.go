@@ -172,7 +172,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			{Key: "buckets", Value: numberOfBuckets},
 		}}})
 
-		cursor, err := collection.Aggregate(ctx, pipeline)
+		opts := options.Aggregate().SetAllowDiskUse(true)
+		cursor, err := collection.Aggregate(ctx, pipeline, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute bucketAuto aggregation: %s", err)
 		}
