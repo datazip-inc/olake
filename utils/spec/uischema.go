@@ -21,9 +21,12 @@ const MongoDBUISchema = `{
         { "password": 12, "replica_set": 12 },
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
-        { "chunking_strategy": 12 }
+        { "chunking_strategy": 12, "useIAM": 12 }
     ],
     "srv": {
+        "ui:widget": "boolean"
+    },
+    "useIAM": {
         "ui:widget": "boolean"
     },
     "hosts": {
