@@ -105,8 +105,13 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		// set default value
-		cdc.InitialWaitTime = utils.Ternary(cdc.InitialWaitTime == 0, 1200, cdc.InitialWaitTime).(int)
+
+		// Set initial_wait_time to 1200 if not provided by user
+		userProvided, _ := utils.IsOfType(p.config.UpdateMethod, "initial_wait_time")
+		if !userProvided {
+			cdc.InitialWaitTime = 1200
+			logger.Infof("CDC initial wait time not provided by user, defaulting to %d", cdc.InitialWaitTime)
+		}
 
 		// check if initial wait time is valid or not
 		if cdc.InitialWaitTime < 120 || cdc.InitialWaitTime > 2400 {
