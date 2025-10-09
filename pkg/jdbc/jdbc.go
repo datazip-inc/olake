@@ -548,7 +548,7 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 	var filterErr error
 	switch {
 	case len(filter.Conditions) == 0:
-		finalFilter, filterErr = thresholdFilter, nil
+		return thresholdFilter, nil
 	case len(filter.Conditions) == 1:
 		finalFilter, filterErr = buildCondition(filter.Conditions[0], driver)
 	default:
