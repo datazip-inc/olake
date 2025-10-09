@@ -70,7 +70,7 @@
             "title": "Username",
             "description": "Username for MongoDB authentication"
         },
-        "useIAM": {
+        "use_iam": {
             "type": "boolean",
             "title": "IAM Authentication",
             "description": "Enable this option to use IAM-based authentication instead of username and password",
@@ -82,11 +82,11 @@
         "database"
     ],
     "dependencies": {
-        "useIAM": {
+        "use_iam": {
             "oneOf": [
                 {
                     "properties": {
-                        "useIAM": {
+                        "use_iam": {
                             "const": false
                         },
                         "password": { "type": "string", "minLength": 1 }
@@ -99,7 +99,7 @@
                 },
                 {
                     "properties": {
-                        "useIAM": {
+                        "use_iam": {
                             "const": true
                         }
                     }
