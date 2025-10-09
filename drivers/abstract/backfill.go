@@ -15,6 +15,13 @@ import (
 )
 
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
+	if a.driver.Type() == string(constants.Kafka) {
+		logger.Warnf("[KAFKA] Backfill called for stream[%s], skipping", stream.ID())
+		if backfilledStreams != nil {
+			backfilledStreams <- stream.ID()
+		}
+		return nil
+	}
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
 	if chunksSet == nil || chunksSet.Len() == 0 {
@@ -68,16 +75,18 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 
 				// if it is incremental update the max cursor value received in chunk
 				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
-					prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-					if cursorErr != nil {
-						err = cursorErr
-						return
-					}
-					if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
-						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-					}
-					if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+					if a.driver.Type() != string(constants.Kafka) {
+						prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
+						if cursorErr != nil {
+							err = cursorErr
+							return
+						}
+						if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
+							a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+						}
+						if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
+							a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+						}
 					}
 				}
 			} else {
