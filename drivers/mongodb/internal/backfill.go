@@ -448,7 +448,7 @@ func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
 
 	switch {
 	case len(filter.Conditions) == 0:
-		return bson.D{{Key: "$and", Value: allConditions}}, nil
+		return utils.Ternary(len(allConditions) == 0, bson.D{}, bson.D{{Key: "$and", Value: allConditions}}).(bson.D), nil
 	case len(filter.Conditions) == 1:
 		allConditions = append(allConditions, buildMongoCondition(filter.Conditions[0]))
 	case len(filter.Conditions) == 2:
