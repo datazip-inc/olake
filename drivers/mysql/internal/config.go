@@ -1,7 +1,10 @@
 package driver
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
@@ -12,16 +15,17 @@ import (
 
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
-	Host          string           `json:"hosts"`
-	Username      string           `json:"username"`
-	Password      string           `json:"password"`
-	Database      string           `json:"database"`
-	Port          int              `json:"port"`
-	TLSSkipVerify bool             `json:"tls_skip_verify"` // Add this field
-	UpdateMethod  interface{}      `json:"update_method"`
-	MaxThreads    int              `json:"max_threads"`
-	RetryCount    int              `json:"backoff_retry_count"`
-	SSHConfig     *utils.SSHConfig `json:"ssh_config"`
+	Host             string            `json:"hosts"`
+	Username         string            `json:"username"`
+	Password         string            `json:"password"`
+	Database         string            `json:"database"`
+	Port             int               `json:"port"`
+	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
+	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
+	UpdateMethod     interface{}       `json:"update_method"`
+	MaxThreads       int               `json:"max_threads"`
+	RetryCount       int               `json:"backoff_retry_count"`
+	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 }
 
 type CDC struct {
@@ -49,7 +53,62 @@ func (c *Config) URI() string {
 		AllowNativePasswords: true,
 	}
 
+	if c.SSLConfiguration != nil {
+		switch c.SSLConfiguration.Mode {
+		case utils.SSLModeDisable:
+			cfg.TLSConfig = "false"
+		case utils.SSLModeRequire:
+			cfg.TLSConfig = "true"
+		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
+			if tlsConfig, err := c.buildTLSConfig(); err == nil {
+				if err := mysql.RegisterTLSConfig("custom", tlsConfig); err == nil {
+					cfg.TLSConfig = "custom"
+				} else {
+					cfg.TLSConfig = "skip-verify"
+				}
+			} else {
+				cfg.TLSConfig = "skip-verify"
+			}
+		}
+	}
+
+	if len(c.JDBCURLParams) > 0 {
+		if cfg.Params == nil {
+			cfg.Params = make(map[string]string)
+		}
+		maps.Copy(cfg.Params, c.JDBCURLParams)
+	}
+
 	return cfg.FormatDSN()
+}
+
+// buildTLSConfig builds a custom TLS configuration for certificate-based SSL
+func (c *Config) buildTLSConfig() (*tls.Config, error) {
+	rootCertPool := x509.NewCertPool()
+
+	if c.SSLConfiguration.ServerCA != "" {
+		if ok := rootCertPool.AppendCertsFromPEM([]byte(c.SSLConfiguration.ServerCA)); !ok {
+			return nil, fmt.Errorf("failed to append CA certificate")
+		}
+	}
+
+	tlsConfig := &tls.Config{
+		RootCAs: rootCertPool,
+	}
+
+	if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA {
+		tlsConfig.InsecureSkipVerify = true
+	}
+
+	if c.SSLConfiguration.ClientCert != "" && c.SSLConfiguration.ClientKey != "" {
+		cert, err := tls.X509KeyPair([]byte(c.SSLConfiguration.ClientCert), []byte(c.SSLConfiguration.ClientKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate and key: %s", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsConfig, nil
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -86,6 +145,13 @@ func (c *Config) Validate() error {
 	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
+	}
+
+	// Validate SSL configuration if provided
+	if c.SSLConfiguration != nil {
+		if err := c.SSLConfiguration.Validate(); err != nil {
+			return fmt.Errorf("failed to validate SSL config: %s", err)
+		}
 	}
 
 	return utils.Validate(c)
