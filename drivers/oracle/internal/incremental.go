@@ -18,11 +18,12 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}
 
 	opts := jdbc.IncrementalConditionOptions{
-		Driver: constants.Oracle,
-		Stream: stream,
-		State:  o.state,
-		Client: o.client,
-		Filter: filter,
+		Context: ctx,
+		Driver:  constants.Oracle,
+		Stream:  stream,
+		State:   o.state,
+		Client:  o.client,
+		Filter:  filter,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
 	if err != nil {
