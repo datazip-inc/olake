@@ -52,7 +52,7 @@
 
 | Source → Destination | Throughput               | Relative Performance                 | Full Report                                                  |
 |----------------------|--------------------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg   | 2,35,411 RPS (Full load) | 15.9× faster than Debezium (memiiso) | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| Postgres → Iceberg   | 3,19,562 RPS (Full load) | 6.8× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 64,334 RPS (Full load)   | 9× faster than Airbyte               | WIP                                                          |
 | MongoDB → Iceberg    | WIP                      |                                      |                                                              |
 | Oracle → Iceberg     | WIP                      |                                      |                                                              |
