@@ -28,6 +28,23 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 		}
 		// Reset only mentioned cursor state while preserving other state values
 		a.state.ResetCursor(stream.Self())
+
+		maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
+		if err != nil {
+			return fmt.Errorf("failed to fetch max cursor values: %s", err)
+		}
+
+		a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+		if maxPrimaryCursorValue == nil {
+			logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
+		}
+		if secondaryCursor != "" {
+			a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+			if maxSecondaryCursorValue == nil {
+				logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
+			}
+		}
+
 		return a.Backfill(ctx, backfillWaitChannel, pool, stream)
 	})
 	if err != nil {
@@ -97,27 +114,28 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	return nil
 }
 
+func ReformatCursorValue(cursorField string, cursorValue any, stream types.StreamInterface) (any, error) {
+	if cursorField == "" {
+		return cursorValue, nil
+	}
+	cursorColType, err := stream.Schema().GetType(cursorField)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
+	}
+	return typeutils.ReformatValue(cursorColType, cursorValue)
+}
+
 // returns typecasted increment cursor
 func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, secondaryCursorField string, stream types.StreamInterface) (any, any, error) {
 	primaryStateCursorValue := a.state.GetCursor(stream.Self(), primaryCursorField)
 	secondaryStateCursorValue := a.state.GetCursor(stream.Self(), secondaryCursorField)
 
-	getCursorValue := func(cursorField string, cursorValue any) (any, error) {
-		if cursorField == "" {
-			return cursorValue, nil
-		}
-		cursorColType, err := stream.Schema().GetType(cursorField)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get cursor column type: %s", err)
-		}
-		return typeutils.ReformatValue(cursorColType, cursorValue)
-	}
 	// typecast in case state was read from file
-	primaryCursorValue, err := getCursorValue(primaryCursorField, primaryStateCursorValue)
+	primaryCursorValue, err := ReformatCursorValue(primaryCursorField, primaryStateCursorValue, stream)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to typecast primary cursor value: %s", err)
 	}
-	secondaryCursorValue, err := getCursorValue(secondaryCursorField, secondaryStateCursorValue)
+	secondaryCursorValue, err := ReformatCursorValue(secondaryCursorField, secondaryStateCursorValue, stream)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to typecast secondary cursor value: %s", err)
 	}

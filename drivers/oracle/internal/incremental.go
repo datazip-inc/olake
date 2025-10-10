@@ -12,17 +12,11 @@ import (
 
 // StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, o.Type())
-	if err != nil {
-		return fmt.Errorf("failed to create sql filter during incremental sync: %s", err)
-	}
-
-	opts := jdbc.IncrementalConditionOptions{
+	opts := jdbc.DriverOptions{
 		Driver: constants.Oracle,
 		Stream: stream,
 		State:  o.state,
 		Client: o.client,
-		Filter: filter,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
 	if err != nil {
@@ -46,4 +40,12 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		}
 	}
 	return rows.Err()
+}
+
+func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, o.client, constants.Oracle, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }
