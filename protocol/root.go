@@ -30,6 +30,7 @@ var (
 	state                     *types.State
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
+	differencePath            string
 
 	commands  = []*cobra.Command{}
 	connector *abstract.AbstractDriver
@@ -46,13 +47,16 @@ var RootCmd = &cobra.Command{
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
+		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
 		if !noSave {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
 			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
+			differencePathEnv := utils.Ternary(streamsPath != "", filepath.Join(filepath.Dir(streamsPath), "difference_streams.json"), filepath.Join(configFolder, "difference_streams.json")).(string)
 			statePathEnv := utils.Ternary(statePath == "", filepath.Join(configFolder, "state.json"), statePath).(string)
 			viper.Set(constants.ConfigFolder, configFolder)
 			viper.Set(constants.StatePath, statePathEnv)
 			viper.Set(constants.StreamsPath, streamsPathEnv)
+			viper.Set(constants.DifferencePath, differencePathEnv)
 		}
 
 		if encryptionKey != "" {
@@ -96,6 +100,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
+	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "old streams.json file path to compare. Generates a difference_streams.json file.")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

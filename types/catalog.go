@@ -170,3 +170,124 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 
 	return len(prefixOrConstValue) == 1, prefixOrConstValue[0]
 }
+
+// GetCatalogDifference compares two catalogs and returns a new catalog with streams that have differences.
+// Only selected streams are compared.
+// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode
+// 2. Compares properties from streams: destination_database, cursor_field, sync_mode
+// 3. For new streams: Only adds them if connector is Postgres/MySQL AND sync_mode is CDC
+//
+// Parameters:
+//   - oldCatalog: The previous catalog to compare against
+//   - newCatalog: The current catalog with potential changes
+//
+// Returns:
+//   - A catalog containing only the streams that have differences
+func GetCatalogDifference(oldCatalog, newCatalog *Catalog, connectorType string) *Catalog {
+	diffCatalog := &Catalog{
+		Streams:         []*ConfiguredStream{},
+		SelectedStreams: make(map[string][]StreamMetadata),
+	}
+
+	// maps for quick lookup of streams
+	oldStreamsMap := make(map[string]*ConfiguredStream)
+	for _, s := range oldCatalog.Streams {
+		oldStreamsMap[s.ID()] = s
+	}
+
+	newStreamsMap := make(map[string]*ConfiguredStream)
+	for _, s := range newCatalog.Streams {
+		newStreamsMap[s.ID()] = s
+	}
+
+	// old selected streams map for quick lookup
+	oldSelectedMap := make(map[string]StreamMetadata)
+	for namespace, metadatas := range oldCatalog.SelectedStreams {
+		for _, metadata := range metadatas {
+			oldSelectedMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)] = metadata
+		}
+	}
+
+	// flag for relational connector check for CDC-based new stream detection
+	isCdcDriver := connectorType == string(constants.Postgres) || connectorType == string(constants.MySQL)
+
+	for namespace, newMetadatas := range newCatalog.SelectedStreams {
+		for _, newMetadata := range newMetadatas {
+			streamID := fmt.Sprintf("%s.%s", namespace, newMetadata.StreamName)
+
+			// new stream definition from streams array
+			newStream, newStreamExists := newStreamsMap[streamID]
+			if !newStreamExists {
+				continue
+			}
+
+			// Check if this stream existed in old catalog
+			oldMetadata, oldMetadataExists := oldSelectedMap[streamID]
+			oldStream, oldStreamExists := oldStreamsMap[streamID]
+
+			// if new stream in selected_streams
+			if !oldMetadataExists || !oldStreamExists {
+				// addition of new streams
+				if isCdcDriver && newStream.GetStream().SyncMode == "cdc" {
+					diffCatalog.Streams = append(diffCatalog.Streams, newStream)
+					diffCatalog.SelectedStreams[namespace] = append(
+						diffCatalog.SelectedStreams[namespace],
+						newMetadata,
+					)
+				}
+				// skip new selected streams for mongo and sync mode != cdc
+				continue
+			}
+
+			// Stream exists in both catalogs - check for differences
+			isDifferent := false
+
+			// normalization difference
+			if oldMetadata.Normalization != newMetadata.Normalization {
+				isDifferent = true
+			}
+
+			// partition regex difference
+			if oldMetadata.PartitionRegex != newMetadata.PartitionRegex {
+				isDifferent = true
+			}
+
+			// filter difference
+			if oldMetadata.Filter != newMetadata.Filter {
+				isDifferent = true
+			}
+
+			// append mode change
+			if oldMetadata.AppendMode != newMetadata.AppendMode {
+				isDifferent = true
+			}
+
+			// destination database change
+			if oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase {
+				isDifferent = true
+			}
+
+			// cursor field change
+			// Format: "primary_cursor:secondary_cursor"
+			if oldStream.Stream.CursorField != newStream.Stream.CursorField {
+				isDifferent = true
+			}
+
+			// sync mode change
+			if oldStream.Stream.SyncMode != newStream.Stream.SyncMode {
+				isDifferent = true
+			}
+
+			// if any difference, add stream to diff catalog
+			if isDifferent {
+				diffCatalog.Streams = append(diffCatalog.Streams, newStream)
+				diffCatalog.SelectedStreams[namespace] = append(
+					diffCatalog.SelectedStreams[namespace],
+					newMetadata,
+				)
+			}
+		}
+	}
+
+	return diffCatalog
+}
