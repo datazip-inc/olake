@@ -76,11 +76,11 @@ var discoverCmd = &cobra.Command{
 // HandleDifference reads two streams.json files, computes the difference, and writes the result to difference_streams.json
 func HandleDifference() error {
 	var catalog1, catalog2 types.Catalog
-	if err := utils.UnmarshalFile(streamsPath, &catalog1, false); err != nil {
-		return fmt.Errorf("failed to read old catalog: %s", err)
+	if serr := utils.UnmarshalFile(streamsPath, &catalog1, false); serr != nil {
+		return fmt.Errorf("failed to read old catalog: %s", serr)
 	}
-	if err := utils.UnmarshalFile(differencePath, &catalog2, false); err != nil {
-		return fmt.Errorf("failed to read new catalog: %s", err)
+	if derr := utils.UnmarshalFile(differencePath, &catalog2, false); derr != nil {
+		return fmt.Errorf("failed to read new catalog: %s", derr)
 	}
 
 	diffCatalog := types.GetCatalogDifference(&catalog1, &catalog2, connector.Type())
