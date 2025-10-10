@@ -25,6 +25,7 @@ const (
 	ConfigFolder           = "CONFIG_FOLDER"
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
+	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8

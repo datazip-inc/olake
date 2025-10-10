@@ -83,7 +83,7 @@ func WithThreadID(threadID string) ThreadOptions {
 	}
 }
 
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams, dropStreams []string, batchSize int64) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, dropStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
