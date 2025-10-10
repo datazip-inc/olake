@@ -178,7 +178,7 @@ services:
       SQLPAD_CONNECTIONS__olake__port: 8088
       SQLPAD_CONNECTIONS__olake__username: admin
       SQLPAD_CONNECTIONS__olake__catalog: iceberg
-      SQLPAD_CONNECTIONS__olake__schema: weather
+      SQLPAD_CONNECTIONS__olake__schema: job_weather
     networks:
       - olake-network
     depends_on:
