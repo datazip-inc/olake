@@ -41,7 +41,7 @@
 ### 🚀 Why OLake?
 
 - 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery  
-- ⚡ **High throughput**: 46K RPS (Postgres) & 64K RPS (MySQL)
+- ⚡ **High throughput**: 319K RPS (Postgres) & 64K RPS (MySQL)
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
 - 💸 **Infra-light**: No Spark, no Flink, no Kafka, no Debezium
