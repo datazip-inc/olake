@@ -17,7 +17,7 @@ if [ -d "/opt/spark/conf-mounted" ]; then
     cp -r /opt/spark/conf-mounted/* /opt/spark/conf/ 2>/dev/null || true
 fi
 
-# Create necessary directories
+# Create directories
 mkdir -p /tmp/spark-events
 mkdir -p /tmp/spark-warehouse
 

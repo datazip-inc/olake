@@ -93,7 +93,7 @@ docker compose up -d
 
 ### 4. Query and Analyze Data with Jupyter Notebook
 
-**This is the GUI interface for querying data - no command line needed!**
+**This is the GUI interface for querying data - no command line needed**
 
 1. **Access Jupyter Notebook:** [http://localhost:8888](http://localhost:8888)
    - **Token:** `olake123`
@@ -162,7 +162,7 @@ spark-tablurarest-minio-mysql/
    - Easy modification of queries without restarting services
    - Configuration loaded from external files
 
-✅ **Production-Ready Architecture**
+✅ **Architecture**
    - Apache Spark for distributed processing
    - Iceberg REST catalog for table metadata
    - PostgreSQL for catalog metadata persistence
