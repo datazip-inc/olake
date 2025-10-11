@@ -17,9 +17,18 @@ import (
 
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-	//TODO: Verify the requirement of Transaction in Oracle Sync and remove if not required
-	// Begin transaction with default isolation
-	filter, err := jdbc.SQLFilter(stream, o.Type())
+	opts := jdbc.DriverOptions{
+		Driver: constants.Oracle,
+		Stream: stream,
+		State:  o.state,
+		Client: o.client,
+	}
+	thresholdFilter, args, err := jdbc.ThresholdFilter(opts)
+	if err != nil {
+		return fmt.Errorf("failed to set threshold filter: %s", err)
+	}
+
+	filter, err := jdbc.SQLFilter(stream, o.Type(), thresholdFilter)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -30,11 +39,13 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	}
 	defer tx.Rollback()
 
+	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
+
 	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
-	// Use transaction for queries
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	// Use transaction for querielen(args)s
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
-		return tx.QueryContext(ctx, query)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return setter.Capture(func(rows *sql.Rows) error {
@@ -135,7 +146,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			}
 
 			chunks.Insert(types.Chunk{
-				Min: fmt.Sprintf("%s,%s", currentSCN, startRowID),
+				Min: startRowID,
 				Max: maxRowID,
 			})
 		}
