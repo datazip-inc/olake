@@ -41,16 +41,24 @@
           "type": "string",
           "title": "S3 Endpoint",
           "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
+        },
+        "max_file_size_mb": {
+          "type": "integer",
+          "title": "Maximum File Size (MB)",
+          "description": "Maximum size of each Parquet file in megabytes before rotating to a new file. Default is 512 MB.",
+          "default": 512,
+          "minimum": 1
+        },
+        "max_rows_per_file": {
+          "type": "integer",
+          "title": "Maximum Rows Per File",
+          "description": "Maximum number of rows per Parquet file before rotating to a new file. Default is 1,000,000 rows.",
+          "default": 1000000,
+          "minimum": 1
         }
       },
-      "required": [
-        "s3_bucket",
-        "s3_region",
-        "s3_path"
-      ]
+      "required": ["s3_bucket", "s3_region", "s3_path"]
     }
   },
-  "required": [
-    "writer"
-  ]
+  "required": ["writer"]
 }

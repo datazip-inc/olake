@@ -28,9 +28,11 @@ import (
 )
 
 type FileMetadata struct {
-	fileName string
-	writer   any
-	file     source.ParquetFile
+	fileName           string
+	writer             any
+	file               source.ParquetFile
+	rowCount           int64
+	estimatedSizeBytes int64
 }
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
@@ -105,12 +107,94 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
-		fileName: fileName,
-		file:     pqFile,
-		writer:   writer,
+		fileName:           fileName,
+		file:               pqFile,
+		writer:             writer,
+		rowCount:           0,
+		estimatedSizeBytes: 0,
 	}
 
 	logger.Infof("Thread[%s]: created new partition file[%s]", p.options.ThreadID, filePath)
+	return nil
+}
+
+func estimateRecordSize(data map[string]any) int64 {
+	var size int64
+	for key, value := range data {
+		size += int64(len(key))
+		switch v := value.(type) {
+		case string:
+			size += int64(len(v))
+		case []byte:
+			size += int64(len(v))
+		case int, int32, int64, uint, uint32, uint64, float32, float64:
+			size += 8
+		case bool:
+			size += 1
+		case nil:
+			size += 0
+		default:
+			size += 100
+		}
+	}
+	return size
+}
+
+func (p *Parquet) shouldRotateFile(partitionFile *FileMetadata) bool {
+	if partitionFile.rowCount >= int64(p.config.MaxRowsPerFile) {
+		return true
+	}
+	estimatedSizeMB := partitionFile.estimatedSizeBytes / (1024 * 1024)
+	return estimatedSizeMB >= int64(p.config.MaxFileSizeMB)
+}
+
+func (p *Parquet) closeAndUploadFile(basePath string, partitionFile *FileMetadata) error {
+	filePath := filepath.Join(p.config.Path, basePath, partitionFile.fileName)
+
+	var err error
+	if p.stream.NormalizationEnabled() {
+		err = partitionFile.writer.(*pqgo.GenericWriter[any]).Close()
+	} else {
+		err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to close writer: %s", err)
+	}
+
+	if err := partitionFile.file.Close(); err != nil {
+		return fmt.Errorf("failed to close file: %s", err)
+	}
+
+	logger.Infof("Thread[%s]: Finished writing file [%s] with %d rows", p.options.ThreadID, filePath, partitionFile.rowCount)
+
+	if p.s3Client != nil {
+		file, err := os.Open(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to open file: %s", err)
+		}
+		defer file.Close()
+
+		s3KeyPath := basePath
+		if p.config.Prefix != "" {
+			s3KeyPath = filepath.Join(p.config.Prefix, s3KeyPath)
+		}
+		s3KeyPath = filepath.Join(s3KeyPath, partitionFile.fileName)
+
+		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
+			Bucket: aws.String(p.config.Bucket),
+			Key:    aws.String(s3KeyPath),
+			Body:   file,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to put object into s3: %s", err)
+		}
+
+		if err := os.Remove(filePath); err != nil {
+			logger.Warnf("Thread[%s]: Failed to delete file [%s]: %s", p.options.ThreadID, filePath, err)
+		}
+		logger.Infof("Thread[%s]: uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3KeyPath)
+	}
+
 	return nil
 }
 
@@ -170,6 +254,8 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
 		}
 
+		partitionFile.estimatedSizeBytes += estimateRecordSize(record.Data)
+
 		var err error
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
@@ -178,6 +264,15 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
+		}
+
+		partitionFile.rowCount++
+
+		if p.shouldRotateFile(partitionFile) {
+			if err := p.closeAndUploadFile(partitionedPath, partitionFile); err != nil {
+				return fmt.Errorf("failed to rotate file: %s", err)
+			}
+			delete(p.partitionedFiles, partitionedPath)
 		}
 	}
 
@@ -233,68 +328,11 @@ func (p *Parquet) Check(_ context.Context) error {
 }
 
 func (p *Parquet) closePqFiles() error {
-	removeLocalFile := func(filePath, reason string) {
-		err := os.Remove(filePath)
-		if err != nil {
-			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (%s): %s", p.options.ThreadID, filePath, reason, err)
-			return
-		}
-		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
-	}
-
 	for basePath, parquetFile := range p.partitionedFiles {
-		// construct full file path
-		filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
-
-		// Close writers
-		var err error
-		if p.stream.NormalizationEnabled() {
-			err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
-		} else {
-			err = parquetFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
-		}
-		if err != nil {
-			return fmt.Errorf("failed to close writer: %s", err)
-		}
-
-		// Close file
-		if err := parquetFile.file.Close(); err != nil {
-			return fmt.Errorf("failed to close file: %s", err)
-		}
-
-		logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, filePath)
-
-		if p.s3Client != nil {
-			// Open file for S3 upload
-			file, err := os.Open(filePath)
-			if err != nil {
-				return fmt.Errorf("failed to open file: %s", err)
-			}
-			defer file.Close()
-
-			// Construct S3 key path
-			s3KeyPath := basePath
-			if p.config.Prefix != "" {
-				s3KeyPath = filepath.Join(p.config.Prefix, s3KeyPath)
-			}
-			s3KeyPath = filepath.Join(s3KeyPath, parquetFile.fileName)
-
-			// Upload to S3
-			_, err = p.s3Client.PutObject(&s3.PutObjectInput{
-				Bucket: aws.String(p.config.Bucket),
-				Key:    aws.String(s3KeyPath),
-				Body:   file,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to put object into s3: %s", err)
-			}
-
-			// Remove local file after successful upload
-			removeLocalFile(filePath, "uploaded to S3")
-			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3KeyPath)
+		if err := p.closeAndUploadFile(basePath, parquetFile); err != nil {
+			return err
 		}
 	}
-	// make map empty
 	p.partitionedFiles = make(map[string]*FileMetadata)
 	return nil
 }
