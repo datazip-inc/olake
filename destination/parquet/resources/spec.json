@@ -11,7 +11,8 @@
         "s3_access_key": {
           "type": "string",
           "title": "AWS Access Key",
-          "description": "The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string"
+          "description": "The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string",
+          "format": "password"
         },
         "s3_bucket": {
           "type": "string",
