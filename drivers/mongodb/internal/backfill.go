@@ -25,10 +25,12 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	filter, err := buildFilter(stream)
+	filter, err := m.buildFilter(stream)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
+
+	logger.Debugf("Starting backfill from %v to %v with filter: %s", chunk.Min, chunk.Max, filter)
 
 	// check for _id type
 	ObjectIDPresent, err := isObjectID(ctx, collection)
@@ -170,7 +172,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			{Key: "buckets", Value: numberOfBuckets},
 		}}})
 
-		cursor, err := collection.Aggregate(ctx, pipeline)
+		opts := options.Aggregate().SetAllowDiskUse(true)
+		cursor, err := collection.Aggregate(ctx, pipeline, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute bucketAuto aggregation: %s", err)
 		}
@@ -426,25 +429,35 @@ func buildMongoCondition(cond types.Condition) bson.D {
 	return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
 }
 
-// buildFilter generates a BSON document for MongoDB
-func buildFilter(stream types.StreamInterface) (bson.D, error) {
+// buildFilter generates a BSON document for MongoDB by combining threshold conditions with user-defined filter conditions
+func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
+	thresholdConditions, err := m.ThresholdFilter(stream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create threshold filter: %s", err)
+	}
+
 	filter, err := stream.GetFilter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
-	if len(filter.Conditions) == 0 {
-		return bson.D{}, nil
-	}
+	var allConditions bson.A
+	allConditions = append(allConditions, thresholdConditions...)
+
+	logger.Debugf("all conditions len: %d, filter conditions len: %d", len(allConditions), len(filter.Conditions))
 
 	switch {
 	case len(filter.Conditions) == 0:
-		return bson.D{}, nil
+		return utils.Ternary(len(allConditions) == 0, bson.D{}, bson.D{{Key: "$and", Value: allConditions}}).(bson.D), nil
 	case len(filter.Conditions) == 1:
-		return buildMongoCondition(filter.Conditions[0]), nil
+		allConditions = append(allConditions, buildMongoCondition(filter.Conditions[0]))
+	case len(filter.Conditions) == 2:
+		allConditions = append(allConditions, bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}})
 	default:
-		return bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}}, nil
+		return nil, fmt.Errorf("multiple conditions are not supported in filter")
 	}
+
+	return bson.D{{Key: "$and", Value: allConditions}}, nil
 }
 
 func reformatID(v interface{}) (interface{}, error) {
