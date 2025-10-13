@@ -47,8 +47,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
-		var maxPrimaryCursorValue, maxSecondaryCursorValue any
-		primaryCursor, secondaryCursor := stream.Cursor()
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
 		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
@@ -72,33 +70,12 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
-
-				// if it is incremental update the max cursor value received in chunk
-				if stream.GetSyncMode() == types.INCREMENTAL && (maxPrimaryCursorValue != nil || maxSecondaryCursorValue != nil) {
-					if a.driver.Type() != string(constants.Kafka) {
-						prevPrimaryCursor, prevSecondaryCursor, cursorErr := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-						if cursorErr != nil {
-							err = cursorErr
-							return
-						}
-						if typeutils.Compare(maxPrimaryCursorValue, prevPrimaryCursor) == 1 {
-							a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-						}
-						if typeutils.Compare(maxSecondaryCursorValue, prevSecondaryCursor) == 1 {
-							a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
-						}
-					}
-				}
 			} else {
 				err = fmt.Errorf("thread[%s]: %s", threadID, err)
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(ctx context.Context, data map[string]any) error {
-				// if incremental enabled check cursor value
-				if stream.GetSyncMode() == types.INCREMENTAL {
-					maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, data)
-				}
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 
 				// persist cdc timestamp for cdc full load
