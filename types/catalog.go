@@ -228,7 +228,7 @@ func GetCatalogDifference(oldCatalog, newCatalog *Catalog, connectorType string)
 			// if new stream in selected_streams
 			if !oldMetadataExists || !oldStreamExists {
 				// addition of new streams
-				if isCdcDriver && newStream.GetStream().SyncMode == "cdc" {
+				if isCdcDriver && newStream.GetStream().SyncMode == CDC {
 					diffCatalog.Streams = append(diffCatalog.Streams, newStream)
 					diffCatalog.SelectedStreams[namespace] = append(
 						diffCatalog.SelectedStreams[namespace],
@@ -240,43 +240,22 @@ func GetCatalogDifference(oldCatalog, newCatalog *Catalog, connectorType string)
 			}
 
 			// Stream exists in both catalogs - check for differences
-			isDifferent := false
-
 			// normalization difference
-			if oldMetadata.Normalization != newMetadata.Normalization {
-				isDifferent = true
-			}
-
 			// partition regex difference
-			if oldMetadata.PartitionRegex != newMetadata.PartitionRegex {
-				isDifferent = true
-			}
-
 			// filter difference
-			if oldMetadata.Filter != newMetadata.Filter {
-				isDifferent = true
-			}
-
 			// append mode change
-			if oldMetadata.AppendMode != newMetadata.AppendMode {
-				isDifferent = true
-			}
-
 			// destination database change
-			if oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase {
-				isDifferent = true
-			}
-
-			// cursor field change
-			// Format: "primary_cursor:secondary_cursor"
-			if oldStream.Stream.CursorField != newStream.Stream.CursorField {
-				isDifferent = true
-			}
-
+			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
-			if oldStream.Stream.SyncMode != newStream.Stream.SyncMode {
-				isDifferent = true
-			}
+			isDifferent := func() bool {
+				return (oldMetadata.Normalization != newMetadata.Normalization) ||
+					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
+					(oldMetadata.Filter != newMetadata.Filter) ||
+					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
+					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
+					(oldStream.Stream.CursorField != newStream.Stream.CursorField) ||
+					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode)
+			}()
 
 			// if any difference, add stream to diff catalog
 			if isDifferent {

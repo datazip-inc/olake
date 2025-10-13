@@ -39,7 +39,8 @@ func IdentifySelectedStreams(catalog *Catalog, streams []*Stream, state *State) 
 	}
 
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *ConfiguredStream) bool {
-		sMetadata, selected := selectedStreamsMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+		streamID := fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())
+		sMetadata, selected := selectedStreamsMap[streamID]
 		// Check if the stream is in the selectedStreamMap
 		if !(catalog.SelectedStreams == nil || selected) {
 			logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
@@ -64,13 +65,13 @@ func IdentifySelectedStreams(catalog *Catalog, streams []*Stream, state *State) 
 		switch elem.Stream.SyncMode {
 		case CDC, STRICTCDC:
 			categories.CDCStreams = append(categories.CDCStreams, elem)
-			streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+			streamState, exists := stateStreamMap[streamID]
 			if exists {
 				categories.NewStreamsState = append(categories.NewStreamsState, streamState)
 			}
 		case INCREMENTAL:
 			categories.IncrementalStreams = append(categories.IncrementalStreams, elem)
-			streamState, exists := stateStreamMap[fmt.Sprintf("%s.%s", elem.Namespace(), elem.Name())]
+			streamState, exists := stateStreamMap[streamID]
 			if exists {
 				categories.NewStreamsState = append(categories.NewStreamsState, streamState)
 			}
