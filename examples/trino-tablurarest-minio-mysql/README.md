@@ -66,7 +66,7 @@ docker compose up -d
         * **Connector:** `Apache Iceberg`
         * **Catalog:** `REST catalog`
         * **Name of your destination:** `olake_iceberg`
-        * **Version:** chose the latest available version
+        * **Version:** choose the latest available version
         * **Iceberg REST Catalog URI:** `http://host.docker.internal:8181`
         * **Iceberg S3 Path:** `s3://warehouse/weather/`
         * **Database:** `weather`
