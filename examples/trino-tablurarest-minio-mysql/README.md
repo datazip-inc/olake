@@ -91,12 +91,12 @@ docker compose up -d
 
 ### 4. Query Data with Trino
 
-1. **Access SQLPad UI:** [http://localhost:3000](http://localhost:3000)
+1. **Access SQLPad UI:** [http://localhost:3000](http://localhost:3000) using credentials `admin`/`password`
 
 2. **Run Queries via SQLPad UI:**
     * On the top left, select **OLake Demo** as the database
     * Click on the **refresh button** to reload the database schemas
-    * Click on **weather** schema and the **weather** table under it will be listed
+    * Click on **job_weather** schema and the **weather** table under it will be listed
     * Enter below SQL Query on the Text Box and click **Run** to execute the query
 
 3. **Query example:**
