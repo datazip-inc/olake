@@ -47,8 +47,7 @@
             "type": "string",
             "title": "Password",
             "description": "Password with the username for authentication",
-            "format": "password",
-            "minLength": 1
+            "format": "password"
         },
         "read_preference": {
             "type": "string",
@@ -70,13 +69,42 @@
             "type": "string",
             "title": "Username",
             "description": "Username for MongoDB authentication"
+        },
+        "use_iam": {
+            "type": "boolean",
+            "title": "IAM Authentication",
+            "description": "Enable this option to use IAM-based authentication instead of username and password",
+            "default": false
         }
     },
     "required": [
         "hosts",
-        "database",
-        "authdb",
-        "username",
-        "password"
-    ]
+        "database"
+    ],
+    "dependencies": {
+        "use_iam": {
+            "oneOf": [
+                {
+                    "properties": {
+                        "use_iam": {
+                            "const": false
+                        },
+                        "password": { "type": "string", "minLength": 1 }
+                    },
+                    "required": [
+                        "authdb",
+                        "username",
+                        "password"
+                    ]
+                },
+                {
+                    "properties": {
+                        "use_iam": {
+                            "const": true
+                        }
+                    }
+                }
+            ]
+        }
+    }
 }

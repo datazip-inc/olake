@@ -12,16 +12,10 @@ import (
 )
 
 func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, m.Type())
-	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
-	}
-
-	opts := jdbc.IncrementalConditionOptions{
+	opts := jdbc.DriverOptions{
 		Driver: constants.MySQL,
 		Stream: stream,
 		State:  m.state,
-		Filter: filter,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, nil, opts)
 	if err != nil {
@@ -48,4 +42,12 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 
 	return rows.Err()
+}
+
+func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+	maxPrimaryCursorValue, maxSecondaryCursorValue, err := jdbc.GetMaxCursorValues(ctx, m.client, constants.MySQL, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }
