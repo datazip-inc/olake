@@ -112,7 +112,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'long_varchar_val', 1
 		)`, integrationTestTable)
 
-	case "update":
+	case "update-iceberg":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
 				id_bigint = 987654321098765,
@@ -130,10 +130,33 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0
-			WHERE id = 1`, integrationTestTable)
+			WHERE id = 6`, integrationTestTable)
 
-	case "delete":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
+	case "update-parquet":
+		query = fmt.Sprintf(`
+			UPDATE %s SET
+				id_bigint = 435225634345223,
+				id_int = 456, id_int_unsigned = 123,
+				id_integer = 789, id_integer_unsigned = 321,
+				id_mediumint = 1001, id_mediumint_unsigned = 1002,
+				id_smallint = 201, id_smallint_unsigned = 753,
+				id_tinyint = 32, id_tinyint_unsigned = 61,
+				price_decimal = 453.21, price_double = 123.456,
+				price_double_precision = 123.456, price_float = 543.21,
+				price_numeric = 543.21, price_real = 123.456,
+				name_char = 'X', name_varchar = 'updated varchar',
+				name_text = 'updated text', name_tinytext = 'upd tiny',
+				name_mediumtext = 'upd medium', name_longtext = 'upd long',
+				created_date = '2026-07-01 15:30:00',
+				created_timestamp = '2028-07-01 15:30:00', is_active = 0,
+				long_varchar = 'updated long...', name_bool = 0
+			WHERE id = 2`, integrationTestTable)
+
+	case "delete-iceberg":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 6", integrationTestTable)
+
+	case "delete-parquet":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", integrationTestTable)
 
 	case "setup_cdc":
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
@@ -159,6 +182,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		})
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		return
+
+	case "evolve-schema":
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE;", integrationTestTable)
+
+	case "devolve-schema":
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int INT, MODIFY COLUMN price_float FLOAT", integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -231,9 +260,9 @@ var ExpectedMySQLData = map[string]interface{}{
 	"name_bool":              int32(1),
 }
 
-var ExpectedUpdatedMySQLData = map[string]interface{}{
+var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"id_bigint":              int64(987654321098765),
-	"id_int":                 int32(200),
+	"id_int":                 int64(200),
 	"id_int_unsigned":        int32(201),
 	"id_integer":             int32(202),
 	"id_integer_unsigned":    int32(203),
@@ -246,7 +275,7 @@ var ExpectedUpdatedMySQLData = map[string]interface{}{
 	"price_decimal":          float32(543.21),
 	"price_double":           float64(654.321),
 	"price_double_precision": float64(654.321),
-	"price_float":            float32(543.21),
+	"price_float":            float64(543.21),
 	"price_numeric":          float32(543.21),
 	"price_real":             float64(654.321),
 	"name_char":              "X",
@@ -262,7 +291,38 @@ var ExpectedUpdatedMySQLData = map[string]interface{}{
 	"name_bool":              int32(0),
 }
 
-var MySQLToIcebergSchema = map[string]string{
+var ExpectedParquetUpdatedData = map[string]interface{}{
+	"id_bigint":              int64(435225634345223),
+	"id_int":                 int32(456),
+	"id_int_unsigned":        int32(123),
+	"id_integer":             int32(789),
+	"id_integer_unsigned":    int32(321),
+	"id_mediumint":           int32(1001),
+	"id_mediumint_unsigned":  int32(1002),
+	"id_smallint":            int32(201),
+	"id_smallint_unsigned":   int32(753),
+	"id_tinyint":             int32(32),
+	"id_tinyint_unsigned":    int32(61),
+	"price_decimal":          float32(453.21),
+	"price_double":           float64(123.456),
+	"price_double_precision": float64(123.456),
+	"price_float":            float32(543.21),
+	"price_numeric":          float32(543.21),
+	"price_real":             float64(123.456),
+	"name_char":              "X",
+	"name_varchar":           "updated varchar",
+	"name_text":              "updated text",
+	"name_tinytext":          "upd tiny",
+	"name_mediumtext":        "upd medium",
+	"name_longtext":          "upd long",
+	"created_date":           arrow.Timestamp(time.Date(2026, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":      arrow.Timestamp(time.Date(2028, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"is_active":              int32(0),
+	"long_varchar":           "updated long...",
+	"name_bool":              int32(0),
+}
+
+var MySQLToDestinationSchema = map[string]string{
 	"id":                     "unsigned int",
 	"id_bigint":              "bigint",
 	"id_int":                 "int",
@@ -279,6 +339,38 @@ var MySQLToIcebergSchema = map[string]string{
 	"price_double":           "double",
 	"price_double_precision": "double",
 	"price_float":            "float",
+	"price_numeric":          "decimal",
+	"price_real":             "double",
+	"name_char":              "char",
+	"name_varchar":           "varchar",
+	"name_text":              "text",
+	"name_tinytext":          "tinytext",
+	"name_mediumtext":        "mediumtext",
+	"name_longtext":          "longtext",
+	"created_date":           "datetime",
+	"created_timestamp":      "timestamp",
+	"is_active":              "tinyint",
+	"long_varchar":           "mediumtext",
+	"name_bool":              "tinyint",
+}
+
+var EvolvedMySQLToDestinationSchema = map[string]string{
+	"id":                     "unsigned int",
+	"id_bigint":              "bigint",
+	"id_int":                 "bigint",
+	"id_int_unsigned":        "unsigned int",
+	"id_integer":             "int",
+	"id_integer_unsigned":    "unsigned int",
+	"id_mediumint":           "mediumint",
+	"id_mediumint_unsigned":  "unsigned mediumint",
+	"id_smallint":            "smallint",
+	"id_smallint_unsigned":   "unsigned smallint",
+	"id_tinyint":             "tinyint",
+	"id_tinyint_unsigned":    "unsigned tinyint",
+	"price_decimal":          "decimal",
+	"price_double":           "double",
+	"price_double_precision": "double",
+	"price_float":            "double",
 	"price_numeric":          "decimal",
 	"price_real":             "double",
 	"name_char":              "char",

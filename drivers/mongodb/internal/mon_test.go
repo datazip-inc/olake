@@ -10,13 +10,15 @@ import (
 func TestMongodbIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		TestConfig:         testutils.GetTestConfig(string(constants.MongoDB)),
-		Namespace:          "olake_mongodb_test",
-		ExpectedData:       ExpectedMongoData,
-		ExpectedUpdateData: ExpectedUpdatedMongoData,
-		DataTypeSchema:     MongoToIcebergSchema,
-		ExecuteQuery:       ExecuteQuery,
-		IcebergDB:          "mongodb_olake_mongodb_test",
+		TestConfig:                       testutils.GetTestConfig(string(constants.MongoDB)),
+		Namespace:                        "olake_mongodb_test",
+		ExpectedData:                     ExpectedMongoData,
+		ExpectedIcebergUpdateData:        ExpectedIcebergUpdatedData,
+		ExpectedParquetUpdateData:        ExpectedParquetUpdatedData,
+		DestinationDataTypeSchema:        MongoToDestinationSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
+		ExecuteQuery:                     ExecuteQuery,
+		DestinationDB:                    "mongodb_olake_mongodb_test",
 	}
 	testConfig.TestIntegration(t)
 }
