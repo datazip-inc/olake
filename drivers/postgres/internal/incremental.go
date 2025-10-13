@@ -17,14 +17,12 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 	}
 
 	opts := jdbc.IncrementalConditionOptions{
-		Context: ctx,
-		Driver:  constants.Postgres,
-		Stream:  stream,
-		State:   p.state,
-		Client:  p.client,
-		Filter:  filter,
+		Driver: constants.Postgres,
+		Stream: stream,
+		State:  p.state,
+		Filter: filter,
 	}
-	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
+	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, nil, opts)
 	if err != nil {
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}

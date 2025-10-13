@@ -453,7 +453,7 @@ func OracleChunkRetrievalQuery(taskName string) string {
 }
 
 // OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
+func OracleIncrementalValueFormatter(ctx context.Context, client *sqlx.DB, cursorField, argumentPlaceholder string, lastCursorValue any, opts IncrementalConditionOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// remove cursorField conversion to lower case once column normalization is based on writer side
@@ -469,7 +469,7 @@ func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, la
 	}
 
 	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
-	err = opts.Client.QueryRowContext(opts.Context, query).Scan(&datatype)
+	err = client.QueryRowContext(ctx, query).Scan(&datatype)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
 	}
@@ -556,16 +556,14 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 
 // IncrementalConditionOptions contains options for building incremental conditions
 type IncrementalConditionOptions struct {
-	Context context.Context
-	Driver  constants.DriverType
-	Stream  types.StreamInterface
-	State   *types.State
-	Client  *sqlx.DB
-	Filter  string
+	Driver constants.DriverType
+	Stream types.StreamInterface
+	State  *types.State
+	Filter string
 }
 
 // BuildIncrementalQuery generates the incremental query SQL based on driver type
-func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, error) {
+func BuildIncrementalQuery(ctx context.Context, client *sqlx.DB, opts IncrementalConditionOptions) (string, []any, error) {
 	primaryCursor, secondaryCursor := opts.Stream.Cursor()
 	lastPrimaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
 	lastSecondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
@@ -593,7 +591,7 @@ func BuildIncrementalQuery(opts IncrementalConditionOptions) (string, []any, err
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), lastCursorValue, opts)
+			return OracleIncrementalValueFormatter(ctx, client, cursorField, placeholder(argumentPosition), lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
 		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
