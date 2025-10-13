@@ -56,8 +56,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				kafkaDriver, _ := a.driver.(KafkaInterface)
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 				partitionData := kafkaDriver.GetPartitions()
-				logger.Debugf("total max connections allowed: %d", a.driver.MaxConnections())
-				// todo: we need to remove this default thread count check. If user puts same threads as default, then also this code block will work which it shouldn't
+				// todo: we need to remove this default thread count check. If user puts same threads as default, then also this code block will execute when it shouldn't
 				if a.driver.MaxConnections() == constants.DefaultThreadCount {
 					totalPartitions := 0
 					_ = utils.ForEach(streams, func(stream types.StreamInterface) error {
