@@ -20,13 +20,7 @@ This example demonstrates an end-to-end data lakehouse pipeline:
 
 ## Quick Start
 
-### 1. Start the Base OLake Stack
-
-```bash
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
-```
-
-### 2. Start the Demo Stack
+### 1. Start the Demo Stack
 
 ```bash
 # Navigate to this example directory
@@ -36,7 +30,7 @@ cd examples/trino-tablurarest-minio-mysql
 docker compose up -d
 ```
 
-### 3. Accessing Services
+### 2. Accessing Services
 
 1.  **Log in** to the OLake UI at [http://localhost:8000](http://localhost:8000) with credentials `admin`/`password`.
 
@@ -89,7 +83,7 @@ docker compose up -d
         * Save the job configuration.
         * Run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by clicking **Sync now**.
 
-### 4. Query Data with Trino
+### 3. Query Data with Trino
 
 1. **Access SQLPad UI:** [http://localhost:3000](http://localhost:3000) using credentials `admin`/`password`
 

@@ -23,13 +23,7 @@ This example demonstrates a complete data pipeline using:
 
 ## Quick Start
 
-### 1. Start the Base Olake Stack
-
-```bash
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
-```
-
-### 2. Start the Demo Stack
+### 1. Start the Demo Stack
 
 ```bash
 # Navigate to this example directory
@@ -39,7 +33,7 @@ cd examples/presto-tabularest-minio-mysql
 docker compose up -d
 ```
 
-### 3. Accessing Services
+### 2. Accessing Services
 1.  **Log in** to the Olake UI at [http://localhost:8000](http://localhost:8000) with credentials `admin`/`password`.
 
 2. **Verify Source Data:**
@@ -91,7 +85,7 @@ docker compose up -d
         * Save the job configuration.
         * Run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by clicking **Sync now**.
 
-### 4. Query Data with Presto
+### 3. Query Data with Presto
 
 1. **Access Presto UI:** [http://localhost:8088](http://localhost:8088)
 
