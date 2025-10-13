@@ -25,23 +25,27 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
 			backfillWaitChannel <- stream.ID()
 			return nil
-		}
-		// Reset only mentioned cursor state while preserving other state values
-		a.state.ResetCursor(stream.Self())
+		} else if chunks := a.state.GetChunks(stream.Self()); chunks == nil || chunks.Len() == 0 {
+			// This else if condition is added, so that the cursor reset and new cursor fetch is done only if there are no pending chunks
+			// other wise it might cause loss of data if some chunks were already processed with old max cursor values
 
-		maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
-		if err != nil {
-			return fmt.Errorf("failed to fetch max cursor values: %s", err)
-		}
+			// Reset only mentioned cursor state while preserving other state values
+			a.state.ResetCursor(stream.Self())
 
-		a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-		if maxPrimaryCursorValue == nil {
-			logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
-		}
-		if secondaryCursor != "" {
-			a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
-			if maxSecondaryCursorValue == nil {
-				logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
+			if err != nil {
+				return fmt.Errorf("failed to fetch max cursor values: %s", err)
+			}
+
+			a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+			if maxPrimaryCursorValue == nil {
+				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
+			}
+			if secondaryCursor != "" {
+				a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+				if maxSecondaryCursorValue == nil {
+					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
+				}
 			}
 		}
 
