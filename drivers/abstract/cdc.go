@@ -53,8 +53,21 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			backfilledStreams = append(backfilledStreams, streamID)
 			switch {
 			case a.IsKafkaDriver():
+				kafkaDriver, _ := a.driver.(KafkaInterface)
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				partitionData := a.kafkaDriver.GetPartitions()
+				partitionData := kafkaDriver.GetPartitions()
+				logger.Debugf("total max connections allowed: %d", a.driver.MaxConnections())
+				// todo: we need to remove this default thread count check. If user puts same threads as default, then also this code block will work which it shouldn't
+				if a.driver.MaxConnections() == constants.DefaultThreadCount {
+					totalPartitions := 0
+					_ = utils.ForEach(streams, func(stream types.StreamInterface) error {
+						if partitions, ok := partitionData[stream.ID()]; ok {
+							totalPartitions += len(partitions) // for max connection equal to number of partitions
+						}
+						return nil
+					})
+					a.GlobalConnGroup = utils.Ternary(totalPartitions > 0, utils.NewCGroupWithLimit(ctx, totalPartitions), a.GlobalConnGroup).(*utils.CxGroup)
+				}
 				utils.ConcurrentInGroup(a.GlobalConnGroup, partitionData[streams[index].ID()], func(ctx context.Context, data types.PartitionMetaData) error {
 					inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
 					if err != nil {
@@ -81,7 +94,8 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						}
 					}()
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-						return a.kafkaDriver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
+						return kafkaDriver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
+							// offset and partition are treated as primary key
 							pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							return inserter.Push(ctx, types.CreateRawRecord(
 								utils.GetKeysHash(message.Data, pkFields...),

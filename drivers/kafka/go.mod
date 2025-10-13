@@ -5,6 +5,7 @@ go 1.23.2
 toolchain go1.24.3
 
 replace github.com/datazip-inc/olake => ../../
+
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 
 require (

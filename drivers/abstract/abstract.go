@@ -21,7 +21,6 @@ type CDCChange struct {
 
 type AbstractDriver struct { //nolint:gosec,revive
 	driver          DriverInterface
-	kafkaDriver     KafkaInterface
 	state           *types.State
 	GlobalConnGroup *utils.CxGroup
 	GlobalCtxGroup  *utils.CxGroup
@@ -39,10 +38,6 @@ func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDri
 		driver:          driver,
 		GlobalCtxGroup:  utils.NewCGroup(ctx),
 		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, constants.DefaultThreadCount), // default max connections
-	}
-	// Check if driver implements KafkaInterface
-	if kafkaDriver, ok := driver.(KafkaInterface); ok {
-		abstractDriver.kafkaDriver = kafkaDriver
 	}
 	return abstractDriver
 }
@@ -65,13 +60,14 @@ func (a *AbstractDriver) Type() string {
 }
 
 func (a *AbstractDriver) IsKafkaDriver() bool {
-	return a.kafkaDriver != nil
+	_, ok := a.driver.(KafkaInterface)
+	return ok
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
-	if a.driver.MaxConnections(ctx, []types.StreamInterface{}) > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections(ctx, []types.StreamInterface{}))
+	if a.driver.MaxConnections() > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
 	streams, err := a.driver.GetStreamNames(ctx)
@@ -128,14 +124,8 @@ func (a *AbstractDriver) Setup(ctx context.Context) error {
 // Read handles different sync modes for data retrieval
 func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
 	// set max read connections
-	if a.IsKafkaDriver() {
-		if len(cdcStreams) > 0 && a.driver.MaxConnections(ctx, cdcStreams) > 0 {
-			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections(ctx, cdcStreams))
-		}
-	} else {
-		if a.driver.MaxConnections(ctx, []types.StreamInterface{}) > 0 {
-			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections(ctx, []types.StreamInterface{}))
-		}
+	if a.driver.MaxConnections() > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
 	// run cdc sync

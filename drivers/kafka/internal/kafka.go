@@ -42,12 +42,8 @@ func (k *Kafka) Type() string {
 	return string(constants.Kafka)
 }
 
-func (k *Kafka) MaxConnections(ctx context.Context, streams []types.StreamInterface) int {
-	partitionLen, err := k.GetTotalPartitions(ctx, streams)
-	if k.config.MaxThreads > 0 || err != nil {
-		return k.config.MaxThreads
-	}
-	return partitionLen
+func (k *Kafka) MaxConnections() int {
+	return k.config.MaxThreads
 }
 
 func (k *Kafka) MaxRetries() int {
@@ -75,12 +71,14 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	// Create admin client for metadata and offset operations
 	adminClient := &kafka.Client{
 		Addr: kafka.TCP(strings.Split(k.config.BootstrapServers, ",")...),
+		Transport: &kafka.Transport{
+			SASL: dialer.SASLMechanism,
+			TLS:  dialer.TLS,
+		},
 	}
 
-	// Test connectivity by fetching metadata for a dummy topic
-	_, err = adminClient.Metadata(ctx, &kafka.MetadataRequest{
-		Topics: []string{"__test"},
-	})
+	// Test connectivity by fetching metadata
+	_, err = adminClient.Metadata(ctx, &kafka.MetadataRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to ping Kafka brokers: %v", err)
 	}
@@ -225,16 +223,4 @@ func (k *Kafka) GetTopicMetadata(ctx context.Context, topic string) (*kafka.Topi
 	}
 
 	return nil, fmt.Errorf("topic %s not found in metadata", topic)
-}
-
-func (k *Kafka) GetTotalPartitions(ctx context.Context, streams []types.StreamInterface) (int, error) {
-	totalPartitions := 0
-	for _, stream := range streams {
-		topicDetail, err := k.GetTopicMetadata(ctx, stream.Name())
-		if err != nil {
-			return 0, err
-		}
-		totalPartitions += len(topicDetail.Partitions)
-	}
-	return totalPartitions, nil
 }

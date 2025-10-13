@@ -84,8 +84,8 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 		if err != nil {
 			if errors.Is(err, kafka.ErrGenerationEnded) {
 				// note: rebalance / generation end - do we need to keep reader alive or return nil?
-				logger.Infof("generation ended (rebalance) for partition %d, continuing", data.PartitionID)
-				continue
+				logger.Infof("generation ended for partition %d", data.PartitionID)
+				return nil
 			}
 			if errors.Is(err, context.Canceled) {
 				logger.Infof("context canceled for reader %s", data.ReaderID)
@@ -186,33 +186,30 @@ func (k *Kafka) SetPartitions(ctx context.Context, stream types.StreamInterface)
 	if err != nil {
 		return fmt.Errorf("failed to list offsets for topic %s: %w", topic, err)
 	}
-	topicOffsets := offsetsResp.Topics[topic]
 
 	// Fetch already committed offset of partition
 	committedTopicOffsets := k.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
 
 	// Build partition metadata
-	for _, partition := range topicDetail.Partitions {
-		firstOffset := topicOffsets[partition.ID].FirstOffset
-		lastOffset := topicOffsets[partition.ID].LastOffset
-		committedOffset, hasCommittedOffset := committedTopicOffsets[partition.ID]
+	for _, idx := range offsetsResp.Topics[topic] {
+		committedOffset, hasCommittedOffset := committedTopicOffsets[idx.Partition]
 
 		// check if the partition has any messages at all, if not then skip
-		if firstOffset >= lastOffset {
-			logger.Infof("skipping empty partition %d for topic %s (first: %d, last: %d)", partition.ID, topic, firstOffset, lastOffset)
+		if idx.FirstOffset >= idx.LastOffset {
+			logger.Infof("skipping empty partition %d for topic %s (first: %d, last: %d)", idx.Partition, topic, idx.FirstOffset, idx.LastOffset)
 			continue
 		}
 
 		// If a committed offset is available and there are no new messages, skip
-		if hasCommittedOffset && committedOffset >= lastOffset {
-			logger.Infof("skipping partition %d for topic %s, no new messages (committed: %d, last: %d)", partition.ID, topic, committedOffset, lastOffset)
+		if hasCommittedOffset && committedOffset >= idx.LastOffset {
+			logger.Infof("skipping partition %d for topic %s, no new messages (committed: %d, last: %d)", idx.Partition, topic, committedOffset, idx.LastOffset)
 			continue
 		}
 
 		allPartitions = append(allPartitions, types.PartitionMetaData{
 			Stream:      stream,
-			PartitionID: partition.ID,
-			EndOffset:   lastOffset,
+			PartitionID: idx.Partition,
+			EndOffset:   idx.LastOffset,
 		})
 	}
 

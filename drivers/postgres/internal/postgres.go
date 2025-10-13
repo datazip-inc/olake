@@ -239,7 +239,7 @@ func (p *Postgres) Type() string {
 	return string(constants.Postgres)
 }
 
-func (p *Postgres) MaxConnections(_ context.Context, _ []types.StreamInterface) int {
+func (p *Postgres) MaxConnections() int {
 	return p.config.MaxThreads
 }
 
