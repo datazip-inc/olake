@@ -206,7 +206,7 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 				nextStartPort = port + 1
 				continue
 			}
-			return nil, fmt.Errorf("failed to setup logger: %s", err)
+			return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %s", err)
 		}
 
 		// Connect to gRPC server
