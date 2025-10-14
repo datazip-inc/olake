@@ -79,6 +79,16 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 	}
 }
 
+func GetParquetRawSchema() *parquet.Schema {
+	return parquet.NewSchema("RawRecord", parquet.Group{
+		"data":             parquet.JSON(),
+		"_olake_id":        parquet.String(),
+		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
+		"_op_type":         parquet.String(),
+		"_cdc_timestamp":   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
+	})
+}
+
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 
