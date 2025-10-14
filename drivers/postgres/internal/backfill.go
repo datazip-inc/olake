@@ -12,11 +12,23 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, p.Type())
+	opts := jdbc.DriverOptions{
+		Driver: constants.Postgres,
+		Stream: stream,
+		State:  p.state,
+		Client: p.client,
+	}
+	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("failed to set threshold filter: %s", err)
+	}
+
+	filter, err := jdbc.SQLFilter(stream, p.Type(), thresholdFilter)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -25,6 +37,9 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		return err
 	}
 	defer tx.Rollback()
+
+	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
+
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
 	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
