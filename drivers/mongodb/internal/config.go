@@ -22,6 +22,7 @@ type Config struct {
 	Database         string   `json:"database"`
 	RetryCount       int      `json:"backoff_retry_count"`
 	ChunkingStrategy string   `json:"chunking_strategy"`
+	UseIAM           bool     `json:"use_iam"`
 }
 
 func (c *Config) URI() string {
@@ -38,7 +39,14 @@ func (c *Config) URI() string {
 
 	// Build query parameters
 	query := url.Values{}
-	query.Set("authSource", c.AuthDB)
+
+	if c.UseIAM {
+		query.Set("authSource", "$external")
+		query.Set("authMechanism", "MONGODB-AWS")
+	} else {
+		query.Set("authSource", c.AuthDB)
+	}
+
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
 		if c.ReadPreference == "" {
@@ -52,10 +60,13 @@ func (c *Config) URI() string {
 	// Construct final URI using url.URL
 	u := &url.URL{
 		Scheme:   connectionPrefix,
-		User:     utils.Ternary(c.Password != "", url.UserPassword(c.Username, c.Password), url.User(c.Username)).(*url.Userinfo),
 		Host:     host,
 		Path:     "/",
 		RawQuery: query.Encode(),
+	}
+
+	if !c.UseIAM {
+		u.User = utils.Ternary(c.Password != "", url.UserPassword(c.Username, c.Password), url.User(c.Username)).(*url.Userinfo)
 	}
 
 	return u.String()
