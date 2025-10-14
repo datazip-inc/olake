@@ -397,23 +397,30 @@ func buildMongoCondition(cond types.Condition) bson.D {
 		"=":  "$eq",
 		"!=": "$ne",
 	}
-	//TODO: take val as any type
-	value := func(field, val string) interface{} {
-		// Handle unquoted null
-		if val == "null" {
-			return nil
-		}
 
-		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-			val = val[1 : len(val)-1]
-		}
-		if field == "_id" && len(val) == 24 {
-			if oid, err := primitive.ObjectIDFromHex(val); err == nil {
-				return oid
+	value := func(field string, val any) interface{} {
+		// Handle unquoted null
+		switch v := val.(type) {
+		case nil:
+			return nil
+		case string:
+			if v == "null" {
+				return nil
 			}
-		}
-		if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
-			return strings.ToLower(val) == "true"
+
+			if strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"") {
+				v = v[1 : len(v)-1]
+			}
+			if field == "_id" && len(v) == 24 {
+				if oid, err := primitive.ObjectIDFromHex(v); err == nil {
+					return oid
+				}
+			}
+			if strings.ToLower(v) == "true" || strings.ToLower(v) == "false" {
+				return strings.ToLower(v) == "true"
+			}
+
+			val = v
 		}
 		if timeVal, err := typeutils.ReformatDate(val); err == nil {
 			return timeVal
