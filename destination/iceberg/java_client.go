@@ -111,7 +111,7 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		serverConfig["s3.region"] = config.Region
 	} else if config.S3Endpoint == "" && config.CatalogType == GlueCatalog {
 		// If no region is explicitly provided for Glue catalog, add a note that it will be picked from environment
-		logger.Warn("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
+		logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
 	}
 
 	// Configure custom endpoint for S3-compatible services (like MinIO)
@@ -163,7 +163,7 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// get available port
-		port, err = FindAvailablePort(nextStartPort)
+		port, err = FindAvailablePort(threadID, nextStartPort)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available ports: %s", err)
 		}
@@ -270,7 +270,7 @@ func (s *serverInstance) closeIcebergClient() error {
 }
 
 // findAvailablePort finds an available port for the RPC server starting from startPort
-func FindAvailablePort(startPort int) (int, error) {
+func FindAvailablePort(threadID string, startPort int) (int, error) {
 	if startPort < 50051 {
 		startPort = 50051
 	}
@@ -298,17 +298,24 @@ func FindAvailablePort(startPort int) (int, error) {
 		// Use LoadOrStore to atomically claim the port
 		if _, loaded := portStatus.LoadOrStore(p, &portState{inUse: true}); !loaded {
 			// Successfully claimed the port, try to kill any process using it
-			pid := findProcessUsingPort(p)
+			pid := findProcessUsingPort(threadID, p)
 			if pid != "" {
 				// Kill the process
 				killCmd := exec.Command("kill", "-9", pid)
-				if killErr := killCmd.Run(); killErr == nil {
-					logger.Infof("Killed process %s that was using port %d", pid, p)
+				killErr := killCmd.Run()
+				if killErr == nil {
+					logger.Infof("Thread[%s]: Killed process %s that was using port %d", threadID, pid, p)
 					// Wait for the port to be released
 					time.Sleep(time.Second * 5)
-				} else {
-					logger.Warnf("Failed to kill process %s using port %d: %v", pid, p, killErr)
+					return p, nil
 				}
+				logger.Warnf("Thread[%s]: Failed to kill process %s using port %d: %s", threadID, pid, p, killErr)
+				// Release the claim and mark cooldown, then continue scanning
+				portStatus.Store(p, &portState{
+					inUse:      false,
+					releasedAt: time.Now(),
+				})
+				continue
 			}
 			// Return the port (either it was free, or we attempted to free it)
 			return p, nil
@@ -319,7 +326,7 @@ func FindAvailablePort(startPort int) (int, error) {
 
 // findProcessUsingPort finds the PID of a process using the specified port
 // Tries ss first (preferred for Alpine), falls back to lsof
-func findProcessUsingPort(port int) string {
+func findProcessUsingPort(threadID string, port int) string {
 	// Prefer ss if available. If ss exists, do NOT fall back to lsof.
 	if _, lookErr := exec.LookPath("ss"); lookErr == nil {
 		// Use a valid filter expression: sport = :<port>
@@ -337,7 +344,7 @@ func findProcessUsingPort(port int) string {
 					if len(parts) > 1 {
 						pidPart := strings.Split(parts[1], ",")[0]
 						if pid := strings.TrimSpace(pidPart); pid != "" {
-							logger.Infof("Found process %s using port %d using ss", pid, port)
+							logger.Infof("Thread[%s]: Found process %s using port %d using ss", threadID, pid, port)
 							return pid
 						}
 					}
@@ -347,7 +354,7 @@ func findProcessUsingPort(port int) string {
 			return ""
 		}
 		// ss failed to run (syntax/permissions/etc.). Log and return empty.
-		logger.Warnf("Failed to find process using port %d using ss: %v", port, err)
+		logger.Warnf("Thread[%s]: Failed to find process using port %d using ss: %s", threadID, port, err)
 		return ""
 	}
 
@@ -358,7 +365,7 @@ func findProcessUsingPort(port int) string {
 		if err == nil {
 			pid := strings.TrimSpace(string(output))
 			if pid != "" {
-				logger.Infof("Found process %s using port %d using lsof", pid, port)
+				logger.Infof("Thread[%s]: Found process %s using port %d using lsof", threadID, pid, port)
 				return pid
 			}
 		}
