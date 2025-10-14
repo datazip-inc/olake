@@ -21,6 +21,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericAppenderFactory;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
@@ -113,8 +114,14 @@ public class IcebergUtil {
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier, Schema schema) {
 
     if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
-      LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
+      // multiple threads can try to create the namespace concurrently
+      // if table was already created, this will avoid the error of already exists
+      try {
+        ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
+        LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
+      } catch (AlreadyExistsException e) {
+        LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
+      }
     }
     return icebergCatalog.createTable(tableIdentifier, schema);
   }
@@ -131,8 +138,12 @@ public class IcebergUtil {
         schema.identifierFieldNames());
 
     if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
-      LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
+      try {
+        ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
+        LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
+      } catch (AlreadyExistsException e) {
+        LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
+      }
     }
 
     // If we have partition transforms, create a PartitionSpec
