@@ -63,6 +63,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 			k.readers.Store(readerID, reader)
 			partitions[idx].ReaderID = readerID
 		}
+		k.partitionMeta.Store(streamID, partitions)
 		return true
 	})
 
@@ -74,11 +75,22 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 	defer cancel()
 	logger.Infof("starting kafka streaming for topic %s (reader %s)", data.Stream.Name(), data.ReaderID)
 	reader, ok := k.readers.Load(data.ReaderID)
-	var readerInstance *kafka.Reader
-	if ok {
-		readerInstance, _ = reader.(*kafka.Reader)
+	if !ok {
+		return fmt.Errorf("reader not found for ID: %s", data.ReaderID)
 	}
+	readerInstance, ok := reader.(*kafka.Reader)
+	if !ok || readerInstance == nil {
+		return fmt.Errorf("invalid reader type for ID: %s", data.ReaderID)
+	}
+	lastMsg := kafka.Message{}
+	defer func() {
+		// save last message
+		if !lastMsg.Time.IsZero() {
+			k.lastMessages.Store(data.ReaderID, lastMsg)
+			logger.Debugf("saved last message at offset %d for reader %s", lastMsg.Offset, data.ReaderID)
 
+		}
+	}()
 	for {
 		msg, err := readerInstance.FetchMessage(partitionCtx)
 		if err != nil {
@@ -111,8 +123,12 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 			return result
 		}()
 		lastOffsetCheckPoint := msg.HighWaterMark - 1
+		lastMsg = msg
 
 		if messageData == nil {
+			if msg.Offset == lastOffsetCheckPoint {
+				return nil
+			}
 			// we skip storing nil-valued messages
 			continue
 		}
@@ -125,8 +141,6 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 		}); procErr != nil {
 			return procErr
 		}
-		// save last processed message
-		k.lastMessages.Store(data.ReaderID, msg)
 		// when message reaches the last offset
 		if msg.Offset == lastOffsetCheckPoint {
 			return nil
