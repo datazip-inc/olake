@@ -164,8 +164,8 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 					return err
 				}
 
-				filterMongoObject(row)
-				if err := typeutils.Resolve(stream, row); err != nil {
+				filteredRow := filterMongoObject(row).(bson.M)
+				if err := typeutils.Resolve(stream, filteredRow); err != nil {
 					return err
 				}
 			}
@@ -191,122 +191,67 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	return stream, err
 }
 
-func filterMongoObject(doc bson.M) {
-	for key, value := range doc {
-		// first make key small case as data being typeresolved with small case keys
-		delete(doc, key)
-		switch value := value.(type) {
-		case primitive.Timestamp:
-			doc[key] = value.T
-		case primitive.DateTime:
-			doc[key] = value.Time()
-		case primitive.Null:
-			doc[key] = nil
-		case primitive.Binary:
-			doc[key] = fmt.Sprintf("%x", value.Data)
-		case primitive.Decimal128:
-			doc[key] = value.String()
-		case primitive.ObjectID:
-			doc[key] = value.Hex()
-		case float64:
-			if math.IsNaN(value) || math.IsInf(value, 0) {
-				doc[key] = nil
-			} else {
-				doc[key] = value
-			}
-		case bson.M:
-			// Recursively process nested documents
-			filterMongoObject(value)
-			doc[key] = value
-		case bson.A:
-			// Process arrays containing nested objects and primitive types
-			for i, item := range value {
-				switch itemVal := item.(type) {
-				case bson.M:
-					filterMongoObject(itemVal)
-					value[i] = itemVal
-				case primitive.D:
-					// Handle primitive.D documents within arrays
-					tempDoc := bson.M{}
-					for _, elem := range itemVal {
-						tempDoc[elem.Key] = elem.Value
-					}
-					filterMongoObject(tempDoc)
-					value[i] = tempDoc
-				case primitive.DateTime:
-					value[i] = itemVal.Time()
-				case primitive.Timestamp:
-					value[i] = itemVal.T
-				case primitive.Binary:
-					value[i] = fmt.Sprintf("%x", itemVal.Data)
-				case primitive.Decimal128:
-					value[i] = itemVal.String()
-				case primitive.ObjectID:
-					value[i] = itemVal.Hex()
-				case primitive.Null:
-					value[i] = nil
-				case float64:
-					if math.IsNaN(itemVal) || math.IsInf(itemVal, 0) {
-						value[i] = nil
-					}
-				}
-			}
-			doc[key] = value
-		case primitive.D:
-			// Handle BSON document type (primitive ordered document)
-			// Convert to regular bson.M for recursive processing
-			tempDoc := bson.M{}
-			for _, elem := range value {
-				tempDoc[elem.Key] = elem.Value
-			}
-			filterMongoObject(tempDoc)
-			
-			// Keep as bson.M (converted from primitive.D for simplicity)
-			doc[key] = tempDoc
-		default:
-			// Check for slice types that might contain nested structures or primitive types
-			v := reflect.ValueOf(value)
-			if v.Kind() == reflect.Slice {
-				newSlice := make([]interface{}, v.Len())
-				for i := 0; i < v.Len(); i++ {
-					elem := v.Index(i).Interface()
-					switch elemVal := elem.(type) {
-					case bson.M:
-						filterMongoObject(elemVal)
-						newSlice[i] = elemVal
-					case primitive.D:
-						tempDoc := bson.M{}
-						for _, e := range elemVal {
-							tempDoc[e.Key] = e.Value
-						}
-						filterMongoObject(tempDoc)
-						newSlice[i] = tempDoc
-					case primitive.DateTime:
-						newSlice[i] = elemVal.Time()
-					case primitive.Timestamp:
-						newSlice[i] = elemVal.T
-					case primitive.Binary:
-						newSlice[i] = fmt.Sprintf("%x", elemVal.Data)
-					case primitive.Decimal128:
-						newSlice[i] = elemVal.String()
-					case primitive.ObjectID:
-						newSlice[i] = elemVal.Hex()
-					case primitive.Null:
-						newSlice[i] = nil
-					case float64:
-						if math.IsNaN(elemVal) || math.IsInf(elemVal, 0) {
-							newSlice[i] = nil
-						} else {
-							newSlice[i] = elemVal
-						}
-					default:
-						newSlice[i] = elem
-					}
-				}
-				doc[key] = newSlice
-			} else {
-				doc[key] = value
-			}
+func filterMongoObject(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	switch v := value.(type) {
+	case primitive.Timestamp:
+		return v.T
+
+	case primitive.DateTime:
+		return v.Time()
+
+	case primitive.Null:
+		return nil
+
+	case primitive.Binary:
+		return fmt.Sprintf("%x", v.Data)
+
+	case primitive.Decimal128:
+		// Convert to string to preserve precision (Decimal128 has 34 digits, float64 only ~15-17)
+		return v.String()
+
+	case primitive.ObjectID:
+		return v.Hex()
+
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil
 		}
+		return v
+
+	case bson.M:
+		for key, val := range v {
+			v[key] = filterMongoObject(val)
+		}
+		return v
+
+	case primitive.D:
+		// Convert primitive.D to bson.M
+		m := make(bson.M, len(v))
+		for _, elem := range v {
+			m[elem.Key] = filterMongoObject(elem.Value)
+		}
+		return m
+
+	case bson.A:
+		for i, item := range v {
+			v[i] = filterMongoObject(item)
+		}
+		return v
+
+	default:
+		// For other slice types using reflection
+		val := reflect.ValueOf(value)
+		if val.Kind() == reflect.Slice {
+			newSlice := make([]interface{}, val.Len())
+			for i := 0; i < val.Len(); i++ {
+				newSlice[i] = filterMongoObject(val.Index(i).Interface())
+			}
+			return newSlice
+		}
+		return value
 	}
 }

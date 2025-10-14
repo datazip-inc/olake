@@ -156,7 +156,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		record.FullDocument = record.DocumentKey
 	}
 
-	filterMongoObject(record.FullDocument)
+	record.FullDocument = filterMongoObject(record.FullDocument).(map[string]any)
 
 	ts := utils.Ternary(record.WallTime != 0,
 		record.WallTime.Time(), // millisecond precision

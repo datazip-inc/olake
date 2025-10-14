@@ -188,7 +188,7 @@ func TestFilterMongoObject_RecursiveHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Call the recursive filterMongoObject
-			filterMongoObject(tt.input)
+			tt.input = filterMongoObject(tt.input).(bson.M)
 			
 			// Validate the result
 			require.True(t, tt.expected(tt.input), "Recursive filtering failed validation")
@@ -223,7 +223,7 @@ func TestFilterMongoObject_DeeplyNestedStructure(t *testing.T) {
 	}
 
 	// Filter the deeply nested document
-	filterMongoObject(deepNestedDoc)
+	deepNestedDoc = filterMongoObject(deepNestedDoc).(bson.M)
 	
 	// Verify no primitive.DateTime remains anywhere in the structure
 	var hasPrimitiveDateTime func(interface{}) bool
@@ -286,7 +286,7 @@ func TestFilterMongoObject_JSONMarshalSafety(t *testing.T) {
 	}
 
 	// Filter the document
-	filterMongoObject(testDoc)
+	testDoc = filterMongoObject(testDoc).(bson.M)
 	
 	// Attempt to marshal to JSON - this should not panic or error
 	jsonBytes, err := bson.MarshalExtJSON(testDoc, true, false)
@@ -311,7 +311,7 @@ func BenchmarkFilterMongoObject_Original(b *testing.B) {
 			"topLevel": primitive.DateTime(0),
 			"regularField": "test",
 		}
-		filterMongoObjectOriginal(doc) // Assuming we have the original version available
+		_ = filterMongoObjectOriginal(doc) // Assuming we have the original version available
 	}
 }
 
@@ -327,12 +327,12 @@ func BenchmarkFilterMongoObject_Recursive(b *testing.B) {
 				},
 			},
 		}
-		filterMongoObject(doc)
+		_ = filterMongoObject(doc)
 	}
 }
 
 // Helper function to simulate the original non-recursive behavior for benchmarking
-func filterMongoObjectOriginal(doc bson.M) {
+func filterMongoObjectOriginal(doc bson.M) bson.M {
 	for key, value := range doc {
 		delete(doc, key)
 		switch value := value.(type) {
@@ -358,4 +358,5 @@ func filterMongoObjectOriginal(doc bson.M) {
 			doc[key] = value
 		}
 	}
+	return doc
 }

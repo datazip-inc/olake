@@ -51,8 +51,8 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			return fmt.Errorf("backfill decoding document: %s", err)
 		}
 		// filter mongo object
-		filterMongoObject(doc)
-		if err := OnMessage(ctx, doc); err != nil {
+		filteredDoc := filterMongoObject(doc).(bson.M)
+		if err := OnMessage(ctx, filteredDoc); err != nil {
 			return fmt.Errorf("failed to send message to writer: %s", err)
 		}
 	}

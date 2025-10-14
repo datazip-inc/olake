@@ -27,7 +27,7 @@ func TestFilterMongoObject_ArrayWithPrimitiveDateTime(t *testing.T) {
 	}
 
 	// Filter the document
-	filterMongoObject(testDoc)
+	testDoc = filterMongoObject(testDoc).(bson.M)
 	
 	// Verify that primitive.DateTime values in arrays are still present
 	// This is the edge case - they should ideally be converted too
