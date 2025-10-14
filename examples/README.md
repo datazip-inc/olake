@@ -21,11 +21,15 @@ This directory contains self-contained, end-to-end demo stacks for OLake. Each e
 # 1) Start base Olake stack
 curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
 
-# 2) Start an example
+# 2) Clone the repository and navigate to root directory
+git clone https://github.com/datazip-inc/olake.git
+cd olake
+
+# 3) Start an example
 cd examples/presto-tabularest-minio-mysql
 docker compose up -d
 
-# 3) Follow suggested steps in README.md for the example
+# 4) Follow suggested steps in README.md for the example
 ```
 
 Each example’s `README.md` includes:
