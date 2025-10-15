@@ -122,9 +122,6 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	}
 
-	// Configure S3 or GCP file IO
-	serverConfig["io-impl"] = utils.Ternary(strings.HasPrefix(config.IcebergS3Path, "gs://"), "org.apache.iceberg.gcp.gcs.GCSFileIO", "org.apache.iceberg.aws.s3.S3FileIO")
-
 	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
 }
