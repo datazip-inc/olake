@@ -275,6 +275,9 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	// to close client properly
 	i.server = server
+	defer func() {
+		i.Close(ctx)
+	}()
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -612,12 +615,22 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 
 // drop streams required for clear destination
 func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error {
+	i.options = &destination.Options{
+		ThreadID: "iceberg_destination_drop",
+	}
 	if len(dropStreams) == 0 {
 		logger.Info("No streams selected for clearing Iceberg destination, skipping operation")
 		return nil
 	}
 
+	// server setup for dropping tables
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, false, false, "")
+	if err != nil {
+		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
+	}
+
 	// to close client properly
+	i.server = server
 	defer func() {
 		i.Close(ctx)
 	}()
