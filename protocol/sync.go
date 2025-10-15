@@ -6,12 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // syncCmd represents the read command
@@ -36,6 +38,11 @@ var syncCmd = &cobra.Command{
 		destinationConfig = &types.WriterConfig{}
 		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
 			return err
+		}
+
+		// to set prefix for "test_olake" db created by OLake
+		if destinationDatabasePrefix != "" {
+			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
 
 		catalog = &types.Catalog{}
@@ -145,7 +152,7 @@ var syncCmd = &cobra.Command{
 		logger.Infof("Valid selected streams are %s", strings.Join(selectedStreams, ", "))
 
 		fullLoadStreams = utils.Ternary(clearDestinationFlag, selectedStreams, fullLoadStreams).([]string)
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, fullLoadStreams)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreams, fullLoadStreams, batchSize)
 		if err != nil {
 			return err
 		}

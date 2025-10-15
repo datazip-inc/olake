@@ -19,7 +19,18 @@ import (
 )
 
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-	filter, err := jdbc.SQLFilter(stream, m.Type())
+	opts := jdbc.DriverOptions{
+		Driver: constants.MySQL,
+		Stream: stream,
+		State:  m.state,
+		Client: m.client,
+	}
+	thresholdFilter, args, err := jdbc.ThresholdFilter(opts)
+	if err != nil {
+		return fmt.Errorf("failed to set threshold filter: %s", err)
+	}
+
+	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -29,6 +40,8 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 		sort.Strings(pkColumns)
+
+		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 		// Get chunks from state or calculate new ones
 		stmt := ""
 		if chunkColumn != "" {
@@ -39,7 +52,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
 		logger.Debugf("Executing chunk query: %s", stmt)
-		setter := jdbc.NewReader(ctx, stmt, 0, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
 		// Capture and process rows

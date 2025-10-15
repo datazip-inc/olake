@@ -20,13 +20,7 @@ This example demonstrates an end-to-end data lakehouse pipeline:
 
 ## Quick Start
 
-### 1. Start the Base OLake Stack
-
-```bash
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
-```
-
-### 2. Start the Demo Stack
+### 1. Start the Demo Stack
 
 ```bash
 # Navigate to this example directory
@@ -36,7 +30,7 @@ cd examples/trino-tablurarest-minio-mysql
 docker compose up -d
 ```
 
-### 3. Accessing Services
+### 2. Accessing Services
 
 1.  **Log in** to the OLake UI at [http://localhost:8000](http://localhost:8000) with credentials `admin`/`password`.
 
@@ -54,7 +48,7 @@ docker compose up -d
 
 3.  **Create and Configure a Job:**
     Create a Job to define and run the data pipeline:
-    * On the main page, click on the **"Create your first Job"** button.
+    * On the main page, click on the **"Create your first Job"** button. Please make sure to **set the job name** as `job` and select a replication frequency.
 
     * **Set up the Source:**
         * **Connector:** `MySQL`
@@ -65,45 +59,44 @@ docker compose up -d
         * **Database:** `weather`
         * **Username:** `root`
         * **Password:** `password`
+        * **SSH Config:** `No Tunnel`
+        * **Update Method:** `Standalone`
 
     * **Set up the Destination:**
         * **Connector:** `Apache Iceberg`
         * **Catalog:** `REST catalog`
         * **Name of your destination:** `olake_iceberg`
-        * **Version:** chose the latest available version
+        * **Version:** choose the latest available version
         * **Iceberg REST Catalog URI:** `http://host.docker.internal:8181`
         * **Iceberg S3 Path:** `s3://warehouse/weather/`
-        * **Iceberg Database:** `weather`
+        * **Database:** `weather`
         * **S3 Endpoint (for Iceberg data files written by OLake workers):** `http://host.docker.internal:9090`
         * **AWS Region:** `us-east-1`
         * **S3 Access Key:** `minio`
         * **S3 Secret Key:** `minio123`
     
     * **Select Streams to sync:**
-        * Select the weather table using checkbox to sync from Source to Destination.
-        * Click on the weather table and set Normalisation to `true` using the toggle button.
-
-    * **Configure Job:**
-        * Set job name and replication frequency.
+        * Make sure that the weather table has been selected for the sync.
+        * Click on the weather table and make sure that the Normalisation is set to `true` using the toggle button.
 
     * **Save and Run the Job:**
         * Save the job configuration.
         * Run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by clicking **Sync now**.
 
-### 4. Query Data with Trino
+### 3. Query Data with Trino
 
-1. **Access SQLPad UI:** [http://localhost:3000](http://localhost:3000)
+1. **Access SQLPad UI:** [http://localhost:3000](http://localhost:3000) using credentials `admin`/`password`
 
 2. **Run Queries via SQLPad UI:**
     * On the top left, select **OLake Demo** as the database
     * Click on the **refresh button** to reload the database schemas
-    * Click on **weather** schema and the **weather** table under it will be listed
+    * Click on **job_weather** schema and the **weather** table under it will be listed
     * Enter below SQL Query on the Text Box and click **Run** to execute the query
 
 3. **Query example:**
      ```sql
      SELECT station_state, AVG(temperature_avg) as avg_temp
-     FROM iceberg.weather.weather 
+     FROM job_weather.weather 
      GROUP BY station_state 
      ORDER BY avg_temp DESC 
      LIMIT 10;
@@ -112,7 +105,7 @@ docker compose up -d
 4. **(Optional) Run Queries via Trino CLI:**
    ```bash
     docker exec -it olake-trino-coordinator trino \
-        --catalog iceberg --schema weather \
+        --catalog iceberg --schema job_weather \
         --execute "SELECT * from weather LIMIT 10;"
    ```
 
@@ -146,7 +139,7 @@ SELECT * FROM weather LIMIT 5;
 ```bash
 # Check if Trino can see Iceberg tables
 docker exec -it olake-trino-coordinator trino \
-  --catalog iceberg --schema weather \
+  --catalog iceberg --schema job_weather \
   --execute "SHOW TABLES;"
 ```
 
