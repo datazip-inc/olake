@@ -421,12 +421,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
 func OracleTableRowStatsQuery() string {
-	return `
-		SELECT NUM_ROWS
-		FROM ALL_TABLES
-		WHERE OWNER = :1
-		AND TABLE_NAME = :2
-	`
+	return `SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
