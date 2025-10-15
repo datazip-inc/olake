@@ -60,14 +60,9 @@ func (c *Config) URI() string {
 		case utils.SSLModeRequire:
 			cfg.TLSConfig = "true"
 		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
-			if tlsConfig, err := c.buildTLSConfig(); err == nil {
-				if err := mysql.RegisterTLSConfig("custom", tlsConfig); err == nil {
-					cfg.TLSConfig = "custom"
-				} else {
-					cfg.TLSConfig = "skip-verify"
-				}
-			} else {
-				cfg.TLSConfig = "skip-verify"
+			cfg.TLSConfig = "skip-verify" // Default fallback
+			if tlsConfig, err := c.buildTLSConfig(); err == nil && mysql.RegisterTLSConfig("custom", tlsConfig) == nil {
+				cfg.TLSConfig = "custom"
 			}
 		}
 	}
