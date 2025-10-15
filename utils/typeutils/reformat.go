@@ -215,6 +215,11 @@ func ReformatDate(v interface{}) (time.Time, error) {
 }
 
 func parseStringTimestamp(value string) (time.Time, error) {
+	// Check for invalid dates before attempting to parse and change to epoch start if invalid
+	if isInvalidDate(value) {
+		return time.Unix(0, 0).UTC(), nil
+	}
+
 	var tv time.Time
 	var err error
 	for _, layout := range DateTimeFormats {
@@ -227,6 +232,25 @@ func parseStringTimestamp(value string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
+}
+
+// isInvalidDate checks if the string represents an invalid date
+func isInvalidDate(value string) bool {
+	dateFormats := []string{
+		"2006-01-02",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05.000000",
+		"2006-01-02T15:04:05.000000Z",
+	}
+
+	for _, layout := range dateFormats {
+		if _, err := time.Parse(layout, value); err == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func ReformatInt64(v any) (int64, error) {
