@@ -118,7 +118,6 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 	if config.S3Endpoint != "" {
 		serverConfig["s3.endpoint"] = config.S3Endpoint
 		serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
-		// Set SSL/TLS configuration
 		serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	}
 
