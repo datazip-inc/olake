@@ -40,17 +40,12 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 
 	// Iterate over all stored partition metadata and create readers
 	k.partitionMeta.Range(func(key, value any) bool {
-		streamID, ok := key.(string)
-		if !ok {
-			return true // skip invalid key
-		}
 		partitions, ok := value.([]types.PartitionMetaData)
 		if !ok {
 			return true // skip invalid value
 		}
 
-		for idx, p := range partitions {
-			readerID := fmt.Sprintf("%s_%s", streamID, utils.ULID())
+		for _, p := range partitions {
 			reader := kafka.NewReader(kafka.ReaderConfig{
 				Brokers:  strings.Split(k.config.BootstrapServers, ","),
 				Topic:    p.Stream.Name(),
@@ -60,10 +55,8 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 				Dialer:   k.dialer,
 			})
 			// Save reader and update partition metadata
-			k.readers.Store(readerID, reader)
-			partitions[idx].ReaderID = readerID
+			k.readers.Store(p.ReaderID, reader)
 		}
-		k.partitionMeta.Store(streamID, partitions)
 		return true
 	})
 
@@ -82,15 +75,6 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 	if !ok || readerInstance == nil {
 		return fmt.Errorf("invalid reader type for ID: %s", data.ReaderID)
 	}
-	lastMsg := kafka.Message{}
-	defer func() {
-		// save last message
-		if !lastMsg.Time.IsZero() {
-			k.lastMessages.Store(data.ReaderID, lastMsg)
-			logger.Debugf("saved last message at offset %d for reader %s", lastMsg.Offset, data.ReaderID)
-
-		}
-	}()
 	for {
 		msg, err := readerInstance.FetchMessage(partitionCtx)
 		if err != nil {
@@ -105,6 +89,22 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 			}
 			return fmt.Errorf("error reading message in incremental sync: %v", err)
 		}
+
+		var lastOffsetCheckPoint int64
+		k.partitionMeta.Range(func(key, value interface{}) bool {
+			partitions, ok := value.([]types.PartitionMetaData)
+			if !ok {
+				return true
+			}
+			for _, part := range partitions {
+				if part.Stream.Name() == msg.Topic && part.PartitionID == msg.Partition {
+					// end offset per partition
+					lastOffsetCheckPoint = part.EndOffset - 1
+					return false
+				}
+			}
+			return true
+		})
 
 		messageData := func() map[string]any {
 			var result map[string]any
@@ -122,8 +122,6 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 			result["kafka_timestamp"] = msg.Time.UnixMilli()
 			return result
 		}()
-		lastOffsetCheckPoint := msg.HighWaterMark - 1
-		lastMsg = msg
 
 		if messageData == nil {
 			if msg.Offset == lastOffsetCheckPoint {
@@ -141,6 +139,8 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, data types.Partition
 		}); procErr != nil {
 			return procErr
 		}
+		// store last message for commit
+		k.lastMessages.Store(data.ReaderID, msg)
 		// when message reaches the last offset
 		if msg.Offset == lastOffsetCheckPoint {
 			return nil
@@ -221,6 +221,7 @@ func (k *Kafka) SetPartitions(ctx context.Context, stream types.StreamInterface)
 		}
 
 		allPartitions = append(allPartitions, types.PartitionMetaData{
+			ReaderID:    fmt.Sprintf("%s_%d", topic, idx.Partition),
 			Stream:      stream,
 			PartitionID: idx.Partition,
 			EndOffset:   idx.LastOffset,
