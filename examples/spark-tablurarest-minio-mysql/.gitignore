@@ -1,0 +1,10 @@
+olake-data/
+mysql-data/
+minio-data/
+catalog-data/
+postgres-data/
+.env
+*.env
+.DS_Store
+*.log
+tmp/
