@@ -16,7 +16,6 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		Driver: constants.MySQL,
 		Stream: stream,
 		State:  m.state,
-		Client: m.client,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {

@@ -15,7 +15,6 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 		Driver: constants.Postgres,
 		Stream: stream,
 		State:  p.state,
-		Client: p.client,
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
