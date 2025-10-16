@@ -219,7 +219,54 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		return nil, typeutils.ErrNullValue
 	}
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
+
+	// Only apply invalid date handling to actual datetime/timestamp columns
+	if isDateTimeColumn(columnType) {
+		value = handleInvalidMySQLDates(value)
+	}
+
 	return typeutils.ReformatValue(olakeType, value)
+}
+
+// isDateTimeColumn checks if the column type is a date/datetime/timestamp type
+func isDateTimeColumn(columnType string) bool {
+	dateTimeTypes := []string{"date", "timestamp"}
+	for _, dtType := range dateTimeTypes {
+		if strings.Contains(strings.ToLower(columnType), dtType) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleInvalidMySQLDates processes invalid MySQL dates and converts them to epoch start
+func handleInvalidMySQLDates(value interface{}) interface{} {
+	strValue := utils.ConvertToString(value)
+
+	isInvalidDate := func(value string) bool {
+		dateFormats := []string{
+			"2006-01-02",
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05",
+			"2006-01-02T15:04:05Z",
+			"2006-01-02T15:04:05.000000",
+			"2006-01-02T15:04:05.000000Z",
+		}
+
+		// if we are able to parse the date, it is valid date
+		for _, layout := range dateFormats {
+			if _, err := time.Parse(layout, value); err == nil {
+				return false
+			}
+		}
+		return true
+	}
+
+	if isInvalidDate(strValue) {
+		return time.Unix(0, 0).UTC()
+	}
+
+	return value
 }
 
 // Close ensures proper cleanup
