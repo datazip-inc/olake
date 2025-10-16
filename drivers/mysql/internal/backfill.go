@@ -23,7 +23,6 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		Driver: constants.MySQL,
 		Stream: stream,
 		State:  m.state,
-		Client: m.client,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {

@@ -21,7 +21,6 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		Driver: constants.Postgres,
 		Stream: stream,
 		State:  p.state,
-		Client: p.client,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
