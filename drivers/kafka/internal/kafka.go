@@ -19,14 +19,16 @@ import (
 )
 
 type Kafka struct {
-	config          *Config
-	dialer          *kafka.Dialer
-	adminClient     *kafka.Client
-	state           *types.State
-	consumerGroupID string
-	readers         sync.Map // map[string]*kafka.Reader
-	partitionMeta   sync.Map // map[string][]abstract.PartitionMetaData
-	lastMessages    sync.Map // map[string]kafka.Message
+	config               *Config
+	dialer               *kafka.Dialer
+	adminClient          *kafka.Client
+	state                *types.State
+	consumerGroupID      string
+	readers              map[string]*kafka.Reader             // created once in PreCDC, read-only afterwards
+	partitionMeta        map[string][]types.PartitionMetaData // streamID -> partitions
+	partitionIndex       map[string]types.PartitionMetaData   // key: partitionId (topic+":"+partition) -> partition metadata
+	readerLastMessages   map[string]map[partKey]kafka.Message // per-reader final last messages
+	readerLastMessagesMu sync.Mutex
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -70,7 +72,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 
 	// Create admin client for metadata and offset operations
 	adminClient := &kafka.Client{
-		Addr: kafka.TCP(strings.Split(k.config.BootstrapServers, ",")...),
+		Addr: kafka.TCP(splitAndTrim(k.config.BootstrapServers)...),
 		Transport: &kafka.Transport{
 			SASL: dialer.SASLMechanism,
 			TLS:  dialer.TLS,
@@ -90,21 +92,20 @@ func (k *Kafka) Setup(ctx context.Context) error {
 func (k *Kafka) Close() error {
 	k.adminClient = nil
 	k.dialer = nil
-	k.partitionMeta.Range(func(key, _ any) bool {
-		k.partitionMeta.Delete(key)
-		return true
-	})
-	k.readers.Range(func(key, value any) bool {
-		readerID, _ := key.(string)
-		if r, ok := value.(*kafka.Reader); ok && r != nil {
+	for id, r := range k.readers {
+		if r != nil {
 			if err := r.Close(); err != nil {
-				logger.Warnf("failed to close reader %s: %v\n", readerID, err)
+				logger.Warnf("failed to close reader %s: %v\n", id, err)
 			}
 		}
-		k.readers.Delete(key)
-		k.lastMessages.Delete(key)
-		return true
-	})
+		delete(k.readers, id)
+	}
+	for kStr := range k.partitionMeta {
+		delete(k.partitionMeta, kStr)
+	}
+	for kStr := range k.partitionIndex {
+		delete(k.partitionIndex, kStr)
+	}
 	return nil
 }
 
@@ -223,4 +224,36 @@ func (k *Kafka) GetTopicMetadata(ctx context.Context, topic string) (*kafka.Topi
 	}
 
 	return nil, fmt.Errorf("topic %s not found in metadata", topic)
+}
+
+// ShouldMatchPartitionCount returns whether to align thread count with total partitions
+func (k *Kafka) ShouldMatchPartitionCount() bool {
+	return k.config.ThreadsEqualTotalPartitions
+}
+
+// partKey identifies a topic-partition pair for map keys
+type partKey struct {
+	topic     string
+	partition int
+}
+
+// GetReaderTasks returns the list of reader IDs to run
+func (k *Kafka) GetReaderTasks() []string {
+	ids := make([]string, 0, len(k.readers))
+	for readerID := range k.readers {
+		ids = append(ids, readerID)
+	}
+	return ids
+}
+
+func splitAndTrim(csv string) []string {
+	parts := strings.Split(csv, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

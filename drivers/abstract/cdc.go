@@ -54,47 +54,50 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			switch {
 			case a.IsKafkaDriver():
 				kafkaDriver, _ := a.driver.(KafkaInterface)
-				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				partitionData := kafkaDriver.GetPartitions()
-				// todo: we need to remove this default thread count check. If user puts same threads as default, then also this code block will execute when it shouldn't
-				if a.driver.MaxConnections() == constants.DefaultThreadCount {
-					totalPartitions := 0
-					_ = utils.ForEach(streams, func(stream types.StreamInterface) error {
-						if partitions, ok := partitionData[stream.ID()]; ok {
-							totalPartitions += len(partitions) // for max connection equal to number of partitions
-						}
-						return nil
-					})
-					a.GlobalConnGroup = utils.Ternary(totalPartitions > 0, utils.NewCGroupWithLimit(ctx, totalPartitions), a.GlobalConnGroup).(*utils.CxGroup)
-				}
-				utils.ConcurrentInGroup(a.GlobalConnGroup, partitionData[streams[index].ID()], func(ctx context.Context, data types.PartitionMetaData) error {
-					inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
-					if err != nil {
-						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
-					}
-					logger.Infof("Thread[%s]: created cdc writer for stream %s", data.ReaderID, data.Stream.ID())
+				// Build tasks per reader (no partition binding)
+				readerIDs := kafkaDriver.GetReaderTasks()
+				utils.ConcurrentInGroup(a.GlobalConnGroup, readerIDs, func(ctx context.Context, readerID string) error {
+					// Lazily open per-stream writers inside processFn
+					writers := make(map[string]*destination.WriterThread)
+					var werr error
 					defer func() {
-						if threadErr := inserter.Close(ctx); threadErr != nil {
-							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
+						for key, wr := range writers {
+							if wr == nil {
+								continue
+							}
+							if threadErr := wr.Close(ctx); threadErr != nil {
+								werr = fmt.Errorf("failed closing writer[%s]: %s", key, threadErr)
+							}
 						}
 
-						// check for panics before saving state
 						if r := recover(); r != nil {
-							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
+							werr = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, werr)
 						}
 
-						postCDCErr := a.driver.PostCDC(ctx, data.Stream, err == nil, data.ReaderID)
+						postCDCErr := a.driver.PostCDC(ctx, nil, werr == nil, readerID)
 						if postCDCErr != nil {
-							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
-						}
-
-						if err != nil {
-							err = fmt.Errorf("thread[%s]: %s", data.ReaderID, err)
+							werr = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, werr)
 						}
 					}()
+
 					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-						return kafkaDriver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
-							// offset and partition are treated as primary key
+						return kafkaDriver.PartitionStreamChanges(ctx, readerID, func(ctx context.Context, message CDCChange) error {
+							if message.Stream == nil {
+								return nil
+							}
+							streamID := message.Stream.ID()
+							inserter := writers[streamID]
+							if inserter == nil {
+								// Create a dedicated writer for this reader+stream combo
+								threadID := fmt.Sprintf("%s_%s", readerID, streamID)
+								var err error
+								inserter, err = pool.NewWriter(ctx, message.Stream, destination.WithThreadID(threadID))
+								if err != nil {
+									return fmt.Errorf("failed to create writer for stream %s: %s", streamID, err)
+								}
+								writers[streamID] = inserter
+								logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, streamID)
+							}
 							pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							return inserter.Push(ctx, types.CreateRawRecord(
 								utils.GetKeysHash(message.Data, pkFields...),

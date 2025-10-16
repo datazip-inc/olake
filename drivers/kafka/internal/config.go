@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	BootstrapServers string         `json:"bootstrap_servers"`
-	Protocol         ProtocolConfig `json:"protocol"`
-	ConsumerGroupID  string         `json:"consumer_group_id,omitempty"`
-	MaxThreads       int            `json:"max_threads"`
-	RetryCount       int            `json:"backoff_retry_count"`
+	BootstrapServers            string         `json:"bootstrap_servers"`
+	Protocol                    ProtocolConfig `json:"protocol"`
+	ConsumerGroupID             string         `json:"consumer_group_id,omitempty"`
+	MaxThreads                  int            `json:"max_threads"`
+	RetryCount                  int            `json:"backoff_retry_count"`
+	ThreadsEqualTotalPartitions bool           `json:"threads_equal_total_partitions,omitempty"`
 }
 
 type ProtocolConfig struct {

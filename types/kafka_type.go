@@ -5,4 +5,5 @@ type PartitionMetaData struct {
 	Stream      StreamInterface
 	PartitionID int
 	EndOffset   int64
+	StartOffset int64
 }
