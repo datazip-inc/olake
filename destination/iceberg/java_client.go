@@ -125,8 +125,6 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		serverConfig["io-impl"] = "org.apache.iceberg.aws.s3.S3FileIO"
 	}
 
-
-
 	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
 }
