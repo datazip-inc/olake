@@ -114,12 +114,13 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
 	}
 
+	// Configure custom endpoint for S3-compatible services (like MinIO)
 	if config.S3Endpoint != "" {
 		serverConfig["s3.endpoint"] = config.S3Endpoint
+		serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
+		// Set SSL/TLS configuration
+		serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	}
-
-	serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
-	serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 
 	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
