@@ -51,10 +51,63 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				return fmt.Errorf("backfill channel closed unexpectedly")
 			}
 			backfilledStreams = append(backfilledStreams, streamID)
+			switch {
+			case a.IsKafkaDriver():
+				kafkaDriver, _ := a.driver.(KafkaInterface)
+				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
+				partitionData := kafkaDriver.GetPartitions()
+				// todo: we need to remove this default thread count check. If user puts same threads as default, then also this code block will execute when it shouldn't
+				if a.driver.MaxConnections() == constants.DefaultThreadCount {
+					totalPartitions := 0
+					_ = utils.ForEach(streams, func(stream types.StreamInterface) error {
+						if partitions, ok := partitionData[stream.ID()]; ok {
+							totalPartitions += len(partitions) // for max connection equal to number of partitions
+						}
+						return nil
+					})
+					a.GlobalConnGroup = utils.Ternary(totalPartitions > 0, utils.NewCGroupWithLimit(ctx, totalPartitions), a.GlobalConnGroup).(*utils.CxGroup)
+				}
+				utils.ConcurrentInGroup(a.GlobalConnGroup, partitionData[streams[index].ID()], func(ctx context.Context, data types.PartitionMetaData) error {
+					inserter, err := pool.NewWriter(ctx, data.Stream, destination.WithThreadID(data.ReaderID))
+					if err != nil {
+						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
+					}
+					logger.Infof("Thread[%s]: created cdc writer for stream %s", data.ReaderID, data.Stream.ID())
+					defer func() {
+						if threadErr := inserter.Close(ctx); threadErr != nil {
+							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
+						}
 
+						// check for panics before saving state
+						if r := recover(); r != nil {
+							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
+						}
+
+						postCDCErr := a.driver.PostCDC(ctx, data.Stream, err == nil, data.ReaderID)
+						if postCDCErr != nil {
+							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+						}
+
+						if err != nil {
+							err = fmt.Errorf("thread[%s]: %s", data.ReaderID, err)
+						}
+					}()
+					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+						return kafkaDriver.PartitionStreamChanges(ctx, data, func(ctx context.Context, message CDCChange) error {
+							// offset and partition are treated as primary key
+							pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+							return inserter.Push(ctx, types.CreateRawRecord(
+								utils.GetKeysHash(message.Data, pkFields...),
+								message.Data,
+								"c",
+								&message.Timestamp,
+							))
+						})
+					})
+				})
 			// run parallel change stream
 			// TODO: remove duplicate code
-			if isParallelChangeStream(a.driver.Type()) {
+			case isParallelChangeStream(a.driver.Type()):
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
@@ -73,7 +126,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 						}
 
-						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil, "")
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -95,13 +148,14 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						})
 					})
 				})
-			} else {
+
+			default:
 				a.state.SetGlobal(nil, streamID)
 			}
 		}
 	}
-	if isParallelChangeStream(a.driver.Type()) {
-		// parallel change streams already processed
+	if isParallelChangeStream(a.driver.Type()) || a.IsKafkaDriver() {
+		// parallel change streams or kafka message already processed
 		return nil
 	}
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
@@ -131,7 +185,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 			}
 
-			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil, "")
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}
