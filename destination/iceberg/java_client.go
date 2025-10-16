@@ -114,14 +114,18 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
 	}
 
-	// Configure custom endpoint for S3-compatible services (like MinIO)
-	if config.S3Endpoint != "" {
-		serverConfig["s3.endpoint"] = config.S3Endpoint
+	if config.IcebergS3Path != "" {
+		if config.S3Endpoint != "" {
+			serverConfig["s3.endpoint"] = config.S3Endpoint
+		}
 		serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
 		serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	} else {
+		// OLake should fallback to S3FielIO, (`org.apache.iceberg.io.ResolvingFileIO` falls back to HadoopFileIO)
 		serverConfig["io-impl"] = "org.apache.iceberg.aws.s3.S3FileIO"
 	}
+
+
 
 	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
