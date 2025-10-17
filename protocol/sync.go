@@ -15,6 +15,15 @@ import (
 	"github.com/spf13/viper"
 )
 
+// various stream formats 
+type StreamClassification struct {
+	SelectedStreams    []string
+	CDCStreams         []types.StreamInterface
+	IncrementalStreams []types.StreamInterface
+	FullLoadStreams    []types.StreamInterface
+	NewStreamsState    []*types.StreamState
+}
+
 // syncCmd represents the read command
 var syncCmd = &cobra.Command{
 	Use:   "sync",
@@ -79,7 +88,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		// get all types of selected streams
-		selectedStreamsMetadata, err := GetStreamsClassification(catalog, streams, state)
+		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
 		}
@@ -130,4 +139,82 @@ var syncCmd = &cobra.Command{
 		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
 		return nil
 	},
+}
+
+func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
+	// stream-specific classifications
+	classifications := &StreamClassification{
+		SelectedStreams:    []string{},
+		CDCStreams:         []types.StreamInterface{},
+		IncrementalStreams: []types.StreamInterface{},
+		FullLoadStreams:    []types.StreamInterface{},
+		NewStreamsState:    []*types.StreamState{},
+	}
+	// create a map for namespace and streamMetadata
+	selectedStreamsMap := make(map[string]types.StreamMetadata)
+	for namespace, streamsMetadata := range catalog.SelectedStreams {
+		for _, streamMetadata := range streamsMetadata {
+			selectedStreamsMap[fmt.Sprintf("%s.%s", namespace, streamMetadata.StreamName)] = streamMetadata
+		}
+	}
+
+	// Create a map for quick state lookup by stream ID
+	stateStreamMap := make(map[string]*types.StreamState)
+	for _, stream := range state.Streams {
+		stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
+	}
+
+	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
+		sMetadata, selected := selectedStreamsMap[elem.ID()]
+		// Check if the stream is in the selectedStreamMap
+		if !(catalog.SelectedStreams == nil || selected) {
+			logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
+			return false
+		}
+
+		if streams != nil {
+			source, found := types.StreamsToMap(streams...)[elem.ID()]
+			if !found {
+				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
+				return false
+			}
+			elem.StreamMetadata = sMetadata
+			err := elem.Validate(source)
+			if err != nil {
+				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
+				return false
+			}
+		}
+
+		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
+		switch elem.Stream.SyncMode {
+		case types.CDC, types.STRICTCDC:
+			classifications.CDCStreams = append(classifications.CDCStreams, elem)
+			streamState, exists := stateStreamMap[elem.ID()]
+			if exists {
+				classifications.NewStreamsState = append(classifications.NewStreamsState, streamState)
+			}
+		case types.INCREMENTAL:
+			classifications.IncrementalStreams = append(classifications.IncrementalStreams, elem)
+			streamState, exists := stateStreamMap[elem.ID()]
+			if exists {
+				classifications.NewStreamsState = append(classifications.NewStreamsState, streamState)
+			}
+		default:
+			classifications.FullLoadStreams = append(classifications.FullLoadStreams, elem)
+		}
+
+		return false
+	})
+	// Clear previous state streams for non-selected streams.
+	// Must not be called during clear destination to retain the global and stream state. (clear dest. -> when streams == nil)
+	if streams != nil {
+		state.Streams = classifications.NewStreamsState
+	}
+	if len(classifications.SelectedStreams) == 0 {
+		return nil, fmt.Errorf("no valid streams found in catalog")
+	}
+
+	logger.Infof("Valid selected streams are %s", strings.Join(classifications.SelectedStreams, ", "))
+	return classifications, nil
 }

@@ -41,7 +41,7 @@ var clearCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		selectedStreamsMetadata, err := GetStreamsClassification(catalog, nil, state)
+		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
@@ -68,10 +68,10 @@ var clearCmd = &cobra.Command{
 			return fmt.Errorf("failed to clear destination: %w", err)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")
-		stateBytes, _ := newState.MarshalJSON()
-		logger.Infof("New saved state: %s", stateBytes)
 		// save new state in state file
 		newState.LogState()
+		stateBytes, _ := newState.MarshalJSON()
+		logger.Infof("New saved state: %s", stateBytes)
 		return nil
 	},
 }
