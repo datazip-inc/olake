@@ -17,7 +17,7 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		Stream: stream,
 		State:  m.state,
 	}
-	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
+	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}

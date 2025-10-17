@@ -33,7 +33,7 @@ func (w *wal2jsonReplicator) Socket() *Socket {
 func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, callback abstract.CDCMsgFn) error {
 	// update current lsn information
 	var slot ReplicationSlot
-	if err := db.Get(&slot, fmt.Sprintf(ReplicationSlotTempl, w.socket.ReplicationSlot)); err != nil {
+	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, w.socket.ReplicationSlot)); err != nil {
 		return fmt.Errorf("failed to get replication slot: %s", err)
 	}
 

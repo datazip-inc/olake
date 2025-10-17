@@ -42,7 +42,7 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		binlogPos, err := binlog.GetCurrentBinlogPosition(m.client)
+		binlogPos, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
