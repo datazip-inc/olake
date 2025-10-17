@@ -461,7 +461,7 @@ func OracleChunkRetrievalQuery(taskName string) string {
 }
 
 // OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(ctx context.Context, client *sqlx.DB, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
+func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// in case of incremental sync mode, during backfill to avoid duplicate records we need to use '<=', otherwise use '>'
@@ -479,7 +479,7 @@ func OracleIncrementalValueFormatter(ctx context.Context, client *sqlx.DB, curso
 	}
 
 	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
-	err = client.QueryRowContext(ctx, query).Scan(&datatype)
+	err = opts.Client.QueryRowContext(ctx, query).Scan(&datatype)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
 	}
@@ -593,7 +593,7 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, opts.Client, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
+			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
 		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
@@ -676,7 +676,7 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, opts.Client, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil
