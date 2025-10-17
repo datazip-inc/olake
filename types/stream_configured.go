@@ -85,35 +85,49 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
-	filter := s.StreamMetadata.Filter
+	filter := strings.TrimSpace(s.StreamMetadata.Filter)
 	if filter == "" {
 		return Filter{}, nil
 	}
-	// TODO: handle special characters in column name in filter
-	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
-	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
+	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
 	}
+
+	// Helper function to extract value from multiple capture groups
+	extractValue := func(groups ...string) string {
+		for _, group := range groups {
+			if group != "" {
+				return group
+			}
+		}
+		return ""
+	}
+
 	var conditions []Condition
+
+	Column := extractValue(matches[1], matches[2])
 	conditions = append(conditions, Condition{
-		Column:   matches[1],
-		Operator: matches[2],
-		Value:    matches[3],
+		Column:   Column,
+		Operator: matches[3],
+		Value:    matches[4],
 	})
 
-	if matches[4] != "" {
+	// Check if there's a logical operator (and/or)
+	logicalOp := matches[5]
+	if logicalOp != "" {
+		Column := extractValue(matches[6], matches[7])
 		conditions = append(conditions, Condition{
-			Column:   matches[5],
-			Operator: matches[6],
-			Value:    matches[7],
+			Column: Column,
+			Operator: matches[8],
+			Value:    matches[9],
 		})
 	}
 
 	return Filter{
 		Conditions:      conditions,
-		LogicalOperator: matches[4],
+		LogicalOperator: logicalOp,
 	}, nil
 }
 
