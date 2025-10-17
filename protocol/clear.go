@@ -41,20 +41,19 @@ var clearCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		selectedStreamsMetadata, err := types.IdentifySelectedStreams(catalog, nil, state)
+		selectedStreamsMetadata, err := GetStreamsClassification(catalog, nil, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
 		dropStreams := []types.StreamInterface{}
-		dropStreams = append(dropStreams, append(append(selectedStreamsMetadata.IncrementalStreams, selectedStreamsMetadata.StandardStreams...), selectedStreamsMetadata.CDCStreams...)...)
+		dropStreams = append(dropStreams, append(append(selectedStreamsMetadata.IncrementalStreams, selectedStreamsMetadata.FullLoadStreams...), selectedStreamsMetadata.CDCStreams...)...)
 		if len(dropStreams) == 0 {
 			logger.Infof("No streams selected for clearing")
 			return nil
 		}
 
-		// Setup state for connector
 		connector.SetupState(state)
-		// 1. Clear state for selected streams
+		// clear state for selected streams
 		newState, err := connector.ClearState(dropStreams)
 		if err != nil {
 			return fmt.Errorf("error clearing state: %w", err)
@@ -63,12 +62,15 @@ var clearCmd = &cobra.Command{
 		// Setup new state after clear for connector
 		connector.SetupState(newState)
 
-		// 2. Drop streams from destination
-		_, werr := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, dropStreams, 0)
-		if werr != nil {
-			return fmt.Errorf("failed to initialize writer pool for dropping streams: %w", err)
+		// drop/clear streams from destination
+		cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
+		if cerr != nil {
+			return fmt.Errorf("failed to clear destination: %w", err)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")
+		stateBytes, _ := newState.MarshalJSON()
+		logger.Infof("New saved state: %s", stateBytes)
+		// save new state in state file
 		newState.LogState()
 		return nil
 	},

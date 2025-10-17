@@ -62,7 +62,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 throw new Exception("Destination table name not present in metadata");
             }
 
-            if (this.icebergTable == null) {
+            if (this.icebergTable == null && request.getType() != IcebergPayload.PayloadType.DROP_TABLE) {
                 SchemaConvertor schemaConvertor = new SchemaConvertor(identifierField, schemaMetadata);
                 this.icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
                                         schemaConvertor.convertToIcebergSchema());

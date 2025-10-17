@@ -83,7 +83,7 @@ func WithThreadID(threadID string) ThreadOptions {
 	}
 }
 
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, dropStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -97,12 +97,6 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 	err := adapter.Check(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
-	}
-
-	if dropStreams != nil {
-		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
-			return nil, fmt.Errorf("failed to clear destination: %s", err)
-		}
 	}
 
 	pool := &WriterPool{
@@ -278,4 +272,23 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 
 		return wt.writer.Close(ctx)
 	}
+}
+
+func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
+	newfunc, found := RegisteredWriters[config.Type]
+	if !found {
+		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+	}
+
+	adapter := newfunc()
+	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
+		return err
+	}
+
+	if dropStreams != nil {
+		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
+			return fmt.Errorf("failed to drop the streams: %s", err)
+		}
+	}
+	return nil
 }

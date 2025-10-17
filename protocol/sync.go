@@ -79,24 +79,28 @@ var syncCmd = &cobra.Command{
 		}
 
 		// get all types of selected streams
-		selectedStreamsMetadata, err := types.IdentifySelectedStreams(catalog, streams, state)
+		selectedStreamsMetadata, err := GetStreamsClassification(catalog, streams, state)
 		if err != nil {
-			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
+			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
 		}
 
 		// for clearing streams
 		dropStreams := []types.StreamInterface{}
-		dropStreams = append(dropStreams, selectedStreamsMetadata.StandardStreams...)
+		dropStreams = append(dropStreams, selectedStreamsMetadata.FullLoadStreams...)
 		if len(dropStreams) > 0 {
 			logger.Infof("Clearing state for full refresh streams")
 			// get the state for modification in clearstate
 			connector.SetupState(state)
 			if state, err = connector.ClearState(dropStreams); err != nil {
-				return fmt.Errorf("error clearing state for full refresh streams: %w", err)
+				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
+			}
+			cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
+			if cerr != nil {
+				return fmt.Errorf("failed to clear destination: %w", err)
 			}
 		}
 
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, dropStreams, batchSize)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
 		if err != nil {
 			return err
 		}
@@ -118,7 +122,7 @@ var syncCmd = &cobra.Command{
 		}()
 
 		// init group
-		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.StandardStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
+		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}

@@ -40,7 +40,7 @@ var discoverCmd = &cobra.Command{
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if streamsPath != "" && differencePath != "" {
-			return HandleDifference()
+			return compareStreams()
 		}
 
 		err := connector.Setup(cmd.Context())
@@ -73,8 +73,8 @@ var discoverCmd = &cobra.Command{
 	},
 }
 
-// HandleDifference reads two streams.json files, computes the difference, and writes the result to difference_streams.json
-func HandleDifference() error {
+// compareStreams reads two streams.json files, computes the difference, and writes the result to difference_streams.json
+func compareStreams() error {
 	var catalog1, catalog2 types.Catalog
 	if serr := utils.UnmarshalFile(streamsPath, &catalog1, false); serr != nil {
 		return fmt.Errorf("failed to read old catalog: %s", serr)
@@ -82,14 +82,10 @@ func HandleDifference() error {
 	if derr := utils.UnmarshalFile(differencePath, &catalog2, false); derr != nil {
 		return fmt.Errorf("failed to read new catalog: %s", derr)
 	}
-
-	diffCatalog := types.GetCatalogDifference(&catalog1, &catalog2, connector.Type())
-
-	diffFilepath := viper.GetString(constants.DifferencePath)
-	if err := logger.FileLoggerWithPath(diffCatalog, diffFilepath); err != nil {
-		return fmt.Errorf("failed to write difference streams to %s: %w", diffFilepath, err)
+	diffCatalog := types.GetStreamsDelta(&catalog1, &catalog2, connector.Type())
+	if err := logger.FileLoggerWithPath(diffCatalog, viper.GetString(constants.DifferencePath)); err != nil {
+		return fmt.Errorf("failed to write difference streams: %s", err)
 	}
-
-	logger.Infof("Successfully wrote stream differences to %s", diffFilepath)
+	logger.Infof("Successfully wrote stream differences")
 	return nil
 }

@@ -119,14 +119,14 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 	}
 
 	dropStreams := make(map[string]bool)
-	for _, s := range streams {
-		dropStreams[s.ID()] = true
+	for _, stream := range streams {
+		dropStreams[stream.ID()] = true
 	}
 
 	// if global state exists (in case of relational sources)
 	if a.state.Global != nil && a.state.Global.Streams != nil {
-		for sID := range dropStreams {
-			a.state.Global.Streams.Remove(sID)
+		for streamID := range dropStreams {
+			a.state.Global.Streams.Remove(streamID)
 		}
 	}
 

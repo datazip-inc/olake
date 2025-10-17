@@ -171,7 +171,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 	return len(prefixOrConstValue) == 1, prefixOrConstValue[0]
 }
 
-// GetCatalogDifference compares two catalogs and returns a new catalog with streams that have differences.
+// GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
 // 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode
 // 2. Compares properties from streams: destination_database, cursor_field, sync_mode
@@ -183,7 +183,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 //
 // Returns:
 //   - A catalog containing only the streams that have differences
-func GetCatalogDifference(oldCatalog, newCatalog *Catalog, connectorType string) *Catalog {
+func GetStreamsDelta(oldCatalog, newCatalog *Catalog, connectorType string) *Catalog {
 	diffCatalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
