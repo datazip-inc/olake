@@ -424,3 +424,22 @@ func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) 
 	// Final table name is always reformatted
 	return dbName, Reformat(name)
 }
+
+// RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
+func RetryOnBackoff(attempts int, sleep time.Duration, f func(attemp int) error) (err error) {
+	for cur := range attempts {
+		if err = f(cur); err == nil {
+			return nil
+		}
+		if strings.Contains(err.Error(), constants.DestError) || strings.Contains(err.Error(), "context canceled") {
+			break // if destination error or global context canceled, break the retry loop
+		}
+		if attempts > 1 && cur != attempts-1 {
+			logger.Infof("retry attempt[%d], retrying after %.2f seconds due to err: %s", cur+1, sleep.Seconds(), err)
+			time.Sleep(sleep)
+			sleep = sleep * 2
+		}
+	}
+
+	return err
+}

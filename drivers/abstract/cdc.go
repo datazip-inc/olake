@@ -82,7 +82,16 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("thread[%s]: %s", threadID, err)
 						}
 					}()
-					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+					return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+						if attempt > 0 {
+							threadID = fmt.Sprintf("%s-retry-attempt-%d", threadID, attempt)
+							// re-initialize inserter
+							inserter, err = pool.NewWriter(ctx, streams[index], destination.WithBackfill(true), destination.WithThreadID(threadID))
+							if err != nil {
+								return fmt.Errorf("failed to create new writer thread: %s", err)
+							}
+						}
+
 						return a.driver.StreamChanges(ctx, streams[index], func(ctx context.Context, change CDCChange) error {
 							pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
@@ -136,7 +145,18 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}
 		}()
-		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+			if attempt > 0 {
+				for stream, insert := range inserters {
+					threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+					insert.Close(ctx)
+					inserters[stream], err = pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+					if err != nil {
+						return fmt.Errorf("failed to create new writer thread: %s", err)
+					}
+				}
+			}
+
 			return a.driver.StreamChanges(ctx, nil, func(ctx context.Context, change CDCChange) error {
 				pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 				opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)

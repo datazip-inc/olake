@@ -104,7 +104,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
 				}()
-				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+				return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(isRetry bool) error {
 					return a.driver.StreamIncrementalChanges(ctx, stream, func(ctx context.Context, record map[string]any) error {
 						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()

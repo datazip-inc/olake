@@ -67,10 +67,18 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				err = fmt.Errorf("thread[%s]: %s", threadID, err)
 			}
 		}()
-		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(cur int) error {
+			if cur > 0 {
+				threadID = fmt.Sprintf("%s-retry-attempt-%d", threadID, cur)
+				// re-initialize inserter
+				inserter, err = pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+				if err != nil {
+					return fmt.Errorf("failed to create new writer thread: %s", err)
+				}
+			}
+
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-
 				// persist cdc timestamp for cdc full load
 				var cdcTimestamp *time.Time
 				if stream.GetSyncMode() == types.CDC {
