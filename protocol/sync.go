@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// various stream formats 
+// various stream formats
 type StreamClassification struct {
 	SelectedStreams    []string
 	CDCStreams         []types.StreamInterface
