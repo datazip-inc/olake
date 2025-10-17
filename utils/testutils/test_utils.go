@@ -375,14 +375,37 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		}
 	}()
 
+	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, icebergDB, tableName)
 	selectQuery := fmt.Sprintf(
-		"SELECT * FROM %s.%s.%s WHERE _op_type = '%s'",
-		icebergCatalog, icebergDB, tableName, opSymbol,
+		"SELECT * FROM %s WHERE _op_type = '%s'",
+		fullTableName, opSymbol,
 	)
 	t.Logf("Executing query: %s", selectQuery)
 
-	selectQueryDf, err := spark.Sql(ctx, selectQuery)
-	require.NoError(t, err, "Failed to select query from the table")
+	// Retry the query to handle error due to catalog consistency (spark error)
+	var selectQueryDf sql.DataFrame
+	maxRetries := 5
+	retryDelay := 2 * time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			t.Logf("Query attempt %d/%d (waiting %v for catalog consistency)", attempt+1, maxRetries, retryDelay)
+			time.Sleep(retryDelay)
+		}
+
+		df, queryErr := spark.Sql(ctx, selectQuery)
+		if queryErr != nil {
+			t.Logf("Query attempt %d failed: %v", attempt+1, queryErr)
+			if attempt == maxRetries-1 {
+				require.NoError(t, queryErr, "Failed to query table after %d attempts", maxRetries)
+			}
+			continue
+		}
+
+		selectQueryDf = df
+		break
+	}
+	require.NotNil(t, selectQueryDf, "Failed to get query results after %d attempts", maxRetries)
 
 	selectRows, err := selectQueryDf.Collect(ctx)
 	require.NoError(t, err, "Failed to collect data rows from Iceberg")
@@ -408,7 +431,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
-	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergCatalog, icebergDB, tableName)
+	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", fullTableName)
 	describeDf, err := spark.Sql(ctx, describeQuery)
 	require.NoError(t, err, "Failed to describe Iceberg table")
 
