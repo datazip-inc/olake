@@ -429,7 +429,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 		// Convert to Records immediately and work with them - following reviewer's suggestion
 		recordMaps := make([]types.Record, len(records))
-		
+
 		// parallel flatten data and detect schema difference
 		diffThreadSchema := atomic.Bool{}
 		flattener := typeutils.NewFlattener()

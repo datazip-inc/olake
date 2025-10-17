@@ -160,7 +160,7 @@ func (p *Parquet) Write(_ context.Context, records []types.Record) error {
 		if _, exists := record[constants.OlakeTimestamp]; !exists {
 			record[constants.OlakeTimestamp] = time.Now().UTC()
 		}
-		
+
 		olakeTimestamp := record[constants.OlakeTimestamp].(time.Time)
 		partitionedPath := p.getPartitionedFilePath(record, olakeTimestamp)
 		partitionFile, exists := p.partitionedFiles[partitionedPath]

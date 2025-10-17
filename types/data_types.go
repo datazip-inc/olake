@@ -80,20 +80,19 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 }
 
 // ToRecord converts a RawRecord to a Record map with all metadata included
-// This is the centralized function to avoid DRY violations across writers
 func (r RawRecord) ToRecord() Record {
 	if r.Data == nil {
 		r.Data = make(map[string]any)
 	}
-	
+
 	// Create record with pre-allocated capacity for better performance
 	record := make(Record, len(r.Data)+4) // +4 for metadata fields
-	
+
 	// Copy all data fields in single iteration
 	for key, value := range r.Data {
 		record[key] = value
 	}
-	
+
 	// Add Olake metadata fields with current timestamp
 	record[constants.OlakeID] = r.OlakeID
 	record[constants.OlakeTimestamp] = time.Now().UTC()
@@ -101,7 +100,7 @@ func (r RawRecord) ToRecord() Record {
 	if r.CdcTimestamp != nil {
 		record[constants.CdcTimestamp] = *r.CdcTimestamp
 	}
-	
+
 	return record
 }
 
@@ -110,53 +109,53 @@ func RecordToRawRecord(record Record) RawRecord {
 	if record == nil {
 		return RawRecord{Data: make(map[string]any)}
 	}
-	
+
 	rawRecord := RawRecord{
 		Data: make(map[string]any, len(record)), // Pre-allocate with estimated capacity
 	}
-	
+
 	// Extract metadata fields with safe type assertions
 	if olakeID, exists := record[constants.OlakeID]; exists && olakeID != nil {
 		if id, ok := olakeID.(string); ok {
 			rawRecord.OlakeID = id
 		}
 	}
-	
+
 	if olakeTimestamp, exists := record[constants.OlakeTimestamp]; exists && olakeTimestamp != nil {
 		if ts, ok := olakeTimestamp.(time.Time); ok {
 			rawRecord.OlakeTimestamp = ts
 		}
 	}
-	
+
 	if opType, exists := record[constants.OpType]; exists && opType != nil {
 		if op, ok := opType.(string); ok {
 			rawRecord.OperationType = op
 		}
 	}
-	
+
 	if cdcTimestamp, exists := record[constants.CdcTimestamp]; exists && cdcTimestamp != nil {
 		if ts, ok := cdcTimestamp.(time.Time); ok {
 			rawRecord.CdcTimestamp = &ts
 		}
 	}
-	
+
 	// Copy data fields (excluding metadata fields) in single iteration
 	for key, value := range record {
 		if !isMetadataField(key) {
 			rawRecord.Data[key] = value
 		}
 	}
-	
+
 	return rawRecord
 }
 
 // isMetadataField checks if a field is an Olake metadata field
 // This centralizes the metadata field checking logic
 func isMetadataField(key string) bool {
-	return key == constants.OlakeID || 
-		   key == constants.OlakeTimestamp || 
-		   key == constants.OpType || 
-		   key == constants.CdcTimestamp
+	return key == constants.OlakeID ||
+		key == constants.OlakeTimestamp ||
+		key == constants.OpType ||
+		key == constants.CdcTimestamp
 }
 
 // ToRecords converts a slice of RawRecord to Records efficiently
@@ -165,7 +164,7 @@ func ToRecords(rawRecords []RawRecord) []Record {
 	if rawRecords == nil {
 		return nil
 	}
-	
+
 	records := make([]Record, len(rawRecords))
 	for i, rawRecord := range rawRecords {
 		records[i] = rawRecord.ToRecord()
@@ -183,12 +182,12 @@ type Flattener interface {
 func ProcessRawRecordToRecord(rawRecord RawRecord, flattener Flattener) (Record, error) {
 	// Create Record map with all data and olake metadata
 	record := make(Record)
-	
+
 	// Copy data fields
 	for key, value := range rawRecord.Data {
 		record[key] = value
 	}
-	
+
 	// Add olake metadata directly to the same map
 	record[constants.OlakeID] = rawRecord.OlakeID
 	record[constants.OlakeTimestamp] = time.Now().UTC()
@@ -205,8 +204,6 @@ func ProcessRawRecordToRecord(rawRecord RawRecord, flattener Flattener) (Record,
 
 	return flattenedRecord, nil
 }
-
-
 
 func GetParquetRawSchema() *parquet.Schema {
 	return parquet.NewSchema("RawRecord", parquet.Group{
