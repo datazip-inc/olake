@@ -22,11 +22,7 @@ func TypeFromValue(v interface{}) types.DataType {
 		if val.IsNil() {
 			return types.Null
 		}
-		elem := val.Elem()
-		if !elem.IsValid() {
-			return types.Null
-		}
-		return TypeFromValue(elem.Interface())
+		return TypeFromValue(val.Elem().Interface())
 	}
 
 	switch valType.Kind() {

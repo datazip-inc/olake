@@ -18,6 +18,7 @@ func TestResolve(t *testing.T) {
 			nullable bool
 		}
 	}{
+		// basic data types like int string float bool
 		{
 			name: "basic types",
 			objects: []map[string]interface{}{
@@ -38,6 +39,7 @@ func TestResolve(t *testing.T) {
 				"bool_field":   {dataType: types.Bool, nullable: false},
 			},
 		},
+		// all integer types signed and unsigned
 		{
 			name: "all integer types",
 			objects: []map[string]interface{}{
@@ -70,6 +72,7 @@ func TestResolve(t *testing.T) {
 				"uint64_field": {dataType: types.Int64, nullable: false},
 			},
 		},
+		// float types with different precisions
 		{
 			name: "float types",
 			objects: []map[string]interface{}{
@@ -86,6 +89,7 @@ func TestResolve(t *testing.T) {
 				"float64_field": {dataType: types.Float64, nullable: false},
 			},
 		},
+		// timestamp strings of various precisions
 		{
 			name: "timestamp strings",
 			objects: []map[string]interface{}{
@@ -108,6 +112,7 @@ func TestResolve(t *testing.T) {
 				"invalid_timestamp_field": {dataType: types.String, nullable: false},
 			},
 		},
+		// pointer types should be dereferenced and nil pointers should be handled
 		{
 			name: "pointer types",
 			objects: []map[string]interface{}{
@@ -130,6 +135,7 @@ func TestResolve(t *testing.T) {
 				"nil_ptr":     {dataType: types.Null, nullable: true},
 			},
 		},
+		// fields that are missing in some objects should be marked as nullable
 		{
 			name: "nullable fields",
 			objects: []map[string]interface{}{
@@ -150,6 +156,7 @@ func TestResolve(t *testing.T) {
 				"field2": {dataType: types.Int32, nullable: true},
 			},
 		},
+		// arrays and slices should be mapped to Array type
 		{
 			name: "array and slice types",
 			objects: []map[string]interface{}{
@@ -174,6 +181,7 @@ func TestResolve(t *testing.T) {
 				"nil_slice":    {dataType: types.Array, nullable: false},
 			},
 		},
+		// maps should be mapped to Object type
 		{
 			name: "map types",
 			objects: []map[string]interface{}{
@@ -196,6 +204,7 @@ func TestResolve(t *testing.T) {
 				"nil_map":    {dataType: types.Object, nullable: false},
 			},
 		},
+		// time.Time values should be mapped to appropriate timestamp types based on precision
 		{
 			name: "time types",
 			objects: []map[string]interface{}{
@@ -218,6 +227,7 @@ func TestResolve(t *testing.T) {
 				"nil_time":    {dataType: types.Null, nullable: true},
 			},
 		},
+		// unknown types should be mapped unknown
 		{
 			name: "unknown types",
 			objects: []map[string]interface{}{
@@ -238,6 +248,7 @@ func TestResolve(t *testing.T) {
 				"nil_unknown":  {dataType: types.Null, nullable: true},
 			},
 		},
+		// empty input should return empty result
 		{
 			name:    "empty input",
 			objects: []map[string]interface{}{},

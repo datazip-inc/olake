@@ -58,6 +58,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 		driver   string
 		expected *Catalog
 	}{
+		// empty streams slice should return empty catalog
 		{
 			name:    "empty streams",
 			streams: []*Stream{},
@@ -67,6 +68,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				SelectedStreams: make(map[string][]StreamMetadata),
 			},
 		},
+		// nil streams slice should return empty catalog
 		{
 			name:    "nil streams slice",
 			streams: nil,
@@ -76,6 +78,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				SelectedStreams: make(map[string][]StreamMetadata),
 			},
 		},
+		// single stream in postgres
 		{
 			name: "single stream - relational driver (postgres)",
 			streams: []*Stream{
@@ -108,6 +111,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				},
 			},
 		},
+		// single stream in mongodb, should return normalization as false
 		{
 			name: "single stream - non-relational driver (mongodb)",
 			streams: []*Stream{
@@ -140,6 +144,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				},
 			},
 		},
+		// multiple streams tests
 		{
 			name: "multiple streams with complete properties",
 			streams: []*Stream{
@@ -239,6 +244,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		newCatalog *Catalog
 		expected   *Catalog
 	}{
+		// when old catalog is nil, new catalog should be returned unchanged
 		{
 			name:       "nil old catalog returns new catalog unchanged",
 			oldCatalog: nil,
@@ -254,7 +260,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex"},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
 			},
@@ -270,11 +276,12 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex"},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
 			},
 		},
+		// when merging single stream, old catalog metadata and selected stream data should be preserved
 		{
 			name: "single stream merge",
 			oldCatalog: &Catalog{
@@ -295,7 +302,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition"},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
 			},
@@ -317,7 +324,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "new_partition"},
+						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
 					},
 				},
 			},
@@ -339,13 +346,14 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition"},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
 			},
 		},
+		// when new stream is introduced, it should be added with new catalog metadata and selected stream data should be preserved
 		{
-			name: "multi stream merge",
+			name: "new stream introduced",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -362,7 +370,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition"},
+						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
 			},
@@ -392,10 +400,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition"},
+						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
 					},
 					"namespace2": {
-						{StreamName: "stream2", PartitionRegex: ""},
+						{StreamName: "stream2", PartitionRegex: "", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
 					},
 				},
 			},
@@ -425,7 +433,179 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition"},
+						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+					},
+				},
+			},
+		},
+		// when old stream is removed, only available streams should be kept, but selected stream data should be preserved
+		{
+			name: "old stream removed",
+			oldCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "stream1",
+							Namespace:           "namespace1",
+							Schema:              oldSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "id",
+							DestinationDatabase: "db:newNamespace1",
+							DestinationTable:    "newStream1",
+						},
+					},
+					{
+						Stream: &Stream{
+							Name:                "stream2",
+							Namespace:           "namespace2",
+							Schema:              newSchema(),
+							SyncMode:            SyncMode("full_refresh"),
+							DestinationDatabase: "db:namespace2",
+							DestinationTable:    "stream2",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"namespace1": {
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+					},
+					"namespace2": {
+						{StreamName: "stream2", PartitionRegex: "", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+					},
+				},
+			},
+			newCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "stream1",
+							Namespace:           "namespace1",
+							Schema:              oldSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "updated_at",
+							DestinationDatabase: "db:namespace1",
+							DestinationTable:    "stream1",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"namespace1": {
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
+					},
+				},
+			},
+			expected: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "stream1",
+							Namespace:           "namespace1",
+							Schema:              oldSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "id",
+							DestinationDatabase: "db:newNamespace1",
+							DestinationTable:    "newStream1",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"namespace1": {
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+					},
+				},
+			},
+		},
+		// when destination database is updated, old catalog metadata should be preserved
+		{
+			name: "destination database updation",
+			oldCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "stream1",
+							Namespace:           "namespace1",
+							Schema:              oldSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "id",
+							DestinationDatabase: "",
+							DestinationTable:    "stream1",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"namespace1": {
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true},
+					},
+				},
+			},
+			newCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "stream1",
+							Namespace:           "namespace1",
+							Schema:              oldSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "updated_at",
+							DestinationDatabase: "db:namespace1",
+							DestinationTable:    "newStream1",
+						},
+					},
+					{
+						Stream: &Stream{
+							Name:                "stream2",
+							Namespace:           "namespace2",
+							Schema:              newSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("full_refresh"),
+							DestinationDatabase: "db:namespace2",
+							DestinationTable:    "newStream2",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"namespace1": {
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+					},
+					"namespace2": {
+						{StreamName: "stream2", PartitionRegex: "another_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
+					},
+				},
+			},
+			expected: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "stream1",
+							Namespace:           "namespace1",
+							Schema:              oldSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "id",
+							DestinationDatabase: "",
+							DestinationTable:    "stream1",
+						},
+					},
+					{
+						Stream: &Stream{
+							Name:                "stream2",
+							Namespace:           "namespace2",
+							Schema:              newSchema(),
+							SupportedSyncModes:  NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							SyncMode:            SyncMode("full_refresh"),
+							DestinationDatabase: "",
+							DestinationTable:    "newStream2",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"namespace1": {
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true},
 					},
 				},
 			},

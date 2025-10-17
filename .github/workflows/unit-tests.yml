@@ -23,11 +23,5 @@ jobs:
       - name: Install Dependencies
         run: go mod download
 
-      - name: Run Catalog Tests
-        run: go test -v ./types -run "TestCatalog"
-
-      - name: Run Flatten Tests
-        run: go test -v ./utils/typeutils -run "TestFlatten"
-
-      - name: Run Resolve Tests
-        run: go test -v ./utils/typeutils -run "TestResolve"
+      - name: Run All Unit Tests
+        run: go test -v ./...

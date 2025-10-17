@@ -26,12 +26,14 @@ func TestFlatten(t *testing.T) {
 		expected    types.Record
 		expectError bool
 	}{
+		// empty record, nothing to flatten
 		{
 			name:        "empty record",
 			input:       types.Record{},
 			expected:    types.Record{},
 			expectError: false,
 		},
+		// basic values like string, int, bool, float, time, etc.
 		{
 			name: "simple values",
 			input: types.Record{
@@ -48,6 +50,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// map contains values of different types
 		{
 			name: "nested map",
 			input: types.Record{
@@ -68,6 +71,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// values with nil are omitted from the result
 		{
 			name: "nil values are omitted",
 			input: types.Record{
@@ -81,6 +85,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// if key contains special characters, it is replaced with an underscore
 		{
 			name: "special characters in keys",
 			input: types.Record{
@@ -95,6 +100,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// time values are present in record
 		{
 			name: "time values",
 			input: types.Record{
@@ -109,6 +115,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// values nesterd inside map, the whole map is stringified
 		{
 			name: "deeply nested maps",
 			input: types.Record{
@@ -130,6 +137,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// array which contains data of various data types is stringified
 		{
 			name: "arrays with mixed types",
 			input: types.Record{
@@ -149,6 +157,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// unicode and special characters in column names are replaced with an underscore
 		{
 			name: "unicode and special characters",
 			input: types.Record{
@@ -161,6 +170,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		//  this is to check if lager numbers are loosing precision and scale.
 		{
 			name: "large numbers",
 			input: types.Record{
@@ -178,6 +188,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// various types of values but all are empty are stringified as empty strings, slices, maps, etc.
 		{
 			name: "all empty values",
 			input: types.Record{
@@ -196,6 +207,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// complex pointer scenarios are stringified as null, map, slice, struct
 		{
 			name: "complex pointer scenarios",
 			input: types.Record{
