@@ -102,7 +102,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
 		// For non-normalized mode, we'll write Record maps directly, not ProcessedRecord structs
-		return pqgo.NewGenericWriter[types.Record](pqFile, pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[types.Record](pqFile, types.GetParquetRawSchema(), pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
