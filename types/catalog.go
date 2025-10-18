@@ -208,8 +208,8 @@ func GetStreamsDelta(oldCatalog, newCatalog *Catalog, connectorType string) *Cat
 		}
 	}
 
-	// flag for relational connector check for CDC-based new stream detection
-	isCdcDriver := connectorType == string(constants.Postgres) || connectorType == string(constants.MySQL)
+	// flag for connector which have global state support
+	globalStateSupportedConnector := connectorType == string(constants.Postgres) || connectorType == string(constants.MySQL)
 
 	for namespace, newMetadatas := range newCatalog.SelectedStreams {
 		for _, newMetadata := range newMetadatas {
@@ -228,7 +228,7 @@ func GetStreamsDelta(oldCatalog, newCatalog *Catalog, connectorType string) *Cat
 			// if new stream in selected_streams
 			if !oldMetadataExists || !oldStreamExists {
 				// addition of new streams
-				if isCdcDriver && newStream.GetStream().SyncMode == CDC {
+				if globalStateSupportedConnector && newStream.GetStream().SyncMode == CDC {
 					diffCatalog.Streams = append(diffCatalog.Streams, newStream)
 					diffCatalog.SelectedStreams[namespace] = append(
 						diffCatalog.SelectedStreams[namespace],
