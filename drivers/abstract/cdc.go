@@ -78,6 +78,17 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
 
+						// Update synced record count based on committed records
+						if err == nil {
+							committedRecords := inserter.GetCommittedCount()
+							if committedRecords > 0 {
+								previousSyncedCount := a.state.GetSyncedRecordCount(streams[index].Self())
+								totalSyncedCount := previousSyncedCount + committedRecords
+								a.state.SetSyncedRecordCount(streams[index].Self(), totalSyncedCount)
+								logger.Infof("Stream %s cdc: committed %d records (total synced: %d)", streams[index].ID(), committedRecords, totalSyncedCount)
+							}
+						}
+
 						if err != nil {
 							err = fmt.Errorf("thread[%s]: %s", threadID, err)
 						}
@@ -134,6 +145,19 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+			}
+
+			// Update synced record counts based on committed records
+			if err == nil {
+				for stream, insert := range inserters {
+					committedRecords := insert.GetCommittedCount()
+					if committedRecords > 0 {
+						previousSyncedCount := a.state.GetSyncedRecordCount(stream.Self())
+						totalSyncedCount := previousSyncedCount + committedRecords
+						a.state.SetSyncedRecordCount(stream.Self(), totalSyncedCount)
+						logger.Infof("Stream %s cdc: committed %d records (total synced: %d)", stream.ID(), committedRecords, totalSyncedCount)
+					}
+				}
 			}
 		}()
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
