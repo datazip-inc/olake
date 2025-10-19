@@ -106,7 +106,7 @@ func GetTestConfig(driver string) *TestConfig {
 	}
 }
 
-func syncCommand(config TestConfig, useState bool, destinationType string) string {
+func syncCommand(config TestConfig, useState bool, destinationType string, flags ...string) string {
 	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s", config.Driver, config.SourcePath, config.CatalogPath)
 
 	switch destinationType {
@@ -119,11 +119,20 @@ func syncCommand(config TestConfig, useState bool, destinationType string) strin
 	if useState {
 		baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
 	}
+
+	if len(flags) > 0 {
+		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
+	}
 	return baseCmd
 }
 
-func discoverCommand(config TestConfig) string {
-	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+// pass flags as `--flag1, flag1 value, --flag2, flag2 value...`
+func discoverCommand(config TestConfig, flags ...string) string {
+	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+	if len(flags) > 0 {
+		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
+	}
+	return baseCmd
 }
 
 // TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
@@ -368,8 +377,9 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								},
 							}
 
+							destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol, destinationType string, schema map[string]interface{}) error {
-								cmd := syncCommand(*cfg.TestConfig, useState, destinationType)
+								cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 								if useState && operation != "" {
 									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, operation, false)
 								}
@@ -629,6 +639,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		code, output, err := utils.ExecCommand(timedCtx, c, cmd)
 		// check if sync was canceled due to timeout (expected)
 		if timedCtx.Err() == context.DeadlineExceeded {
+			killCmd := "pkill -9 -f 'olake.*sync' || true"
+			_, _, _ = utils.ExecCommand(ctx, c, killCmd)
 			return output, nil
 		}
 		if err != nil || code != 0 {
@@ -660,11 +672,12 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
 							}
-
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
+							destDBPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
+
 							t.Log("(backfill) discover started")
-							discoverCmd := discoverCommand(*cfg.TestConfig)
+							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 							if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
 							}
@@ -677,7 +690,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							t.Log("(backfill) sync started")
 							usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
-							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "iceberg")
+							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "iceberg", "--destination-database-prefix", destDBPrefix)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
@@ -698,7 +711,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) discover started")
-								discoverCmd := discoverCommand(*cfg.TestConfig)
+								discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
 								}
@@ -710,7 +723,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 
 								t.Log("(cdc) state creation started")
-								syncCmd := syncCommand(*cfg.TestConfig, false, "iceberg")
+								syncCmd := syncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", destDBPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
@@ -721,7 +734,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) sync started")
-								syncCmd = syncCommand(*cfg.TestConfig, true, "iceberg")
+								syncCmd = syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 								if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
 								}

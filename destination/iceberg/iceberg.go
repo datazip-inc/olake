@@ -17,6 +17,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/spf13/viper"
 )
 
 type Iceberg struct {
@@ -258,15 +259,16 @@ func (i *Iceberg) Close(ctx context.Context) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
-	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	threadID := fmt.Sprintf("test_iceberg_destination_%s", uniqueSuffix)
-	destTable := fmt.Sprintf("test_olake_%s", uniqueSuffix)
-
 	i.options = &destination.Options{
-		ThreadID: threadID,
+		ThreadID: "test_iceberg_destination",
+	}
+
+	destinationDB := "test_olake"
+	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
+		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
 	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destTable)
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -285,7 +287,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: destTable,
+			DestTableName: destinationDB,
 			Schema:        icebergRawSchema(),
 		},
 	}
@@ -300,7 +302,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
 	protoSchema := icebergRawSchema()
-	record := types.CreateRawRecord("olake_test", map[string]any{"name": "olake"}, "r", &currentTime)
+	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime)
 	protoColumns, err := rawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
@@ -309,7 +311,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: destTable,
+			DestTableName: destinationDB,
 			Schema:        protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{
