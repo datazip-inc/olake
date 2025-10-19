@@ -95,8 +95,20 @@ jobs:
     - name: Cleanup
       if: always()
       run: |
-        aws glue delete-database --name performance_${{ matrix.driver }} || { echo "failed to delete glue database: performance_${{ matrix.driver }}"; aws glue get-database --name performance_${{ matrix.driver }} || true; }
-        aws s3 rm s3://dz-stag-github-actions/performance_${{ matrix.driver }} --recursive || { echo "failed to delete s3 bucket: performance_${{ matrix.driver }}"; aws s3 ls s3://dz-stag-github-actions/performance_${{ matrix.driver }} || true; }
+        # Delete all Glue databases matching prefix
+        for db in $(aws glue get-databases \
+          --query "DatabaseList[?starts_with(Name, 'performance_${{ matrix.driver }}')].Name" \
+          --output text); do
+          echo "Deleting Glue database: $db"
+          aws glue delete-database --name "$db" \
+          || echo "Failed to delete Glue database: $db"
+        done
+
+        # Delete corresponding S3 path
+        aws s3 rm s3://dz-stag-github-actions/performance_${{ matrix.driver }}/ --recursive \
+        || { echo "Failed to delete S3 bucket: performance_${{ matrix.driver }}"; \
+        aws s3 ls s3://dz-stag-github-actions/performance_${{ matrix.driver }} || true; }
+
         echo "Catalog cleanup completed"
 
         if [[ "${{ matrix.driver }}" != "oracle" ]]; then
