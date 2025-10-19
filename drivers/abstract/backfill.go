@@ -29,16 +29,11 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		// This is a resumed sync - restore stats from state
 		isResumedSync = true
 		totalCount := a.state.GetTotalRecordCount(stream.Self())
-		syncedCount := a.state.GetSyncedRecordCount(stream.Self())
-		
+
 		if totalCount > 0 {
-			logger.Infof("Resuming sync for stream %s: total records = %d, already synced = %d", stream.ID(), totalCount, syncedCount)
+			logger.Infof("Resuming sync for stream %s: total records = %d", stream.ID(), totalCount)
 			// Restore total count to pool stats for progress tracking
 			pool.AddRecordsToSyncStats(totalCount)
-			// Restore already synced count to pool stats
-			if syncedCount > 0 {
-				pool.GetStats().ReadCount.Add(syncedCount)
-			}
 		}
 	}
 	chunks := chunksSet.Array()
@@ -80,11 +75,15 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
-				
-				// Update synced record count in state for resume capability
-				currentSyncedCount := pool.GetStats().ReadCount.Load()
-				a.state.SetSyncedRecordCount(stream.Self(), currentSyncedCount)
-				
+
+				// Update synced record count in state based on committed records only
+				// This represents records that have been successfully written to the destination
+				committedRecords := inserter.GetCommittedCount()
+				previousSyncedCount := a.state.GetSyncedRecordCount(stream.Self())
+				totalSyncedCount := previousSyncedCount + committedRecords
+				a.state.SetSyncedRecordCount(stream.Self(), totalSyncedCount)
+				logger.Infof("Stream %s: chunk completed with %d committed records (total synced: %d)", stream.ID(), committedRecords, totalSyncedCount)
+
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}

@@ -54,6 +54,7 @@ type (
 		batchSize      int64
 		streamArtifact *writerSchema
 		group          *utils.CxGroup
+		committedCount int64
 	}
 )
 
@@ -254,7 +255,9 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 		return fmt.Errorf("failed to write records: %s", err)
 	}
 
-	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
+	// Track successfully committed records
+	wt.committedCount += int64(len(buf))
+	logger.Infof("Thread[%s]: successfully wrote %d records (total committed: %d)", wt.threadID, len(buf), wt.committedCount)
 	return nil
 }
 
@@ -278,4 +281,9 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 
 		return wt.writer.Close(ctx)
 	}
+}
+
+// GetCommittedCount returns the total number of records successfully committed by this writer thread
+func (wt *WriterThread) GetCommittedCount() int64 {
+	return wt.committedCount
 }
