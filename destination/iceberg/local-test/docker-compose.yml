@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   lakekeeper:
     image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
