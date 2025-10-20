@@ -343,9 +343,9 @@ func MySQLTableColumnsQuery() string {
 
 // MySQLVersion returns the version of the MySQL server
 // It returns the major and minor version of the MySQL server
-func MySQLVersion(client *sqlx.DB) (int, int, error) {
+func MySQLVersion(ctx context.Context, client *sqlx.DB) (int, int, error) {
 	var version string
-	err := client.QueryRow("SELECT @@version").Scan(&version)
+	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
@@ -461,7 +461,7 @@ func OracleChunkRetrievalQuery(taskName string) string {
 }
 
 // OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
+func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// in case of incremental sync mode, during backfill to avoid duplicate records we need to use '<=', otherwise use '>'
@@ -479,7 +479,7 @@ func OracleIncrementalValueFormatter(cursorField, argumentPlaceholder string, is
 	}
 
 	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
-	err = opts.Client.QueryRow(query).Scan(&datatype)
+	err = opts.Client.QueryRowContext(ctx, query).Scan(&datatype)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
 	}
@@ -576,7 +576,7 @@ type DriverOptions struct {
 }
 
 // BuildIncrementalQuery generates the incremental query SQL based on driver type
-func BuildIncrementalQuery(opts DriverOptions) (string, []any, error) {
+func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []any, error) {
 	primaryCursor, secondaryCursor := opts.Stream.Cursor()
 	lastPrimaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
 	lastSecondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
@@ -593,7 +593,7 @@ func BuildIncrementalQuery(opts DriverOptions) (string, []any, error) {
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
+			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
 		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
@@ -666,7 +666,7 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
 // This is to avoid dupliction of records, as max cursor value is fetched before the chunk creation.
-func ThresholdFilter(opts DriverOptions) (string, []any, error) {
+func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, error) {
 	if opts.Stream.GetSyncMode() != types.INCREMENTAL {
 		return "", nil, nil
 	}
@@ -676,7 +676,7 @@ func ThresholdFilter(opts DriverOptions) (string, []any, error) {
 
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil
