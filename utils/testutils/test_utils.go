@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
+	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -453,17 +454,47 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		}
 	}()
 
+	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, icebergDB, tableName)
 	selectQuery := fmt.Sprintf(
-		"SELECT * FROM %s.%s.%s WHERE _op_type = '%s'",
-		icebergCatalog, icebergDB, tableName, opSymbol,
+		"SELECT * FROM %s WHERE _op_type = '%s'",
+		fullTableName, opSymbol,
 	)
 	t.Logf("Executing query: %s", selectQuery)
 
-	selectQueryDf, err := spark.Sql(ctx, selectQuery)
-	require.NoError(t, err, "Failed to select query from the table")
+	var selectRows []types.Row
+	var queryErr error
+	maxRetries := 5
+	retryDelay := 2 * time.Second
 
-	selectRows, err := selectQueryDf.Collect(ctx)
-	require.NoError(t, err, "Failed to collect data rows from Iceberg")
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryDelay)
+		}
+		var selectQueryDf sql.DataFrame
+		// This is to check if the table exists in destination, as race condition might cause table to not be created yet
+		selectQueryDf, queryErr = spark.Sql(ctx, selectQuery)
+		if queryErr != nil {
+			t.Logf("Query attempt %d failed: %v", attempt+1, queryErr)
+			continue
+		}
+
+		// To ensure stale data is not being used for verification
+		selectRows, queryErr = selectQueryDf.Collect(ctx)
+		if queryErr != nil {
+			t.Logf("Query attempt %d failed (Collect error): %v", attempt+1, queryErr)
+			continue
+		}
+		if len(selectRows) > 0 {
+			queryErr = nil
+			break
+		}
+
+		// for every type of operation, op symbol will be different, using that to ensure data is not stale
+		queryErr = fmt.Errorf("stale data: query succeeded but returned 0 rows for _op_type = '%s'", opSymbol)
+		t.Logf("Query attempt %d/%d failed: %v", attempt+1, maxRetries, queryErr)
+	}
+
+	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
 	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	// delete row checked
@@ -486,7 +517,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
-	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergCatalog, icebergDB, tableName)
+	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", fullTableName)
 	describeDf, err := spark.Sql(ctx, describeQuery)
 	require.NoError(t, err, "Failed to describe Iceberg table")
 
