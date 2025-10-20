@@ -100,7 +100,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
-	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "old streams.json file path to compare. Generates a difference_streams.json file.")
+	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

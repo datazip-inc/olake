@@ -178,31 +178,29 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 // 3. For new streams: Only adds them if connector is Postgres/MySQL AND sync_mode is CDC
 //
 // Parameters:
-//   - oldCatalog: The previous catalog to compare against
-//   - newCatalog: The current catalog with potential changes
+//   - oldStreams: The previous catalog to compare against
+//   - newStreams: The current catalog with potential changes
 //
 // Returns:
 //   - A catalog containing only the streams that have differences
-func GetStreamsDelta(oldCatalog, newCatalog *Catalog, connectorType string) *Catalog {
-	diffCatalog := &Catalog{
+func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Catalog {
+	diffStreams := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
 
-	// maps for quick lookup of streams
 	oldStreamsMap := make(map[string]*ConfiguredStream)
-	for _, s := range oldCatalog.Streams {
-		oldStreamsMap[s.ID()] = s
+	for _, stream := range oldStreams.Streams {
+		oldStreamsMap[stream.ID()] = stream
 	}
 
 	newStreamsMap := make(map[string]*ConfiguredStream)
-	for _, s := range newCatalog.Streams {
-		newStreamsMap[s.ID()] = s
+	for _, stream := range newStreams.Streams {
+		newStreamsMap[stream.ID()] = stream
 	}
 
-	// old selected streams map for quick lookup
 	oldSelectedMap := make(map[string]StreamMetadata)
-	for namespace, metadatas := range oldCatalog.SelectedStreams {
+	for namespace, metadatas := range oldStreams.SelectedStreams {
 		for _, metadata := range metadatas {
 			oldSelectedMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)] = metadata
 		}
@@ -211,7 +209,7 @@ func GetStreamsDelta(oldCatalog, newCatalog *Catalog, connectorType string) *Cat
 	// flag for connector which have global state support
 	globalStateSupportedConnector := connectorType == string(constants.Postgres) || connectorType == string(constants.MySQL)
 
-	for namespace, newMetadatas := range newCatalog.SelectedStreams {
+	for namespace, newMetadatas := range newStreams.SelectedStreams {
 		for _, newMetadata := range newMetadatas {
 			streamID := fmt.Sprintf("%s.%s", namespace, newMetadata.StreamName)
 
@@ -229,9 +227,9 @@ func GetStreamsDelta(oldCatalog, newCatalog *Catalog, connectorType string) *Cat
 			if !oldMetadataExists || !oldStreamExists {
 				// addition of new streams
 				if globalStateSupportedConnector && newStream.GetStream().SyncMode == CDC {
-					diffCatalog.Streams = append(diffCatalog.Streams, newStream)
-					diffCatalog.SelectedStreams[namespace] = append(
-						diffCatalog.SelectedStreams[namespace],
+					diffStreams.Streams = append(diffStreams.Streams, newStream)
+					diffStreams.SelectedStreams[namespace] = append(
+						diffStreams.SelectedStreams[namespace],
 						newMetadata,
 					)
 				}
@@ -257,16 +255,16 @@ func GetStreamsDelta(oldCatalog, newCatalog *Catalog, connectorType string) *Cat
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode)
 			}()
 
-			// if any difference, add stream to diff catalog
+			// if any difference, add stream to diff streams
 			if isDifferent {
-				diffCatalog.Streams = append(diffCatalog.Streams, newStream)
-				diffCatalog.SelectedStreams[namespace] = append(
-					diffCatalog.SelectedStreams[namespace],
+				diffStreams.Streams = append(diffStreams.Streams, newStream)
+				diffStreams.SelectedStreams[namespace] = append(
+					diffStreams.SelectedStreams[namespace],
 					newMetadata,
 				)
 			}
 		}
 	}
 
-	return diffCatalog
+	return diffStreams
 }
