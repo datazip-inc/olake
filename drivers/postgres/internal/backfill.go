@@ -21,9 +21,8 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		Driver: constants.Postgres,
 		Stream: stream,
 		State:  p.state,
-		Client: p.client,
 	}
-	thresholdFilter, args, err := jdbc.ThresholdFilter(opts)
+	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to set threshold filter: %s", err)
 	}
@@ -44,7 +43,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
 	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
-		return tx.Query(query, args...)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return setter.Capture(func(rows *sql.Rows) error {
@@ -61,28 +60,27 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	})
 }
 
-func (p *Postgres) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
-	// TODO: use ctx while querying
-	err := p.client.QueryRow(approxRowCountQuery).Scan(&approxRowCount)
+	err := p.client.QueryRowContext(ctx, approxRowCountQuery).Scan(&approxRowCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
 	pool.AddRecordsToSyncStats(approxRowCount)
-	return p.splitTableIntoChunks(stream)
+	return p.splitTableIntoChunks(ctx, stream)
 }
 
-func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		var relPages, blockSize uint32
 		relPagesQuery := jdbc.PostgresRelPageCount(stream)
-		err := p.client.QueryRow(relPagesQuery).Scan(&relPages)
+		err := p.client.QueryRowContext(ctx, relPagesQuery).Scan(&relPages)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get relPages: %s", err)
 		}
 		blockSizeQuery := jdbc.PostgresBlockSizeQuery()
-		err = p.client.QueryRow(blockSizeQuery).Scan(&blockSize)
+		err = p.client.QueryRowContext(ctx, blockSizeQuery).Scan(&blockSize)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get block size: %s", err)
 		}
@@ -125,7 +123,7 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 		chunkStart := min
 		splits := types.NewSet[types.Chunk]()
 		for {
-			chunkEnd, err := p.nextChunkEnd(stream, chunkStart, chunkColumn)
+			chunkEnd, err := p.nextChunkEnd(ctx, stream, chunkStart, chunkColumn)
 			if err != nil {
 				return nil, fmt.Errorf("failed to split chunks based on next query size: %s", err)
 			}
@@ -145,7 +143,7 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 		var minValue, maxValue interface{}
 		minMaxRowCountQuery := jdbc.MinMaxQuery(stream, chunkColumn)
 		// TODO: Fails on UUID type (Good First Issue)
-		err := p.client.QueryRow(minMaxRowCountQuery).Scan(&minValue, &maxValue)
+		err := p.client.QueryRowContext(ctx, minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch table min max: %s", err)
 		}
@@ -171,10 +169,10 @@ func (p *Postgres) splitTableIntoChunks(stream types.StreamInterface) (*types.Se
 	}
 }
 
-func (p *Postgres) nextChunkEnd(stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
+func (p *Postgres) nextChunkEnd(ctx context.Context, stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
 	var chunkEnd interface{}
 	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd)
-	err := p.client.QueryRow(nextChunkEnd).Scan(&chunkEnd)
+	err := p.client.QueryRowContext(ctx, nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
 	}
