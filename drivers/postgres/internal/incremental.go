@@ -16,7 +16,7 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 		Stream: stream,
 		State:  p.state,
 	}
-	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(opts)
+	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}

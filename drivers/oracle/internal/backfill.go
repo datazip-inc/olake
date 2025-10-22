@@ -23,7 +23,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 		State:  o.state,
 		Client: o.client,
 	}
-	thresholdFilter, args, err := jdbc.ThresholdFilter(opts)
+	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to set threshold filter: %s", err)
 	}
@@ -70,7 +70,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 
 	splitViaRowId := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		query := jdbc.OracleEmptyCheckQuery(stream)
-		err = o.client.QueryRow(query).Scan(new(interface{}))
+		err := o.client.QueryRowContext(ctx, query).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Table %s.%s is empty, skipping chunking", stream.Namespace(), stream.Name())
@@ -81,7 +81,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 
 		query = jdbc.OracleBlockSizeQuery()
 		var blockSize int64
-		err = o.client.QueryRow(query).Scan(&blockSize)
+		err = o.client.QueryRowContext(ctx, query).Scan(&blockSize)
 		if err != nil || blockSize == 0 {
 			logger.Warnf("failed to get block size from query, switching to default block size value 8192")
 			blockSize = 8192
