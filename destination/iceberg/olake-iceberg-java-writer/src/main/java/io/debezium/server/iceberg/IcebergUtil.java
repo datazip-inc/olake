@@ -265,4 +265,35 @@ public class IcebergUtil {
     return Integer.parseInt(dtFormater.format(Instant.now()));
   }
 
+  /**
+   * Returns the field ID of the specified column name from an Iceberg table.
+   *
+   * @param icebergTable the Iceberg table to query
+   * @param columnName the name of the column to find (e.g., "_olake_id")
+   * @return the field ID of the column
+   * @throws IllegalArgumentException if the column is not found in the table schema
+   */
+  public static int getFieldId(Table icebergTable, String columnName) {
+    Schema schema = icebergTable.schema();
+    org.apache.iceberg.types.Types.NestedField field = schema.findField(columnName);
+    
+    if (field == null) {
+      throw new IllegalArgumentException(
+          String.format("Column '%s' not found in table '%s' schema", columnName, icebergTable.name()));
+    }
+    
+    return field.fieldId();
+  }
+
+  /**
+   * Returns the field ID of the _olake_id column from an Iceberg table.
+   *
+   * @param icebergTable the Iceberg table to query
+   * @return the field ID of the _olake_id column
+   * @throws IllegalArgumentException if the _olake_id column is not found in the table schema
+   */
+  public static int getOlakeIdFieldId(Table icebergTable) {
+    return getFieldId(icebergTable, "_olake_id");
+  }
+
 }

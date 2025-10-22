@@ -147,7 +147,7 @@ func newIcebergClient(config *Config, partitionInfo []destination.PartitionInfo,
 	var serverCmd *exec.Cmd
 	// If debug mode is enabled and it is not check command
 	if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
-		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
+		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005", "-jar", config.JarPath, string(configJSON))
 	} else {
 		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
 	}

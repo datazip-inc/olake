@@ -14,8 +14,6 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/google/uuid"
 )
@@ -26,6 +24,14 @@ const (
 	targetFileSize  = int64(27 * 1024*1024 - 1 * 1024 * 1024)
 	streamChunkSize = int64(8 * 1024 * 1024)
 )
+
+type FileUploadData struct {
+	FileType        string
+	FileData        []byte
+	PartitionKey    string
+	Filename        string
+	EqualityFieldId int
+}
 
 func GenerateDataFileName() string {
 	// It mimics the behavior in the Java API:
@@ -47,6 +53,21 @@ type RollingDataWriter struct {
 	S3Config *S3Config
 }
 
+type RollingDeleteWriter struct {
+	partitionKey string
+	ctx          context.Context
+	fieldId      int
+
+	currentWriter         *pqarrow.FileWriter
+	currentBuffer         *bytes.Buffer
+	currentFile           string
+	currentSize           int64
+	currentRowCount       int64
+	currentCompressedSize int64
+
+	S3Config *S3Config
+}
+
 func NewRollingDataWriter(ctx context.Context, partitionKey string) *RollingDataWriter {
 	writer := &RollingDataWriter{
 		partitionKey: partitionKey,
@@ -56,7 +77,17 @@ func NewRollingDataWriter(ctx context.Context, partitionKey string) *RollingData
 	return writer
 }
 
-func (r *RollingDataWriter) Write(record arrow.Record) (string, error) {
+func NewRollingDeleteWriter(ctx context.Context, partitionKey string, fieldId int) *RollingDeleteWriter {
+	writer := &RollingDeleteWriter{
+		partitionKey: partitionKey,
+		ctx:          ctx,
+		fieldId:      fieldId,
+	}
+
+	return writer
+}
+
+func (r *RollingDataWriter) Write(record arrow.Record) (*FileUploadData, error) {
 	if r.currentWriter == nil {
 		r.currentFile = GenerateDataFileName()
 		r.currentBuffer = &bytes.Buffer{}
@@ -84,7 +115,7 @@ func (r *RollingDataWriter) Write(record arrow.Record) (string, error) {
 		if err != nil {
 			record.Release()
 
-			return "", err
+			return nil, err
 		}
 
 		r.currentWriter = writer
@@ -94,7 +125,7 @@ func (r *RollingDataWriter) Write(record arrow.Record) (string, error) {
 	}
 
 	if err := r.currentWriter.WriteBuffered(record); err != nil {
-		return "", fmt.Errorf("failed to write buffered record: %w", err)
+		return nil, fmt.Errorf("failed to write buffered record: %w", err)
 	}
 
 	record.Release()
@@ -110,51 +141,40 @@ func (r *RollingDataWriter) Write(record arrow.Record) (string, error) {
 	r.currentCompressedSize = sizeSoFar
 
 	if r.currentCompressedSize >= targetFileSize {
-		filePath, err := r.flush()
+		uploadData, err := r.flush()
 		if err != nil {
-			return "", err
-		} else if filePath != "" {
-			return filePath, nil
+			return nil, err
 		}
+		return uploadData, nil
 	}
 
-	return "", nil
+	return nil, nil
 }
 
-func (r *RollingDataWriter) flush() (string, error) {
+func (r *RollingDataWriter) flush() (*FileUploadData, error) {
 	if r.currentWriter == nil {
-		return "", nil
+		return nil, nil
 	}
 
 	if err := r.currentWriter.Close(); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	totalDataFiles.Add(1)
 
-	s3Key := r.currentFile
-	if r.S3Config.Prefix != "" {
-		if r.partitionKey != "" {
-			s3Key = fmt.Sprintf("%s/%s/%s", r.S3Config.Prefix, r.partitionKey, r.currentFile)
-		} else {
-			s3Key = fmt.Sprintf("%s/%s", r.S3Config.Prefix, r.currentFile)
-		}
-	} else if r.partitionKey != "" {
-		s3Key = fmt.Sprintf("%s/%s", r.partitionKey, r.currentFile)
-	}
+	fileData := make([]byte, r.currentBuffer.Len())
+	copy(fileData, r.currentBuffer.Bytes())
 
-	_, err := r.S3Config.S3Client.PutObject(r.ctx, &s3.PutObjectInput{
-		Bucket: aws.String(r.S3Config.BucketName),
-		Key:    aws.String(s3Key),
-		Body:   bytes.NewReader(r.currentBuffer.Bytes()),
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload to S3: %w", err)
-	}
+	fileSize := int64(len(fileData))
+	logger.Infof("Prepared file for upload: %s (%.2f MB, %d records, partition: %s)",
+		r.currentFile, float64(fileSize)/1024/1024, r.currentRowCount, r.partitionKey)
 
-	fileSize := int64(r.currentBuffer.Len())
-	s3Path := fmt.Sprintf("s3://%s/%s", r.S3Config.BucketName, s3Key)
-	logger.Infof("Successfully uploaded file: %s (%.2f MB, %d records)", s3Path, float64(fileSize)/1024/1024, r.currentRowCount)
+	uploadData := &FileUploadData{
+		FileType:     "data",
+		FileData:     fileData,
+		PartitionKey: r.partitionKey,
+		Filename:     r.currentFile,
+	}
 
 	if r.currentBuffer != nil {
 		r.currentBuffer.Reset()
@@ -168,14 +188,18 @@ func (r *RollingDataWriter) flush() (string, error) {
 	r.currentCompressedSize = 0
 	runtime.GC()
 
-	return s3Path, nil
+	return uploadData, nil
 }
 
-func (r *RollingDataWriter) Close() (string, error) {
+func (r *RollingDataWriter) Close() (*FileUploadData, error) {
 	if r.currentWriter != nil {
-		return r.flush()
+		uploadData, err := r.flush()
+		if err != nil {
+			return nil, err
+		}
+		return uploadData, nil
 	}
-	return "", nil
+	return nil, nil
 }
 
 func constructColPath(tVal, field, transform string) string {
@@ -199,4 +223,126 @@ func constructColPath(tVal, field, transform string) string {
 	default:
 		return fmt.Sprintf("%s_%s=%s", field, base, tVal)
 	}
+}
+
+func (r *RollingDeleteWriter) Write(record arrow.Record) (*FileUploadData, error) {
+	if r.currentWriter == nil {
+		r.currentFile = GenerateDataFileName()
+		r.currentBuffer = &bytes.Buffer{}
+
+		allocator := memory.NewGoAllocator()
+
+		icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[{"id":%d,"name":"_olake_id","required":true,"type":"string"}]}`, r.fieldId)
+
+		writerProps := parquet.NewWriterProperties(
+			parquet.WithCompression(compress.Codecs.Zstd),
+			parquet.WithCompressionLevel(1),
+			parquet.WithDataPageSize(1*1024*1024),
+			parquet.WithDictionaryPageSizeLimit(2*1024*1024),
+			parquet.WithDictionaryDefault(false),
+			parquet.WithMaxRowGroupLength(streamChunkSize),
+			parquet.WithBatchSize(4096),
+			parquet.WithStats(true),
+			parquet.WithAllocator(allocator),
+		)
+
+		arrowProps := pqarrow.NewArrowWriterProperties(
+			pqarrow.WithStoreSchema(),
+			pqarrow.WithNoMapLogicalType(),
+		)
+
+		writer, err := pqarrow.NewFileWriter(record.Schema(), r.currentBuffer, writerProps, arrowProps)
+		if err != nil {
+			record.Release()
+			return nil, err
+		}
+
+		writer.AppendKeyValueMetadata("delete-type", "equality")
+		writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", r.fieldId))
+		writer.AppendKeyValueMetadata("iceberg.schema", icebergSchemaJSON)
+
+		r.currentWriter = writer
+		r.currentRowCount = 0
+		r.currentCompressedSize = 0
+		logger.Infof("Starting delete file: %s with field ID %d", r.currentFile, r.fieldId)
+	}
+
+	if err := r.currentWriter.WriteBuffered(record); err != nil {
+		return nil, fmt.Errorf("failed to write buffered delete record: %w", err)
+	}
+
+	record.Release()
+	r.currentRowCount += record.NumRows()
+
+	sizeSoFar := int64(0)
+	if r.currentBuffer != nil {
+		sizeSoFar += int64(r.currentBuffer.Len())
+	}
+	if r.currentWriter != nil {
+		sizeSoFar += r.currentWriter.RowGroupTotalCompressedBytes()
+	}
+	r.currentCompressedSize = sizeSoFar
+
+	if r.currentCompressedSize >= targetFileSize {
+		uploadData, err := r.flushDelete()
+		if err != nil {
+			return nil, err
+		}
+		return uploadData, nil
+	}
+
+	return nil, nil
+}
+
+func (r *RollingDeleteWriter) flushDelete() (*FileUploadData, error) {
+	if r.currentWriter == nil {
+		return nil, nil
+	}
+
+	if err := r.currentWriter.Close(); err != nil {
+		return nil, err
+	}
+
+	totalDataFiles.Add(1)
+
+	fileData := make([]byte, r.currentBuffer.Len())
+	copy(fileData, r.currentBuffer.Bytes())
+
+	fileSize := int64(len(fileData))
+	logger.Infof("Prepared delete file for upload: %s (%.2f MB, %d records, partition: %s)",
+		r.currentFile, float64(fileSize)/1024/1024, r.currentRowCount, r.partitionKey)
+
+	uploadData := &FileUploadData{
+		FileType:        "delete",
+		FileData:        fileData,
+		PartitionKey:    r.partitionKey,
+		Filename:        r.currentFile,
+		EqualityFieldId: r.fieldId,
+	}
+
+	// Clean up
+	if r.currentBuffer != nil {
+		r.currentBuffer.Reset()
+		r.currentBuffer = nil
+	}
+
+	r.currentWriter = nil
+	r.currentRowCount = 0
+	r.currentFile = ""
+	r.currentSize = 0
+	r.currentCompressedSize = 0
+	runtime.GC()
+
+	return uploadData, nil
+}
+
+func (r *RollingDeleteWriter) Close() (*FileUploadData, error) {
+	if r.currentWriter != nil {
+		uploadData, err := r.flushDelete()
+		if err != nil {
+			return nil, err
+		}
+		return uploadData, nil
+	}
+	return nil, nil
 }

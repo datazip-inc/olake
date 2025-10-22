@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ type Iceberg struct {
 	partitionInfo    []destination.PartitionInfo // ordered slice to preserve partition column order
 	server           *serverInstance             // java server instance
 	schema           map[string]string           // schema for current thread associated with java writer (col -> type)
-	createdFilePaths []string                    // list of created parquet file paths
+	createdFilePaths [][]string                  // list of created parquet file paths
 	arrowWriter      *ArrowWriter                // Per-thread streaming arrow writer
 	// Why Schema On Thread Level ?
 
@@ -239,7 +240,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 			logger.Errorf("Thread[%s]: failed to close arrow writer: %v", i.options.ThreadID, err)
 		} else if len(finalFilePaths) > 0 {
 			if i.createdFilePaths == nil {
-				i.createdFilePaths = make([]string, 0)
+				i.createdFilePaths = make([][]string, 0)
 			}
 			i.createdFilePaths = append(i.createdFilePaths, finalFilePaths...)
 		}
@@ -269,12 +270,24 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	var request *proto.IcebergPayload
 	if i.UseArrowWrites() {
 		logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
+
+		fileMetadata := make([]*proto.IcebergPayload_FileMetadata, 0, len(i.createdFilePaths))
+		for _, pathInfo := range i.createdFilePaths {
+			// we don't need an if condition here: need to check after partitioned writer
+			if len(pathInfo) >= 2 && pathInfo[1] != "" {
+				fileMetadata = append(fileMetadata, &proto.IcebergPayload_FileMetadata{
+					FileType: pathInfo[0],
+					FilePath: pathInfo[1],
+				})
+			}
+		}
+
 		request = &proto.IcebergPayload{
 			Type: proto.IcebergPayload_REGISTER,
 			Metadata: &proto.IcebergPayload_Metadata{
 				ThreadId:      i.server.serverID,
 				DestTableName: i.stream.GetDestinationTable(),
-				FilePaths:     i.createdFilePaths,
+				FileMetadata:  fileMetadata,
 			},
 		}
 	} else {
@@ -726,6 +739,66 @@ func getCommonAncestorType(d1, d2 string) string {
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
+}
+
+func (i *Iceberg) GetFieldId(ctx context.Context, fieldName string) (int, error) {
+	if i.server == nil {
+		return -1, fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_FIELD_ID,
+		Metadata: &proto.IcebergPayload_Metadata{
+			DestTableName: i.stream.GetDestinationTable(),
+			ThreadId:      i.server.serverID,
+			FieldName:     &fieldName,
+		},
+	}
+
+	response, err := i.server.sendClientRequest(ctx, &request)
+	if err != nil {
+		return -1, fmt.Errorf("failed to get field ID for column '%s': %w", fieldName, err)
+	}
+
+	fieldId, err := strconv.Atoi(response)
+	if err != nil {
+		return -1, fmt.Errorf("failed to parse field ID from response '%s': %w", response, err)
+	}
+
+	return fieldId, nil
+}
+
+func (i *Iceberg) GetOlakeIdFieldId(ctx context.Context) (int, error) {
+	return i.GetFieldId(ctx, constants.OlakeID)
+}
+
+func (i *Iceberg) UploadParquetFile(ctx context.Context, fileData []byte, fileType, partitionKey, filename string, equalityFieldId int) (string, error) {
+	if i.server == nil {
+		return "", fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := proto.IcebergPayload{
+		Type: proto.IcebergPayload_UPLOAD_FILE,
+		Metadata: &proto.IcebergPayload_Metadata{
+			DestTableName: i.stream.GetDestinationTable(),
+			ThreadId:      i.server.serverID,
+			FileUpload: &proto.IcebergPayload_FileUploadRequest{
+				FileData:        fileData,
+				FileType:        fileType,
+				PartitionKey:    partitionKey,
+				Filename:        filename,
+				EqualityFieldId: int32(equalityFieldId),
+			},
+		},
+	}
+
+	response, err := i.server.sendClientRequest(ctx, &request)
+	if err != nil {
+		return "", fmt.Errorf("failed to upload file '%s' via Iceberg FileIO: %w", filename, err)
+	}
+
+	logger.Infof("Successfully uploaded file to Iceberg storage: %s", response)
+	return response, nil
 }
 
 func init() {

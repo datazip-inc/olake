@@ -116,13 +116,108 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
                 case REGISTER:
                     LOGGER.info("{} Received REGISTER request for thread: {}", requestId, threadId);
-                    List<String> filePaths = metadata.getFilePathsList();
-                    for (String filePath : filePaths) {
-                        LOGGER.info("{} Parquet file path: {}", requestId, filePath);
+                    
+                    // Use new file_metadata if available, otherwise fall back to file_paths for backward compatibility
+                    List<IcebergPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
+                    
+                    if (fileMetadataList != null && !fileMetadataList.isEmpty()) {
+                        // Process files in the order they were received
+                        int dataFileCount = 0;
+                        int deleteFileCount = 0;
+                        
+                        for (IcebergPayload.FileMetadata fileMeta : fileMetadataList) {
+                            String fileType = fileMeta.getFileType();
+                            String filePath = fileMeta.getFilePath();
+                            
+                            LOGGER.info("{} File type: {}, path: {}", requestId, fileType, filePath);
+                            
+                            if ("delete".equals(fileType)) {
+                                // Register delete file immediately
+                                int fieldId = IcebergUtil.getFieldId(this.icebergTable, "_olake_id");
+                                icebergTableOperator.registerDeleteFile(threadId, icebergTable, 
+                                    java.util.Collections.singletonList(filePath), fieldId);
+                                deleteFileCount++;
+                                LOGGER.info("{} Successfully registered delete file", requestId);
+                            } else if ("data".equals(fileType)) {
+                                // Register data file immediately
+                                icebergTableOperator.registerDataFile(threadId, icebergTable, 
+                                    java.util.Collections.singletonList(filePath));
+                                dataFileCount++;
+                                LOGGER.info("{} Successfully registered data file", requestId);
+                            } else {
+                                LOGGER.warn("{} Unknown file type '{}' for path: {}", requestId, fileType, filePath);
+                            }
+                        }
+                        
+                        sendResponse(responseObserver, String.format("Successfully registered %d data files and %d delete files for thread %s", 
+                                                                      dataFileCount, deleteFileCount, threadId));
+                    } else {
+                        // Backward compatibility: use old file_paths field (assumes all are data files)
+                        List<String> filePaths = metadata.getFilePathsList();
+                        for (String filePath : filePaths) {
+                            LOGGER.info("{} Parquet file path: {}", requestId, filePath);
+                        }
+                        icebergTableOperator.registerDataFile(threadId, icebergTable, filePaths);
+                        sendResponse(responseObserver, "Successfully registered " + filePaths.size() + " parquet files for thread " + threadId);
+                        LOGGER.info("{} Successfully registered all parquet data files for thread: {}", requestId, threadId);
                     }
-                    icebergTableOperator.registerDataFile(threadId, icebergTable, filePaths);
-                    sendResponse(responseObserver, "Successfully registered " + filePaths.size() + " parquet files for thread " + threadId);
-                    LOGGER.info("{} Successfully registered all parquet data files for thread: {}", requestId, threadId);
+                    break;
+                
+                case GET_FIELD_ID:
+                    LOGGER.info("{} Received GET_FIELD_ID request for thread: {}", requestId, threadId);
+                    String fieldName = metadata.getFieldName();
+                    if (fieldName == null || fieldName.isEmpty()) {
+                        throw new IllegalArgumentException("Field name is required for GET_FIELD_ID request");
+                    }
+                    int fieldId = IcebergUtil.getFieldId(this.icebergTable, fieldName);
+                    sendResponse(responseObserver, String.valueOf(fieldId));
+                    LOGGER.info("{} Field '{}' has ID: {}", requestId, fieldName, fieldId);
+                    break;
+                
+                case UPLOAD_FILE:
+                    LOGGER.info("{} Received UPLOAD_FILE request for thread: {}", requestId, threadId);
+                    IcebergPayload.FileUploadRequest uploadReq = metadata.getFileUpload();
+                    
+                    byte[] fileData = uploadReq.getFileData().toByteArray();
+                    String fileType = uploadReq.getFileType();
+                    String partitionKey = uploadReq.getPartitionKey();
+                    String filename = uploadReq.getFilename();
+                    
+                    LOGGER.info("{} Uploading {} file: {} (size: {} bytes, partition: {})", 
+                        requestId, fileType, filename, fileData.length, partitionKey);
+                    
+                    // Use Iceberg's FileIO to upload
+                    org.apache.iceberg.io.FileIO fileIO = this.icebergTable.io();
+                    org.apache.iceberg.io.LocationProvider locations = this.icebergTable.locationProvider();
+                    
+                    // Generate proper Iceberg location
+                    String icebergLocation;
+                    if (partitionKey != null && !partitionKey.isEmpty()) {
+                        // For partitioned tables, append partition path to data location
+                        // partitionKey is already formatted as "field=value/field2=value2"
+                        String baseLocation = locations.newDataLocation(filename);
+                        // Extract base path and insert partition before filename
+                        int lastSlash = baseLocation.lastIndexOf('/');
+                        if (lastSlash > 0) {
+                            String basePath = baseLocation.substring(0, lastSlash);
+                            icebergLocation = basePath + "/" + partitionKey + "/" + filename;
+                        } else {
+                            icebergLocation = partitionKey + "/" + filename;
+                        }
+                    } else {
+                        // For unpartitioned tables
+                        icebergLocation = locations.newDataLocation(filename);
+                    }
+                    
+                    // Upload using Iceberg's FileIO
+                    org.apache.iceberg.io.OutputFile outputFile = fileIO.newOutputFile(icebergLocation);
+                    try (java.io.OutputStream out = outputFile.create()) {
+                        out.write(fileData);
+                        out.flush();
+                    }
+                    
+                    LOGGER.info("{} Successfully uploaded file to: {}", requestId, icebergLocation);
+                    sendResponse(responseObserver, icebergLocation);
                     break;
                 
                 default:

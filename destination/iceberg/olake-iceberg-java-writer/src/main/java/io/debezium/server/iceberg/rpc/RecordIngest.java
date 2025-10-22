@@ -143,6 +143,14 @@ public final class RecordIngest {
        * <code>REGISTER = 6;</code>
        */
       REGISTER(6),
+      /**
+       * <code>GET_FIELD_ID = 7;</code>
+       */
+      GET_FIELD_ID(7),
+      /**
+       * <code>UPLOAD_FILE = 8;</code>
+       */
+      UPLOAD_FILE(8),
       UNRECOGNIZED(-1),
       ;
 
@@ -174,6 +182,14 @@ public final class RecordIngest {
        * <code>REGISTER = 6;</code>
        */
       public static final int REGISTER_VALUE = 6;
+      /**
+       * <code>GET_FIELD_ID = 7;</code>
+       */
+      public static final int GET_FIELD_ID_VALUE = 7;
+      /**
+       * <code>UPLOAD_FILE = 8;</code>
+       */
+      public static final int UPLOAD_FILE_VALUE = 8;
 
 
       public final int getNumber() {
@@ -207,6 +223,8 @@ public final class RecordIngest {
           case 4: return GET_OR_CREATE_TABLE;
           case 5: return REFRESH_TABLE_SCHEMA;
           case 6: return REGISTER;
+          case 7: return GET_FIELD_ID;
+          case 8: return UPLOAD_FILE;
           default: return null;
         }
       }
@@ -261,6 +279,1833 @@ public final class RecordIngest {
       }
 
       // @@protoc_insertion_point(enum_scope:io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType)
+    }
+
+    public interface FileMetadataOrBuilder extends
+        // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata)
+        com.google.protobuf.MessageOrBuilder {
+
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 1;</code>
+       * @return The fileType.
+       */
+      java.lang.String getFileType();
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 1;</code>
+       * @return The bytes for fileType.
+       */
+      com.google.protobuf.ByteString
+          getFileTypeBytes();
+
+      /**
+       * <code>string file_path = 2;</code>
+       * @return The filePath.
+       */
+      java.lang.String getFilePath();
+      /**
+       * <code>string file_path = 2;</code>
+       * @return The bytes for filePath.
+       */
+      com.google.protobuf.ByteString
+          getFilePathBytes();
+    }
+    /**
+     * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata}
+     */
+    public static final class FileMetadata extends
+        com.google.protobuf.GeneratedMessageV3 implements
+        // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata)
+        FileMetadataOrBuilder {
+    private static final long serialVersionUID = 0L;
+      // Use FileMetadata.newBuilder() to construct.
+      private FileMetadata(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+        super(builder);
+      }
+      private FileMetadata() {
+        fileType_ = "";
+        filePath_ = "";
+      }
+
+      @java.lang.Override
+      @SuppressWarnings({"unused"})
+      protected java.lang.Object newInstance(
+          UnusedPrivateParameter unused) {
+        return new FileMetadata();
+      }
+
+      @java.lang.Override
+      public final com.google.protobuf.UnknownFieldSet
+      getUnknownFields() {
+        return this.unknownFields;
+      }
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.class, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder.class);
+      }
+
+      public static final int FILE_TYPE_FIELD_NUMBER = 1;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object fileType_ = "";
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 1;</code>
+       * @return The fileType.
+       */
+      @java.lang.Override
+      public java.lang.String getFileType() {
+        java.lang.Object ref = fileType_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          fileType_ = s;
+          return s;
+        }
+      }
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 1;</code>
+       * @return The bytes for fileType.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getFileTypeBytes() {
+        java.lang.Object ref = fileType_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          fileType_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      public static final int FILE_PATH_FIELD_NUMBER = 2;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object filePath_ = "";
+      /**
+       * <code>string file_path = 2;</code>
+       * @return The filePath.
+       */
+      @java.lang.Override
+      public java.lang.String getFilePath() {
+        java.lang.Object ref = filePath_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          filePath_ = s;
+          return s;
+        }
+      }
+      /**
+       * <code>string file_path = 2;</code>
+       * @return The bytes for filePath.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getFilePathBytes() {
+        java.lang.Object ref = filePath_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          filePath_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      private byte memoizedIsInitialized = -1;
+      @java.lang.Override
+      public final boolean isInitialized() {
+        byte isInitialized = memoizedIsInitialized;
+        if (isInitialized == 1) return true;
+        if (isInitialized == 0) return false;
+
+        memoizedIsInitialized = 1;
+        return true;
+      }
+
+      @java.lang.Override
+      public void writeTo(com.google.protobuf.CodedOutputStream output)
+                          throws java.io.IOException {
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(fileType_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 1, fileType_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, filePath_);
+        }
+        getUnknownFields().writeTo(output);
+      }
+
+      @java.lang.Override
+      public int getSerializedSize() {
+        int size = memoizedSize;
+        if (size != -1) return size;
+
+        size = 0;
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(fileType_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, fileType_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, filePath_);
+        }
+        size += getUnknownFields().getSerializedSize();
+        memoizedSize = size;
+        return size;
+      }
+
+      @java.lang.Override
+      public boolean equals(final java.lang.Object obj) {
+        if (obj == this) {
+         return true;
+        }
+        if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata)) {
+          return super.equals(obj);
+        }
+        io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata other = (io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata) obj;
+
+        if (!getFileType()
+            .equals(other.getFileType())) return false;
+        if (!getFilePath()
+            .equals(other.getFilePath())) return false;
+        if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+        return true;
+      }
+
+      @java.lang.Override
+      public int hashCode() {
+        if (memoizedHashCode != 0) {
+          return memoizedHashCode;
+        }
+        int hash = 41;
+        hash = (19 * hash) + getDescriptor().hashCode();
+        hash = (37 * hash) + FILE_TYPE_FIELD_NUMBER;
+        hash = (53 * hash) + getFileType().hashCode();
+        hash = (37 * hash) + FILE_PATH_FIELD_NUMBER;
+        hash = (53 * hash) + getFilePath().hashCode();
+        hash = (29 * hash) + getUnknownFields().hashCode();
+        memoizedHashCode = hash;
+        return hash;
+      }
+
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          java.nio.ByteBuffer data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          java.nio.ByteBuffer data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          com.google.protobuf.ByteString data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          com.google.protobuf.ByteString data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(byte[] data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          byte[] data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseDelimitedFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseDelimitedFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          com.google.protobuf.CodedInputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata parseFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      @java.lang.Override
+      public Builder newBuilderForType() { return newBuilder(); }
+      public static Builder newBuilder() {
+        return DEFAULT_INSTANCE.toBuilder();
+      }
+      public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata prototype) {
+        return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+      }
+      @java.lang.Override
+      public Builder toBuilder() {
+        return this == DEFAULT_INSTANCE
+            ? new Builder() : new Builder().mergeFrom(this);
+      }
+
+      @java.lang.Override
+      protected Builder newBuilderForType(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        Builder builder = new Builder(parent);
+        return builder;
+      }
+      /**
+       * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata}
+       */
+      public static final class Builder extends
+          com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+          // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata)
+          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder {
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_descriptor;
+        }
+
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.class, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder.class);
+        }
+
+        // Construct using io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.newBuilder()
+        private Builder() {
+
+        }
+
+        private Builder(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          super(parent);
+
+        }
+        @java.lang.Override
+        public Builder clear() {
+          super.clear();
+          bitField0_ = 0;
+          fileType_ = "";
+          filePath_ = "";
+          return this;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Descriptors.Descriptor
+            getDescriptorForType() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_descriptor;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata getDefaultInstanceForType() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.getDefaultInstance();
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata build() {
+          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata result = buildPartial();
+          if (!result.isInitialized()) {
+            throw newUninitializedMessageException(result);
+          }
+          return result;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata buildPartial() {
+          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata result = new io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata(this);
+          if (bitField0_ != 0) { buildPartial0(result); }
+          onBuilt();
+          return result;
+        }
+
+        private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata result) {
+          int from_bitField0_ = bitField0_;
+          if (((from_bitField0_ & 0x00000001) != 0)) {
+            result.fileType_ = fileType_;
+          }
+          if (((from_bitField0_ & 0x00000002) != 0)) {
+            result.filePath_ = filePath_;
+          }
+        }
+
+        @java.lang.Override
+        public Builder clone() {
+          return super.clone();
+        }
+        @java.lang.Override
+        public Builder setField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.setField(field, value);
+        }
+        @java.lang.Override
+        public Builder clearField(
+            com.google.protobuf.Descriptors.FieldDescriptor field) {
+          return super.clearField(field);
+        }
+        @java.lang.Override
+        public Builder clearOneof(
+            com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+          return super.clearOneof(oneof);
+        }
+        @java.lang.Override
+        public Builder setRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            int index, java.lang.Object value) {
+          return super.setRepeatedField(field, index, value);
+        }
+        @java.lang.Override
+        public Builder addRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.addRepeatedField(field, value);
+        }
+        @java.lang.Override
+        public Builder mergeFrom(com.google.protobuf.Message other) {
+          if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata) {
+            return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata)other);
+          } else {
+            super.mergeFrom(other);
+            return this;
+          }
+        }
+
+        public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata other) {
+          if (other == io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.getDefaultInstance()) return this;
+          if (!other.getFileType().isEmpty()) {
+            fileType_ = other.fileType_;
+            bitField0_ |= 0x00000001;
+            onChanged();
+          }
+          if (!other.getFilePath().isEmpty()) {
+            filePath_ = other.filePath_;
+            bitField0_ |= 0x00000002;
+            onChanged();
+          }
+          this.mergeUnknownFields(other.getUnknownFields());
+          onChanged();
+          return this;
+        }
+
+        @java.lang.Override
+        public final boolean isInitialized() {
+          return true;
+        }
+
+        @java.lang.Override
+        public Builder mergeFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          if (extensionRegistry == null) {
+            throw new java.lang.NullPointerException();
+          }
+          try {
+            boolean done = false;
+            while (!done) {
+              int tag = input.readTag();
+              switch (tag) {
+                case 0:
+                  done = true;
+                  break;
+                case 10: {
+                  fileType_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000001;
+                  break;
+                } // case 10
+                case 18: {
+                  filePath_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000002;
+                  break;
+                } // case 18
+                default: {
+                  if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                    done = true; // was an endgroup tag
+                  }
+                  break;
+                } // default:
+              } // switch (tag)
+            } // while (!done)
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.unwrapIOException();
+          } finally {
+            onChanged();
+          } // finally
+          return this;
+        }
+        private int bitField0_;
+
+        private java.lang.Object fileType_ = "";
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 1;</code>
+         * @return The fileType.
+         */
+        public java.lang.String getFileType() {
+          java.lang.Object ref = fileType_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            fileType_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 1;</code>
+         * @return The bytes for fileType.
+         */
+        public com.google.protobuf.ByteString
+            getFileTypeBytes() {
+          java.lang.Object ref = fileType_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            fileType_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 1;</code>
+         * @param value The fileType to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFileType(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          fileType_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 1;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFileType() {
+          fileType_ = getDefaultInstance().getFileType();
+          bitField0_ = (bitField0_ & ~0x00000001);
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 1;</code>
+         * @param value The bytes for fileType to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFileTypeBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          fileType_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+
+        private java.lang.Object filePath_ = "";
+        /**
+         * <code>string file_path = 2;</code>
+         * @return The filePath.
+         */
+        public java.lang.String getFilePath() {
+          java.lang.Object ref = filePath_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            filePath_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <code>string file_path = 2;</code>
+         * @return The bytes for filePath.
+         */
+        public com.google.protobuf.ByteString
+            getFilePathBytes() {
+          java.lang.Object ref = filePath_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            filePath_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <code>string file_path = 2;</code>
+         * @param value The filePath to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilePath(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          filePath_ = value;
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string file_path = 2;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFilePath() {
+          filePath_ = getDefaultInstance().getFilePath();
+          bitField0_ = (bitField0_ & ~0x00000002);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string file_path = 2;</code>
+         * @param value The bytes for filePath to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilePathBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          filePath_ = value;
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        @java.lang.Override
+        public final Builder setUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.setUnknownFields(unknownFields);
+        }
+
+        @java.lang.Override
+        public final Builder mergeUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.mergeUnknownFields(unknownFields);
+        }
+
+
+        // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata)
+      }
+
+      // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata)
+      private static final io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata DEFAULT_INSTANCE;
+      static {
+        DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata();
+      }
+
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata getDefaultInstance() {
+        return DEFAULT_INSTANCE;
+      }
+
+      private static final com.google.protobuf.Parser<FileMetadata>
+          PARSER = new com.google.protobuf.AbstractParser<FileMetadata>() {
+        @java.lang.Override
+        public FileMetadata parsePartialFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          Builder builder = newBuilder();
+          try {
+            builder.mergeFrom(input, extensionRegistry);
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.setUnfinishedMessage(builder.buildPartial());
+          } catch (com.google.protobuf.UninitializedMessageException e) {
+            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+          } catch (java.io.IOException e) {
+            throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                .setUnfinishedMessage(builder.buildPartial());
+          }
+          return builder.buildPartial();
+        }
+      };
+
+      public static com.google.protobuf.Parser<FileMetadata> parser() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Parser<FileMetadata> getParserForType() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata getDefaultInstanceForType() {
+        return DEFAULT_INSTANCE;
+      }
+
+    }
+
+    public interface FileUploadRequestOrBuilder extends
+        // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest)
+        com.google.protobuf.MessageOrBuilder {
+
+      /**
+       * <code>bytes file_data = 1;</code>
+       * @return The fileData.
+       */
+      com.google.protobuf.ByteString getFileData();
+
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 2;</code>
+       * @return The fileType.
+       */
+      java.lang.String getFileType();
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 2;</code>
+       * @return The bytes for fileType.
+       */
+      com.google.protobuf.ByteString
+          getFileTypeBytes();
+
+      /**
+       * <pre>
+       * optional partition path
+       * </pre>
+       *
+       * <code>string partition_key = 3;</code>
+       * @return The partitionKey.
+       */
+      java.lang.String getPartitionKey();
+      /**
+       * <pre>
+       * optional partition path
+       * </pre>
+       *
+       * <code>string partition_key = 3;</code>
+       * @return The bytes for partitionKey.
+       */
+      com.google.protobuf.ByteString
+          getPartitionKeyBytes();
+
+      /**
+       * <code>string filename = 4;</code>
+       * @return The filename.
+       */
+      java.lang.String getFilename();
+      /**
+       * <code>string filename = 4;</code>
+       * @return The bytes for filename.
+       */
+      com.google.protobuf.ByteString
+          getFilenameBytes();
+
+      /**
+       * <pre>
+       * for delete files
+       * </pre>
+       *
+       * <code>int32 equality_field_id = 5;</code>
+       * @return The equalityFieldId.
+       */
+      int getEqualityFieldId();
+    }
+    /**
+     * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest}
+     */
+    public static final class FileUploadRequest extends
+        com.google.protobuf.GeneratedMessageV3 implements
+        // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest)
+        FileUploadRequestOrBuilder {
+    private static final long serialVersionUID = 0L;
+      // Use FileUploadRequest.newBuilder() to construct.
+      private FileUploadRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+        super(builder);
+      }
+      private FileUploadRequest() {
+        fileData_ = com.google.protobuf.ByteString.EMPTY;
+        fileType_ = "";
+        partitionKey_ = "";
+        filename_ = "";
+      }
+
+      @java.lang.Override
+      @SuppressWarnings({"unused"})
+      protected java.lang.Object newInstance(
+          UnusedPrivateParameter unused) {
+        return new FileUploadRequest();
+      }
+
+      @java.lang.Override
+      public final com.google.protobuf.UnknownFieldSet
+      getUnknownFields() {
+        return this.unknownFields;
+      }
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.class, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.Builder.class);
+      }
+
+      public static final int FILE_DATA_FIELD_NUMBER = 1;
+      private com.google.protobuf.ByteString fileData_ = com.google.protobuf.ByteString.EMPTY;
+      /**
+       * <code>bytes file_data = 1;</code>
+       * @return The fileData.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString getFileData() {
+        return fileData_;
+      }
+
+      public static final int FILE_TYPE_FIELD_NUMBER = 2;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object fileType_ = "";
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 2;</code>
+       * @return The fileType.
+       */
+      @java.lang.Override
+      public java.lang.String getFileType() {
+        java.lang.Object ref = fileType_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          fileType_ = s;
+          return s;
+        }
+      }
+      /**
+       * <pre>
+       * "data" or "delete"
+       * </pre>
+       *
+       * <code>string file_type = 2;</code>
+       * @return The bytes for fileType.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getFileTypeBytes() {
+        java.lang.Object ref = fileType_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          fileType_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      public static final int PARTITION_KEY_FIELD_NUMBER = 3;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object partitionKey_ = "";
+      /**
+       * <pre>
+       * optional partition path
+       * </pre>
+       *
+       * <code>string partition_key = 3;</code>
+       * @return The partitionKey.
+       */
+      @java.lang.Override
+      public java.lang.String getPartitionKey() {
+        java.lang.Object ref = partitionKey_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          partitionKey_ = s;
+          return s;
+        }
+      }
+      /**
+       * <pre>
+       * optional partition path
+       * </pre>
+       *
+       * <code>string partition_key = 3;</code>
+       * @return The bytes for partitionKey.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getPartitionKeyBytes() {
+        java.lang.Object ref = partitionKey_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          partitionKey_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      public static final int FILENAME_FIELD_NUMBER = 4;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object filename_ = "";
+      /**
+       * <code>string filename = 4;</code>
+       * @return The filename.
+       */
+      @java.lang.Override
+      public java.lang.String getFilename() {
+        java.lang.Object ref = filename_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          filename_ = s;
+          return s;
+        }
+      }
+      /**
+       * <code>string filename = 4;</code>
+       * @return The bytes for filename.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getFilenameBytes() {
+        java.lang.Object ref = filename_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          filename_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      public static final int EQUALITY_FIELD_ID_FIELD_NUMBER = 5;
+      private int equalityFieldId_ = 0;
+      /**
+       * <pre>
+       * for delete files
+       * </pre>
+       *
+       * <code>int32 equality_field_id = 5;</code>
+       * @return The equalityFieldId.
+       */
+      @java.lang.Override
+      public int getEqualityFieldId() {
+        return equalityFieldId_;
+      }
+
+      private byte memoizedIsInitialized = -1;
+      @java.lang.Override
+      public final boolean isInitialized() {
+        byte isInitialized = memoizedIsInitialized;
+        if (isInitialized == 1) return true;
+        if (isInitialized == 0) return false;
+
+        memoizedIsInitialized = 1;
+        return true;
+      }
+
+      @java.lang.Override
+      public void writeTo(com.google.protobuf.CodedOutputStream output)
+                          throws java.io.IOException {
+        if (!fileData_.isEmpty()) {
+          output.writeBytes(1, fileData_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(fileType_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, fileType_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 3, partitionKey_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filename_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 4, filename_);
+        }
+        if (equalityFieldId_ != 0) {
+          output.writeInt32(5, equalityFieldId_);
+        }
+        getUnknownFields().writeTo(output);
+      }
+
+      @java.lang.Override
+      public int getSerializedSize() {
+        int size = memoizedSize;
+        if (size != -1) return size;
+
+        size = 0;
+        if (!fileData_.isEmpty()) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeBytesSize(1, fileData_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(fileType_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, fileType_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, partitionKey_);
+        }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filename_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(4, filename_);
+        }
+        if (equalityFieldId_ != 0) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt32Size(5, equalityFieldId_);
+        }
+        size += getUnknownFields().getSerializedSize();
+        memoizedSize = size;
+        return size;
+      }
+
+      @java.lang.Override
+      public boolean equals(final java.lang.Object obj) {
+        if (obj == this) {
+         return true;
+        }
+        if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest)) {
+          return super.equals(obj);
+        }
+        io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest other = (io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest) obj;
+
+        if (!getFileData()
+            .equals(other.getFileData())) return false;
+        if (!getFileType()
+            .equals(other.getFileType())) return false;
+        if (!getPartitionKey()
+            .equals(other.getPartitionKey())) return false;
+        if (!getFilename()
+            .equals(other.getFilename())) return false;
+        if (getEqualityFieldId()
+            != other.getEqualityFieldId()) return false;
+        if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+        return true;
+      }
+
+      @java.lang.Override
+      public int hashCode() {
+        if (memoizedHashCode != 0) {
+          return memoizedHashCode;
+        }
+        int hash = 41;
+        hash = (19 * hash) + getDescriptor().hashCode();
+        hash = (37 * hash) + FILE_DATA_FIELD_NUMBER;
+        hash = (53 * hash) + getFileData().hashCode();
+        hash = (37 * hash) + FILE_TYPE_FIELD_NUMBER;
+        hash = (53 * hash) + getFileType().hashCode();
+        hash = (37 * hash) + PARTITION_KEY_FIELD_NUMBER;
+        hash = (53 * hash) + getPartitionKey().hashCode();
+        hash = (37 * hash) + FILENAME_FIELD_NUMBER;
+        hash = (53 * hash) + getFilename().hashCode();
+        hash = (37 * hash) + EQUALITY_FIELD_ID_FIELD_NUMBER;
+        hash = (53 * hash) + getEqualityFieldId();
+        hash = (29 * hash) + getUnknownFields().hashCode();
+        memoizedHashCode = hash;
+        return hash;
+      }
+
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          java.nio.ByteBuffer data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          java.nio.ByteBuffer data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          com.google.protobuf.ByteString data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          com.google.protobuf.ByteString data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(byte[] data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          byte[] data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseDelimitedFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseDelimitedFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          com.google.protobuf.CodedInputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest parseFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      @java.lang.Override
+      public Builder newBuilderForType() { return newBuilder(); }
+      public static Builder newBuilder() {
+        return DEFAULT_INSTANCE.toBuilder();
+      }
+      public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest prototype) {
+        return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+      }
+      @java.lang.Override
+      public Builder toBuilder() {
+        return this == DEFAULT_INSTANCE
+            ? new Builder() : new Builder().mergeFrom(this);
+      }
+
+      @java.lang.Override
+      protected Builder newBuilderForType(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        Builder builder = new Builder(parent);
+        return builder;
+      }
+      /**
+       * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest}
+       */
+      public static final class Builder extends
+          com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+          // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest)
+          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequestOrBuilder {
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_descriptor;
+        }
+
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.class, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.Builder.class);
+        }
+
+        // Construct using io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.newBuilder()
+        private Builder() {
+
+        }
+
+        private Builder(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          super(parent);
+
+        }
+        @java.lang.Override
+        public Builder clear() {
+          super.clear();
+          bitField0_ = 0;
+          fileData_ = com.google.protobuf.ByteString.EMPTY;
+          fileType_ = "";
+          partitionKey_ = "";
+          filename_ = "";
+          equalityFieldId_ = 0;
+          return this;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Descriptors.Descriptor
+            getDescriptorForType() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_descriptor;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest getDefaultInstanceForType() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.getDefaultInstance();
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest build() {
+          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest result = buildPartial();
+          if (!result.isInitialized()) {
+            throw newUninitializedMessageException(result);
+          }
+          return result;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest buildPartial() {
+          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest result = new io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest(this);
+          if (bitField0_ != 0) { buildPartial0(result); }
+          onBuilt();
+          return result;
+        }
+
+        private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest result) {
+          int from_bitField0_ = bitField0_;
+          if (((from_bitField0_ & 0x00000001) != 0)) {
+            result.fileData_ = fileData_;
+          }
+          if (((from_bitField0_ & 0x00000002) != 0)) {
+            result.fileType_ = fileType_;
+          }
+          if (((from_bitField0_ & 0x00000004) != 0)) {
+            result.partitionKey_ = partitionKey_;
+          }
+          if (((from_bitField0_ & 0x00000008) != 0)) {
+            result.filename_ = filename_;
+          }
+          if (((from_bitField0_ & 0x00000010) != 0)) {
+            result.equalityFieldId_ = equalityFieldId_;
+          }
+        }
+
+        @java.lang.Override
+        public Builder clone() {
+          return super.clone();
+        }
+        @java.lang.Override
+        public Builder setField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.setField(field, value);
+        }
+        @java.lang.Override
+        public Builder clearField(
+            com.google.protobuf.Descriptors.FieldDescriptor field) {
+          return super.clearField(field);
+        }
+        @java.lang.Override
+        public Builder clearOneof(
+            com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+          return super.clearOneof(oneof);
+        }
+        @java.lang.Override
+        public Builder setRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            int index, java.lang.Object value) {
+          return super.setRepeatedField(field, index, value);
+        }
+        @java.lang.Override
+        public Builder addRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.addRepeatedField(field, value);
+        }
+        @java.lang.Override
+        public Builder mergeFrom(com.google.protobuf.Message other) {
+          if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest) {
+            return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest)other);
+          } else {
+            super.mergeFrom(other);
+            return this;
+          }
+        }
+
+        public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest other) {
+          if (other == io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.getDefaultInstance()) return this;
+          if (other.getFileData() != com.google.protobuf.ByteString.EMPTY) {
+            setFileData(other.getFileData());
+          }
+          if (!other.getFileType().isEmpty()) {
+            fileType_ = other.fileType_;
+            bitField0_ |= 0x00000002;
+            onChanged();
+          }
+          if (!other.getPartitionKey().isEmpty()) {
+            partitionKey_ = other.partitionKey_;
+            bitField0_ |= 0x00000004;
+            onChanged();
+          }
+          if (!other.getFilename().isEmpty()) {
+            filename_ = other.filename_;
+            bitField0_ |= 0x00000008;
+            onChanged();
+          }
+          if (other.getEqualityFieldId() != 0) {
+            setEqualityFieldId(other.getEqualityFieldId());
+          }
+          this.mergeUnknownFields(other.getUnknownFields());
+          onChanged();
+          return this;
+        }
+
+        @java.lang.Override
+        public final boolean isInitialized() {
+          return true;
+        }
+
+        @java.lang.Override
+        public Builder mergeFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          if (extensionRegistry == null) {
+            throw new java.lang.NullPointerException();
+          }
+          try {
+            boolean done = false;
+            while (!done) {
+              int tag = input.readTag();
+              switch (tag) {
+                case 0:
+                  done = true;
+                  break;
+                case 10: {
+                  fileData_ = input.readBytes();
+                  bitField0_ |= 0x00000001;
+                  break;
+                } // case 10
+                case 18: {
+                  fileType_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000002;
+                  break;
+                } // case 18
+                case 26: {
+                  partitionKey_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000004;
+                  break;
+                } // case 26
+                case 34: {
+                  filename_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000008;
+                  break;
+                } // case 34
+                case 40: {
+                  equalityFieldId_ = input.readInt32();
+                  bitField0_ |= 0x00000010;
+                  break;
+                } // case 40
+                default: {
+                  if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                    done = true; // was an endgroup tag
+                  }
+                  break;
+                } // default:
+              } // switch (tag)
+            } // while (!done)
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.unwrapIOException();
+          } finally {
+            onChanged();
+          } // finally
+          return this;
+        }
+        private int bitField0_;
+
+        private com.google.protobuf.ByteString fileData_ = com.google.protobuf.ByteString.EMPTY;
+        /**
+         * <code>bytes file_data = 1;</code>
+         * @return The fileData.
+         */
+        @java.lang.Override
+        public com.google.protobuf.ByteString getFileData() {
+          return fileData_;
+        }
+        /**
+         * <code>bytes file_data = 1;</code>
+         * @param value The fileData to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFileData(com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          fileData_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>bytes file_data = 1;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFileData() {
+          bitField0_ = (bitField0_ & ~0x00000001);
+          fileData_ = getDefaultInstance().getFileData();
+          onChanged();
+          return this;
+        }
+
+        private java.lang.Object fileType_ = "";
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 2;</code>
+         * @return The fileType.
+         */
+        public java.lang.String getFileType() {
+          java.lang.Object ref = fileType_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            fileType_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 2;</code>
+         * @return The bytes for fileType.
+         */
+        public com.google.protobuf.ByteString
+            getFileTypeBytes() {
+          java.lang.Object ref = fileType_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            fileType_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 2;</code>
+         * @param value The fileType to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFileType(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          fileType_ = value;
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 2;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFileType() {
+          fileType_ = getDefaultInstance().getFileType();
+          bitField0_ = (bitField0_ & ~0x00000002);
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * "data" or "delete"
+         * </pre>
+         *
+         * <code>string file_type = 2;</code>
+         * @param value The bytes for fileType to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFileTypeBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          fileType_ = value;
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+
+        private java.lang.Object partitionKey_ = "";
+        /**
+         * <pre>
+         * optional partition path
+         * </pre>
+         *
+         * <code>string partition_key = 3;</code>
+         * @return The partitionKey.
+         */
+        public java.lang.String getPartitionKey() {
+          java.lang.Object ref = partitionKey_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            partitionKey_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <pre>
+         * optional partition path
+         * </pre>
+         *
+         * <code>string partition_key = 3;</code>
+         * @return The bytes for partitionKey.
+         */
+        public com.google.protobuf.ByteString
+            getPartitionKeyBytes() {
+          java.lang.Object ref = partitionKey_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            partitionKey_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <pre>
+         * optional partition path
+         * </pre>
+         *
+         * <code>string partition_key = 3;</code>
+         * @param value The partitionKey to set.
+         * @return This builder for chaining.
+         */
+        public Builder setPartitionKey(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          partitionKey_ = value;
+          bitField0_ |= 0x00000004;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * optional partition path
+         * </pre>
+         *
+         * <code>string partition_key = 3;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearPartitionKey() {
+          partitionKey_ = getDefaultInstance().getPartitionKey();
+          bitField0_ = (bitField0_ & ~0x00000004);
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * optional partition path
+         * </pre>
+         *
+         * <code>string partition_key = 3;</code>
+         * @param value The bytes for partitionKey to set.
+         * @return This builder for chaining.
+         */
+        public Builder setPartitionKeyBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          partitionKey_ = value;
+          bitField0_ |= 0x00000004;
+          onChanged();
+          return this;
+        }
+
+        private java.lang.Object filename_ = "";
+        /**
+         * <code>string filename = 4;</code>
+         * @return The filename.
+         */
+        public java.lang.String getFilename() {
+          java.lang.Object ref = filename_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            filename_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <code>string filename = 4;</code>
+         * @return The bytes for filename.
+         */
+        public com.google.protobuf.ByteString
+            getFilenameBytes() {
+          java.lang.Object ref = filename_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            filename_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <code>string filename = 4;</code>
+         * @param value The filename to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilename(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          filename_ = value;
+          bitField0_ |= 0x00000008;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string filename = 4;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFilename() {
+          filename_ = getDefaultInstance().getFilename();
+          bitField0_ = (bitField0_ & ~0x00000008);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string filename = 4;</code>
+         * @param value The bytes for filename to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilenameBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          filename_ = value;
+          bitField0_ |= 0x00000008;
+          onChanged();
+          return this;
+        }
+
+        private int equalityFieldId_ ;
+        /**
+         * <pre>
+         * for delete files
+         * </pre>
+         *
+         * <code>int32 equality_field_id = 5;</code>
+         * @return The equalityFieldId.
+         */
+        @java.lang.Override
+        public int getEqualityFieldId() {
+          return equalityFieldId_;
+        }
+        /**
+         * <pre>
+         * for delete files
+         * </pre>
+         *
+         * <code>int32 equality_field_id = 5;</code>
+         * @param value The equalityFieldId to set.
+         * @return This builder for chaining.
+         */
+        public Builder setEqualityFieldId(int value) {
+          
+          equalityFieldId_ = value;
+          bitField0_ |= 0x00000010;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * for delete files
+         * </pre>
+         *
+         * <code>int32 equality_field_id = 5;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearEqualityFieldId() {
+          bitField0_ = (bitField0_ & ~0x00000010);
+          equalityFieldId_ = 0;
+          onChanged();
+          return this;
+        }
+        @java.lang.Override
+        public final Builder setUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.setUnknownFields(unknownFields);
+        }
+
+        @java.lang.Override
+        public final Builder mergeUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.mergeUnknownFields(unknownFields);
+        }
+
+
+        // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest)
+      }
+
+      // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest)
+      private static final io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest DEFAULT_INSTANCE;
+      static {
+        DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest();
+      }
+
+      public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest getDefaultInstance() {
+        return DEFAULT_INSTANCE;
+      }
+
+      private static final com.google.protobuf.Parser<FileUploadRequest>
+          PARSER = new com.google.protobuf.AbstractParser<FileUploadRequest>() {
+        @java.lang.Override
+        public FileUploadRequest parsePartialFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          Builder builder = newBuilder();
+          try {
+            builder.mergeFrom(input, extensionRegistry);
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.setUnfinishedMessage(builder.buildPartial());
+          } catch (com.google.protobuf.UninitializedMessageException e) {
+            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+          } catch (java.io.IOException e) {
+            throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                .setUnfinishedMessage(builder.buildPartial());
+          }
+          return builder.buildPartial();
+        }
+      };
+
+      public static com.google.protobuf.Parser<FileUploadRequest> parser() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Parser<FileUploadRequest> getParserForType() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest getDefaultInstanceForType() {
+        return DEFAULT_INSTANCE;
+      }
+
     }
 
     public interface MetadataOrBuilder extends
@@ -333,29 +2178,101 @@ public final class RecordIngest {
           int index);
 
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @return A list containing the filePaths.
        */
       java.util.List<java.lang.String>
           getFilePathsList();
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @return The count of filePaths.
        */
       int getFilePathsCount();
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the element to return.
        * @return The filePaths at the given index.
        */
       java.lang.String getFilePaths(int index);
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the value to return.
        * @return The bytes of the filePaths at the given index.
        */
       com.google.protobuf.ByteString
           getFilePathsBytes(int index);
+
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata> 
+          getFileMetadataList();
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata getFileMetadata(int index);
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      int getFileMetadataCount();
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder> 
+          getFileMetadataOrBuilderList();
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder getFileMetadataOrBuilder(
+          int index);
+
+      /**
+       * <code>optional string field_name = 6;</code>
+       * @return Whether the fieldName field is set.
+       */
+      boolean hasFieldName();
+      /**
+       * <code>optional string field_name = 6;</code>
+       * @return The fieldName.
+       */
+      java.lang.String getFieldName();
+      /**
+       * <code>optional string field_name = 6;</code>
+       * @return The bytes for fieldName.
+       */
+      com.google.protobuf.ByteString
+          getFieldNameBytes();
+
+      /**
+       * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+       * @return Whether the fileUpload field is set.
+       */
+      boolean hasFileUpload();
+      /**
+       * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+       * @return The fileUpload.
+       */
+      io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest getFileUpload();
+      /**
+       * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+       */
+      io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequestOrBuilder getFileUploadOrBuilder();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.Metadata}
@@ -375,6 +2292,8 @@ public final class RecordIngest {
         identifierField_ = "";
         schema_ = java.util.Collections.emptyList();
         filePaths_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+        fileMetadata_ = java.util.Collections.emptyList();
+        fieldName_ = "";
       }
 
       @java.lang.Override
@@ -573,6 +2492,10 @@ public final class RecordIngest {
       @SuppressWarnings("serial")
       private com.google.protobuf.LazyStringList filePaths_;
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @return A list containing the filePaths.
        */
@@ -581,6 +2504,10 @@ public final class RecordIngest {
         return filePaths_;
       }
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @return The count of filePaths.
        */
@@ -588,6 +2515,10 @@ public final class RecordIngest {
         return filePaths_.size();
       }
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the element to return.
        * @return The filePaths at the given index.
@@ -596,6 +2527,10 @@ public final class RecordIngest {
         return filePaths_.get(index);
       }
       /**
+       * <pre>
+       * Deprecated: use file_metadata instead
+       * </pre>
+       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the value to return.
        * @return The bytes of the filePaths at the given index.
@@ -603,6 +2538,120 @@ public final class RecordIngest {
       public com.google.protobuf.ByteString
           getFilePathsBytes(int index) {
         return filePaths_.getByteString(index);
+      }
+
+      public static final int FILE_METADATA_FIELD_NUMBER = 7;
+      @SuppressWarnings("serial")
+      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata> fileMetadata_;
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      @java.lang.Override
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata> getFileMetadataList() {
+        return fileMetadata_;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      @java.lang.Override
+      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder> 
+          getFileMetadataOrBuilderList() {
+        return fileMetadata_;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      @java.lang.Override
+      public int getFileMetadataCount() {
+        return fileMetadata_.size();
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata getFileMetadata(int index) {
+        return fileMetadata_.get(index);
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+       */
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder getFileMetadataOrBuilder(
+          int index) {
+        return fileMetadata_.get(index);
+      }
+
+      public static final int FIELD_NAME_FIELD_NUMBER = 6;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object fieldName_ = "";
+      /**
+       * <code>optional string field_name = 6;</code>
+       * @return Whether the fieldName field is set.
+       */
+      @java.lang.Override
+      public boolean hasFieldName() {
+        return ((bitField0_ & 0x00000002) != 0);
+      }
+      /**
+       * <code>optional string field_name = 6;</code>
+       * @return The fieldName.
+       */
+      @java.lang.Override
+      public java.lang.String getFieldName() {
+        java.lang.Object ref = fieldName_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          fieldName_ = s;
+          return s;
+        }
+      }
+      /**
+       * <code>optional string field_name = 6;</code>
+       * @return The bytes for fieldName.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getFieldNameBytes() {
+        java.lang.Object ref = fieldName_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          fieldName_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      public static final int FILE_UPLOAD_FIELD_NUMBER = 8;
+      private io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest fileUpload_;
+      /**
+       * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+       * @return Whether the fileUpload field is set.
+       */
+      @java.lang.Override
+      public boolean hasFileUpload() {
+        return ((bitField0_ & 0x00000004) != 0);
+      }
+      /**
+       * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+       * @return The fileUpload.
+       */
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest getFileUpload() {
+        return fileUpload_ == null ? io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.getDefaultInstance() : fileUpload_;
+      }
+      /**
+       * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+       */
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequestOrBuilder getFileUploadOrBuilder() {
+        return fileUpload_ == null ? io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.getDefaultInstance() : fileUpload_;
       }
 
       private byte memoizedIsInitialized = -1;
@@ -634,6 +2683,15 @@ public final class RecordIngest {
         for (int i = 0; i < filePaths_.size(); i++) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 5, filePaths_.getRaw(i));
         }
+        if (((bitField0_ & 0x00000002) != 0)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 6, fieldName_);
+        }
+        for (int i = 0; i < fileMetadata_.size(); i++) {
+          output.writeMessage(7, fileMetadata_.get(i));
+        }
+        if (((bitField0_ & 0x00000004) != 0)) {
+          output.writeMessage(8, getFileUpload());
+        }
         getUnknownFields().writeTo(output);
       }
 
@@ -664,6 +2722,17 @@ public final class RecordIngest {
           size += dataSize;
           size += 1 * getFilePathsList().size();
         }
+        if (((bitField0_ & 0x00000002) != 0)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(6, fieldName_);
+        }
+        for (int i = 0; i < fileMetadata_.size(); i++) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeMessageSize(7, fileMetadata_.get(i));
+        }
+        if (((bitField0_ & 0x00000004) != 0)) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeMessageSize(8, getFileUpload());
+        }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
         return size;
@@ -692,6 +2761,18 @@ public final class RecordIngest {
             .equals(other.getSchemaList())) return false;
         if (!getFilePathsList()
             .equals(other.getFilePathsList())) return false;
+        if (!getFileMetadataList()
+            .equals(other.getFileMetadataList())) return false;
+        if (hasFieldName() != other.hasFieldName()) return false;
+        if (hasFieldName()) {
+          if (!getFieldName()
+              .equals(other.getFieldName())) return false;
+        }
+        if (hasFileUpload() != other.hasFileUpload()) return false;
+        if (hasFileUpload()) {
+          if (!getFileUpload()
+              .equals(other.getFileUpload())) return false;
+        }
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -718,6 +2799,18 @@ public final class RecordIngest {
         if (getFilePathsCount() > 0) {
           hash = (37 * hash) + FILE_PATHS_FIELD_NUMBER;
           hash = (53 * hash) + getFilePathsList().hashCode();
+        }
+        if (getFileMetadataCount() > 0) {
+          hash = (37 * hash) + FILE_METADATA_FIELD_NUMBER;
+          hash = (53 * hash) + getFileMetadataList().hashCode();
+        }
+        if (hasFieldName()) {
+          hash = (37 * hash) + FIELD_NAME_FIELD_NUMBER;
+          hash = (53 * hash) + getFieldName().hashCode();
+        }
+        if (hasFileUpload()) {
+          hash = (37 * hash) + FILE_UPLOAD_FIELD_NUMBER;
+          hash = (53 * hash) + getFileUpload().hashCode();
         }
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
@@ -836,13 +2929,21 @@ public final class RecordIngest {
 
         // Construct using io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.Metadata.newBuilder()
         private Builder() {
-
+          maybeForceBuilderInitialization();
         }
 
         private Builder(
             com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
           super(parent);
-
+          maybeForceBuilderInitialization();
+        }
+        private void maybeForceBuilderInitialization() {
+          if (com.google.protobuf.GeneratedMessageV3
+                  .alwaysUseFieldBuilders) {
+            getSchemaFieldBuilder();
+            getFileMetadataFieldBuilder();
+            getFileUploadFieldBuilder();
+          }
         }
         @java.lang.Override
         public Builder clear() {
@@ -860,6 +2961,19 @@ public final class RecordIngest {
           bitField0_ = (bitField0_ & ~0x00000008);
           filePaths_ = com.google.protobuf.LazyStringArrayList.EMPTY;
           bitField0_ = (bitField0_ & ~0x00000010);
+          if (fileMetadataBuilder_ == null) {
+            fileMetadata_ = java.util.Collections.emptyList();
+          } else {
+            fileMetadata_ = null;
+            fileMetadataBuilder_.clear();
+          }
+          bitField0_ = (bitField0_ & ~0x00000020);
+          fieldName_ = "";
+          fileUpload_ = null;
+          if (fileUploadBuilder_ != null) {
+            fileUploadBuilder_.dispose();
+            fileUploadBuilder_ = null;
+          }
           return this;
         }
 
@@ -907,6 +3021,15 @@ public final class RecordIngest {
             bitField0_ = (bitField0_ & ~0x00000010);
           }
           result.filePaths_ = filePaths_;
+          if (fileMetadataBuilder_ == null) {
+            if (((bitField0_ & 0x00000020) != 0)) {
+              fileMetadata_ = java.util.Collections.unmodifiableList(fileMetadata_);
+              bitField0_ = (bitField0_ & ~0x00000020);
+            }
+            result.fileMetadata_ = fileMetadata_;
+          } else {
+            result.fileMetadata_ = fileMetadataBuilder_.build();
+          }
         }
 
         private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.Metadata result) {
@@ -921,6 +3044,16 @@ public final class RecordIngest {
           if (((from_bitField0_ & 0x00000004) != 0)) {
             result.identifierField_ = identifierField_;
             to_bitField0_ |= 0x00000001;
+          }
+          if (((from_bitField0_ & 0x00000040) != 0)) {
+            result.fieldName_ = fieldName_;
+            to_bitField0_ |= 0x00000002;
+          }
+          if (((from_bitField0_ & 0x00000080) != 0)) {
+            result.fileUpload_ = fileUploadBuilder_ == null
+                ? fileUpload_
+                : fileUploadBuilder_.build();
+            to_bitField0_ |= 0x00000004;
           }
           result.bitField0_ |= to_bitField0_;
         }
@@ -1020,6 +3153,40 @@ public final class RecordIngest {
             }
             onChanged();
           }
+          if (fileMetadataBuilder_ == null) {
+            if (!other.fileMetadata_.isEmpty()) {
+              if (fileMetadata_.isEmpty()) {
+                fileMetadata_ = other.fileMetadata_;
+                bitField0_ = (bitField0_ & ~0x00000020);
+              } else {
+                ensureFileMetadataIsMutable();
+                fileMetadata_.addAll(other.fileMetadata_);
+              }
+              onChanged();
+            }
+          } else {
+            if (!other.fileMetadata_.isEmpty()) {
+              if (fileMetadataBuilder_.isEmpty()) {
+                fileMetadataBuilder_.dispose();
+                fileMetadataBuilder_ = null;
+                fileMetadata_ = other.fileMetadata_;
+                bitField0_ = (bitField0_ & ~0x00000020);
+                fileMetadataBuilder_ = 
+                  com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                     getFileMetadataFieldBuilder() : null;
+              } else {
+                fileMetadataBuilder_.addAllMessages(other.fileMetadata_);
+              }
+            }
+          }
+          if (other.hasFieldName()) {
+            fieldName_ = other.fieldName_;
+            bitField0_ |= 0x00000040;
+            onChanged();
+          }
+          if (other.hasFileUpload()) {
+            mergeFileUpload(other.getFileUpload());
+          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -1080,6 +3247,31 @@ public final class RecordIngest {
                   filePaths_.add(s);
                   break;
                 } // case 42
+                case 50: {
+                  fieldName_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000040;
+                  break;
+                } // case 50
+                case 58: {
+                  io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata m =
+                      input.readMessage(
+                          io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.parser(),
+                          extensionRegistry);
+                  if (fileMetadataBuilder_ == null) {
+                    ensureFileMetadataIsMutable();
+                    fileMetadata_.add(m);
+                  } else {
+                    fileMetadataBuilder_.addMessage(m);
+                  }
+                  break;
+                } // case 58
+                case 66: {
+                  input.readMessage(
+                      getFileUploadFieldBuilder().getBuilder(),
+                      extensionRegistry);
+                  bitField0_ |= 0x00000080;
+                  break;
+                } // case 66
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -1568,6 +3760,10 @@ public final class RecordIngest {
            }
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @return A list containing the filePaths.
          */
@@ -1576,6 +3772,10 @@ public final class RecordIngest {
           return filePaths_.getUnmodifiableView();
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @return The count of filePaths.
          */
@@ -1583,6 +3783,10 @@ public final class RecordIngest {
           return filePaths_.size();
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @param index The index of the element to return.
          * @return The filePaths at the given index.
@@ -1591,6 +3795,10 @@ public final class RecordIngest {
           return filePaths_.get(index);
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @param index The index of the value to return.
          * @return The bytes of the filePaths at the given index.
@@ -1600,6 +3808,10 @@ public final class RecordIngest {
           return filePaths_.getByteString(index);
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @param index The index to set the value at.
          * @param value The filePaths to set.
@@ -1614,6 +3826,10 @@ public final class RecordIngest {
           return this;
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @param value The filePaths to add.
          * @return This builder for chaining.
@@ -1627,6 +3843,10 @@ public final class RecordIngest {
           return this;
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @param values The filePaths to add.
          * @return This builder for chaining.
@@ -1640,6 +3860,10 @@ public final class RecordIngest {
           return this;
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @return This builder for chaining.
          */
@@ -1650,6 +3874,10 @@ public final class RecordIngest {
           return this;
         }
         /**
+         * <pre>
+         * Deprecated: use file_metadata instead
+         * </pre>
+         *
          * <code>repeated string file_paths = 5;</code>
          * @param value The bytes of the filePaths to add.
          * @return This builder for chaining.
@@ -1662,6 +3890,444 @@ public final class RecordIngest {
           filePaths_.add(value);
           onChanged();
           return this;
+        }
+
+        private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata> fileMetadata_ =
+          java.util.Collections.emptyList();
+        private void ensureFileMetadataIsMutable() {
+          if (!((bitField0_ & 0x00000020) != 0)) {
+            fileMetadata_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata>(fileMetadata_);
+            bitField0_ |= 0x00000020;
+           }
+        }
+
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder> fileMetadataBuilder_;
+
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata> getFileMetadataList() {
+          if (fileMetadataBuilder_ == null) {
+            return java.util.Collections.unmodifiableList(fileMetadata_);
+          } else {
+            return fileMetadataBuilder_.getMessageList();
+          }
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public int getFileMetadataCount() {
+          if (fileMetadataBuilder_ == null) {
+            return fileMetadata_.size();
+          } else {
+            return fileMetadataBuilder_.getCount();
+          }
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata getFileMetadata(int index) {
+          if (fileMetadataBuilder_ == null) {
+            return fileMetadata_.get(index);
+          } else {
+            return fileMetadataBuilder_.getMessage(index);
+          }
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder setFileMetadata(
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata value) {
+          if (fileMetadataBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureFileMetadataIsMutable();
+            fileMetadata_.set(index, value);
+            onChanged();
+          } else {
+            fileMetadataBuilder_.setMessage(index, value);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder setFileMetadata(
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder builderForValue) {
+          if (fileMetadataBuilder_ == null) {
+            ensureFileMetadataIsMutable();
+            fileMetadata_.set(index, builderForValue.build());
+            onChanged();
+          } else {
+            fileMetadataBuilder_.setMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder addFileMetadata(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata value) {
+          if (fileMetadataBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureFileMetadataIsMutable();
+            fileMetadata_.add(value);
+            onChanged();
+          } else {
+            fileMetadataBuilder_.addMessage(value);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder addFileMetadata(
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata value) {
+          if (fileMetadataBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureFileMetadataIsMutable();
+            fileMetadata_.add(index, value);
+            onChanged();
+          } else {
+            fileMetadataBuilder_.addMessage(index, value);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder addFileMetadata(
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder builderForValue) {
+          if (fileMetadataBuilder_ == null) {
+            ensureFileMetadataIsMutable();
+            fileMetadata_.add(builderForValue.build());
+            onChanged();
+          } else {
+            fileMetadataBuilder_.addMessage(builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder addFileMetadata(
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder builderForValue) {
+          if (fileMetadataBuilder_ == null) {
+            ensureFileMetadataIsMutable();
+            fileMetadata_.add(index, builderForValue.build());
+            onChanged();
+          } else {
+            fileMetadataBuilder_.addMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder addAllFileMetadata(
+            java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata> values) {
+          if (fileMetadataBuilder_ == null) {
+            ensureFileMetadataIsMutable();
+            com.google.protobuf.AbstractMessageLite.Builder.addAll(
+                values, fileMetadata_);
+            onChanged();
+          } else {
+            fileMetadataBuilder_.addAllMessages(values);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder clearFileMetadata() {
+          if (fileMetadataBuilder_ == null) {
+            fileMetadata_ = java.util.Collections.emptyList();
+            bitField0_ = (bitField0_ & ~0x00000020);
+            onChanged();
+          } else {
+            fileMetadataBuilder_.clear();
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public Builder removeFileMetadata(int index) {
+          if (fileMetadataBuilder_ == null) {
+            ensureFileMetadataIsMutable();
+            fileMetadata_.remove(index);
+            onChanged();
+          } else {
+            fileMetadataBuilder_.remove(index);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder getFileMetadataBuilder(
+            int index) {
+          return getFileMetadataFieldBuilder().getBuilder(index);
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder getFileMetadataOrBuilder(
+            int index) {
+          if (fileMetadataBuilder_ == null) {
+            return fileMetadata_.get(index);  } else {
+            return fileMetadataBuilder_.getMessageOrBuilder(index);
+          }
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder> 
+             getFileMetadataOrBuilderList() {
+          if (fileMetadataBuilder_ != null) {
+            return fileMetadataBuilder_.getMessageOrBuilderList();
+          } else {
+            return java.util.Collections.unmodifiableList(fileMetadata_);
+          }
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder addFileMetadataBuilder() {
+          return getFileMetadataFieldBuilder().addBuilder(
+              io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.getDefaultInstance());
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder addFileMetadataBuilder(
+            int index) {
+          return getFileMetadataFieldBuilder().addBuilder(
+              index, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.getDefaultInstance());
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.IcebergPayload.FileMetadata file_metadata = 7;</code>
+         */
+        public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder> 
+             getFileMetadataBuilderList() {
+          return getFileMetadataFieldBuilder().getBuilderList();
+        }
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder> 
+            getFileMetadataFieldBuilder() {
+          if (fileMetadataBuilder_ == null) {
+            fileMetadataBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadata.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileMetadataOrBuilder>(
+                    fileMetadata_,
+                    ((bitField0_ & 0x00000020) != 0),
+                    getParentForChildren(),
+                    isClean());
+            fileMetadata_ = null;
+          }
+          return fileMetadataBuilder_;
+        }
+
+        private java.lang.Object fieldName_ = "";
+        /**
+         * <code>optional string field_name = 6;</code>
+         * @return Whether the fieldName field is set.
+         */
+        public boolean hasFieldName() {
+          return ((bitField0_ & 0x00000040) != 0);
+        }
+        /**
+         * <code>optional string field_name = 6;</code>
+         * @return The fieldName.
+         */
+        public java.lang.String getFieldName() {
+          java.lang.Object ref = fieldName_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            fieldName_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <code>optional string field_name = 6;</code>
+         * @return The bytes for fieldName.
+         */
+        public com.google.protobuf.ByteString
+            getFieldNameBytes() {
+          java.lang.Object ref = fieldName_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            fieldName_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <code>optional string field_name = 6;</code>
+         * @param value The fieldName to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFieldName(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          fieldName_ = value;
+          bitField0_ |= 0x00000040;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>optional string field_name = 6;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFieldName() {
+          fieldName_ = getDefaultInstance().getFieldName();
+          bitField0_ = (bitField0_ & ~0x00000040);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>optional string field_name = 6;</code>
+         * @param value The bytes for fieldName to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFieldNameBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          fieldName_ = value;
+          bitField0_ |= 0x00000040;
+          onChanged();
+          return this;
+        }
+
+        private io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest fileUpload_;
+        private com.google.protobuf.SingleFieldBuilderV3<
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequestOrBuilder> fileUploadBuilder_;
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         * @return Whether the fileUpload field is set.
+         */
+        public boolean hasFileUpload() {
+          return ((bitField0_ & 0x00000080) != 0);
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         * @return The fileUpload.
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest getFileUpload() {
+          if (fileUploadBuilder_ == null) {
+            return fileUpload_ == null ? io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.getDefaultInstance() : fileUpload_;
+          } else {
+            return fileUploadBuilder_.getMessage();
+          }
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         */
+        public Builder setFileUpload(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest value) {
+          if (fileUploadBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            fileUpload_ = value;
+          } else {
+            fileUploadBuilder_.setMessage(value);
+          }
+          bitField0_ |= 0x00000080;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         */
+        public Builder setFileUpload(
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.Builder builderForValue) {
+          if (fileUploadBuilder_ == null) {
+            fileUpload_ = builderForValue.build();
+          } else {
+            fileUploadBuilder_.setMessage(builderForValue.build());
+          }
+          bitField0_ |= 0x00000080;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         */
+        public Builder mergeFileUpload(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest value) {
+          if (fileUploadBuilder_ == null) {
+            if (((bitField0_ & 0x00000080) != 0) &&
+              fileUpload_ != null &&
+              fileUpload_ != io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.getDefaultInstance()) {
+              getFileUploadBuilder().mergeFrom(value);
+            } else {
+              fileUpload_ = value;
+            }
+          } else {
+            fileUploadBuilder_.mergeFrom(value);
+          }
+          bitField0_ |= 0x00000080;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         */
+        public Builder clearFileUpload() {
+          bitField0_ = (bitField0_ & ~0x00000080);
+          fileUpload_ = null;
+          if (fileUploadBuilder_ != null) {
+            fileUploadBuilder_.dispose();
+            fileUploadBuilder_ = null;
+          }
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.Builder getFileUploadBuilder() {
+          bitField0_ |= 0x00000080;
+          onChanged();
+          return getFileUploadFieldBuilder().getBuilder();
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequestOrBuilder getFileUploadOrBuilder() {
+          if (fileUploadBuilder_ != null) {
+            return fileUploadBuilder_.getMessageOrBuilder();
+          } else {
+            return fileUpload_ == null ?
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.getDefaultInstance() : fileUpload_;
+          }
+        }
+        /**
+         * <code>optional .io.debezium.server.iceberg.rpc.IcebergPayload.FileUploadRequest file_upload = 8;</code>
+         */
+        private com.google.protobuf.SingleFieldBuilderV3<
+            io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequestOrBuilder> 
+            getFileUploadFieldBuilder() {
+          if (fileUploadBuilder_ == null) {
+            fileUploadBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequest.Builder, io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.FileUploadRequestOrBuilder>(
+                    getFileUpload(),
+                    getParentForChildren(),
+                    isClean());
+            fileUpload_ = null;
+          }
+          return fileUploadBuilder_;
         }
         @java.lang.Override
         public final Builder setUnknownFields(
@@ -6350,6 +9016,16 @@ public final class RecordIngest {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
@@ -6384,35 +9060,47 @@ public final class RecordIngest {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\247\007\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\347\n\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
       "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
       ".io.debezium.server.iceberg.rpc.IcebergP" +
-      "ayload.IceRecord\032\312\001\n\010Metadata\022\027\n\017dest_ta" +
-      "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\035\n\020ide" +
-      "ntifier_field\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\013" +
-      "2:.io.debezium.server.iceberg.rpc.Iceber" +
-      "gPayload.SchemaField\022\022\n\nfile_paths\030\005 \003(\t" +
-      "B\023\n\021_identifier_field\032,\n\013SchemaField\022\020\n\010" +
-      "ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032\254\002\n\tIceRecor" +
-      "d\022S\n\006fields\030\001 \003(\0132C.io.debezium.server.i" +
-      "ceberg.rpc.IcebergPayload.IceRecord.Fiel" +
-      "dValue\022\023\n\013record_type\030\002 \001(\t\032\264\001\n\nFieldVal" +
-      "ue\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_value\030" +
-      "\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_v" +
-      "alue\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\n" +
-      "bool_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H" +
-      "\000B\007\n\005value\"\212\001\n\013PayloadType\022\013\n\007RECORDS\020\000\022" +
-      "\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_T" +
-      "ABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRE" +
-      "SH_TABLE_SCHEMA\020\005\022\014\n\010REGISTER\020\006\"7\n\024Recor" +
-      "dIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007succe" +
-      "ss\030\002 \001(\0102\212\001\n\023RecordIngestService\022s\n\013Send" +
-      "Records\022..io.debezium.server.iceberg.rpc" +
-      ".IcebergPayload\0324.io.debezium.server.ice" +
-      "berg.rpc.RecordIngestResponseb\006proto3"
+      "ayload.IceRecord\0324\n\014FileMetadata\022\021\n\tfile" +
+      "_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\032}\n\021FileUp" +
+      "loadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_t" +
+      "ype\030\002 \001(\t\022\025\n\rpartition_key\030\003 \001(\t\022\020\n\010file" +
+      "name\030\004 \001(\t\022\031\n\021equality_field_id\030\005 \001(\005\032\262\003" +
+      "\n\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tt" +
+      "hread_id\030\002 \001(\t\022\035\n\020identifier_field\030\003 \001(\t" +
+      "H\000\210\001\001\022J\n\006schema\030\004 \003(\0132:.io.debezium.serv" +
+      "er.iceberg.rpc.IcebergPayload.SchemaFiel" +
+      "d\022\022\n\nfile_paths\030\005 \003(\t\022R\n\rfile_metadata\030\007" +
+      " \003(\0132;.io.debezium.server.iceberg.rpc.Ic" +
+      "ebergPayload.FileMetadata\022\027\n\nfield_name\030" +
+      "\006 \001(\tH\001\210\001\001\022Z\n\013file_upload\030\010 \001(\0132@.io.deb" +
+      "ezium.server.iceberg.rpc.IcebergPayload." +
+      "FileUploadRequestH\002\210\001\001B\023\n\021_identifier_fi" +
+      "eldB\r\n\013_field_nameB\016\n\014_file_upload\032,\n\013Sc" +
+      "hemaField\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t" +
+      "\032\254\002\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C.io.debe" +
+      "zium.server.iceberg.rpc.IcebergPayload.I" +
+      "ceRecord.FieldValue\022\023\n\013record_type\030\002 \001(\t" +
+      "\032\264\001\n\nFieldValue\022\026\n\014string_value\030\001 \001(\tH\000\022" +
+      "\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003" +
+      "H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_valu" +
+      "e\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025\n\013bytes" +
+      "_value\030\007 \001(\014H\000B\007\n\005value\"\255\001\n\013PayloadType\022" +
+      "\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEM" +
+      "A\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_TAB" +
+      "LE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\022\014\n\010REGIST" +
+      "ER\020\006\022\020\n\014GET_FIELD_ID\020\007\022\017\n\013UPLOAD_FILE\020\010\"" +
+      "7\n\024RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022" +
+      "\017\n\007success\030\002 \001(\0102\212\001\n\023RecordIngestService" +
+      "\022s\n\013SendRecords\022..io.debezium.server.ice" +
+      "berg.rpc.IcebergPayload\0324.io.debezium.se" +
+      "rver.iceberg.rpc.RecordIngestResponseb\006p" +
+      "roto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -6424,20 +9112,32 @@ public final class RecordIngest {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor,
         new java.lang.String[] { "Type", "Metadata", "Records", });
-    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor =
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(0);
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileMetadata_descriptor,
+        new java.lang.String[] { "FileType", "FilePath", });
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_descriptor =
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_FileUploadRequest_descriptor,
+        new java.lang.String[] { "FileData", "FileType", "PartitionKey", "Filename", "EqualityFieldId", });
+    internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor =
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(2);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "FilePaths", "IdentifierField", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "FilePaths", "FileMetadata", "FieldName", "FileUpload", "IdentifierField", "FieldName", "FileUpload", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor =
-      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(3);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor,
         new java.lang.String[] { "IceType", "Key", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor =
-      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(2);
+      internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(4);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor,

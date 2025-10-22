@@ -29,6 +29,7 @@ import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.FileMetadata;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -209,6 +210,62 @@ public class IcebergTableOperator {
           LOGGER.info("Thread {}: successfully committed {} parquet files", threadId, filePaths.size());
      } catch (Exception e) {
           String errorMsg = String.format("Thread %s: failed to register parquet files: %s", threadId, e.getMessage());
+          LOGGER.error(errorMsg, e);
+          throw new RuntimeException(e);
+     }
+  }
+
+  /**
+   * Registers equality delete files for a specific thread
+   * 
+   * @param threadId The thread ID to register
+   * @param table The iceberg table
+   * @param filePaths The delete file paths to add into the iceberg table
+   * @param equalityFieldId The field ID for equality deletes (e.g., _olake_id field)
+   * @throws RuntimeException if registering the delete file fails
+   */
+  public void registerDeleteFile(String threadId, Table table, List<String> filePaths, int equalityFieldId) {
+     if (table == null) {
+          LOGGER.warn("No table found for thread: {}", threadId);
+          return;
+     }
+
+     try {
+          completeWriter();
+
+          FileIO fileIO = table.io();
+
+          RowDelta rowDelta = table.newRowDelta();
+
+          for (String filePath : filePaths) {
+               try {
+                    InputFile inputFile = fileIO.newInputFile(filePath);
+                    long fileSize = inputFile.getLength();
+
+                    LOGGER.info("Thread {}: registering delete file: {} (size: {} bytes)", threadId, filePath, fileSize);
+
+                    // Create a DeleteFile object from the existing file
+                    // Specify that this is an equality delete file using the provided field ID
+                    DeleteFile deleteFile = FileMetadata.deleteFileBuilder(table.spec())
+                         .ofEqualityDeletes(equalityFieldId)
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(fileSize)
+                         .withRecordCount(1) // TODO: Extract actual record count from parquet metadata
+                         .build();
+
+                    rowDelta.addDeletes(deleteFile);
+                    LOGGER.info("Thread {}: registered delete file {} with equality field ID {}", threadId, filePath, equalityFieldId);
+               } catch (Exception e) {
+                    LOGGER.error("Thread {}: failed to register delete file {}: {}", threadId, filePath, e.getMessage(), e);
+                    throw e;
+               }
+          }
+
+          rowDelta.commit();
+          LOGGER.info("Thread {}: successfully committed {} delete files", threadId, filePaths.size());
+     } catch (Exception e) {
+          String errorMsg = String.format("Thread %s: failed to register delete files: %s", threadId, e.getMessage());
           LOGGER.error(errorMsg, e);
           throw new RuntimeException(e);
      }

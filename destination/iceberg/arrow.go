@@ -17,6 +17,7 @@ type ArrowWriter struct {
 	iceberg             *Iceberg
 	unpartitionedWriter *arrow_writer.RollingDataWriter
 	partitionedWriter   *arrow_writer.Fanout
+	deleteFileWriter    *arrow_writer.RollingDeleteWriter
 
 	s3Client   *s3.Client
 	bucketName string
@@ -59,45 +60,109 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 	if len(aw.iceberg.partitionInfo) != 0 {
 		if aw.partitionedWriter == nil {
 			aw.partitionedWriter = arrow_writer.NewFanoutWriter(context.Background(), aw.iceberg.partitionInfo, aw.iceberg.schema)
-			aw.partitionedWriter.S3Config = arrow_writer.NewS3Config(aw.s3Client, aw.bucketName, aw.prefix)
 			aw.partitionedWriter.Normalization = aw.iceberg.stream.NormalizationEnabled()
 		}
 
-		filePaths, err := aw.partitionedWriter.Write(ctx, records, arrowFields)
+		uploadDataList, err := aw.partitionedWriter.Write(ctx, records, arrowFields)
 		if err != nil {
 			return fmt.Errorf("failed to write partitioned data using fanout writer: %v", err)
 		}
 
-		if len(filePaths) != 0 {
-			if aw.iceberg.createdFilePaths == nil {
-				aw.iceberg.createdFilePaths = make([]string, 0, len(filePaths))
+		for _, uploadData := range uploadDataList {
+			if uploadData != nil {
+				storagePath, err := aw.iceberg.UploadParquetFile(ctx, uploadData.FileData, uploadData.FileType, 
+					uploadData.PartitionKey, uploadData.Filename, uploadData.EqualityFieldId)
+				if err != nil {
+					return fmt.Errorf("failed to upload file %s via Iceberg FileIO: %w", uploadData.Filename, err)
+				}
+				if aw.iceberg.createdFilePaths == nil {
+					aw.iceberg.createdFilePaths = make([][]string, 0)
+				}
+				aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, []string{uploadData.FileType, storagePath})
 			}
-			aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, filePaths...)
 		}
 	} else {
-		if aw.unpartitionedWriter == nil {
-			aw.unpartitionedWriter = arrow_writer.NewRollingDataWriter(context.Background(), "")
-			aw.unpartitionedWriter.S3Config = arrow_writer.NewS3Config(aw.s3Client, aw.bucketName, aw.prefix)
-		}
+		data := make([]types.RawRecord, 0)
+		deletes := make([]types.RawRecord, 0)
 
-		rec, err := arrow_writer.CreateArrowRecordWithFields(records, arrowFields, aw.isNormalized)
-		if err != nil {
-			return fmt.Errorf("failed to create arrow record: %w", err)
-		}
-		defer rec.Release()
-
-		filePath, err := aw.unpartitionedWriter.Write(rec)
-		if err != nil {
-			return fmt.Errorf("failed to write arrow record to parquet: %w", err)
-		}
-
-		if filePath != "" {
-			if aw.iceberg.createdFilePaths == nil {
-				aw.iceberg.createdFilePaths = make([]string, 0)
+		for _, rec := range records {
+			if rec.OperationType == "d" {
+				r := types.RawRecord{OlakeID: rec.OlakeID}
+				deletes = append(deletes, r)
 			}
-			aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, filePath)
+
+			// i think data == records, need to check once
+			if aw.unpartitionedWriter == nil {
+				aw.unpartitionedWriter = arrow_writer.NewRollingDataWriter(context.Background(), "")
+			}
+
+			data = append(data, rec)
+		}
+
+		if len(deletes) > 0 {
+			fieldId, err := aw.iceberg.GetFieldId(ctx, "_olake_id")
+			if err != nil {
+				return fmt.Errorf("failed to get field ID for _olake_id: %w", err)
+			}
+
+			fmt.Println("☀️ _olake_id field ID:", fieldId)
+
+			if aw.deleteFileWriter == nil {
+				aw.deleteFileWriter = arrow_writer.NewRollingDeleteWriter(context.Background(), "", fieldId)
+			}
+
+			rec, err := arrow_writer.CreateDeleteFiles(deletes, fieldId)
+			if err != nil {
+				return fmt.Errorf("failed to create delete record: %w", err)
+			}
+
+			defer rec.Release()
+
+			uploadData, err := aw.deleteFileWriter.Write(rec)
+			if err != nil {
+				return fmt.Errorf("failed to write arrow record to parquet: %w", err)
+			}
+
+			if uploadData != nil {
+				storagePath, err := aw.iceberg.UploadParquetFile(ctx, uploadData.FileData, uploadData.FileType,
+					uploadData.PartitionKey, uploadData.Filename, uploadData.EqualityFieldId)
+				if err != nil {
+					return fmt.Errorf("failed to upload delete file via Iceberg FileIO: %w", err)
+				}
+				if aw.iceberg.createdFilePaths == nil {
+					aw.iceberg.createdFilePaths = make([][]string, 0)
+				}
+				fmt.Println("✅ adding delete file path")
+				aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, []string{uploadData.FileType, storagePath})
+			}
+		}
+
+		if len(data) > 0 {
+			rec, err := arrow_writer.CreateArrowRecordWithFields(data, arrowFields, aw.isNormalized)
+			if err != nil {
+				return fmt.Errorf("failed to create arrow record: %w", err)
+			}
+			defer rec.Release()
+
+			uploadData, err := aw.unpartitionedWriter.Write(rec)
+			if err != nil {
+				return fmt.Errorf("failed to write arrow record to parquet: %w", err)
+			}
+
+			if uploadData != nil {
+				storagePath, err := aw.iceberg.UploadParquetFile(ctx, uploadData.FileData, uploadData.FileType,
+					uploadData.PartitionKey, uploadData.Filename, uploadData.EqualityFieldId)
+				if err != nil {
+					return fmt.Errorf("failed to upload data file via Iceberg FileIO: %w", err)
+				}
+				if aw.iceberg.createdFilePaths == nil {
+					aw.iceberg.createdFilePaths = make([][]string, 0)
+				}
+				aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, []string{uploadData.FileType, storagePath})
+			}
 		}
 	}
+
 	return nil
 }
 
@@ -122,23 +187,56 @@ func (i *Iceberg) parseS3Path() (bucketName, prefix string, err error) {
 	return bucketName, prefix, nil
 }
 
-func (aw *ArrowWriter) Close() ([]string, error) {
-	outputFilePaths := make([]string, 0)
-	if aw.partitionedWriter != nil {
-		filePaths, err := aw.partitionedWriter.Close()
+func (aw *ArrowWriter) Close() ([][]string, error) {
+	ctx := context.Background()
+	outputFilePaths := make([][]string, 0)
+
+	if aw.deleteFileWriter != nil {
+		uploadData, err := aw.deleteFileWriter.Close()
 		if err != nil {
 			return outputFilePaths, err
 		}
-		outputFilePaths = append(outputFilePaths, filePaths...)
+		if uploadData != nil {
+			storagePath, err := aw.iceberg.UploadParquetFile(ctx, uploadData.FileData, uploadData.FileType,
+				uploadData.PartitionKey, uploadData.Filename, uploadData.EqualityFieldId)
+			if err != nil {
+				return outputFilePaths, fmt.Errorf("failed to upload delete file on close: %w", err)
+			}
+
+			outputFilePaths = append(outputFilePaths, []string{uploadData.FileType, storagePath})
+		}
+	}
+
+	if aw.partitionedWriter != nil {
+		uploadDataList, err := aw.partitionedWriter.Close()
+		if err != nil {
+			return outputFilePaths, err
+		}
+		// Upload each file via Iceberg FileIO
+		for _, uploadData := range uploadDataList {
+			if uploadData != nil {
+				storagePath, err := aw.iceberg.UploadParquetFile(ctx, uploadData.FileData, uploadData.FileType,
+					uploadData.PartitionKey, uploadData.Filename, uploadData.EqualityFieldId)
+				if err != nil {
+					return outputFilePaths, fmt.Errorf("failed to upload file on close: %w", err)
+				}
+				outputFilePaths = append(outputFilePaths, []string{uploadData.FileType, storagePath})
+			}
+		}
 	}
 
 	if aw.unpartitionedWriter != nil {
-		filePath, err := aw.unpartitionedWriter.Close()
+		uploadData, err := aw.unpartitionedWriter.Close()
 		if err != nil {
 			return outputFilePaths, err
 		}
-		if filePath != "" {
-			outputFilePaths = append(outputFilePaths, filePath)
+		if uploadData != nil {
+			storagePath, err := aw.iceberg.UploadParquetFile(ctx, uploadData.FileData, uploadData.FileType,
+				uploadData.PartitionKey, uploadData.Filename, uploadData.EqualityFieldId)
+			if err != nil {
+				return outputFilePaths, fmt.Errorf("failed to upload data file on close: %w", err)
+			}
+			outputFilePaths = append(outputFilePaths, []string{uploadData.FileType, storagePath})
 		}
 	}
 

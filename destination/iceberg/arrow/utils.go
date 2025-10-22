@@ -65,6 +65,34 @@ func CreateDeNormFields() []arrow.Field {
 	return fields
 }
 
+func CreateDeleteFiles(records []types.RawRecord, fieldId int) (arrow.Record, error) {
+	if len(records) == 0 {
+		return nil, fmt.Errorf("no records provided")
+	}
+
+	fields := make([]arrow.Field, 0, 1)
+	fields = append(fields, arrow.Field{
+		Name:     "_olake_id",
+		Type:     arrow.BinaryTypes.String,
+		Nullable: false,
+		Metadata: arrow.MetadataFrom(map[string]string{
+			"PARQUET:field_id": fmt.Sprintf("%d", fieldId),
+		}),
+	})
+
+	allocator := memory.NewGoAllocator()
+	arrowSchema := arrow.NewSchema(fields, nil)
+	recordBuilder := array.NewRecordBuilder(allocator, arrowSchema)
+	defer recordBuilder.Release()
+
+	for _, rec := range records {
+		recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
+	}
+	arrRec := recordBuilder.NewRecord()
+
+	return arrRec, nil
+}
+
 func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field, normalization bool) (arrow.Record, error) {
 	if len(records) == 0 {
 		return nil, fmt.Errorf("no records provided")
@@ -187,15 +215,19 @@ func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arro
 }
 
 type S3Config struct {
-	S3Client   *s3.Client
-	BucketName string
-	Prefix     string
+	S3Client            *s3.Client
+	BucketName          string
+	Prefix              string
+	DestinationDatabase string
+	DestinationTable    string
 }
 
-func NewS3Config(s3client *s3.Client, bucketName string, prefix string) *S3Config {
+func NewS3Config(s3client *s3.Client, bucketName string, prefix string, destinationDatabase string, destinationTable string) *S3Config {
 	return &S3Config{
-		S3Client:   s3client,
-		BucketName: bucketName,
-		Prefix:     prefix,
+		S3Client:            s3client,
+		BucketName:          bucketName,
+		Prefix:              prefix,
+		DestinationDatabase: destinationDatabase,
+		DestinationTable:    destinationTable,
 	}
 }

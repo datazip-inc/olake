@@ -137,13 +137,13 @@ func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRec
 	return partitionedData, nil
 }
 
-func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []arrow.Field) ([]string, error) {
+func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []arrow.Field) ([]*FileUploadData, error) {
 	partitionedData, err := f.partition(records)
 	if err != nil {
 		return nil, err
 	}
 
-	outputFilePaths := make([]string, 0, len(partitionedData))
+	uploadDataList := make([]*FileUploadData, 0, len(partitionedData))
 
 	for partitionKey, rawData := range partitionedData {
 		rec, err := CreateArrowRecordWithFields(rawData, fields, f.Normalization)
@@ -152,32 +152,32 @@ func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []
 		}
 
 		writer := f.getOrCreateRollingDataWriter(partitionKey)
-		filePath, err := writer.Write(rec)
+		uploadData, err := writer.Write(rec)
 		if err != nil {
-			return outputFilePaths, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)
+			return uploadDataList, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)
 		}
-		if filePath != "" {
-			outputFilePaths = append(outputFilePaths, filePath)
+		if uploadData != nil {
+			uploadDataList = append(uploadDataList, uploadData)
 		}
 	}
 
-	return outputFilePaths, nil
+	return uploadDataList, nil
 }
 
-func (f *Fanout) Close() ([]string, error) {
-	outputFilePaths := make([]string, 0)
+func (f *Fanout) Close() ([]*FileUploadData, error) {
+	uploadDataList := make([]*FileUploadData, 0)
 	var lastErr error
 
 	f.writers.Range(func(key, value interface{}) bool {
 		if writer, ok := value.(*RollingDataWriter); ok {
-			if filePath, err := writer.Close(); err != nil {
+			if uploadData, err := writer.Close(); err != nil {
 				lastErr = err
-			} else if filePath != "" {
-				outputFilePaths = append(outputFilePaths, filePath)
+			} else if uploadData != nil {
+				uploadDataList = append(uploadDataList, uploadData)
 			}
 		}
 		return true
 	})
 
-	return outputFilePaths, lastErr
+	return uploadDataList, lastErr
 }
