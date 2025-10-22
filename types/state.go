@@ -270,10 +270,6 @@ func (s *State) GetTotalRecordCount(stream *ConfiguredStream) int64 {
 			if countInt64, ok := count.(int64); ok {
 				return countInt64
 			}
-			// Handle case where count might be stored as float64 (from JSON unmarshalling)
-			if countFloat64, ok := count.(float64); ok {
-				return int64(countFloat64)
-			}
 		}
 	}
 	return 0
@@ -311,10 +307,6 @@ func (s *State) GetSyncedRecordCount(stream *ConfiguredStream) int64 {
 		if count, loaded := s.Streams[index].State.Load(SyncedRecordCountKey); loaded {
 			if countInt64, ok := count.(int64); ok {
 				return countInt64
-			}
-			// Handle case where count might be stored as float64 (from JSON unmarshalling)
-			if countFloat64, ok := count.(float64); ok {
-				return int64(countFloat64)
 			}
 		}
 	}

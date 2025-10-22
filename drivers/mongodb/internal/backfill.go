@@ -72,11 +72,6 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 	logger.Infof("Total expected count for stream %s: %d", stream.ID(), recordCount)
 	pool.AddRecordsToSyncStats(recordCount)
-	
-	// Persist total record count to state for resume capability
-	if m.state != nil {
-		m.state.SetTotalRecordCount(stream.Self(), recordCount)
-	}
 
 	// Generate and update chunks
 	var retryErr error

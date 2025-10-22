@@ -94,12 +94,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	pool.AddRecordsToSyncStats(approxRowCount)
-	
-	// Persist total record count to state for resume capability
-	if m.state != nil {
-		m.state.SetTotalRecordCount(stream.Self(), approxRowCount)
-	}
-	
+
 	// avgRowSize is returned as []uint8 which is converted to float64
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {

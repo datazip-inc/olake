@@ -25,6 +25,12 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		}
 		// set state chunks
 		a.state.SetChunks(stream.Self(), chunksSet)
+
+		// Persist total record count from pool stats to state for resume capability
+		totalCount := pool.GetStats().TotalRecordsToSync.Load()
+		if totalCount > 0 && a.state != nil {
+			a.state.SetTotalRecordCount(stream.Self(), totalCount)
+		}
 	} else {
 		// This is a resumed sync - restore stats from state
 		isResumedSync = true
