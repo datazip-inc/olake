@@ -207,6 +207,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Cat
 	}
 
 	// flag for connector which have global state support
+	// TODO: create an array of global state supported connectors in constants
 	globalStateSupportedConnector := connectorType == string(constants.Postgres) || connectorType == string(constants.MySQL)
 
 	for namespace, newMetadatas := range newStreams.SelectedStreams {
@@ -245,6 +246,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Cat
 			// destination database change
 			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
+			// TODO: log the differences for user reference
 			isDifferent := func() bool {
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
