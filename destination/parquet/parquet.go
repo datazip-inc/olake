@@ -457,6 +457,12 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 }
 
 func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.StreamInterface) error {
+	// check for s3 writer configuration
+	err := p.initS3Writer()
+	if err != nil {
+		return err
+	}
+
 	if len(selectedStreams) == 0 {
 		logger.Infof("no streams selected for clearing, skipping clear operation")
 		return nil
