@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
+	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -102,16 +103,25 @@ func GetTestConfig(driver string) *TestConfig {
 	}
 }
 
-func syncCommand(config TestConfig, useState bool) string {
+func syncCommand(config TestConfig, useState bool, flags ...string) string {
 	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
 	if useState {
 		baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
 	}
+
+	if len(flags) > 0 {
+		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
+	}
 	return baseCmd
 }
 
-func discoverCommand(config TestConfig) string {
-	return fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+// pass flags as `--flag1, flag1 value, --flag2, flag2 value...`
+func discoverCommand(config TestConfig, flags ...string) string {
+	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
+	if len(flags) > 0 {
+		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
+	}
+	return baseCmd
 }
 
 // TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
@@ -307,8 +317,9 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								},
 							}
 
+							destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
-								cmd := syncCommand(*cfg.TestConfig, useState)
+								cmd := syncCommand(*cfg.TestConfig, useState, "--destination-database-prefix", destDBPrefix)
 								if useState && operation != "" {
 									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, operation, false)
 								}
@@ -365,17 +376,47 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		}
 	}()
 
+	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, icebergDB, tableName)
 	selectQuery := fmt.Sprintf(
-		"SELECT * FROM %s.%s.%s WHERE _op_type = '%s'",
-		icebergCatalog, icebergDB, tableName, opSymbol,
+		"SELECT * FROM %s WHERE _op_type = '%s'",
+		fullTableName, opSymbol,
 	)
 	t.Logf("Executing query: %s", selectQuery)
 
-	selectQueryDf, err := spark.Sql(ctx, selectQuery)
-	require.NoError(t, err, "Failed to select query from the table")
+	var selectRows []types.Row
+	var queryErr error
+	maxRetries := 5
+	retryDelay := 2 * time.Second
 
-	selectRows, err := selectQueryDf.Collect(ctx)
-	require.NoError(t, err, "Failed to collect data rows from Iceberg")
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryDelay)
+		}
+		var selectQueryDf sql.DataFrame
+		// This is to check if the table exists in destination, as race condition might cause table to not be created yet
+		selectQueryDf, queryErr = spark.Sql(ctx, selectQuery)
+		if queryErr != nil {
+			t.Logf("Query attempt %d failed: %v", attempt+1, queryErr)
+			continue
+		}
+
+		// To ensure stale data is not being used for verification
+		selectRows, queryErr = selectQueryDf.Collect(ctx)
+		if queryErr != nil {
+			t.Logf("Query attempt %d failed (Collect error): %v", attempt+1, queryErr)
+			continue
+		}
+		if len(selectRows) > 0 {
+			queryErr = nil
+			break
+		}
+
+		// for every type of operation, op symbol will be different, using that to ensure data is not stale
+		queryErr = fmt.Errorf("stale data: query succeeded but returned 0 rows for _op_type = '%s'", opSymbol)
+		t.Logf("Query attempt %d/%d failed: %v", attempt+1, maxRetries, queryErr)
+	}
+
+	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
 	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	// delete row checked
@@ -398,7 +439,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
-	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s.%s.%s", icebergCatalog, icebergDB, tableName)
+	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", fullTableName)
 	describeDf, err := spark.Sql(ctx, describeQuery)
 	require.NoError(t, err, "Failed to describe Iceberg table")
 
@@ -460,6 +501,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		code, output, err := utils.ExecCommand(timedCtx, c, cmd)
 		// check if sync was canceled due to timeout (expected)
 		if timedCtx.Err() == context.DeadlineExceeded {
+			killCmd := "pkill -9 -f 'olake.*sync' || true"
+			_, _, _ = utils.ExecCommand(ctx, c, killCmd)
 			return output, nil
 		}
 		if err != nil || code != 0 {
@@ -491,11 +534,12 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
 							}
-
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
+							destDBPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
+
 							t.Log("(backfill) discover started")
-							discoverCmd := discoverCommand(*cfg.TestConfig)
+							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 							if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
 							}
@@ -508,7 +552,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							t.Log("(backfill) sync started")
 							usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
-							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState)
+							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "--destination-database-prefix", destDBPrefix)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
@@ -529,7 +573,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) discover started")
-								discoverCmd := discoverCommand(*cfg.TestConfig)
+								discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
 								}
@@ -541,7 +585,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 
 								t.Log("(cdc) state creation started")
-								syncCmd := syncCommand(*cfg.TestConfig, false)
+								syncCmd := syncCommand(*cfg.TestConfig, false, "--destination-database-prefix", destDBPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
@@ -552,7 +596,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) sync started")
-								syncCmd = syncCommand(*cfg.TestConfig, true)
+								syncCmd = syncCommand(*cfg.TestConfig, true, "--destination-database-prefix", destDBPrefix)
 								if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
 								}

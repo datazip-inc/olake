@@ -17,9 +17,18 @@ import (
 
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
-	//TODO: Verify the requirement of Transaction in Oracle Sync and remove if not required
-	// Begin transaction with default isolation
-	filter, err := jdbc.SQLFilter(stream, o.Type())
+	opts := jdbc.DriverOptions{
+		Driver: constants.Oracle,
+		Stream: stream,
+		State:  o.state,
+		Client: o.client,
+	}
+	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("failed to set threshold filter: %s", err)
+	}
+
+	filter, err := jdbc.SQLFilter(stream, o.Type(), thresholdFilter)
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
@@ -30,11 +39,13 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	}
 	defer tx.Rollback()
 
+	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
+
 	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
-	// Use transaction for queries
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	// Use transaction for querielen(args)s
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
-		return tx.QueryContext(ctx, query)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return setter.Capture(func(rows *sql.Rows) error {
@@ -48,16 +59,9 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	splitViaRowId := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var currentSCN string
-		query := jdbc.OracleCurrentSCNQuery()
-		err := o.client.QueryRow(query).Scan(&currentSCN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get current SCN: %s", err)
-		}
-
 		// TODO: Add implementation of AddRecordsToSync function which expects total number of records to be synced
-		query = jdbc.OracleEmptyCheckQuery(stream)
-		err = o.client.QueryRow(query).Scan(new(interface{}))
+		query := jdbc.OracleEmptyCheckQuery(stream)
+		err := o.client.QueryRowContext(ctx, query).Scan(new(interface{}))
 		if err != nil {
 			if err == sql.ErrNoRows {
 				logger.Warnf("Table %s.%s is empty skipping chunking", stream.Namespace(), stream.Name())
@@ -68,7 +72,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 
 		query = jdbc.OracleBlockSizeQuery()
 		var blockSize int64
-		err = o.client.QueryRow(query).Scan(&blockSize)
+		err = o.client.QueryRowContext(ctx, query).Scan(&blockSize)
 		if err != nil || blockSize == 0 {
 			logger.Warnf("failed to get block size from query, switching to default block size value 8192")
 			blockSize = 8192
@@ -126,7 +130,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			}
 
 			chunks.Insert(types.Chunk{
-				Min: fmt.Sprintf("%s,%s", currentSCN, startRowID),
+				Min: startRowID,
 				Max: maxRowID,
 			})
 		}

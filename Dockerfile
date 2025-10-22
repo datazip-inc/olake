@@ -1,7 +1,7 @@
 # Runtime base (shared across all drivers): OS + Java + JAR + destination specs
 FROM alpine:3.18 AS runtime-base
 
-RUN apk add --no-cache openjdk17
+RUN apk add --no-cache openjdk17 iproute2
 
 # Copy the pre-built JAR and destination specs (these rarely change)
 COPY destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
