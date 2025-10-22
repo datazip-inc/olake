@@ -100,15 +100,6 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					if err == nil {
 						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
-
-						// Update synced record count based on committed records
-						committedRecords := inserter.GetCommittedCount()
-						if committedRecords > 0 {
-							previousSyncedCount := a.state.GetSyncedRecordCount(stream.Self())
-							totalSyncedCount := previousSyncedCount + committedRecords
-							a.state.SetSyncedRecordCount(stream.Self(), totalSyncedCount)
-							logger.Infof("Stream %s incremental: committed %d records (total synced: %d)", stream.ID(), committedRecords, totalSyncedCount)
-						}
 					} else {
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
