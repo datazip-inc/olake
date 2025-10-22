@@ -10,15 +10,13 @@
 <project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>io.debezium</groupId>
+    <groupId>io.olake</groupId>
     <artifactId>olake-iceberg-java-writer</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>Debezium Server Iceberg Consumer</name>
+    <name>OLake Iceberg Java Writer</name>
     <packaging>jar</packaging>
 
     <properties>
-        <!-- Debezium Version -->
-        <version.debezium>2.5.2.Final</version.debezium>
 
         <!-- Instruct the build to use only UTF-8 encoding for source code -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -41,7 +39,6 @@
         <version.protobuf>3.25.5</version.protobuf>
         <version.netty>4.1.118.Final</version.netty>
         <version.log4j2>2.21.1</version.log4j2>
-        <version.quarkus>3.19.1</version.quarkus>
         <version.commons.io>2.14.0</version.commons.io>
         <version.avro>1.11.4</version.avro>
         <version.snappy>1.1.10.4</version.snappy>
@@ -61,21 +58,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- debezium server -->
-            <dependency>
-                <groupId>io.debezium</groupId>
-                <artifactId>debezium-server-bom</artifactId>
-                <version>${version.debezium}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>io.debezium</groupId>
-                <artifactId>debezium-bom</artifactId>
-                <version>${version.debezium}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
             <dependency>
                 <groupId>org.apache.iceberg</groupId>
                 <artifactId>iceberg-bom</artifactId>
@@ -100,74 +82,6 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- Debezium  -->
-        <dependency>
-            <groupId>io.debezium</groupId>
-            <artifactId>debezium-server-core</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.jboss.slf4j</groupId>
-                    <artifactId>slf4j-jboss-logmanager</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.jboss.logmanager</groupId>
-                    <artifactId>jboss-logmanager</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-smallrye-health</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-resteasy</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-kubernetes-config</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-resteasy-jackson</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        
-        <!-- Quarkus dependencies with fixed versions -->
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-core</artifactId>
-            <version>${version.quarkus}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-smallrye-health</artifactId>
-            <version>${version.quarkus}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-resteasy</artifactId>
-            <version>${version.quarkus}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-kubernetes-config</artifactId>
-            <version>${version.quarkus}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-resteasy-jackson</artifactId>
-            <version>${version.quarkus}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-vertx-http</artifactId>
-            <version>${version.quarkus}</version>
-        </dependency>
-        
         <!-- Log4j2 implementation -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
@@ -196,6 +110,7 @@
         <dependency>
             <groupId>org.jboss.slf4j</groupId>
             <artifactId>slf4j-jboss-logmanager</artifactId>
+            <version>2.0.1.Final</version>
             <scope>provided</scope>
         </dependency>
         
@@ -420,15 +335,6 @@
             </exclusions>
         </dependency>
 
-        <!-- Testing -->
-        <!-- spark for tests -->
-        <!-- jakarta version compatible with spark, for testing only -->
-        <dependency>
-            <groupId>jakarta.servlet</groupId>
-            <artifactId>jakarta.servlet-api</artifactId>
-            <version>5.0.0</version>
-<!--            <scope>test</scope>-->
-        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -493,12 +399,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-junit5</artifactId>
-            <version>${version.quarkus}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.7</version>
@@ -524,26 +424,31 @@
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
+            <version>5.14.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>
+            <version>${version.testcontainers}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>mysql</artifactId>
+            <version>${version.testcontainers}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>mongodb</artifactId>
+            <version>${version.testcontainers}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>minio</artifactId>
+            <version>${version.testcontainers}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -819,7 +724,7 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>io.debezium.server.iceberg.OlakeRpcServer</mainClass>
+                                    <mainClass>io.olake.server.iceberg.OlakeRpcServer</mainClass>
                                     <manifestEntries>
                                         <Multi-Release>true</Multi-Release>
                                     </manifestEntries>

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package io.debezium.server.iceberg.rpc;
+package io.olake.server.iceberg.rpc;
 
 option go_package = "iceberg/proto";
 

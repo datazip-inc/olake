@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RecordIngestService_SendRecords_FullMethodName = "/io.debezium.server.iceberg.rpc.RecordIngestService/SendRecords"
+	RecordIngestService_SendRecords_FullMethodName = "/io.olake.server.iceberg.rpc.RecordIngestService/SendRecords"
 )
 
 // RecordIngestServiceClient is the client API for RecordIngestService service.
@@ -108,7 +108,7 @@ func _RecordIngestService_SendRecords_Handler(srv interface{}, ctx context.Conte
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RecordIngestService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "io.debezium.server.iceberg.rpc.RecordIngestService",
+	ServiceName: "io.olake.server.iceberg.rpc.RecordIngestService",
 	HandlerType: (*RecordIngestServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
