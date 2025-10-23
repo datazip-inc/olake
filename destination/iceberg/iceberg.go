@@ -110,12 +110,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	if i.UseArrowWrites() {
 		if i.arrowWriter == nil {
-			bucketName, prefix, err := i.parseS3Path()
-			if err != nil {
-				return fmt.Errorf("failed to parse S3 path: %w", err)
-			}
-
-			i.arrowWriter, err = i.NewArrowWriter(bucketName, prefix, i.config.AccessKey, i.config.SecretKey, i.config.Region)
+			var err error
+			i.arrowWriter, err = i.NewArrowWriter()
 			if err != nil {
 				return fmt.Errorf("failed to create arrow writer: %w", err)
 			}

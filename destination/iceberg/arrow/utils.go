@@ -7,7 +7,6 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -143,30 +142,6 @@ func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field
 	return arrowRecord, nil
 }
 
-func CreateArrowRecord(records []types.RawRecord, normalization bool) (arrow.Record, error) {
-	var fields []arrow.Field
-	if normalization {
-		firstRecord := records[0]
-		fieldNames := make([]string, 0, len(firstRecord.Data))
-		for fieldName := range firstRecord.Data {
-			fieldNames = append(fieldNames, fieldName)
-		}
-		sort.Strings(fieldNames)
-
-		for _, fieldName := range fieldNames {
-			fields = append(fields, arrow.Field{
-				Name:     fieldName,
-				Type:     arrow.BinaryTypes.String,
-				Nullable: true,
-			})
-		}
-	} else {
-		fields = CreateDeNormFields()
-	}
-
-	return CreateArrowRecordWithFields(records, fields, normalization)
-}
-
 func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arrow.DataType) error {
 	switch builder := builder.(type) {
 	case *array.BooleanBuilder:
@@ -212,22 +187,4 @@ func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arro
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
 	return nil
-}
-
-type S3Config struct {
-	S3Client            *s3.Client
-	BucketName          string
-	Prefix              string
-	DestinationDatabase string
-	DestinationTable    string
-}
-
-func NewS3Config(s3client *s3.Client, bucketName string, prefix string, destinationDatabase string, destinationTable string) *S3Config {
-	return &S3Config{
-		S3Client:            s3client,
-		BucketName:          bucketName,
-		Prefix:              prefix,
-		DestinationDatabase: destinationDatabase,
-		DestinationTable:    destinationTable,
-	}
 }

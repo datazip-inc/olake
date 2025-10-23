@@ -20,8 +20,6 @@ type Fanout struct {
 
 	schema        map[string]string
 	Normalization bool
-
-	S3Config *S3Config
 }
 
 func NewFanoutWriter(ctx context.Context, p []destination.PartitionInfo, schema map[string]string) *Fanout {
@@ -32,21 +30,19 @@ func NewFanoutWriter(ctx context.Context, p []destination.PartitionInfo, schema 
 	}
 }
 
-func (f *Fanout) getOrCreateRollingDataWriter(partitionKey string) *RollingDataWriter {
+func (f *Fanout) getOrCreateRollingWriter(partitionKey string) *RollingWriter {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	if existing, ok := f.writers.Load(partitionKey); ok {
-		if writer, ok := existing.(*RollingDataWriter); ok {
+		if writer, ok := existing.(*RollingWriter); ok {
 			return writer
 		}
 
 		return nil
 	}
 
-	writer := NewRollingDataWriter(context.Background(), partitionKey)
-	writer.S3Config = f.S3Config
-
+	writer := NewRollingWriter(context.Background(), partitionKey, "data")
 	f.writers.Store(partitionKey, writer)
 
 	return writer
@@ -151,7 +147,7 @@ func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []
 			return nil, fmt.Errorf("failed to create arrow record for partition %s: %w", partitionKey, err)
 		}
 
-		writer := f.getOrCreateRollingDataWriter(partitionKey)
+		writer := f.getOrCreateRollingWriter(partitionKey)
 		uploadData, err := writer.Write(rec)
 		if err != nil {
 			return uploadDataList, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)
@@ -169,7 +165,7 @@ func (f *Fanout) Close() ([]*FileUploadData, error) {
 	var lastErr error
 
 	f.writers.Range(func(key, value interface{}) bool {
-		if writer, ok := value.(*RollingDataWriter); ok {
+		if writer, ok := value.(*RollingWriter); ok {
 			if uploadData, err := writer.Close(); err != nil {
 				lastErr = err
 			} else if uploadData != nil {
