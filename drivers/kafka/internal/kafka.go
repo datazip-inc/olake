@@ -29,6 +29,7 @@ type Kafka struct {
 	partitionIndex       map[string]types.PartitionMetaData   // key: partitionId (topic+":"+partition) -> partition metadata
 	readerLastMessages   map[string]map[partKey]kafka.Message // per-reader final last messages
 	readerLastMessagesMu sync.Mutex
+	readerClientIDs      map[string]string // readerID -> clientID used by this reader's dialer
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -224,6 +225,54 @@ func (k *Kafka) GetTopicMetadata(ctx context.Context, topic string) (*kafka.Topi
 	}
 
 	return nil, fmt.Errorf("topic %s not found in metadata", topic)
+}
+
+// getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
+// assigned to the reader identified by readerID. We match on the per-reader ClientID.
+func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string) ([]partKey, error) {
+	if k.adminClient == nil {
+		return nil, fmt.Errorf("admin client not initialized")
+	}
+	clientID, ok := k.readerClientIDs[readerID]
+	if !ok || clientID == "" {
+		return nil, fmt.Errorf("clientID not found for reader %s", readerID)
+	}
+
+	// Use the first broker address set on the client; fall back to bootstrap servers
+	addr := k.adminClient.Addr
+	if addr == nil {
+		brokers := splitAndTrim(k.config.BootstrapServers)
+		if len(brokers) == 0 {
+			return nil, fmt.Errorf("no brokers configured")
+		}
+		addr = kafka.TCP(brokers...)
+	}
+
+	resp, err := k.adminClient.DescribeGroups(ctx, &kafka.DescribeGroupsRequest{
+		Addr:     addr,
+		GroupIDs: []string{k.consumerGroupID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DescribeGroups failed: %w", err)
+	}
+	var assigned []partKey
+	for _, g := range resp.Groups {
+		if g.GroupID != k.consumerGroupID || g.Error != nil {
+			continue
+		}
+		for _, m := range g.Members {
+			// try to match the client we created: primary on ClientID, fallback to MemberID or suffix match
+			if m.ClientID != clientID && m.MemberID != clientID && !strings.Contains(m.ClientID, readerID) && !strings.Contains(m.MemberID, readerID) {
+				continue
+			}
+			for _, t := range m.MemberAssignments.Topics {
+				for _, p := range t.Partitions {
+					assigned = append(assigned, partKey{topic: t.Topic, partition: p})
+				}
+			}
+		}
+	}
+	return assigned, nil
 }
 
 // ShouldMatchPartitionCount returns whether to align thread count with total partitions

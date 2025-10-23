@@ -59,9 +59,14 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	brokers := splitAndTrim(k.config.BootstrapServers)
 	k.readers = make(map[string]*kafka.Reader)
 	k.readerLastMessages = make(map[string]map[partKey]kafka.Message)
+	k.readerClientIDs = make(map[string]string)
 
 	for i := 0; i < readersToCreate; i++ {
 		readerID := fmt.Sprintf("grp_%s", utils.ULID())
+		// create a per-reader dialer with a unique clientID to identify assignments
+		dialerCopy := *k.dialer
+		clientID := fmt.Sprintf("olake-%s-%s", k.consumerGroupID, readerID)
+		dialerCopy.ClientID = clientID
 		reader := kafka.NewReader(kafka.ReaderConfig{
 			Brokers: brokers,
 			GroupID: k.consumerGroupID,
@@ -72,12 +77,14 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 				}
 				return topics
 			}(),
-			MinBytes: 1,
-			MaxBytes: 10e6,
-			Dialer:   k.dialer,
+			MinBytes:       1,
+			MaxBytes:       10e6,
+			GroupBalancers: []kafka.GroupBalancer{kafka.RoundRobinGroupBalancer{}},
+			Dialer:         &dialerCopy,
 		})
 		k.readers[readerID] = reader
 		k.readerLastMessages[readerID] = make(map[partKey]kafka.Message)
+		k.readerClientIDs[readerID] = clientID
 	}
 
 	return nil
@@ -107,9 +114,14 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 		}
 		k.readerLastMessages[readerID] = lastByPart
 	}()
+
 	for {
 		// apply per-iteration wait timeout so group readers can exit when idle
+		logger.Infof("reader %s fetching message", readerID)
 		msg, err := readerInstance.FetchMessage(partitionCtx)
+
+		logger.Infof("reader %s fetched message: %v, %v", readerID, msg.Partition, msg.Topic)
+
 		//TODO: Need to handle rebalancing and context getting cancelled or context deadline exceeded
 		if err != nil {
 			return fmt.Errorf("error reading message in Kafka CDC sync: %w", err)
@@ -169,11 +181,21 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 			if _, ok := doneParts[pk]; !ok {
 				doneParts[pk] = struct{}{}
 			}
-			// Exit when all seen partitions are done
-			if len(doneParts) > 0 && len(doneParts) == len(seenParts) {
+			// Exit when all seen partitions are done. If we somehow had none seen, refresh assignments once to avoid early exit.
+			if assigned, err := k.getReaderAssignedPartitions(ctx, readerID); err == nil {
+				for _, pk := range assigned {
+					if _, ok := k.partitionIndex[fmt.Sprintf("%s:%d", pk.topic, pk.partition)]; ok {
+						seenParts[pk] = struct{}{}
+					}
+				}
+			} else {
+				return err
+			}
+			if len(doneParts) == len(seenParts) {
 				completedAll = true
 				return nil
 			}
+
 		}
 	}
 }
