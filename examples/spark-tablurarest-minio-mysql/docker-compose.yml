@@ -25,19 +25,6 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  postgresql:
-    image: postgres:13
-    container_name: postgresql
-    environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-      POSTGRES_DB: postgres
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    networks:
-      - olake-network
-    restart: unless-stopped
-
   minio:
     image: minio/minio
     hostname: minio
@@ -187,7 +174,6 @@ services:
     depends_on:
       - rest
       - minio
-      - postgresql
     entrypoint: ["/bin/bash", "/opt/scripts/init-spark.sh"]
     command: ["start-notebook.py", "--config=/opt/spark/conf/jupyter_notebook_config.py"]
     restart: unless-stopped
@@ -196,7 +182,6 @@ volumes:
   minio-data:
   mysql-data:
   catalog-data:
-  postgres-data:
 
 networks:
   olake-network:
