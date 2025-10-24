@@ -98,7 +98,7 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 
 	// Get replication slot position
 	var slot ReplicationSlot
-	if err := db.Get(&slot, fmt.Sprintf(ReplicationSlotTempl, config.ReplicationSlotName)); err != nil {
+	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, config.ReplicationSlotName)); err != nil {
 		return nil, fmt.Errorf("failed to get replication slot: %s", err)
 	}
 
