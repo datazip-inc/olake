@@ -18,25 +18,27 @@ func TestResolve(t *testing.T) {
 			nullable bool
 		}
 	}{
-		// basic data types like int string float bool
+		// basic data types like int string float bool timestamp
 		{
 			name: "basic types",
 			objects: []map[string]interface{}{
 				{
-					"string_field": "test string",
-					"int_field":    int32(42),
-					"float_field":  float64(3.14),
-					"bool_field":   true,
+					"string_field":    "test string",
+					"int_field":       int32(42),
+					"float_field":     float64(3.14),
+					"bool_field":      true,
+					"timestamp_field": time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
 			},
 			expected: map[string]struct {
 				dataType types.DataType
 				nullable bool
 			}{
-				"string_field": {dataType: types.String, nullable: false},
-				"int_field":    {dataType: types.Int32, nullable: false},
-				"float_field":  {dataType: types.Float64, nullable: false},
-				"bool_field":   {dataType: types.Bool, nullable: false},
+				"string_field":    {dataType: types.String, nullable: false},
+				"int_field":       {dataType: types.Int32, nullable: false},
+				"float_field":     {dataType: types.Float64, nullable: false},
+				"bool_field":      {dataType: types.Bool, nullable: false},
+				"timestamp_field": {dataType: types.Timestamp, nullable: false},
 			},
 		},
 		// all integer types signed and unsigned
@@ -290,13 +292,8 @@ func TestResolve(t *testing.T) {
 						"Field %s should have type %s, got %v",
 						fieldName, expected.dataType, typeSet)
 
-					if expected.nullable {
-						assert.True(t, typeSet.Exists(types.Null),
-							"Field %s should be nullable", fieldName)
-					} else {
-						assert.False(t, typeSet.Exists(types.Null),
-							"Field %s should not be nullable", fieldName)
-					}
+					assert.Equal(t, expected.nullable, typeSet.Exists(types.Null),
+						"Field %s nullable check failed", fieldName)
 				}
 			}
 		})

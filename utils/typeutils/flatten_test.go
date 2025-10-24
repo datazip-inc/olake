@@ -10,7 +10,7 @@ import (
 
 const (
 	testUserID  = 12345
-	testName    = "John Doe"
+	testName    = "OLake Test"
 	testAge     = 30
 	testEnabled = true
 	testScore   = 92.52361
@@ -37,16 +37,18 @@ func TestFlatten(t *testing.T) {
 		{
 			name: "simple values",
 			input: types.Record{
-				"name":    testName,
-				"age":     testAge,
-				"enabled": testEnabled,
-				"score":   testScore,
+				"name":       testName,
+				"age":        testAge,
+				"enabled":    testEnabled,
+				"score":      testScore,
+				"created_at": testTimestamp,
 			},
 			expected: types.Record{
-				"name":    testName,
-				"age":     testAge,
-				"enabled": testEnabled,
-				"score":   testScore,
+				"name":       testName,
+				"age":        testAge,
+				"enabled":    testEnabled,
+				"score":      testScore,
+				"created_at": testTimestamp,
 			},
 			expectError: false,
 		},
@@ -65,7 +67,7 @@ func TestFlatten(t *testing.T) {
 				},
 			},
 			expected: types.Record{
-				"user":     `{"admin":true,"age":30,"name":"John Doe"}`,
+				"user":     `{"admin":true,"age":30,"name":"OLake Test"}`,
 				"stats":    `[1,2,3,4,5]`,
 				"metadata": `{"created_at":"2023-01-01T00:00:00Z"}`,
 			},
@@ -133,7 +135,7 @@ func TestFlatten(t *testing.T) {
 				},
 			},
 			expected: types.Record{
-				"user": `{"profile":{"personal":{"age":30,"name":"John Doe"},"preferences":{"notifications":true,"theme":"dark"}}}`,
+				"user": `{"profile":{"personal":{"age":30,"name":"OLake Test"},"preferences":{"notifications":true,"theme":"dark"}}}`,
 			},
 			expectError: false,
 		},
@@ -170,7 +172,7 @@ func TestFlatten(t *testing.T) {
 			},
 			expectError: false,
 		},
-		//  this is to check if lager numbers are loosing precision and scale.
+		//  this is to check if larger numbers are loosing precision and scale.
 		{
 			name: "large numbers",
 			input: types.Record{

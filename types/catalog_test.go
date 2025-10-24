@@ -351,7 +351,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 			},
 		},
-		// when new stream is introduced, it should be added with new catalog metadata and selected stream data should be preserved
+		// new stream gets added with its metadata, while existing stream's configuration and selected stream data are preserved
 		{
 			name: "new stream introduced",
 			oldCatalog: &Catalog{
@@ -438,7 +438,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 			},
 		},
-		// when old stream is removed, only available streams should be kept, but selected stream data should be preserved
+		// Removed streams are excluded from the result, but remaining streams keep their original configuration
 		{
 			name: "old stream removed",
 			oldCatalog: &Catalog{
