@@ -613,17 +613,52 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	return nil
 }
 
-func (i *Iceberg) DropStreams(_ context.Context, _ []string) error {
-	logger.Info("iceberg destination not support clear destination, skipping clear operation")
+// drop streams required for clear destination
+func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error {
+	i.options = &destination.Options{
+		ThreadID: "iceberg_destination_drop",
+	}
+	if len(dropStreams) == 0 {
+		logger.Info("No streams selected for clearing Iceberg destination, skipping operation")
+		return nil
+	}
 
-	// logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+	// server setup for dropping tables
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, false, false, "")
+	if err != nil {
+		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
+	}
 
-	// TODO: Implement Iceberg table clearing logic
-	// 1. Connect to the Iceberg catalog
-	// 2. Use Iceberg's delete API or drop/recreate the table
-	// 3. Handle any Iceberg-specific cleanup
+	// to close client properly
+	i.server = server
+	defer func() {
+		i.Close(ctx)
+	}()
 
-	// logger.Info("Successfully cleared Iceberg destination for selected streams")
+	logger.Infof("Starting Clear Iceberg destination for %d selected streams", len(dropStreams))
+
+	// process each stream
+	for _, stream := range dropStreams {
+		destDB := stream.GetDestinationDatabase(&i.config.IcebergDatabase)
+		destTable := stream.GetDestinationTable()
+		dropTable := fmt.Sprintf("%s.%s", destDB, destTable)
+
+		logger.Infof("Dropping Iceberg table: %s", dropTable)
+
+		request := proto.IcebergPayload{
+			Type: proto.IcebergPayload_DROP_TABLE,
+			Metadata: &proto.IcebergPayload_Metadata{
+				DestTableName: dropTable,
+				ThreadId:      i.server.serverID,
+			},
+		}
+		_, err := i.server.sendClientRequest(ctx, &request)
+		if err != nil {
+			return fmt.Errorf("failed to drop table %s: %s", dropTable, err)
+		}
+	}
+
+	logger.Info("Successfully cleared Iceberg destination for selected streams")
 	return nil
 }
 
