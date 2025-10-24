@@ -1,13 +1,11 @@
-package io.debezium.server.iceberg.rpc;
+package io.olake.server.iceberg.rpc;
 
-import io.debezium.DebeziumException;
-import io.debezium.server.iceberg.IcebergUtil;
-import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
-import io.debezium.server.iceberg.SchemaConvertor;
-import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
-import io.debezium.server.iceberg.tableoperator.RecordWrapper;
+import io.olake.server.iceberg.IcebergUtil;
+import io.olake.server.iceberg.rpc.RecordIngest.IcebergPayload;
+import io.olake.server.iceberg.SchemaConvertor;
+import io.olake.server.iceberg.tableoperator.IcebergTableOperator;
+import io.olake.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
-import jakarta.enterprise.context.Dependent;
 
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Schema;
@@ -20,7 +18,6 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 
-@Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRowsIngester.class);
 
@@ -140,10 +137,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             try {
                 return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
             } catch (Exception e) {
-                String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s", 
+                String errorMessage = String.format("Failed to create table from schema: %s Error: %s", 
                                                     tableId, e.getMessage());
                 LOGGER.error(errorMessage, e);
-                throw new DebeziumException(errorMessage, e);
+                throw new RuntimeException(errorMessage, e);
             }
         });
     }

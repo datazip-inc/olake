@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.tableoperator;
 
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.types.Types.StructType;

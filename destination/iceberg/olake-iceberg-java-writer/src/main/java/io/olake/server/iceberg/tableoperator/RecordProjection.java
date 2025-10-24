@@ -1,4 +1,4 @@
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.tableoperator;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.data.Record;

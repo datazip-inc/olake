@@ -1,4 +1,4 @@
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.tableoperator;
 
 import com.google.common.collect.Sets;
 import org.apache.iceberg.*;

@@ -1,4 +1,4 @@
-package io.debezium.server.iceberg;
+package io.olake.server.iceberg;
 
 import org.apache.iceberg.types.Types;
 

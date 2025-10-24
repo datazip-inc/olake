@@ -6,12 +6,10 @@
  *
  */
 
-package io.debezium.server.iceberg;
+package io.olake.server.iceberg;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.primitives.Ints;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.literal.NamedLiteral;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -26,9 +24,6 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.types.TypeUtil;
-import org.eclipse.microprofile.config.Config;
-import org.eclipse.microprofile.config.ConfigProvider;
-import org.eclipse.microprofile.config.ConfigValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,59 +52,6 @@ public class IcebergUtil {
   protected static final ObjectMapper jsonObjectMapper = new ObjectMapper();
   protected static final DateTimeFormatter dtFormater = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
 
-
-  public static Map<String, String> getConfigSubset(Config config, String prefix) {
-    final Map<String, String> ret = new HashMap<>();
-
-    for (String propName : config.getPropertyNames()) {
-      if (propName.startsWith(prefix)) {
-        final String newPropName = propName.substring(prefix.length());
-        ret.put(newPropName, config.getValue(propName, String.class));
-      }
-    }
-
-    return ret;
-  }
-
-
-  public static boolean configIncludesUnwrapSmt() {
-    return configIncludesUnwrapSmt(ConfigProvider.getConfig());
-  }
-
-  //@TestingOnly
-  static boolean configIncludesUnwrapSmt(Config config) {
-    // first lets find the config value for debezium statements
-    ConfigValue stms = config.getConfigValue("debezium.transforms");
-    if (stms == null || stms.getValue() == null || stms.getValue().isEmpty() || stms.getValue().isBlank()) {
-      return false;
-    }
-
-    String[] stmsList = stms.getValue().split(",");
-    final String regexVal = "^io\\.debezium\\..*transforms\\.ExtractNew.*State$";
-    // we have debezium statements configured! let's check if we have event flattening config is set.
-    for (String stmName : stmsList) {
-      ConfigValue stmVal = config.getConfigValue("debezium.transforms." + stmName + ".type");
-      if (stmVal != null && stmVal.getValue() != null && !stmVal.getValue().isEmpty() && !stmVal.getValue().isBlank() && stmVal.getValue().matches(regexVal)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-
-  public static <T> T selectInstance(Instance<T> instances, String name) {
-
-    Instance<T> instance = instances.select(NamedLiteral.of(name));
-    if (instance.isAmbiguous()) {
-      throw new RuntimeException("Multiple batch size wait class named '" + name + "' were found");
-    } else if (instance.isUnsatisfied()) {
-      throw new RuntimeException("No batch size wait class named '" + name + "' is available");
-    }
-
-    LOGGER.info("Using {}", instance.getClass().getName());
-    return instance.get();
-  }
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier, Schema schema) {
 

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.tableoperator;
 
 public enum Operation {
   INSERT,

@@ -6,11 +6,9 @@
  *
  */
 
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.tableoperator;
 
 import com.google.common.collect.ImmutableMap;
-import jakarta.enterprise.context.Dependent;
-import jakarta.inject.Inject;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -21,7 +19,6 @@ import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.WriteResult;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +31,6 @@ import java.util.List;
  *
  * @author Rafael Acevedo
  */
-@Dependent
 public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
@@ -57,18 +53,10 @@ public class IcebergTableOperator {
   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
       Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
   String cdcSourceTsMsField;
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
   String cdcOpField;
-  @ConfigProperty(name = "debezium.sink.iceberg.allow-field-addition", defaultValue = "true")
   boolean allowFieldAddition;
-  @ConfigProperty(name = "debezium.sink.iceberg.create-identifier-fields", defaultValue = "true")
   boolean createIdentifierFields;
-  @Inject
-  IcebergTableWriterFactory writerFactory;
-
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
   boolean upsert;
   /**
    * If given schema contains new fields compared to target table schema then it
