@@ -51,10 +51,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				return fmt.Errorf("backfill channel closed unexpectedly")
 			}
 			backfilledStreams = append(backfilledStreams, streamID)
-			switch {
+
 			// run parallel change stream
 			// TODO: remove duplicate code
-			case isParallelChangeStream(a.driver.Type()):
+			if isParallelChangeStream(a.driver.Type()) {
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
@@ -95,8 +95,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						})
 					})
 				})
-
-			default:
+			} else {
 				a.state.SetGlobal(nil, streamID)
 			}
 		}
@@ -108,8 +107,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 
 	if a.IsKafkaDriver() {
 		kafkaDriver, _ := a.driver.(KafkaInterface)
-		readerIDs := kafkaDriver.GetReaderTasks()
-		utils.ConcurrentInGroup(a.GlobalConnGroup, readerIDs, func(ctx context.Context, readerID string) (err error) {
+		utils.ConcurrentInGroup(a.GlobalConnGroup, kafkaDriver.GetReaderTasks(), func(ctx context.Context, readerID string) (err error) {
 			writers := make(map[string]*destination.WriterThread)
 			defer func() {
 				for key, wr := range writers {
@@ -130,7 +128,6 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 				}
 			}()
-
 			return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 				return kafkaDriver.PartitionStreamChanges(ctx, readerID, func(ctx context.Context, message CDCChange) error {
 					if message.Stream == nil {

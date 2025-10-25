@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
@@ -19,17 +20,15 @@ import (
 )
 
 type Kafka struct {
-	config               *Config
-	dialer               *kafka.Dialer
-	adminClient          *kafka.Client
-	state                *types.State
-	consumerGroupID      string
-	readers              map[string]*kafka.Reader             // created once in PreCDC, read-only afterwards
-	partitionMeta        map[string][]types.PartitionMetaData // streamID -> partitions
-	partitionIndex       map[string]types.PartitionMetaData   // key: partitionId (topic+":"+partition) -> partition metadata
-	readerLastMessages   map[string]map[partKey]kafka.Message // per-reader final last messages
-	readerLastMessagesMu sync.Mutex
-	readerClientIDs      map[string]string // readerID -> clientID used by this reader's dialer
+	config             *Config
+	dialer             *kafka.Dialer
+	adminClient        *kafka.Client
+	state              *types.State
+	consumerGroupID    string
+	readers            map[string]*kafka.Reader           // readerID -> kafka.Reader
+	partitionIndex     map[string]types.PartitionMetaData // partitionKey (topic+":"+partition) -> partition metadata
+	readerClientIDs    map[string]string                  // readerID -> clientID used by this reader's dialer
+	readerLastMessages sync.Map                           // map[string]map[types.PartitionKey]kafka.Message (readerID -> last messages)
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -73,7 +72,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 
 	// Create admin client for metadata and offset operations
 	adminClient := &kafka.Client{
-		Addr: kafka.TCP(splitAndTrim(k.config.BootstrapServers)...),
+		Addr: kafka.TCP(utils.SplitAndTrim(k.config.BootstrapServers)...),
 		Transport: &kafka.Transport{
 			SASL: dialer.SASLMechanism,
 			TLS:  dialer.TLS,
@@ -100,9 +99,6 @@ func (k *Kafka) Close() error {
 			}
 		}
 		delete(k.readers, id)
-	}
-	for kStr := range k.partitionMeta {
-		delete(k.partitionMeta, kStr)
 	}
 	for kStr := range k.partitionIndex {
 		delete(k.partitionIndex, kStr)
@@ -208,28 +204,28 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 	return matches[1], matches[2], nil
 }
 
-func (k *Kafka) GetTopicMetadata(ctx context.Context, topic string) (*kafka.Topic, error) {
-	metadataReq := &kafka.MetadataRequest{Topics: []string{topic}}
-	metadataResp, err := k.adminClient.Metadata(ctx, metadataReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %w", topic, err)
-	}
+// checkPartitionCompletion checks if a partition is complete and handles loop termination
+func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, partitionKey types.PartitionKey, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+	completedPartitions[partitionKey] = struct{}{}
 
-	for _, t := range metadataResp.Topics {
-		if t.Name == topic {
-			if t.Error != nil {
-				return nil, fmt.Errorf("topic %s not found in metadata: %v", topic, t.Error)
+	// Ensure we have all assigned partitions tracked
+	if assigned, err := k.getReaderAssignedPartitions(ctx, readerID); err == nil {
+		for _, assignedPk := range assigned {
+			if _, exists := k.partitionIndex[fmt.Sprintf("%s:%d", assignedPk.Topic, assignedPk.Partition)]; exists {
+				observedPartitions[assignedPk] = struct{}{}
 			}
-			return &t, nil
 		}
+	} else {
+		return false, err
 	}
 
-	return nil, fmt.Errorf("topic %s not found in metadata", topic)
+	// Exit when all partitions are done
+	return len(completedPartitions) == len(observedPartitions), nil
 }
 
 // getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
 // assigned to the reader identified by readerID. We match on the per-reader ClientID.
-func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string) ([]partKey, error) {
+func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string) ([]types.PartitionKey, error) {
 	if k.adminClient == nil {
 		return nil, fmt.Errorf("admin client not initialized")
 	}
@@ -241,7 +237,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 	// Use the first broker address set on the client; fall back to bootstrap servers
 	addr := k.adminClient.Addr
 	if addr == nil {
-		brokers := splitAndTrim(k.config.BootstrapServers)
+		brokers := utils.SplitAndTrim(k.config.BootstrapServers)
 		if len(brokers) == 0 {
 			return nil, fmt.Errorf("no brokers configured")
 		}
@@ -255,7 +251,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 	if err != nil {
 		return nil, fmt.Errorf("DescribeGroups failed: %w", err)
 	}
-	var assigned []partKey
+	var assigned []types.PartitionKey
 	for _, g := range resp.Groups {
 		if g.GroupID != k.consumerGroupID || g.Error != nil {
 			continue
@@ -267,23 +263,12 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 			}
 			for _, t := range m.MemberAssignments.Topics {
 				for _, p := range t.Partitions {
-					assigned = append(assigned, partKey{topic: t.Topic, partition: p})
+					assigned = append(assigned, types.PartitionKey{Topic: t.Topic, Partition: p})
 				}
 			}
 		}
 	}
 	return assigned, nil
-}
-
-// ShouldMatchPartitionCount returns whether to align thread count with total partitions
-func (k *Kafka) ShouldMatchPartitionCount() bool {
-	return k.config.ThreadsEqualTotalPartitions
-}
-
-// partKey identifies a topic-partition pair for map keys
-type partKey struct {
-	topic     string
-	partition int
 }
 
 // GetReaderTasks returns the list of reader IDs to run
@@ -293,16 +278,4 @@ func (k *Kafka) GetReaderTasks() []string {
 		ids = append(ids, readerID)
 	}
 	return ids
-}
-
-func splitAndTrim(csv string) []string {
-	parts := strings.Split(csv, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		t := strings.TrimSpace(p)
-		if t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }
