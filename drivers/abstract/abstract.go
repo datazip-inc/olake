@@ -121,7 +121,34 @@ func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
 }
 
-// Read handles different sync modes for data retrieval
+func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.State, error) {
+	if a.state == nil {
+		return &types.State{}, nil
+	}
+
+	dropStreams := make(map[string]bool)
+	for _, stream := range streams {
+		dropStreams[stream.ID()] = true
+	}
+
+	// if global state exists (in case of relational sources)
+	if a.state.Global != nil && a.state.Global.Streams != nil {
+		for streamID := range dropStreams {
+			a.state.Global.Streams.Remove(streamID)
+		}
+	}
+
+	if len(a.state.Streams) > 0 {
+		for _, streamState := range a.state.Streams {
+			if dropStreams[fmt.Sprintf("%s.%s", streamState.Namespace, streamState.Stream)] {
+				streamState.HoldsValue.Store(false)
+				streamState.State = sync.Map{}
+			}
+		}
+	}
+	return a.state, nil
+}
+
 func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
 	// set max read connections
 	if a.driver.MaxConnections() > 0 {

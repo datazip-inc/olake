@@ -242,7 +242,7 @@ func (m *MySQL) Close() error {
 
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
-	if _, err := binlog.GetCurrentBinlogPosition(m.client); err != nil {
+	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
 		return false, fmt.Errorf("failed to get binlog position: %s", err)
 	}
 
