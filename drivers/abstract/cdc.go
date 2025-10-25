@@ -108,12 +108,9 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 
 	if a.IsKafkaDriver() {
 		kafkaDriver, _ := a.driver.(KafkaInterface)
-		// Build tasks per reader (no partition binding)
 		readerIDs := kafkaDriver.GetReaderTasks()
 		utils.ConcurrentInGroup(a.GlobalConnGroup, readerIDs, func(ctx context.Context, readerID string) (err error) {
-			// Lazily open per-stream writers inside processFn
 			writers := make(map[string]*destination.WriterThread)
-
 			defer func() {
 				for key, wr := range writers {
 					if wr == nil {
@@ -139,18 +136,17 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					if message.Stream == nil {
 						return nil
 					}
-					streamID := message.Stream.ID()
-					inserter := writers[streamID]
+					inserter := writers[message.Stream.ID()]
 					if inserter == nil {
-						// Create a dedicated writer for this reader+stream combo
-						threadID := fmt.Sprintf("%s_%s", readerID, streamID)
+						// dedicated writer for this reader (with stream)
+						threadID := fmt.Sprintf("%s_%s", readerID, message.Stream.ID())
 						var err error
 						inserter, err = pool.NewWriter(ctx, message.Stream, destination.WithThreadID(threadID))
 						if err != nil {
-							return fmt.Errorf("failed to create writer for stream %s: %s", streamID, err)
+							return fmt.Errorf("failed to create writer for stream %s: %s", message.Stream.ID(), err)
 						}
-						writers[streamID] = inserter
-						logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, streamID)
+						writers[message.Stream.ID()] = inserter
+						logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, message.Stream.ID())
 					}
 					pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 					return inserter.Push(ctx, types.CreateRawRecord(
@@ -164,6 +160,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		})
 		return nil
 	}
+
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream

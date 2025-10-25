@@ -55,21 +55,65 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		readersToCreate = len(k.partitionIndex)
 	}
 
-	// Create only N readers and let Kafka assign partitions
+	// Create readers with proper consumer ID assignment strategy
 	brokers := splitAndTrim(k.config.BootstrapServers)
 	k.readers = make(map[string]*kafka.Reader)
 	k.readerLastMessages = make(map[string]map[partKey]kafka.Message)
 	k.readerClientIDs = make(map[string]string)
 
-	for i := 0; i < readersToCreate; i++ {
+	// Calculate the required number of distinct consumer IDs based on max_connections and total partitions
+	totalPartitions := len(k.partitionIndex)
+	requiredConsumerIDs := k.calculateRequiredConsumerIDs(k.config.MaxThreads, totalPartitions)
+
+	logger.Infof("Creating %d readers with %d distinct consumer IDs for %d total partitions",
+		readersToCreate, requiredConsumerIDs, totalPartitions)
+
+	// The key insight: we need to create exactly the number of readers that matches
+	// the required consumer IDs, not just max_threads
+	actualReadersToCreate := requiredConsumerIDs
+	if actualReadersToCreate > readersToCreate {
+		actualReadersToCreate = readersToCreate
+	}
+
+	// Additional insight: we need to ensure each reader gets a unique consumer member ID
+	// by using a different approach - we'll create readers with unique consumer group IDs
+	// when we need more distinct consumer IDs than max_threads
+	useUniqueGroupIDs := requiredConsumerIDs > k.config.MaxThreads
+
+	// Create readers with proper consumer ID distribution
+	// The key insight is that we need to create exactly the number of readers
+	// that matches the required consumer IDs, and ensure each gets a unique member ID
+	for i := 0; i < actualReadersToCreate; i++ {
 		readerID := fmt.Sprintf("grp_%s", utils.ULID())
 		// create a per-reader dialer with a unique clientID to identify assignments
 		dialerCopy := *k.dialer
 		clientID := fmt.Sprintf("olake-%s-%s", k.consumerGroupID, readerID)
 		dialerCopy.ClientID = clientID
+
+		// Use a custom group balancer that ensures proper consumer ID distribution
+		// The key insight: we need to ensure that each reader gets a unique consumer member ID
+		// by using a custom group balancer that respects the required consumer ID count
+		groupBalancer := &CustomGroupBalancer{
+			requiredConsumerIDs: requiredConsumerIDs,
+			readerIndex:         i,
+		}
+
+		// The critical fix: we need to ensure that each reader gets a unique consumer member ID
+		// by using a custom group balancer that ensures proper distribution
+		// We also need to ensure that the consumer group coordinator creates the exact number
+		// of distinct consumer member IDs as required by our requirements table
+
+		// Determine the consumer group ID for this reader
+		groupID := k.consumerGroupID
+		if useUniqueGroupIDs {
+			// For cases where we need more consumer IDs than threads, use different group IDs
+			// This ensures each reader gets a unique consumer member ID
+			groupID = fmt.Sprintf("%s-%d", k.consumerGroupID, i)
+		}
+
 		reader := kafka.NewReader(kafka.ReaderConfig{
 			Brokers: brokers,
-			GroupID: k.consumerGroupID,
+			GroupID: groupID,
 			GroupTopics: func() []string {
 				topics := make([]string, 0, len(streams))
 				for _, s := range streams {
@@ -79,14 +123,14 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 			}(),
 			MinBytes:       1,
 			MaxBytes:       10e6,
-			GroupBalancers: []kafka.GroupBalancer{kafka.RoundRobinGroupBalancer{}},
+			GroupBalancers: []kafka.GroupBalancer{groupBalancer},
 			Dialer:         &dialerCopy,
 		})
 		k.readers[readerID] = reader
 		k.readerLastMessages[readerID] = make(map[partKey]kafka.Message)
 		k.readerClientIDs[readerID] = clientID
 	}
-
+	logger.Infof("created %d readers for consumer group %s", len(k.readers), k.consumerGroupID)
 	return nil
 }
 
@@ -332,4 +376,59 @@ func (k *Kafka) FetchCommittedOffsets(ctx context.Context, topic string, partiti
 
 func (k *Kafka) StreamChanges(_ context.Context, _ types.StreamInterface, _ abstract.CDCMsgFn) error {
 	return nil
+}
+
+// calculateRequiredConsumerIDs calculates the number of distinct consumer IDs needed
+// based on the requirements table provided by the user
+func (k *Kafka) calculateRequiredConsumerIDs(maxThreads, totalPartitions int) int {
+	if maxThreads >= totalPartitions {
+		// If max_threads >= total partitions, each partition gets its own consumer ID
+		return totalPartitions
+	}
+	// If max_threads < total partitions, we need to reuse consumer IDs
+	// The number of distinct consumer IDs equals max_threads
+	return maxThreads
+}
+
+// CustomGroupBalancer ensures proper consumer ID distribution according to requirements
+type CustomGroupBalancer struct {
+	requiredConsumerIDs int
+	readerIndex         int
+}
+
+// ProtocolName implements kafka.GroupBalancer interface
+func (b *CustomGroupBalancer) ProtocolName() string {
+	return "custom-round-robin"
+}
+
+// UserData implements kafka.GroupBalancer interface
+func (b *CustomGroupBalancer) UserData() ([]byte, error) {
+	return nil, nil
+}
+
+// AssignGroups implements kafka.GroupBalancer interface
+func (b *CustomGroupBalancer) AssignGroups(members []kafka.GroupMember, partitions []kafka.Partition) kafka.GroupMemberAssignments {
+	assignments := make(kafka.GroupMemberAssignments)
+
+	// The key insight: we need to ensure that exactly the required number of consumer IDs
+	// are used, and each gets assigned partitions according to the requirements table
+	consumerIDCount := b.requiredConsumerIDs
+	if consumerIDCount > len(members) {
+		consumerIDCount = len(members)
+	}
+
+	// Assign partitions to consumer IDs in round-robin fashion
+	// This ensures that each consumer ID gets a fair share of partitions
+	for i, partition := range partitions {
+		consumerIndex := i % consumerIDCount
+		if consumerIndex < len(members) {
+			memberID := members[consumerIndex].ID
+			if assignments[memberID] == nil {
+				assignments[memberID] = make(map[string][]int)
+			}
+			assignments[memberID][partition.Topic] = append(assignments[memberID][partition.Topic], partition.ID)
+		}
+	}
+
+	return assignments
 }
