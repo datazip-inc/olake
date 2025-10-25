@@ -426,7 +426,7 @@ func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) 
 }
 
 // RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
-func RetryOnBackoff(attempts int, sleep time.Duration, f func(attemp int) error) (err error) {
+func RetryOnBackoff(attempts int, sleep time.Duration, f func(attempt int) error) (err error) {
 	for cur := range attempts {
 		if err = f(cur); err == nil {
 			return nil

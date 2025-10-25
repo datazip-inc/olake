@@ -80,14 +80,19 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				if err != nil {
 					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 				}
+
+				// create incremental context, so that main context not affected if incremental retries
+				incrementalCtx, incrementalCtxCancel := context.WithCancel(ctx)
+				defer incrementalCtxCancel()
+
 				threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+				inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
 				if err != nil {
 					return fmt.Errorf("failed to create new writer thread: %s", err)
 				}
 				logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
 				defer func() {
-					if threadErr := inserter.Close(ctx); threadErr != nil {
+					if threadErr := inserter.Close(incrementalCtx); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 					}
 
@@ -104,8 +109,23 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
 				}()
-				return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(isRetry bool) error {
-					return a.driver.StreamIncrementalChanges(ctx, stream, func(ctx context.Context, record map[string]any) error {
+				return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+					if attempt > 0 {
+						// close prev writer
+						inserter.Close(incrementalCtx)
+
+						// create new incremental context
+						incrementalCtx, incrementalCtxCancel = context.WithCancel(ctx)
+						threadID = fmt.Sprintf("%s-retry-attempt-%d", threadID, attempt)
+
+						// re-initialize inserter
+						inserter, err = pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+						if err != nil {
+							return fmt.Errorf("failed to create new writer thread: %s", err)
+						}
+					}
+
+					return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
 						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)

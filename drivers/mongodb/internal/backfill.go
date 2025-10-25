@@ -76,7 +76,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// Generate and update chunks
 	var retryErr error
 	var chunksArray []types.Chunk
-	err = utils.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func(isRetry bool) error {
+	err = utils.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func(_ int) error {
 		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, storageSize)
 		return retryErr
 	})

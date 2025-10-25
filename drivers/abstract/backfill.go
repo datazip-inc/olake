@@ -40,15 +40,19 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
+		// create backfill context, so that main context not affected if backfill retries
+		backfillCtx, backfillCtxCancel := context.WithCancel(ctx)
+		defer backfillCtxCancel()
+
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		defer func() {
 			// wait for chunk completion
-			if writerErr := inserter.Close(ctx); writerErr != nil {
+			if writerErr := inserter.Close(backfillCtx); writerErr != nil {
 				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
 			}
 
@@ -69,9 +73,15 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		}()
 		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(cur int) error {
 			if cur > 0 {
+				// close prev writer
+				inserter.Close(backfillCtx)
+
+				// create new backfill context
+				backfillCtx, backfillCtxCancel = context.WithCancel(ctx)
 				threadID = fmt.Sprintf("%s-retry-attempt-%d", threadID, cur)
-				// re-initialize inserter
-				inserter, err = pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+
+				// re-initialize inserter with backfillCtx for consistency
+				inserter, err = pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 				if err != nil {
 					return fmt.Errorf("failed to create new writer thread: %s", err)
 				}
