@@ -32,6 +32,6 @@ type Writer interface {
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
 	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
 	// DropStreams is used to clear the destination before re-writing the stream
-	DropStreams(ctx context.Context, selectedStream []string) error
+	DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error
 	Close(ctx context.Context) error
 }
