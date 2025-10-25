@@ -56,7 +56,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 }
 
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callback abstract.CDCMsgFn) error {
-	latestBinlogPos, err := GetCurrentBinlogPosition(client)
+	latestBinlogPos, err := GetCurrentBinlogPosition(ctx, client)
 	if err != nil {
 		return fmt.Errorf("failed to get latest binlog position: %s", err)
 	}
@@ -127,11 +127,11 @@ func (c *Connection) Cleanup() {
 }
 
 // GetCurrentBinlogPosition retrieves the current binlog position from MySQL.
-func GetCurrentBinlogPosition(client *sqlx.DB) (mysql.Position, error) {
+func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Position, error) {
 	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
 
 	// Get MySQL version
-	majorVersion, minorVersion, err := jdbc.MySQLVersion(client)
+	majorVersion, minorVersion, err := jdbc.MySQLVersion(ctx, client)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
@@ -139,7 +139,7 @@ func GetCurrentBinlogPosition(client *sqlx.DB) (mysql.Position, error) {
 	// Use the appropriate query based on the MySQL version
 	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
-	rows, err := client.Query(query)
+	rows, err := client.QueryContext(ctx, query)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get master status: %s", err)
 	}
