@@ -35,7 +35,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	logger.Infof("using consumer group id: %s", k.consumerGroupID)
 
 	// Create reader manager and configure it
-	readerConfig := kafkapkg.KafkaReaderConfig{
+	readerConfig := kafkapkg.ReaderConfig{
 		BootstrapServers:            k.config.BootstrapServers,
 		MaxThreads:                  k.config.MaxThreads,
 		ConsumerGroupID:             k.consumerGroupID,
@@ -43,7 +43,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		AdminClient:                 k.adminClient,
 		ThreadsEqualTotalPartitions: k.config.ThreadsEqualTotalPartitions,
 	}
-	readerManager := kafkapkg.NewKafkaReaderManager(readerConfig)
+	readerManager := kafkapkg.NewReaderManager(readerConfig)
 
 	// readers created
 	if err := readerManager.CreateReaders(ctx, streams, k.consumerGroupID); err != nil {
