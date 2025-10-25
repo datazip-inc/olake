@@ -1,11 +1,11 @@
 # Kafka Driver
-The Kafka Driver enables data synchronization from Kafka to your desired destination. It supports **Incremental** mode as of now.
+The Kafka Driver enables data synchronization from Kafka to your desired destination. It supports **CDC** mode.
 
 ---
 
 ## Supported Modes
-1. **Streaming**
-   Tracks and syncs streaming changes or messages from Kafka in real time.
+1. **CDC (Change Data Capture)**
+   Tracks and syncs new message changes from Kafka topics in real time, using consumer group.
 ---
 
 ## Setup and Configuration
@@ -26,9 +26,7 @@ Add Kafka credentials in following format in `source.json` file. To check more a
             "security_protocol": "PLAINTEXT"
         },
         "consumer_group": "test-consumer",
-        "auto_offset_reset": "latest", 
-        "max_threads": 3,
-        "wait_time": 30
+        "max_threads": 3
     }
 ```
 - There are 3 security protocols:<br>
@@ -102,6 +100,7 @@ After executing the Discover command, a formatted response will look like this:
         {
             "stream": {
                 "name": "Test-Topic1",
+                "namespace": "topics",
                 "type_schema": { "properties": {...} },
                 ...
             }
@@ -233,10 +232,10 @@ For Detailed overview check [here.](https://olake.io/docs/category/destinations-
 The *Sync* command fetches data from Kafka and ingests it into the destination.
 Supported Sync Mode: Streaming (in CDC format). 
 - In case of Streaming :
-   - The sync mode must be set to cdc. For Kafka, change is streamed through "offset differences"
-   - if `auto_offset_reset = earliest` then all the unread messages by the consumer will be synced from the start offset, with any of new incoming messages. This is equivalent to full-load sync.
-   - if `auto_offset_reset = latest` then all the new incoming messages will be synced.
-   - if `consumer_group_id` is provided, it will be used for sync. Otherwise, OLake automatically creates a consumer group and tracks sync using it.
+- The sync mode for Kafka is set to **cdc** (Change Data Capture), where changes are streamed through "offset differences" in Kafka topics.
+- To perform a **full load**, use a new consumer group ID that has never been used for the selected topics. This ensures that all data from the beginning of the topic is synced.
+- If a `consumer_group_id` is provided in the configuration, it will be used for the sync process. Otherwise, OLake will automatically create a consumer group and manage the sync progress using it.
+- The `threads_equal_total_partitions` mode, when enabled, ensures that the number of Kafka readers matches the total number of partitions in the topic. This configuration also ensures that the number of writers matches the number of readers, optimizing the sync process for parallelism and performance. In this, `max_threads` provided will be ignored.
 
 ```bash
 ./build.sh driver-kafka sync --config /Kafka/examples/source.json --catalog /Kafka/examples/streams.json --destination /Kafka/examples/destination.json
@@ -255,24 +254,15 @@ You can save the state in a `state.json` file using the following format:
 ```json
 {
     "type": "STREAM",
-    "streams": [
-        {
-            "stream": "Test-Topic1",
-            "namespace": "",
-            "sync_mode": "",
-            "state": {
-                "consumer_group_id": "olake-consumer-group-{timestamp}"
-            }
+    "global": {
+        "state": {
+            "consumer_group_id": "olake-consumer-group-{timestamp}"
         },
-        {
-            "stream": "Test-Topic2",
-            "namespace": "",
-            "sync_mode": "",
-            "state": {
-                "consumer_group_id": "olake-consumer-group-{timestamp}"
-            }
-        }
-    ]
+        "streams": [
+            "topics.Test-Topic1",
+            "topics.Test-Topic2"
+        ]
+    }
 }
 ```
 

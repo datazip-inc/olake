@@ -101,10 +101,11 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		}
 	}
 	if isParallelChangeStream(a.driver.Type()) {
-		// parallel change streams or kafka message already processed
+		// parallel change streams already processed
 		return nil
 	}
 
+	// run cdc for kafka
 	if a.IsKafkaDriver() {
 		kafkaDriver, _ := a.driver.(KafkaInterface)
 		utils.ConcurrentInGroup(a.GlobalConnGroup, kafkaDriver.GetReaderTasks(), func(ctx context.Context, readerID string) (err error) {
@@ -157,7 +158,6 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		})
 		return nil
 	}
-
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream
