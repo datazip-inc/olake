@@ -73,7 +73,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 						}
 
-						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil, "")
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -105,6 +105,59 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		return nil
 	}
 
+	// run cdc for kafka
+	if a.IsKafkaDriver() {
+		kafkaDriver, _ := a.driver.(KafkaInterface)
+		utils.ConcurrentInGroup(a.GlobalConnGroup, kafkaDriver.GetReaderTasks(), func(ctx context.Context, readerID string) (err error) {
+			writers := make(map[string]*destination.WriterThread)
+			defer func() {
+				for key, wr := range writers {
+					if wr == nil {
+						continue
+					}
+					if threadErr := wr.Close(ctx); threadErr != nil {
+						err = fmt.Errorf("failed closing writer[%s]: %s", key, threadErr)
+					}
+				}
+
+				if r := recover(); r != nil {
+					err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
+				}
+
+				postCDCErr := a.driver.PostCDC(ctx, nil, err == nil, readerID)
+				if postCDCErr != nil {
+					err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
+				}
+			}()
+			return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
+				return kafkaDriver.PartitionStreamChanges(ctx, readerID, func(ctx context.Context, message CDCChange) error {
+					if message.Stream == nil {
+						return nil
+					}
+					inserter := writers[message.Stream.ID()]
+					if inserter == nil {
+						// dedicated writer for this reader (with stream)
+						threadID := fmt.Sprintf("%s_%s", readerID, message.Stream.ID())
+						var err error
+						inserter, err = pool.NewWriter(ctx, message.Stream, destination.WithThreadID(threadID))
+						if err != nil {
+							return fmt.Errorf("failed to create writer for stream %s: %s", message.Stream.ID(), err)
+						}
+						writers[message.Stream.ID()] = inserter
+						logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, message.Stream.ID())
+					}
+					pkFields := message.Stream.GetStream().SourceDefinedPrimaryKey.Array()
+					return inserter.Push(ctx, types.CreateRawRecord(
+						utils.GetKeysHash(message.Data, pkFields...),
+						message.Data,
+						"c",
+						&message.Timestamp,
+					))
+				})
+			})
+		})
+		return nil
+	}
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 		// Set up inserters for each stream
@@ -132,7 +185,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 			}
 
-			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil, "")
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}

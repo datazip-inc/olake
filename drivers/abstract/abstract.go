@@ -34,11 +34,12 @@ var DefaultColumns = map[string]types.DataType{
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
-	return &AbstractDriver{
+	abstractDriver := &AbstractDriver{
 		driver:          driver,
 		GlobalCtxGroup:  utils.NewCGroup(ctx),
 		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, constants.DefaultThreadCount), // default max connections
 	}
+	return abstractDriver
 }
 
 func (a *AbstractDriver) SetupState(state *types.State) {
@@ -56,6 +57,11 @@ func (a *AbstractDriver) Spec() any {
 
 func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
+}
+
+func (a *AbstractDriver) IsKafkaDriver() bool {
+	_, ok := a.driver.(KafkaInterface)
+	return ok
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
@@ -86,8 +92,10 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		convStream.SyncMode = types.FULLREFRESH
+		if !a.IsKafkaDriver() {
+			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+			convStream.SyncMode = types.FULLREFRESH
+		}
 
 		// add default columns
 		for column, typ := range DefaultColumns {

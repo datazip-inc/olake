@@ -250,6 +250,10 @@ func IsJSON(str string) bool {
 
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
+	if len(m) == 0 {
+		return ""
+	}
+
 	// if single primary key is present use as it is
 	if len(keys) == 1 {
 		if _, ok := m[keys[0]]; ok {
@@ -274,6 +278,9 @@ func GetKeysHash(m map[string]interface{}, keys ...string) string {
 
 // GetHash returns GetKeysHash result with keys from m
 func GetHash(m map[string]interface{}) string {
+	if len(m) == 0 {
+		return ""
+	}
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -423,4 +430,16 @@ func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) 
 
 	// Final table name is always reformatted
 	return dbName, Reformat(name)
+}
+
+// splitAndTrim splits a comma-separated string and trims whitespace
+func SplitAndTrim(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
