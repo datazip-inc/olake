@@ -1,0 +1,23 @@
+name: Unit Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v3
+        with:
+          check-latest: true
+          go-version: 1.23.x
+
+      - name: Install Dependencies
+        run: go mod download
+
+      - name: Run All Unit Tests
+        run: go test -v ./...
