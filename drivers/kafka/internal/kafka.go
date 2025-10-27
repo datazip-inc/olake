@@ -219,7 +219,7 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, p
 		return false, err
 	}
 
-	// Exit when all partitions are done
+	// exit when all partitions are done
 	return len(completedPartitions) == len(observedPartitions), nil
 }
 
@@ -234,7 +234,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 		return nil, fmt.Errorf("clientID not found for reader %s", readerID)
 	}
 
-	// Use the first broker address set on the client; fall back to bootstrap servers
+	// use the first broker address set on the client; fall back to bootstrap servers
 	addr := k.adminClient.Addr
 	if addr == nil {
 		brokers := utils.SplitAndTrim(k.config.BootstrapServers)

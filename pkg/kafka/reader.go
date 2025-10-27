@@ -133,10 +133,10 @@ func (krm *ReaderManager) SetPartitions(ctx context.Context, stream types.Stream
 		return fmt.Errorf("failed to list offsets for topic %s: %w", topic, err)
 	}
 
-	// Fetch already committed offset of partition
+	// fetch already committed offset of partition
 	committedTopicOffsets := krm.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
 
-	// Build partition metadata
+	// build partition metadata
 	for _, idx := range offsetsResp.Topics[topic] {
 		committedOffset, hasCommittedOffset := committedTopicOffsets[idx.Partition]
 
@@ -146,7 +146,7 @@ func (krm *ReaderManager) SetPartitions(ctx context.Context, stream types.Stream
 			continue
 		}
 
-		// If a committed offset is available and there are no new messages, skip
+		// if a committed offset is available and there are no new messages, skip
 		if hasCommittedOffset && committedOffset >= idx.LastOffset {
 			logger.Infof("skipping partition %d for topic %s, no new messages (committed: %d, last: %d)", idx.Partition, topic, committedOffset, idx.LastOffset)
 			continue

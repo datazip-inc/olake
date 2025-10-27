@@ -46,7 +46,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
+		c.RetryCount = constants.DefaultRetryCount
 	}
 
 	if c.AutoOffsetReset != "" && c.AutoOffsetReset != "earliest" && c.AutoOffsetReset != "latest" {
