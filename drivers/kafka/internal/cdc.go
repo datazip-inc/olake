@@ -32,7 +32,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	}
 	groupID = utils.Ternary(groupID == "", utils.Ternary(k.config.ConsumerGroupID != "", k.config.ConsumerGroupID, fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())), groupID).(string)
 	k.consumerGroupID = groupID
-	logger.Infof("using consumer group id: %s", k.consumerGroupID)
+	logger.Infof("configured consumer group id: %s", k.consumerGroupID)
 
 	// Create reader manager and configure it
 	readerConfig := kafkapkg.ReaderConfig{
