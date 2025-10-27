@@ -197,13 +197,12 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 	r.currentRowCount += record.NumRows()
 	record.Release()
 
-	if numRows, err := r.currentWriter.RowGroupNumRows(); err == nil && numRows > 0 {
-		r.currentWriter.NewBufferedRowGroup()
-	}
-
 	sizeSoFar := int64(0)
 	if r.currentBuffer != nil {
-		sizeSoFar = int64(r.currentBuffer.Len())
+		sizeSoFar += int64(r.currentBuffer.Len())
+	}
+	if r.currentWriter != nil {
+		sizeSoFar += r.currentWriter.RowGroupTotalBytesWritten()
 	}
 	r.currentCompressedSize = sizeSoFar
 
