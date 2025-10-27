@@ -21,7 +21,10 @@ import (
 var totalDataFiles atomic.Int64
 
 const (
-	targetFileSize  = int64(350 *1024 * 1024 - 1 * 1024 * 1024)
+	dataFileTargetSize = int64(350 * 1024 * 1024 - 1 * 1024 * 1024)
+	// the delete file target size is as per Apache Iceberg 
+	// https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L323
+	deleteFileTargetSize = int64(64 * 1024 * 1024 - 1 * 1024 * 1024)
 	streamChunkSize = int64(8 * 1024 * 1024)
 )
 
@@ -34,7 +37,7 @@ type FileUploadData struct {
 }
 
 func GenerateDataFileName() string {
-	// It mimics the behavior in the Java API:
+	// It mimics the behavior in the Apache Iceberg Java API:
 	// https://github.com/apache/iceberg/blob/a582968975dd30ff4917fbbe999f1be903efac02/core/src/main/java/org/apache/iceberg/io/OutputFileFactory.java#L92-L101
 	return fmt.Sprintf("00000-%d-%s.parquet", totalDataFiles.Load(), uuid.New())
 }
@@ -205,6 +208,13 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 		sizeSoFar += r.currentWriter.RowGroupTotalBytesWritten()
 	}
 	r.currentCompressedSize = sizeSoFar
+
+	var targetFileSize int64
+	if r.fileType == "data" {
+		targetFileSize = dataFileTargetSize
+	} else {
+		targetFileSize = deleteFileTargetSize
+	}
 
 	if r.currentCompressedSize >= targetFileSize {
 		uploadData, err := r.flush()
