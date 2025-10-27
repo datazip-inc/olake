@@ -799,6 +799,32 @@ func (i *Iceberg) UploadParquetFile(ctx context.Context, fileData []byte, fileTy
 	return response, nil
 }
 
+func (i *Iceberg) GenerateFilename(ctx context.Context) (string, error) {
+	if i.server == nil {
+		return "", fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := proto.IcebergPayload{
+		Type: proto.IcebergPayload_GENERATE_FILENAME,
+		Metadata: &proto.IcebergPayload_Metadata{
+			DestTableName: i.stream.GetDestinationTable(),
+			ThreadId:      i.server.serverID,
+		},
+	}
+
+	resp, err := i.server.client.SendRecords(ctx, &request)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate filename: %w", err)
+	}
+
+	filename := resp.GetFilename()
+	if filename == "" {
+		return "", fmt.Errorf("server returned empty filename")
+	}
+
+	return filename, nil
+}
+
 func init() {
 	destination.RegisteredWriters[types.Iceberg] = func() destination.Writer {
 		return new(Iceberg)

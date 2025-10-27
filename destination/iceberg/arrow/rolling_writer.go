@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"sync/atomic"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/memory"
@@ -15,18 +14,17 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/google/uuid"
 )
-
-var totalDataFiles atomic.Int64
 
 const (
-	dataFileTargetSize = int64(350 * 1024 * 1024 - 1 * 1024 * 1024)
-	// the delete file target size is as per Apache Iceberg 
+	dataFileTargetSize = int64(350*1024*1024 - 1*1024*1024)
+	// the delete file target size is as per Apache Iceberg
 	// https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L323
-	deleteFileTargetSize = int64(64 * 1024 * 1024 - 1 * 1024 * 1024)
-	streamChunkSize = int64(8 * 1024 * 1024)
+	deleteFileTargetSize = int64(64*1024*1024 - 1*1024*1024)
+	streamChunkSize      = int64(8 * 1024 * 1024)
 )
+
+type FilenameGenerator func(ctx context.Context) (string, error)
 
 type FileUploadData struct {
 	FileType        string
@@ -36,18 +34,13 @@ type FileUploadData struct {
 	EqualityFieldId int
 }
 
-func GenerateDataFileName() string {
-	// It mimics the behavior in the Apache Iceberg Java API:
-	// https://github.com/apache/iceberg/blob/a582968975dd30ff4917fbbe999f1be903efac02/core/src/main/java/org/apache/iceberg/io/OutputFileFactory.java#L92-L101
-	return fmt.Sprintf("00000-%d-%s.parquet", totalDataFiles.Load(), uuid.New())
-}
-
 type RollingWriter struct {
 	partitionKey string
 	ctx          context.Context
 
-	FieldId  int
-	fileType string
+	FieldId     int
+	fileType    string
+	FilenameGen FilenameGenerator
 
 	currentWriter         *pqarrow.FileWriter
 	currentBuffer         *bytes.Buffer
@@ -75,10 +68,6 @@ func (r *RollingWriter) flush() (*FileUploadData, error) {
 	if err := r.currentWriter.Close(); err != nil {
 		return nil, err
 	}
-
-	// TODO: create a java api to get the total count of files written or,
-	// move the file naming part to java server
-	totalDataFiles.Add(1)
 
 	fileData := make([]byte, r.currentBuffer.Len())
 	copy(fileData, r.currentBuffer.Bytes())
@@ -146,9 +135,13 @@ func constructColPath(tVal, field, transform string) string {
 
 func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 	if r.currentWriter == nil {
-		r.currentFile = GenerateDataFileName()
+		filename, err := r.FilenameGen(r.ctx)
+		if err != nil {
+			record.Release()
+			return nil, fmt.Errorf("failed to generate filename: %w", err)
+		}
+		r.currentFile = filename
 		r.currentBuffer = &bytes.Buffer{}
-
 		allocator := memory.NewGoAllocator()
 
 		writerProps := parquet.NewWriterProperties(

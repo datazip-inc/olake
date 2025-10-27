@@ -210,6 +210,33 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, icebergLocation);
                     break;
                 
+                case GENERATE_FILENAME:
+                    LOGGER.debug("{} Received GENERATE_FILENAME request for thread: {}", requestId, threadId);
+                    
+                    org.apache.iceberg.FileFormat fileFormat = IcebergUtil.getTableFileFormat(this.icebergTable);
+                    org.apache.iceberg.io.OutputFileFactory fileFactory = 
+                        IcebergUtil.getTableOutputFileFactory(this.icebergTable, fileFormat);
+                    
+                    org.apache.iceberg.encryption.EncryptedOutputFile encryptedFile = fileFactory.newOutputFile();
+                    String fullPath = encryptedFile.encryptingOutputFile().location();
+                    
+                    int lastSlashIndex = fullPath.lastIndexOf('/');
+                    String generatedFilename = lastSlashIndex >= 0 
+                        ? fullPath.substring(lastSlashIndex + 1) 
+                        : fullPath;
+                    
+                    LOGGER.info("{} Generated filename: {}", requestId, generatedFilename);
+                    
+                    RecordIngest.RecordIngestResponse filenameResponse = 
+                        RecordIngest.RecordIngestResponse.newBuilder()
+                            .setResult("success")
+                            .setSuccess(true)
+                            .setFilename(generatedFilename)
+                            .build();
+                    responseObserver.onNext(filenameResponse);
+                    responseObserver.onCompleted();
+                    break;
+                
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());
             }

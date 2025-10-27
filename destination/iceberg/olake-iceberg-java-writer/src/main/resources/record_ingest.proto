@@ -17,6 +17,7 @@ message IcebergPayload {
     REGISTER = 6;
     GET_FIELD_ID = 7;
     UPLOAD_FILE = 8;
+    GENERATE_FILENAME = 9;
   }
   
   PayloadType type = 1;
@@ -76,4 +77,5 @@ message IcebergPayload {
 message RecordIngestResponse {
   string result = 1;
   bool success = 2;  // Adding success boolean for better error handling
+  optional string filename = 3; 
 }

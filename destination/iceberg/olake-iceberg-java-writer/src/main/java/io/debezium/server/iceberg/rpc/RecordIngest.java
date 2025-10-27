@@ -151,6 +151,10 @@ public final class RecordIngest {
        * <code>UPLOAD_FILE = 8;</code>
        */
       UPLOAD_FILE(8),
+      /**
+       * <code>GENERATE_FILENAME = 9;</code>
+       */
+      GENERATE_FILENAME(9),
       UNRECOGNIZED(-1),
       ;
 
@@ -190,6 +194,10 @@ public final class RecordIngest {
        * <code>UPLOAD_FILE = 8;</code>
        */
       public static final int UPLOAD_FILE_VALUE = 8;
+      /**
+       * <code>GENERATE_FILENAME = 9;</code>
+       */
+      public static final int GENERATE_FILENAME_VALUE = 9;
 
 
       public final int getNumber() {
@@ -225,6 +233,7 @@ public final class RecordIngest {
           case 6: return REGISTER;
           case 7: return GET_FIELD_ID;
           case 8: return UPLOAD_FILE;
+          case 9: return GENERATE_FILENAME;
           default: return null;
         }
       }
@@ -286,19 +295,11 @@ public final class RecordIngest {
         com.google.protobuf.MessageOrBuilder {
 
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 1;</code>
        * @return The fileType.
        */
       java.lang.String getFileType();
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 1;</code>
        * @return The bytes for fileType.
        */
@@ -363,10 +364,6 @@ public final class RecordIngest {
       @SuppressWarnings("serial")
       private volatile java.lang.Object fileType_ = "";
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 1;</code>
        * @return The fileType.
        */
@@ -384,10 +381,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 1;</code>
        * @return The bytes for fileType.
        */
@@ -795,10 +788,6 @@ public final class RecordIngest {
 
         private java.lang.Object fileType_ = "";
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 1;</code>
          * @return The fileType.
          */
@@ -815,10 +804,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 1;</code>
          * @return The bytes for fileType.
          */
@@ -836,10 +821,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 1;</code>
          * @param value The fileType to set.
          * @return This builder for chaining.
@@ -853,10 +834,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 1;</code>
          * @return This builder for chaining.
          */
@@ -867,10 +844,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 1;</code>
          * @param value The bytes for fileType to set.
          * @return This builder for chaining.
@@ -1031,19 +1004,11 @@ public final class RecordIngest {
       com.google.protobuf.ByteString getFileData();
 
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 2;</code>
        * @return The fileType.
        */
       java.lang.String getFileType();
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 2;</code>
        * @return The bytes for fileType.
        */
@@ -1051,19 +1016,11 @@ public final class RecordIngest {
           getFileTypeBytes();
 
       /**
-       * <pre>
-       * optional partition path
-       * </pre>
-       *
        * <code>string partition_key = 3;</code>
        * @return The partitionKey.
        */
       java.lang.String getPartitionKey();
       /**
-       * <pre>
-       * optional partition path
-       * </pre>
-       *
        * <code>string partition_key = 3;</code>
        * @return The bytes for partitionKey.
        */
@@ -1083,10 +1040,6 @@ public final class RecordIngest {
           getFilenameBytes();
 
       /**
-       * <pre>
-       * for delete files
-       * </pre>
-       *
        * <code>int32 equality_field_id = 5;</code>
        * @return The equalityFieldId.
        */
@@ -1151,10 +1104,6 @@ public final class RecordIngest {
       @SuppressWarnings("serial")
       private volatile java.lang.Object fileType_ = "";
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 2;</code>
        * @return The fileType.
        */
@@ -1172,10 +1121,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * "data" or "delete"
-       * </pre>
-       *
        * <code>string file_type = 2;</code>
        * @return The bytes for fileType.
        */
@@ -1198,10 +1143,6 @@ public final class RecordIngest {
       @SuppressWarnings("serial")
       private volatile java.lang.Object partitionKey_ = "";
       /**
-       * <pre>
-       * optional partition path
-       * </pre>
-       *
        * <code>string partition_key = 3;</code>
        * @return The partitionKey.
        */
@@ -1219,10 +1160,6 @@ public final class RecordIngest {
         }
       }
       /**
-       * <pre>
-       * optional partition path
-       * </pre>
-       *
        * <code>string partition_key = 3;</code>
        * @return The bytes for partitionKey.
        */
@@ -1283,10 +1220,6 @@ public final class RecordIngest {
       public static final int EQUALITY_FIELD_ID_FIELD_NUMBER = 5;
       private int equalityFieldId_ = 0;
       /**
-       * <pre>
-       * for delete files
-       * </pre>
-       *
        * <code>int32 equality_field_id = 5;</code>
        * @return The equalityFieldId.
        */
@@ -1747,10 +1680,6 @@ public final class RecordIngest {
 
         private java.lang.Object fileType_ = "";
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 2;</code>
          * @return The fileType.
          */
@@ -1767,10 +1696,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 2;</code>
          * @return The bytes for fileType.
          */
@@ -1788,10 +1713,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 2;</code>
          * @param value The fileType to set.
          * @return This builder for chaining.
@@ -1805,10 +1726,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 2;</code>
          * @return This builder for chaining.
          */
@@ -1819,10 +1736,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * "data" or "delete"
-         * </pre>
-         *
          * <code>string file_type = 2;</code>
          * @param value The bytes for fileType to set.
          * @return This builder for chaining.
@@ -1839,10 +1752,6 @@ public final class RecordIngest {
 
         private java.lang.Object partitionKey_ = "";
         /**
-         * <pre>
-         * optional partition path
-         * </pre>
-         *
          * <code>string partition_key = 3;</code>
          * @return The partitionKey.
          */
@@ -1859,10 +1768,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * optional partition path
-         * </pre>
-         *
          * <code>string partition_key = 3;</code>
          * @return The bytes for partitionKey.
          */
@@ -1880,10 +1785,6 @@ public final class RecordIngest {
           }
         }
         /**
-         * <pre>
-         * optional partition path
-         * </pre>
-         *
          * <code>string partition_key = 3;</code>
          * @param value The partitionKey to set.
          * @return This builder for chaining.
@@ -1897,10 +1798,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * optional partition path
-         * </pre>
-         *
          * <code>string partition_key = 3;</code>
          * @return This builder for chaining.
          */
@@ -1911,10 +1808,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * optional partition path
-         * </pre>
-         *
          * <code>string partition_key = 3;</code>
          * @param value The bytes for partitionKey to set.
          * @return This builder for chaining.
@@ -2003,10 +1896,6 @@ public final class RecordIngest {
 
         private int equalityFieldId_ ;
         /**
-         * <pre>
-         * for delete files
-         * </pre>
-         *
          * <code>int32 equality_field_id = 5;</code>
          * @return The equalityFieldId.
          */
@@ -2015,10 +1904,6 @@ public final class RecordIngest {
           return equalityFieldId_;
         }
         /**
-         * <pre>
-         * for delete files
-         * </pre>
-         *
          * <code>int32 equality_field_id = 5;</code>
          * @param value The equalityFieldId to set.
          * @return This builder for chaining.
@@ -2031,10 +1916,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * for delete files
-         * </pre>
-         *
          * <code>int32 equality_field_id = 5;</code>
          * @return This builder for chaining.
          */
@@ -2178,39 +2059,23 @@ public final class RecordIngest {
           int index);
 
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @return A list containing the filePaths.
        */
       java.util.List<java.lang.String>
           getFilePathsList();
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @return The count of filePaths.
        */
       int getFilePathsCount();
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the element to return.
        * @return The filePaths at the given index.
        */
       java.lang.String getFilePaths(int index);
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the value to return.
        * @return The bytes of the filePaths at the given index.
@@ -2492,10 +2357,6 @@ public final class RecordIngest {
       @SuppressWarnings("serial")
       private com.google.protobuf.LazyStringList filePaths_;
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @return A list containing the filePaths.
        */
@@ -2504,10 +2365,6 @@ public final class RecordIngest {
         return filePaths_;
       }
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @return The count of filePaths.
        */
@@ -2515,10 +2372,6 @@ public final class RecordIngest {
         return filePaths_.size();
       }
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the element to return.
        * @return The filePaths at the given index.
@@ -2527,10 +2380,6 @@ public final class RecordIngest {
         return filePaths_.get(index);
       }
       /**
-       * <pre>
-       * Deprecated: use file_metadata instead
-       * </pre>
-       *
        * <code>repeated string file_paths = 5;</code>
        * @param index The index of the value to return.
        * @return The bytes of the filePaths at the given index.
@@ -3760,10 +3609,6 @@ public final class RecordIngest {
            }
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @return A list containing the filePaths.
          */
@@ -3772,10 +3617,6 @@ public final class RecordIngest {
           return filePaths_.getUnmodifiableView();
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @return The count of filePaths.
          */
@@ -3783,10 +3624,6 @@ public final class RecordIngest {
           return filePaths_.size();
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @param index The index of the element to return.
          * @return The filePaths at the given index.
@@ -3795,10 +3632,6 @@ public final class RecordIngest {
           return filePaths_.get(index);
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @param index The index of the value to return.
          * @return The bytes of the filePaths at the given index.
@@ -3808,10 +3641,6 @@ public final class RecordIngest {
           return filePaths_.getByteString(index);
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @param index The index to set the value at.
          * @param value The filePaths to set.
@@ -3826,10 +3655,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @param value The filePaths to add.
          * @return This builder for chaining.
@@ -3843,10 +3668,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @param values The filePaths to add.
          * @return This builder for chaining.
@@ -3860,10 +3681,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @return This builder for chaining.
          */
@@ -3874,10 +3691,6 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <pre>
-         * Deprecated: use file_metadata instead
-         * </pre>
-         *
          * <code>repeated string file_paths = 5;</code>
          * @param value The bytes of the filePaths to add.
          * @return This builder for chaining.
@@ -8387,6 +8200,35 @@ public final class RecordIngest {
      * @return The success.
      */
     boolean getSuccess();
+
+    /**
+     * <pre>
+     * Generated filename for data files
+     * </pre>
+     *
+     * <code>optional string filename = 3;</code>
+     * @return Whether the filename field is set.
+     */
+    boolean hasFilename();
+    /**
+     * <pre>
+     * Generated filename for data files
+     * </pre>
+     *
+     * <code>optional string filename = 3;</code>
+     * @return The filename.
+     */
+    java.lang.String getFilename();
+    /**
+     * <pre>
+     * Generated filename for data files
+     * </pre>
+     *
+     * <code>optional string filename = 3;</code>
+     * @return The bytes for filename.
+     */
+    com.google.protobuf.ByteString
+        getFilenameBytes();
   }
   /**
    * Protobuf type {@code io.debezium.server.iceberg.rpc.RecordIngestResponse}
@@ -8402,6 +8244,7 @@ public final class RecordIngest {
     }
     private RecordIngestResponse() {
       result_ = "";
+      filename_ = "";
     }
 
     @java.lang.Override
@@ -8429,6 +8272,7 @@ public final class RecordIngest {
               io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse.class, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse.Builder.class);
     }
 
+    private int bitField0_;
     public static final int RESULT_FIELD_NUMBER = 1;
     @SuppressWarnings("serial")
     private volatile java.lang.Object result_ = "";
@@ -8483,6 +8327,65 @@ public final class RecordIngest {
       return success_;
     }
 
+    public static final int FILENAME_FIELD_NUMBER = 3;
+    @SuppressWarnings("serial")
+    private volatile java.lang.Object filename_ = "";
+    /**
+     * <pre>
+     * Generated filename for data files
+     * </pre>
+     *
+     * <code>optional string filename = 3;</code>
+     * @return Whether the filename field is set.
+     */
+    @java.lang.Override
+    public boolean hasFilename() {
+      return ((bitField0_ & 0x00000001) != 0);
+    }
+    /**
+     * <pre>
+     * Generated filename for data files
+     * </pre>
+     *
+     * <code>optional string filename = 3;</code>
+     * @return The filename.
+     */
+    @java.lang.Override
+    public java.lang.String getFilename() {
+      java.lang.Object ref = filename_;
+      if (ref instanceof java.lang.String) {
+        return (java.lang.String) ref;
+      } else {
+        com.google.protobuf.ByteString bs = 
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        filename_ = s;
+        return s;
+      }
+    }
+    /**
+     * <pre>
+     * Generated filename for data files
+     * </pre>
+     *
+     * <code>optional string filename = 3;</code>
+     * @return The bytes for filename.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getFilenameBytes() {
+      java.lang.Object ref = filename_;
+      if (ref instanceof java.lang.String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        filename_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -8503,6 +8406,9 @@ public final class RecordIngest {
       if (success_ != false) {
         output.writeBool(2, success_);
       }
+      if (((bitField0_ & 0x00000001) != 0)) {
+        com.google.protobuf.GeneratedMessageV3.writeString(output, 3, filename_);
+      }
       getUnknownFields().writeTo(output);
     }
 
@@ -8518,6 +8424,9 @@ public final class RecordIngest {
       if (success_ != false) {
         size += com.google.protobuf.CodedOutputStream
           .computeBoolSize(2, success_);
+      }
+      if (((bitField0_ & 0x00000001) != 0)) {
+        size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, filename_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -8538,6 +8447,11 @@ public final class RecordIngest {
           .equals(other.getResult())) return false;
       if (getSuccess()
           != other.getSuccess()) return false;
+      if (hasFilename() != other.hasFilename()) return false;
+      if (hasFilename()) {
+        if (!getFilename()
+            .equals(other.getFilename())) return false;
+      }
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -8554,6 +8468,10 @@ public final class RecordIngest {
       hash = (37 * hash) + SUCCESS_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
           getSuccess());
+      if (hasFilename()) {
+        hash = (37 * hash) + FILENAME_FIELD_NUMBER;
+        hash = (53 * hash) + getFilename().hashCode();
+      }
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -8685,6 +8603,7 @@ public final class RecordIngest {
         bitField0_ = 0;
         result_ = "";
         success_ = false;
+        filename_ = "";
         return this;
       }
 
@@ -8724,6 +8643,12 @@ public final class RecordIngest {
         if (((from_bitField0_ & 0x00000002) != 0)) {
           result.success_ = success_;
         }
+        int to_bitField0_ = 0;
+        if (((from_bitField0_ & 0x00000004) != 0)) {
+          result.filename_ = filename_;
+          to_bitField0_ |= 0x00000001;
+        }
+        result.bitField0_ |= to_bitField0_;
       }
 
       @java.lang.Override
@@ -8778,6 +8703,11 @@ public final class RecordIngest {
         if (other.getSuccess() != false) {
           setSuccess(other.getSuccess());
         }
+        if (other.hasFilename()) {
+          filename_ = other.filename_;
+          bitField0_ |= 0x00000004;
+          onChanged();
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -8814,6 +8744,11 @@ public final class RecordIngest {
                 bitField0_ |= 0x00000002;
                 break;
               } // case 16
+              case 26: {
+                filename_ = input.readStringRequireUtf8();
+                bitField0_ |= 0x00000004;
+                break;
+              } // case 26
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -8946,6 +8881,109 @@ public final class RecordIngest {
         onChanged();
         return this;
       }
+
+      private java.lang.Object filename_ = "";
+      /**
+       * <pre>
+       * Generated filename for data files
+       * </pre>
+       *
+       * <code>optional string filename = 3;</code>
+       * @return Whether the filename field is set.
+       */
+      public boolean hasFilename() {
+        return ((bitField0_ & 0x00000004) != 0);
+      }
+      /**
+       * <pre>
+       * Generated filename for data files
+       * </pre>
+       *
+       * <code>optional string filename = 3;</code>
+       * @return The filename.
+       */
+      public java.lang.String getFilename() {
+        java.lang.Object ref = filename_;
+        if (!(ref instanceof java.lang.String)) {
+          com.google.protobuf.ByteString bs =
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          filename_ = s;
+          return s;
+        } else {
+          return (java.lang.String) ref;
+        }
+      }
+      /**
+       * <pre>
+       * Generated filename for data files
+       * </pre>
+       *
+       * <code>optional string filename = 3;</code>
+       * @return The bytes for filename.
+       */
+      public com.google.protobuf.ByteString
+          getFilenameBytes() {
+        java.lang.Object ref = filename_;
+        if (ref instanceof String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          filename_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+      /**
+       * <pre>
+       * Generated filename for data files
+       * </pre>
+       *
+       * <code>optional string filename = 3;</code>
+       * @param value The filename to set.
+       * @return This builder for chaining.
+       */
+      public Builder setFilename(
+          java.lang.String value) {
+        if (value == null) { throw new NullPointerException(); }
+        filename_ = value;
+        bitField0_ |= 0x00000004;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * Generated filename for data files
+       * </pre>
+       *
+       * <code>optional string filename = 3;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearFilename() {
+        filename_ = getDefaultInstance().getFilename();
+        bitField0_ = (bitField0_ & ~0x00000004);
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * Generated filename for data files
+       * </pre>
+       *
+       * <code>optional string filename = 3;</code>
+       * @param value The bytes for filename to set.
+       * @return This builder for chaining.
+       */
+      public Builder setFilenameBytes(
+          com.google.protobuf.ByteString value) {
+        if (value == null) { throw new NullPointerException(); }
+        checkByteStringIsUtf8(value);
+        filename_ = value;
+        bitField0_ |= 0x00000004;
+        onChanged();
+        return this;
+      }
       @java.lang.Override
       public final Builder setUnknownFields(
           final com.google.protobuf.UnknownFieldSet unknownFields) {
@@ -9060,7 +9098,7 @@ public final class RecordIngest {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\347\n\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\376\n\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
@@ -9090,17 +9128,18 @@ public final class RecordIngest {
       "\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003" +
       "H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_valu" +
       "e\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025\n\013bytes" +
-      "_value\030\007 \001(\014H\000B\007\n\005value\"\255\001\n\013PayloadType\022" +
+      "_value\030\007 \001(\014H\000B\007\n\005value\"\304\001\n\013PayloadType\022" +
       "\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEM" +
       "A\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_TAB" +
       "LE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\022\014\n\010REGIST" +
-      "ER\020\006\022\020\n\014GET_FIELD_ID\020\007\022\017\n\013UPLOAD_FILE\020\010\"" +
-      "7\n\024RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022" +
-      "\017\n\007success\030\002 \001(\0102\212\001\n\023RecordIngestService" +
-      "\022s\n\013SendRecords\022..io.debezium.server.ice" +
-      "berg.rpc.IcebergPayload\0324.io.debezium.se" +
-      "rver.iceberg.rpc.RecordIngestResponseb\006p" +
-      "roto3"
+      "ER\020\006\022\020\n\014GET_FIELD_ID\020\007\022\017\n\013UPLOAD_FILE\020\010\022" +
+      "\025\n\021GENERATE_FILENAME\020\t\"[\n\024RecordIngestRe" +
+      "sponse\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\022" +
+      "\025\n\010filename\030\003 \001(\tH\000\210\001\001B\013\n\t_filename2\212\001\n\023" +
+      "RecordIngestService\022s\n\013SendRecords\022..io." +
+      "debezium.server.iceberg.rpc.IcebergPaylo" +
+      "ad\0324.io.debezium.server.iceberg.rpc.Reco" +
+      "rdIngestResponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -9153,7 +9192,7 @@ public final class RecordIngest {
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor,
-        new java.lang.String[] { "Result", "Success", });
+        new java.lang.String[] { "Result", "Success", "Filename", "Filename", });
   }
 
   // @@protoc_insertion_point(outer_class_scope)

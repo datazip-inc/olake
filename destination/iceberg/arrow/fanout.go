@@ -20,6 +20,7 @@ type Fanout struct {
 
 	schema        map[string]string
 	Normalization bool
+	FilenameGen   FilenameGenerator 
 }
 
 func NewFanoutWriter(ctx context.Context, p []destination.PartitionInfo, schema map[string]string) *Fanout {
@@ -43,6 +44,7 @@ func (f *Fanout) getOrCreateRollingDataWriter(partitionKey string) *RollingWrite
 	}
 
 	writer := NewRollingWriter(context.Background(), partitionKey, "data")
+	writer.FilenameGen = f.FilenameGen
 	f.writers.Store(partitionKey, writer)
 
 	return writer

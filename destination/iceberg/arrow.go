@@ -52,6 +52,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 		if aw.partitionedWriter == nil {
 			aw.partitionedWriter = arrow_writer.NewFanoutWriter(context.Background(), aw.iceberg.partitionInfo, aw.iceberg.schema)
 			aw.partitionedWriter.Normalization = aw.iceberg.stream.NormalizationEnabled()
+			aw.partitionedWriter.FilenameGen = aw.iceberg.GenerateFilename
 		}
 
 		uploadDataList, deleteRecords, err := aw.partitionedWriter.Write(ctx, records, arrowFields)
@@ -82,6 +83,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 			if aw.deleteFileWriter == nil {
 				aw.deleteFileWriter = arrow_writer.NewRollingWriter(context.Background(), "", "delete")
 				aw.deleteFileWriter.FieldId = fieldId
+				aw.deleteFileWriter.FilenameGen = aw.iceberg.GenerateFilename
 			}
 
 			deletes := make([]types.RawRecord, 0, len(deleteRecords))
@@ -118,6 +120,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 	} else {
 		if aw.unpartitionedWriter == nil {
 			aw.unpartitionedWriter = arrow_writer.NewRollingWriter(context.Background(), "", "data")
+			aw.unpartitionedWriter.FilenameGen = aw.iceberg.GenerateFilename
 		}
 
 		deletes := make([]types.RawRecord, 0)
@@ -138,6 +141,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 			if aw.deleteFileWriter == nil {
 				aw.deleteFileWriter = arrow_writer.NewRollingWriter(context.Background(), "", "delete")
 				aw.deleteFileWriter.FieldId = fieldId
+				aw.deleteFileWriter.FilenameGen = aw.iceberg.GenerateFilename
 			}
 
 			rec, err := arrow_writer.CreateDelArrRecord(deletes, fieldId)

@@ -33,6 +33,7 @@ const (
 	IcebergPayload_REGISTER             IcebergPayload_PayloadType = 6
 	IcebergPayload_GET_FIELD_ID         IcebergPayload_PayloadType = 7
 	IcebergPayload_UPLOAD_FILE          IcebergPayload_PayloadType = 8
+	IcebergPayload_GENERATE_FILENAME    IcebergPayload_PayloadType = 9
 )
 
 // Enum value maps for IcebergPayload_PayloadType.
@@ -47,6 +48,7 @@ var (
 		6: "REGISTER",
 		7: "GET_FIELD_ID",
 		8: "UPLOAD_FILE",
+		9: "GENERATE_FILENAME",
 	}
 	IcebergPayload_PayloadType_value = map[string]int32{
 		"RECORDS":              0,
@@ -58,6 +60,7 @@ var (
 		"REGISTER":             6,
 		"GET_FIELD_ID":         7,
 		"UPLOAD_FILE":          8,
+		"GENERATE_FILENAME":    9,
 	}
 )
 
@@ -151,7 +154,8 @@ func (x *IcebergPayload) GetRecords() []*IcebergPayload_IceRecord {
 type RecordIngestResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Result        string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"` // Adding success boolean for better error handling
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`        // Adding success boolean for better error handling
+	Filename      *string                `protobuf:"bytes,3,opt,name=filename,proto3,oneof" json:"filename,omitempty"` // Generated filename for data files
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -200,9 +204,16 @@ func (x *RecordIngestResponse) GetSuccess() bool {
 	return false
 }
 
+func (x *RecordIngestResponse) GetFilename() string {
+	if x != nil && x.Filename != nil {
+		return *x.Filename
+	}
+	return ""
+}
+
 type IcebergPayload_FileMetadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileType      string                 `protobuf:"bytes,1,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"` // "data" or "delete"
+	FileType      string                 `protobuf:"bytes,1,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`
 	FilePath      string                 `protobuf:"bytes,2,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -255,10 +266,10 @@ func (x *IcebergPayload_FileMetadata) GetFilePath() string {
 type IcebergPayload_FileUploadRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	FileData        []byte                 `protobuf:"bytes,1,opt,name=file_data,json=fileData,proto3" json:"file_data,omitempty"`
-	FileType        string                 `protobuf:"bytes,2,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`             // "data" or "delete"
-	PartitionKey    string                 `protobuf:"bytes,3,opt,name=partition_key,json=partitionKey,proto3" json:"partition_key,omitempty"` // optional partition path
+	FileType        string                 `protobuf:"bytes,2,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`
+	PartitionKey    string                 `protobuf:"bytes,3,opt,name=partition_key,json=partitionKey,proto3" json:"partition_key,omitempty"`
 	Filename        string                 `protobuf:"bytes,4,opt,name=filename,proto3" json:"filename,omitempty"`
-	EqualityFieldId int32                  `protobuf:"varint,5,opt,name=equality_field_id,json=equalityFieldId,proto3" json:"equality_field_id,omitempty"` // for delete files
+	EqualityFieldId int32                  `protobuf:"varint,5,opt,name=equality_field_id,json=equalityFieldId,proto3" json:"equality_field_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -704,7 +715,7 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xa8\r\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xbf\r\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
@@ -753,7 +764,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
 	"bytesValueB\a\n" +
-	"\x05value\"\xad\x01\n" +
+	"\x05value\"\xc4\x01\n" +
 	"\vPayloadType\x12\v\n" +
 	"\aRECORDS\x10\x00\x12\n" +
 	"\n" +
@@ -765,10 +776,13 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x14REFRESH_TABLE_SCHEMA\x10\x05\x12\f\n" +
 	"\bREGISTER\x10\x06\x12\x10\n" +
 	"\fGET_FIELD_ID\x10\a\x12\x0f\n" +
-	"\vUPLOAD_FILE\x10\b\"H\n" +
+	"\vUPLOAD_FILE\x10\b\x12\x15\n" +
+	"\x11GENERATE_FILENAME\x10\t\"v\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess2\x8a\x01\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x1f\n" +
+	"\bfilename\x18\x03 \x01(\tH\x00R\bfilename\x88\x01\x01B\v\n" +
+	"\t_filename2\x8a\x01\n" +
 	"\x13RecordIngestService\x12s\n" +
 	"\vSendRecords\x12..io.debezium.server.iceberg.rpc.IcebergPayload\x1a4.io.debezium.server.iceberg.rpc.RecordIngestResponseB\x0fZ\riceberg/protob\x06proto3"
 
@@ -819,6 +833,7 @@ func file_records_ingest_proto_init() {
 	if File_records_ingest_proto != nil {
 		return
 	}
+	file_records_ingest_proto_msgTypes[1].OneofWrappers = []any{}
 	file_records_ingest_proto_msgTypes[4].OneofWrappers = []any{}
 	file_records_ingest_proto_msgTypes[7].OneofWrappers = []any{
 		(*IcebergPayload_IceRecord_FieldValue_StringValue)(nil),

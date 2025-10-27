@@ -254,7 +254,7 @@ public class IcebergUtil {
 
   public static OutputFileFactory getTableOutputFileFactory(Table icebergTable, FileFormat format) {
     return OutputFileFactory.builderFor(icebergTable,
-            IcebergUtil.partitionId(), 1L)
+            0, 0L)
         .defaultSpec(icebergTable.spec())
         .operationId(UUID.randomUUID().toString())
         .format(format)
