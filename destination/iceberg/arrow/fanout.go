@@ -119,24 +119,29 @@ func transformValue(val any, transform string, colType string) (any, error) {
 	}
 }
 
-func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRecord, error) {
+func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRecord, []types.RawRecord, error) {
 	partitionedData := make(map[string][]types.RawRecord)
+	deleteRecords := make([]types.RawRecord, 0)
 
 	for _, rec := range records {
+		if rec.OperationType == "d" {
+			deleteRecords = append(deleteRecords, rec)
+		}
+
 		pKey, err := f.createPartitionKey(rec)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		partitionedData[pKey] = append(partitionedData[pKey], rec)
 	}
 
-	return partitionedData, nil
+	return partitionedData, deleteRecords, nil
 }
 
-func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []arrow.Field) ([]*FileUploadData, error) {
-	partitionedData, err := f.partition(records)
+func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []arrow.Field) ([]*FileUploadData, []types.RawRecord, error) {
+	partitionedData, deleteRecords, err := f.partition(records)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	uploadDataList := make([]*FileUploadData, 0, len(partitionedData))
@@ -144,20 +149,20 @@ func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []
 	for partitionKey, rawData := range partitionedData {
 		rec, err := CreateArrowRecordWithFields(rawData, fields, f.Normalization)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create arrow record for partition %s: %w", partitionKey, err)
+			return nil, nil, fmt.Errorf("failed to create arrow record for partition %s: %w", partitionKey, err)
 		}
 
 		writer := f.getOrCreateRollingWriter(partitionKey)
 		uploadData, err := writer.Write(rec)
 		if err != nil {
-			return uploadDataList, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)
+			return uploadDataList, nil, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)
 		}
 		if uploadData != nil {
 			uploadDataList = append(uploadDataList, uploadData)
 		}
 	}
 
-	return uploadDataList, nil
+	return uploadDataList, deleteRecords, nil
 }
 
 func (f *Fanout) Close() ([]*FileUploadData, error) {

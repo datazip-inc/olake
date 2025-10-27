@@ -48,7 +48,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 			aw.partitionedWriter.Normalization = aw.iceberg.stream.NormalizationEnabled()
 		}
 
-		uploadDataList, err := aw.partitionedWriter.Write(ctx, records, arrowFields)
+		uploadDataList, deleteRecords, err := aw.partitionedWriter.Write(ctx, records, arrowFields)
 		if err != nil {
 			return fmt.Errorf("failed to write partitioned data using fanout writer: %v", err)
 		}
@@ -63,6 +63,49 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 				if aw.iceberg.createdFilePaths == nil {
 					aw.iceberg.createdFilePaths = make([][]string, 0)
 				}
+				aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, []string{uploadData.FileType, storagePath})
+			}
+		}
+
+		if len(deleteRecords) > 0 {
+			fieldId, err := aw.iceberg.GetFieldId(ctx, "_olake_id")
+			if err != nil {
+				return fmt.Errorf("failed to get field ID for _olake_id: %w", err)
+			}
+
+			if aw.deleteFileWriter == nil {
+				aw.deleteFileWriter = arrow_writer.NewRollingWriter(context.Background(), "", "delete")
+				aw.deleteFileWriter.FieldId = fieldId
+			}
+
+			deletes := make([]types.RawRecord, 0, len(deleteRecords))
+			for _, rec := range deleteRecords {
+				r := types.RawRecord{OlakeID: rec.OlakeID}
+				deletes = append(deletes, r)
+			}
+
+			rec, err := arrow_writer.CreateDeleteFiles(deletes, fieldId)
+			if err != nil {
+				return fmt.Errorf("failed to create delete record: %w", err)
+			}
+
+			defer rec.Release()
+
+			uploadData, err := aw.deleteFileWriter.Write(rec)
+			if err != nil {
+				return fmt.Errorf("failed to write delete arrow record to parquet: %w", err)
+			}
+
+			if uploadData != nil {
+				storagePath, err := aw.iceberg.UploadParquetFile(ctx, uploadData.FileData, uploadData.FileType,
+					uploadData.PartitionKey, uploadData.Filename, uploadData.EqualityFieldId)
+				if err != nil {
+					return fmt.Errorf("failed to upload delete file via Iceberg FileIO: %w", err)
+				}
+				if aw.iceberg.createdFilePaths == nil {
+					aw.iceberg.createdFilePaths = make([][]string, 0)
+				}
+
 				aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, []string{uploadData.FileType, storagePath})
 			}
 		}
