@@ -232,21 +232,21 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) removeLocalFile(filePath, reason string) {
-	err := os.Remove(filePath)
-	if err != nil {
-		logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (%s): %s", p.options.ThreadID, filePath, reason, err)
-		return
-	}
-	logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
-}
-
 func (p *Parquet) closePqFiles(closeOnError bool) error {
+	removeLocalFile := func(filePath, reason string) {
+		err := os.Remove(filePath)
+		if err != nil {
+			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (%s): %s", p.options.ThreadID, filePath, reason, err)
+			return
+		}
+		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
+	}
+
 	for basePath, parquetFile := range p.partitionedFiles {
 		// construct full file path
 		filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
 		if closeOnError {
-			p.removeLocalFile(filePath, "closing parquet files")
+			removeLocalFile(filePath, "closing parquet files due to retry attempt")
 		}
 
 		// Close writers
@@ -293,7 +293,7 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 			}
 
 			// Remove local file after successful upload
-			p.removeLocalFile(filePath, "uploaded to S3")
+			removeLocalFile(filePath, "uploaded to S3")
 			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3KeyPath)
 		}
 	}
@@ -305,7 +305,7 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 func (p *Parquet) Close(ctx context.Context, closeOnError bool) error {
 	select {
 	case <-ctx.Done():
-		return p.closePqFiles(true)
+		return p.closePqFiles(ctx.Err() != nil)
 	default:
 		return p.closePqFiles(closeOnError)
 	}
