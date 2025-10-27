@@ -183,22 +183,27 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 		r.currentWriter = writer
 		r.currentRowCount = 0
 		r.currentCompressedSize = 0
-		logger.Infof("Starting delete file: %s with field ID %d", r.currentFile, r.FieldId)
+		if r.fileType == "delete" {
+			logger.Infof("Starting delete file: %s with field ID %d", r.currentFile, r.FieldId)
+		} else {
+			logger.Infof("Starting data file: %s (partition: %s)", r.currentFile, r.partitionKey)
+		}
 	}
 
 	if err := r.currentWriter.WriteBuffered(record); err != nil {
-		return nil, fmt.Errorf("failed to write buffered delete record: %w", err)
+		return nil, fmt.Errorf("failed to write buffered record: %w", err)
 	}
 
-	record.Release()
 	r.currentRowCount += record.NumRows()
+	record.Release()
+
+	if numRows, err := r.currentWriter.RowGroupNumRows(); err == nil && numRows > 0 {
+		r.currentWriter.NewBufferedRowGroup()
+	}
 
 	sizeSoFar := int64(0)
 	if r.currentBuffer != nil {
-		sizeSoFar += int64(r.currentBuffer.Len())
-	}
-	if r.currentWriter != nil {
-		sizeSoFar += r.currentWriter.RowGroupTotalCompressedBytes()
+		sizeSoFar = int64(r.currentBuffer.Len())
 	}
 	r.currentCompressedSize = sizeSoFar
 
