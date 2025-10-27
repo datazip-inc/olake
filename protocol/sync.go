@@ -137,6 +137,8 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
 		state.LogWithLock()
+
+		// TODO: record count also contain records which arrived in retry attempts, need to remove them
 		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
 		return nil
 	},

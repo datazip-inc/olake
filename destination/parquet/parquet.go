@@ -232,19 +232,22 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) closePqFiles() error {
-	removeLocalFile := func(filePath, reason string) {
-		err := os.Remove(filePath)
-		if err != nil {
-			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (%s): %s", p.options.ThreadID, filePath, reason, err)
-			return
-		}
-		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
+func (p *Parquet) removeLocalFile(filePath, reason string) {
+	err := os.Remove(filePath)
+	if err != nil {
+		logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (%s): %s", p.options.ThreadID, filePath, reason, err)
+		return
 	}
+	logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
+}
 
+func (p *Parquet) closePqFiles(closeOnError bool) error {
 	for basePath, parquetFile := range p.partitionedFiles {
 		// construct full file path
 		filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
+		if closeOnError {
+			p.removeLocalFile(filePath, "closing parquet files")
+		}
 
 		// Close writers
 		var err error
@@ -290,7 +293,7 @@ func (p *Parquet) closePqFiles() error {
 			}
 
 			// Remove local file after successful upload
-			removeLocalFile(filePath, "uploaded to S3")
+			p.removeLocalFile(filePath, "uploaded to S3")
 			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3KeyPath)
 		}
 	}
@@ -299,8 +302,13 @@ func (p *Parquet) closePqFiles() error {
 	return nil
 }
 
-func (p *Parquet) Close(_ context.Context) error {
-	return p.closePqFiles()
+func (p *Parquet) Close(ctx context.Context, closeOnError bool) error {
+	select {
+	case <-ctx.Done():
+		return p.closePqFiles(true)
+	default:
+		return p.closePqFiles(closeOnError)
+	}
 }
 
 // validate schema change & evolution and removes null records
@@ -380,7 +388,7 @@ func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 
 	// TODO: can we implement something https://github.com/parquet-go/parquet-go?tab=readme-ov-file#evolving-parquet-schemas-parquetconvert
 	// close prev files as change detected (new files will be created with new schema)
-	return p.schema.Clone(), p.closePqFiles()
+	return p.schema.Clone(), p.closePqFiles(false)
 }
 
 // Type returns the type of the writer.

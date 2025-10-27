@@ -37,12 +37,12 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
-			a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+			a.state.SetCursor(stream.Self(), primaryCursor, a.formatTimestampToUTC(maxPrimaryCursorValue))
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
 			if secondaryCursor != "" {
-				a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, a.formatTimestampToUTC(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
 					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
 				}
@@ -90,9 +90,11 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				if err != nil {
 					return fmt.Errorf("failed to create new writer thread: %s", err)
 				}
+
 				logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
+
 				defer func() {
-					if threadErr := inserter.Close(incrementalCtx); threadErr != nil {
+					if threadErr := inserter.Close(incrementalCtx, err != nil); threadErr != nil {
 						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 					}
 
@@ -103,20 +105,21 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+						a.state.SetCursor(stream.Self(), primaryCursor, a.formatTimestampToUTC(maxPrimaryCursorValue))
+						a.state.SetCursor(stream.Self(), secondaryCursor, a.formatTimestampToUTC(maxSecondaryCursorValue))
 					} else {
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
 				}()
+
 				return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
 					if attempt > 0 {
 						// close prev writer
-						inserter.Close(incrementalCtx)
+						_ = inserter.Close(incrementalCtx, true)
 
 						// create new incremental context
 						incrementalCtx, incrementalCtxCancel = context.WithCancel(ctx)
-						threadID = fmt.Sprintf("%s-retry-attempt-%d", threadID, attempt)
+						threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
 
 						// re-initialize inserter
 						inserter, err = pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
@@ -127,9 +130,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
 						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
-						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
-						id := utils.GetKeysHash(record, pk...)
-						return inserter.Push(ctx, types.CreateRawRecord(id, record, "u", nil))
+						return inserter.Push(ctx, types.CreateRawRecord(utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...), record, "u", nil))
 					})
 				})
 			})
@@ -178,8 +179,8 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 	return primaryCursorValue, secondaryCursorValue
 }
 
-// reformatCursorValue is used to make time format consistent in state (Removing timezone info)
-func (a *AbstractDriver) reformatCursorValue(cursorValue any) any {
+// formatTimestampToUTC is used to make time format consistent in state (Removing timezone info)
+func (a *AbstractDriver) formatTimestampToUTC(cursorValue any) any {
 	if _, ok := cursorValue.(time.Time); ok {
 		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
 	}

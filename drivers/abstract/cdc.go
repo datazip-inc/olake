@@ -67,9 +67,11 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					if err != nil {
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
 					}
+
 					logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, streams[index].ID())
+
 					defer func() {
-						if threadErr := inserter.Close(cdcCtx); threadErr != nil {
+						if threadErr := inserter.Close(cdcCtx, err != nil); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
 
@@ -78,7 +80,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 						}
 
-						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(cdcCtx, streams[index], err == nil)
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -87,14 +89,15 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("thread[%s]: %s", threadID, err)
 						}
 					}()
+
 					return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
 						if attempt > 0 {
 							// close prev writer
-							inserter.Close(cdcCtx)
+							_ = inserter.Close(cdcCtx, true)
 
 							// create new cdc context
 							cdcCtx, cdcCtxCancel = context.WithCancel(ctx)
-							threadID = fmt.Sprintf("%s-retry-attempt-%d", threadID, attempt)
+							threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
 
 							// re-initialize inserter
 							inserter, err = pool.NewWriter(cdcCtx, streams[index], destination.WithBackfill(true), destination.WithThreadID(threadID))
@@ -143,9 +146,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
+
 		defer func() {
 			for stream, insert := range inserters {
-				if threadErr := insert.Close(cdcCtx); threadErr != nil {
+				if threadErr := insert.Close(cdcCtx, err != nil); threadErr != nil {
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
@@ -155,16 +159,17 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 			}
 
-			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(cdcCtx, nil, err == nil)
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}
 		}()
+
 		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
 			if attempt > 0 {
 				// close all prev writers
 				for _, insert := range inserters {
-					insert.Close(cdcCtx)
+					_ = insert.Close(cdcCtx, true)
 				}
 
 				// create new cdc context
@@ -172,7 +177,8 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 
 				// re-initialize all inserters
 				for stream := range inserters {
-					threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+					// no relation with prev thread id, should not we also provide prev thread id for reference?
+					threadID := utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", utils.ULID()), utils.ULID()).(string)
 					inserters[stream], err = pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID))
 					if err != nil {
 						return fmt.Errorf("failed to create new writer thread: %s", err)
