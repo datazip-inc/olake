@@ -124,7 +124,7 @@ func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRec
 	deleteRecords := make([]types.RawRecord, 0)
 
 	for _, rec := range records {
-		if rec.OperationType == "d" {
+		if rec.OperationType == "d" || rec.OperationType == "u" {
 			deleteRecords = append(deleteRecords, rec)
 		}
 

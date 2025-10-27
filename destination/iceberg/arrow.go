@@ -117,7 +117,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 		deletes := make([]types.RawRecord, 0)
 
 		for _, rec := range records {
-			if rec.OperationType == "d" {
+			if rec.OperationType == "d" || rec.OperationType == "u" {
 				r := types.RawRecord{OlakeID: rec.OlakeID}
 				deletes = append(deletes, r)
 			}
