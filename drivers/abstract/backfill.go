@@ -17,7 +17,6 @@ import (
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
-	isResumedSync := false
 	if chunksSet == nil || chunksSet.Len() == 0 {
 		chunksSet, err = a.driver.GetOrSplitChunks(ctx, pool, stream)
 		if err != nil {
@@ -32,8 +31,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		}
 	} else {
 		// This is a resumed sync - restore stats from state
-		isResumedSync = true
-
 		if a.state.GetTotalRecordCount(stream.Self()) > 0 {
 			logger.Infof("Resuming sync for stream %s: total records = %d", stream.ID(), a.state.GetTotalRecordCount(stream.Self()))
 			// Restore total count to pool stats for progress tracking
@@ -52,9 +49,9 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	sort.Slice(chunks, func(i, j int) bool {
 		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
-	if !isResumedSync {
-		logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
-	}
+
+	logger.Infof("Processing backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
+
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
