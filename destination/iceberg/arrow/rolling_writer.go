@@ -21,7 +21,7 @@ import (
 var totalDataFiles atomic.Int64
 
 const (
-	targetFileSize  = int64(27*1024*1024 - 1*1024*1024)
+	targetFileSize  = int64(350 *1024 * 1024 - 1 * 1024 * 1024)
 	streamChunkSize = int64(8 * 1024 * 1024)
 )
 
@@ -73,7 +73,8 @@ func (r *RollingWriter) flush() (*FileUploadData, error) {
 		return nil, err
 	}
 
-	// TODO: create a java api to get the total count of files written
+	// TODO: create a java api to get the total count of files written or,
+	// move the file naming part to java server
 	totalDataFiles.Add(1)
 
 	fileData := make([]byte, r.currentBuffer.Len())

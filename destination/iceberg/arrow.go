@@ -90,7 +90,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 				deletes = append(deletes, r)
 			}
 
-			rec, err := arrow_writer.CreateDeleteFiles(deletes, fieldId)
+			rec, err := arrow_writer.CreateDelArrRecord(deletes, fieldId)
 			if err != nil {
 				return fmt.Errorf("failed to create delete record: %w", err)
 			}
@@ -140,7 +140,7 @@ func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecor
 				aw.deleteFileWriter.FieldId = fieldId
 			}
 
-			rec, err := arrow_writer.CreateDeleteFiles(deletes, fieldId)
+			rec, err := arrow_writer.CreateDelArrRecord(deletes, fieldId)
 			if err != nil {
 				return fmt.Errorf("failed to create delete record: %w", err)
 			}

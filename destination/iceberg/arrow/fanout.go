@@ -30,7 +30,7 @@ func NewFanoutWriter(ctx context.Context, p []destination.PartitionInfo, schema 
 	}
 }
 
-func (f *Fanout) getOrCreateRollingWriter(partitionKey string) *RollingWriter {
+func (f *Fanout) getOrCreateRollingDataWriter(partitionKey string) *RollingWriter {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -39,7 +39,7 @@ func (f *Fanout) getOrCreateRollingWriter(partitionKey string) *RollingWriter {
 			return writer
 		}
 
-		return nil
+		panic("race: multiple creation of rolling data writers detected")
 	}
 
 	writer := NewRollingWriter(context.Background(), partitionKey, "data")
@@ -132,6 +132,7 @@ func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRec
 		if err != nil {
 			return nil, nil, err
 		}
+		
 		partitionedData[pKey] = append(partitionedData[pKey], rec)
 	}
 
@@ -152,7 +153,7 @@ func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []
 			return nil, nil, fmt.Errorf("failed to create arrow record for partition %s: %w", partitionKey, err)
 		}
 
-		writer := f.getOrCreateRollingWriter(partitionKey)
+		writer := f.getOrCreateRollingDataWriter(partitionKey)
 		uploadData, err := writer.Write(rec)
 		if err != nil {
 			return uploadDataList, nil, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)

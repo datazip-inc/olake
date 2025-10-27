@@ -22,16 +22,16 @@ message IcebergPayload {
   PayloadType type = 1;
 
   message FileMetadata {
-    string file_type = 1;  // "data" or "delete"
+    string file_type = 1;  
     string file_path = 2;
   }
 
   message FileUploadRequest {
     bytes file_data = 1;
-    string file_type = 2;  // "data" or "delete"
-    string partition_key = 3;  // optional partition path
+    string file_type = 2;  
+    string partition_key = 3;  
     string filename = 4;
-    int32 equality_field_id = 5;  // for delete files
+    int32 equality_field_id = 5; 
   }
 
   message Metadata {
@@ -39,7 +39,7 @@ message IcebergPayload {
     string thread_id = 2;
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
-    repeated string file_paths = 5;  // Deprecated: use file_metadata instead
+    repeated string file_paths = 5; 
     repeated FileMetadata file_metadata = 7;
     optional string field_name = 6;
     optional FileUploadRequest file_upload = 8;

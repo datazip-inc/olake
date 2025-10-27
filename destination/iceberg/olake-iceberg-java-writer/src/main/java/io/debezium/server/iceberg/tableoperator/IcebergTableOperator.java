@@ -244,8 +244,6 @@ public class IcebergTableOperator {
 
                     LOGGER.info("Thread {}: registering delete file: {} (size: {} bytes)", threadId, filePath, fileSize);
 
-                    // Create a DeleteFile object from the existing file
-                    // Specify that this is an equality delete file using the provided field ID
                     DeleteFile deleteFile = FileMetadata.deleteFileBuilder(table.spec())
                          .ofEqualityDeletes(equalityFieldId)
                          .withPath(filePath)

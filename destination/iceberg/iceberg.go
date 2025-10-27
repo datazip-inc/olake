@@ -26,7 +26,7 @@ type Iceberg struct {
 	server           *serverInstance             // java server instance
 	schema           map[string]string           // schema for current thread associated with java writer (col -> type)
 	createdFilePaths [][]string                  // list of created parquet file paths
-	arrowWriter      *ArrowWriter                // Per-thread streaming arrow writer
+	arrowWriter      *ArrowWriter                // per-thread streaming arrow writer
 	// Why Schema On Thread Level ?
 
 	// Schema on thread level is identical to writer instance that is available in java server
@@ -148,7 +148,6 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 					protoColumnsValue = append(protoColumnsValue, nil)
 					continue
 				}
-
 				switch field.IceType {
 				case "boolean":
 					boolValue, err := typeutils.ReformatBool(val)
@@ -269,7 +268,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 
 		fileMetadata := make([]*proto.IcebergPayload_FileMetadata, 0, len(i.createdFilePaths))
 		for _, pathInfo := range i.createdFilePaths {
-			// we don't need an if condition here: need to check after partitioned writer
 			if len(pathInfo) >= 2 && pathInfo[1] != "" {
 				fileMetadata = append(fileMetadata, &proto.IcebergPayload_FileMetadata{
 					FileType: pathInfo[0],
@@ -737,6 +735,10 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
 }
 
+// This function returns the 'field-id' of a column from the iceberg table
+// This is required while creating equality delete files as the `field-id` value of the column
+// is stored in the metadata of the equality delete file
+// Possible Fix: hard code the olake fields to specific field ids while creating every iceberg table
 func (i *Iceberg) GetFieldId(ctx context.Context, fieldName string) (int, error) {
 	if i.server == nil {
 		return -1, fmt.Errorf("iceberg server not initialized")

@@ -64,7 +64,7 @@ func CreateDeNormFields() []arrow.Field {
 	return fields
 }
 
-func CreateDeleteFiles(records []types.RawRecord, fieldId int) (arrow.Record, error) {
+func CreateDelArrRecord(records []types.RawRecord, fieldId int) (arrow.Record, error) {
 	if len(records) == 0 {
 		return nil, fmt.Errorf("no records provided")
 	}
