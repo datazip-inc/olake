@@ -193,7 +193,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
-		batchSize:      5000,
+		batchSize:      10000,
 		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,

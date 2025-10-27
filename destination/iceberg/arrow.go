@@ -3,6 +3,7 @@ package iceberg
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	arrow_writer "github.com/datazip-inc/olake/destination/iceberg/arrow"
@@ -38,6 +39,11 @@ func (i *Iceberg) NewArrowWriter() (*ArrowWriter, error) {
 func (aw *ArrowWriter) ArrowWrites(ctx context.Context, records []types.RawRecord) error {
 	if len(records) == 0 {
 		return nil
+	}
+
+	now := time.Now().UTC()
+	for i := range records {
+		records[i].OlakeTimestamp = now
 	}
 
 	arrowFields := aw.fields

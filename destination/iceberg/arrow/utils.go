@@ -1,6 +1,7 @@
 package arrow
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -129,9 +129,13 @@ func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field
 			if val == nil {
 				recordBuilder.Field(idx).AppendNull()
 			} else {
-				if err := AppendValueToBuilder(recordBuilder.Field(idx), val, field.Type); err != nil {
-					logger.Warnf("failed to append value for field %s: %v", field.Name, err)
-					recordBuilder.Field(idx).AppendNull()
+				if err := AppendValueToBuilder(recordBuilder.Field(idx), val, field.Type, field.Name, normalization); err != nil {
+					// for _cdc_timestamp col, we append null in case of full refresh
+					if field.Name == "_cdc_timestamp" {
+						recordBuilder.Field(idx).AppendNull()
+					} else {
+						return nil, fmt.Errorf("cannot identify value for the col %v", field.Name)
+					}
 				}
 			}
 		}
@@ -142,7 +146,7 @@ func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field
 	return arrowRecord, nil
 }
 
-func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arrow.DataType) error {
+func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arrow.DataType, fieldName string, normalization bool) error {
 	switch builder := builder.(type) {
 	case *array.BooleanBuilder:
 		if boolVal, err := typeutils.ReformatBool(val); err == nil {
@@ -182,7 +186,21 @@ func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arro
 			return err
 		}
 	case *array.StringBuilder:
-		builder.Append(fmt.Sprintf("%v", val))
+		// OLake converts the data column to json format for a denormalized table
+		if !normalization && fieldName == "data" {
+			switch v := val.(type) {
+			case map[string]interface{}:
+				jsonBytes, err := json.Marshal(v)
+				if err != nil {
+					return fmt.Errorf("failed to marshal map to JSON: %w", err)
+				}
+				builder.Append(string(jsonBytes))
+			default:
+				builder.Append(fmt.Sprintf("%v", val))
+			}
+		} else {
+			builder.Append(fmt.Sprintf("%v", val))
+		}
 	default:
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
