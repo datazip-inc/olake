@@ -9,21 +9,22 @@ import (
 
 // ReaderConfig holds configuration for creating Kafka readers
 type ReaderConfig struct {
-	BootstrapServers            string
 	MaxThreads                  int
+	ThreadsEqualTotalPartitions bool
+	BootstrapServers            string
 	ConsumerGroupID             string
+	AutoOffsetReset             string
 	Dialer                      *kafka.Dialer
 	AdminClient                 *kafka.Client
-	ThreadsEqualTotalPartitions bool
 }
 
 // ReaderManager manages Kafka readers and their metadata
 type ReaderManager struct {
 	config             ReaderConfig
-	partitionIndex     map[string]types.PartitionMetaData
 	readers            map[string]*kafka.Reader
-	readerLastMessages sync.Map // map[string]map[partKey]kafka.Message
+	partitionIndex     map[string]types.PartitionMetaData
 	readerClientIDs    map[string]string
+	readerLastMessages sync.Map // map[string]map[partKey]kafka.Message
 }
 
 // CustomGroupBalancer ensures proper consumer ID distribution according to requirements

@@ -14,6 +14,7 @@ type Config struct {
 	MaxThreads                  int            `json:"max_threads"`
 	RetryCount                  int            `json:"backoff_retry_count"`
 	ThreadsEqualTotalPartitions bool           `json:"threads_equal_total_partitions,omitempty"`
+	AutoOffsetReset             string         `json:"auto_offset_reset,omitempty"`
 }
 
 type ProtocolConfig struct {
@@ -47,5 +48,10 @@ func (c *Config) Validate() error {
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
+
+	if c.AutoOffsetReset != "" && c.AutoOffsetReset != "earliest" && c.AutoOffsetReset != "latest" {
+		return fmt.Errorf("auto_offset_reset must be either 'earliest' or 'latest'")
+	}
+
 	return utils.Validate(c)
 }

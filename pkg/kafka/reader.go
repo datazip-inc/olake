@@ -152,10 +152,11 @@ func (krm *ReaderManager) SetPartitions(ctx context.Context, stream types.Stream
 			continue
 		}
 
-		// decide start offset (same as committed if any)
+		// decide start offset
 		startOffset := committedOffset
 		if !hasCommittedOffset {
-			startOffset = idx.LastOffset
+			// no committed offset available, auto_offset_reset setting will be used
+			startOffset = utils.Ternary(krm.config.AutoOffsetReset == "earliest", idx.FirstOffset, idx.LastOffset).(int64)
 		}
 
 		pm := types.PartitionMetaData{

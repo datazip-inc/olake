@@ -42,6 +42,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		Dialer:                      k.dialer,
 		AdminClient:                 k.adminClient,
 		ThreadsEqualTotalPartitions: k.config.ThreadsEqualTotalPartitions,
+		AutoOffsetReset:             k.config.AutoOffsetReset,
 	}
 	readerManager := kafkapkg.NewReaderManager(readerConfig)
 
@@ -57,10 +58,10 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 
 	for readerID, messages := range readerLastMessages {
 		kafkaMessages := make(map[types.PartitionKey]kafka.Message)
-		for pk, msg := range messages {
+		for partitionKey, message := range messages {
 			// Convert types.PartitionKey from pkg format to driver format
-			partiKey := types.PartitionKey{Topic: pk.Topic, Partition: pk.Partition}
-			kafkaMessages[partiKey] = msg
+			currentPartitionKey := types.PartitionKey{Topic: partitionKey.Topic, Partition: partitionKey.Partition}
+			kafkaMessages[currentPartitionKey] = message
 		}
 		k.readerLastMessages.Store(readerID, kafkaMessages)
 	}
@@ -87,47 +88,44 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 		}
 	}()
 	for {
-		// logger.Infof("reader %s fetching message", readerID)
-		msg, err := reader.FetchMessage(ctx)
+		message, err := reader.FetchMessage(ctx)
 		if err != nil {
 			return fmt.Errorf("error reading message in Kafka CDC sync: %w", err)
 		}
 
-		// logger.Infof("reader %s fetched message: %v, %v", readerID, msg.Partition, msg.Topic)
-
 		// Get current partition metadata and key
-		currentPartitionKey := types.PartitionKey{Topic: msg.Topic, Partition: msg.Partition}
-		currentPartitionMeta, exists := k.partitionIndex[fmt.Sprintf("%s:%d", msg.Topic, msg.Partition)]
+		currentPartitionKey := types.PartitionKey{Topic: message.Topic, Partition: message.Partition}
+		currentPartitionMeta, exists := k.partitionIndex[fmt.Sprintf("%s:%d", message.Topic, message.Partition)]
 		if !exists {
-			return fmt.Errorf("missing partition index for topic %s partition %d", msg.Topic, msg.Partition)
+			return fmt.Errorf("missing partition index for topic %s partition %d", message.Topic, message.Partition)
 		}
 
-		// Skip messages before start offset (for incremental sync from specific point)
-		if currentPartitionMeta.StartOffset > 0 && msg.Offset < currentPartitionMeta.StartOffset {
+		// Skip messages before start offset (can happen during retries or partition reassignment)
+		if currentPartitionMeta.StartOffset > 0 && message.Offset < currentPartitionMeta.StartOffset {
 			continue
 		}
 
 		// Process message data
 		messageData := func() map[string]any {
 			var result map[string]any
-			if msg.Value == nil {
-				logger.Warnf("received nil message value at offset %d for topic %s, partition %d", msg.Offset, msg.Topic, msg.Partition)
+			if message.Value == nil {
+				logger.Warnf("received nil message value at offset %d for topic %s, partition %d", message.Offset, message.Topic, message.Partition)
 				return nil
 			}
-			if err := json.Unmarshal(msg.Value, &result); err != nil {
+			if err := json.Unmarshal(message.Value, &result); err != nil {
 				logger.Errorf("failed to unmarshal message value: %v", err)
 				return nil
 			}
-			result["partition"] = msg.Partition
-			result["offset"] = msg.Offset
-			result["key"] = string(msg.Key)
-			result["kafka_timestamp"] = msg.Time.UnixMilli()
+			result["partition"] = message.Partition
+			result["offset"] = message.Offset
+			result["key"] = string(message.Key)
+			result["kafka_timestamp"] = message.Time.UnixMilli()
 			return result
 		}()
 		if messageData == nil {
 			// Even for nil data, we need to track the message for offset commit and check if partition is complete
-			lastMessages[currentPartitionKey] = msg
-			if msg.Offset >= currentPartitionMeta.EndOffset-1 {
+			lastMessages[currentPartitionKey] = message
+			if message.Offset >= currentPartitionMeta.EndOffset-1 {
 				shouldExit, err := k.checkPartitionCompletion(ctx, readerID, currentPartitionKey, completedPartitions, observedPartitions)
 				if err != nil {
 					return err
@@ -142,7 +140,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 		// Process the change
 		if err := processFn(ctx, abstract.CDCChange{
 			Stream:    currentPartitionMeta.Stream,
-			Timestamp: msg.Time,
+			Timestamp: message.Time,
 			Kind:      "create",
 			Data:      messageData,
 		}); err != nil {
@@ -150,10 +148,10 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 		}
 
 		// Track last message
-		lastMessages[currentPartitionKey] = msg
+		lastMessages[currentPartitionKey] = message
 
 		// Check if partition is complete
-		if msg.Offset >= currentPartitionMeta.EndOffset-1 {
+		if message.Offset >= currentPartitionMeta.EndOffset-1 {
 			shouldExit, err := k.checkPartitionCompletion(ctx, readerID, currentPartitionKey, completedPartitions, observedPartitions)
 			if err != nil {
 				return err
@@ -173,14 +171,14 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 	// Get accumulated messages for this reader
 	lastMessagesMeta, hasMessages := k.readerLastMessages.Load(readerID)
 	if !hasMessages {
-		logger.Infof("PostCDC: reader %s has no accumulated offsets to commit", readerID)
+		logger.Infof("reader %s has no accumulated offsets to commit", readerID)
 		return nil
 	}
 
 	// Type assert and validate messages
 	lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]kafka.Message)
 	if !isValid || len(lastMessages) == 0 {
-		logger.Infof("PostCDC: reader %s has no accumulated offsets to commit", readerID)
+		logger.Infof("reader %s has no accumulated offsets to commit", readerID)
 		return nil
 	}
 
@@ -202,14 +200,14 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 	if len(messages) > 0 {
 		reader := k.readers[readerID]
 		if reader == nil {
-			return fmt.Errorf("PostCDC: reader %s not found for commit", readerID)
+			return fmt.Errorf("reader %s not found for commit", readerID)
 		}
 
 		if err := reader.CommitMessages(ctx, messages...); err != nil {
-			return fmt.Errorf("PostCDC: commit failed for reader %s: %w", readerID, err)
+			return fmt.Errorf("commit failed for reader %s: %w", readerID, err)
 		}
 
-		logger.Infof("PostCDC: committed %d partitions for reader %s", len(messages), readerID)
+		logger.Infof("committed %d partitions for reader %s", len(messages), readerID)
 	}
 
 	// Update global state with consumer group ID and affected streams
@@ -218,12 +216,8 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 		streamIDs = append(streamIDs, streamID)
 	}
 
-	globalState := map[string]any{
-		"consumer_group_id": k.consumerGroupID,
-	}
-
-	k.state.SetGlobal(globalState, streamIDs...)
-	logger.Infof("PostCDC: updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
+	k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
+	logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
 
 	// Clean up reader buffer
 	k.readerLastMessages.Delete(readerID)
