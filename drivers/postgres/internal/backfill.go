@@ -73,24 +73,33 @@ func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.Write
 
 func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var relPages, blockSize uint32
-		relPagesQuery := jdbc.PostgresRelPageCount(stream)
-		err := p.client.QueryRowContext(ctx, relPagesQuery).Scan(&relPages)
+		var (
+			relpages  uint32
+			maxPageID uint32
+			blockSize uint64
+		)
+
+		// Fetch actual table page stats
+		storageStatsquery := jdbc.PostgresTableStorageStats(stream)
+		err := p.client.QueryRowContext(ctx, storageStatsquery).Scan(&relpages, &maxPageID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get relPages: %s", err)
+			return nil, fmt.Errorf("failed to get table storage stats: %s", err)
 		}
 		blockSizeQuery := jdbc.PostgresBlockSizeQuery()
 		err = p.client.QueryRowContext(ctx, blockSizeQuery).Scan(&blockSize)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get block size: %s", err)
 		}
-		batchSize := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
 
-		relPages = utils.Ternary(relPages == uint32(0), uint32(1), relPages).(uint32)
+		// Calculate pages per chunk
+		batchSize := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
+		if maxPageID <= 0 {
+			maxPageID = uint32(max(1, int(relpages)))
+		}
 		chunks := types.NewSet[types.Chunk]()
-		for start := uint32(0); start < relPages; start += batchSize {
+		for start := uint32(0); start < maxPageID; start += batchSize {
 			end := start + batchSize
-			if end >= relPages {
+			if end >= maxPageID {
 				end = ^uint32(0) // Use max uint32 value for the last range
 			}
 			chunks.Insert(types.Chunk{Min: fmt.Sprintf("'(%d,0)'", start), Max: fmt.Sprintf("'(%d,0)'", end)})

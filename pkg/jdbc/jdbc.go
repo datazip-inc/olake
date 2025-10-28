@@ -130,9 +130,30 @@ func PostgresBlockSizeQuery() string {
 	return `SHOW block_size`
 }
 
-// PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
-func PostgresRelPageCount(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
+// PostgresTableStorageStats returns a query that computes real on-disk
+// page statistics for a PostgreSQL table, including partitioned tables.
+//
+// It returns:
+//   - max_page_id: estimated upper bound of page IDs (using pg_relation_size)
+//   - partition_count: number of partitions (or 1 if not partitioned)
+func PostgresTableStorageStats(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+SELECT
+c.relpages,
+    -- The 1.05 multiplier adds a 5%% safety margin to account for
+    -- page growth or rounding errors in pg_relation_size estimates.
+    CEIL(1.05 * GREATEST(
+        pg_relation_size(c.oid) / current_setting('block_size')::int,
+        COALESCE((
+            SELECT MAX(pg_relation_size(inhrelid) / current_setting('block_size')::int)
+            FROM pg_inherits
+            WHERE inhparent = c.oid
+        ), 0)
+    )) AS max_page_id
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = '%s'
+  AND c.relname = '%s';`, stream.Namespace(), stream.Name())
 }
 
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL
