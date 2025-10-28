@@ -49,7 +49,6 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	sort.Slice(chunks, func(i, j int) bool {
 		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
-
 	logger.Infof("Processing backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 
 	// TODO: create writer instance again on retry

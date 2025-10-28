@@ -250,7 +250,6 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	}
 
 	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
-
 	wt.committedCount += int64(len(buf)) // Track successfully committed records
 
 	return nil
