@@ -135,7 +135,7 @@ func PostgresBlockSizeQuery() string {
 //
 // It returns:
 //   - max_page_id: estimated upper bound of page IDs (using pg_relation_size)
-//   - partition_count: number of partitions (or 1 if not partitioned)
+//   - relpages: estimated page count from pg_class (used as fallback)
 func PostgresTableStorageStats(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
 SELECT
