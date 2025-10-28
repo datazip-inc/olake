@@ -61,7 +61,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	// Get approximate row count from Oracle statistics for progress tracking
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.OracleTableRowStatsQuery()
-	err := o.client.QueryRow(approxRowCountQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount)
+	err := o.client.QueryRowContext(ctx, approxRowCountQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount)
 	if err != nil {
 		logger.Debugf("Table statistics not available for %s.%s, progress tracking disabled. Run DBMS_STATS.GATHER_TABLE_STATS to enable.", stream.Namespace(), stream.Name())
 	} else if approxRowCount > 0 {
