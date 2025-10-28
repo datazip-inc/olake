@@ -64,9 +64,8 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	err := o.client.QueryRowContext(ctx, approxRowCountQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount)
 	if err != nil {
 		logger.Debugf("Table statistics not available for %s.%s, progress tracking disabled. Run DBMS_STATS.GATHER_TABLE_STATS to enable.", stream.Namespace(), stream.Name())
-	} else if approxRowCount > 0 {
-		pool.AddRecordsToSyncStats(approxRowCount)
 	}
+	pool.AddRecordsToSyncStats(approxRowCount)
 
 	splitViaRowId := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		query := jdbc.OracleEmptyCheckQuery(stream)
