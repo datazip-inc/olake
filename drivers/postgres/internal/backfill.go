@@ -73,12 +73,7 @@ func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.Write
 
 func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var (
-			relpages  uint32
-			maxPageID uint32
-			blockSize uint64
-		)
-
+		var relpages, maxPageID, blockSize uint32
 		// Fetch actual table page stats
 		storageStatsquery := jdbc.PostgresTableStorageStats(stream)
 		err := p.client.QueryRowContext(ctx, storageStatsquery).Scan(&relpages, &maxPageID)
