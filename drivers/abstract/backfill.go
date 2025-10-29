@@ -25,16 +25,10 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		// set state chunks
 		a.state.SetChunks(stream.Self(), chunksSet)
 
-		// Persist total record count from pool stats to state for resume capability
+		// Persist remaining record count from pool stats to state for resume capability
+		// Note: The initial count has already been added to pool stats before logger started
 		if pool.GetStats().TotalRecordsToSync.Load() > 0 && a.state != nil {
-			a.state.SetTotalRecordCount(stream.Self(), pool.GetStats().TotalRecordsToSync.Load())
-		}
-	} else {
-		// This is a resumed sync - restore stats from state
-		if a.state.GetTotalRecordCount(stream.Self()) > 0 {
-			logger.Infof("Resuming sync for stream %s: total records = %d", stream.ID(), a.state.GetTotalRecordCount(stream.Self()))
-			// Restore total count to pool stats for progress tracking
-			pool.AddRecordsToSyncStats(a.state.GetTotalRecordCount(stream.Self()))
+			a.state.SetRemainingRecordCount(stream.Self(), pool.GetStats().TotalRecordsToSync.Load())
 		}
 	}
 	chunks := chunksSet.Array()
@@ -74,10 +68,10 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
 
-				// Update synced record count in state based on committed records only
-				// This represents records that have been successfully written to the destination
-				a.state.SetSyncedRecordCount(stream.Self(), a.state.GetSyncedRecordCount(stream.Self())+inserter.GetCommittedCount())
-				logger.Infof("Stream %s: chunk completed with %d committed records (total synced: %d)", stream.ID(), inserter.GetCommittedCount(), a.state.GetSyncedRecordCount(stream.Self()))
+				// Decrement remaining record count by committed records
+				committedCount := inserter.GetCommittedCount()
+				a.state.DecrementRemainingRecordCount(stream.Self(), committedCount)
+				logger.Infof("Stream %s: chunk completed with %d committed records", stream.ID(), committedCount)
 
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
