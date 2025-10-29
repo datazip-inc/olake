@@ -115,14 +115,33 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
+		connector.SetupState(state)
+
+		// Pre-load remaining record counts from state to pool stats for accurate progress tracking
+		for _, stream := range selectedStreamsMetadata.FullLoadStreams {
+			if remainingRecords := state.GetRemainingRecordCount(stream.Self()); remainingRecords > 0 {
+				pool.AddRecordsToSyncStats(remainingRecords)
+				logger.Infof("Pre-loaded remaining records for stream %s: %d", stream.ID(), remainingRecords)
+			}
+		}
+		for _, stream := range selectedStreamsMetadata.CDCStreams {
+			if remainingRecords := state.GetRemainingRecordCount(stream.Self()); remainingRecords > 0 {
+				pool.AddRecordsToSyncStats(remainingRecords)
+				logger.Infof("Pre-loaded remaining records for stream %s: %d", stream.ID(), remainingRecords)
+			}
+		}
+		for _, stream := range selectedStreamsMetadata.IncrementalStreams {
+			if remainingRecords := state.GetRemainingRecordCount(stream.Self()); remainingRecords > 0 {
+				pool.AddRecordsToSyncStats(remainingRecords)
+				logger.Infof("Pre-loaded remaining records for stream %s: %d", stream.ID(), remainingRecords)
+			}
+		}
+
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
 			stats := pool.GetStats()
 			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load()
 		})
-
-		// Setup State for Connector
-		connector.SetupState(state)
 		// Sync Telemetry tracking
 		telemetry.TrackSyncStarted(syncID, streams, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
