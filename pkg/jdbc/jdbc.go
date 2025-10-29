@@ -133,48 +133,60 @@ func PostgresBlockSizeQuery() string {
 // PostgresPartitionPages returns total relpages for each partition and the parent table.
 // This can be used to dynamically adjust chunk sizes based on partition distribution.
 func PostgresPartitionPages(stream types.StreamInterface) string {
-	return fmt.Sprintf(`
-WITH parent AS (
-    SELECT c.oid AS parent_oid
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = '%s'
-      AND c.relname = '%s'
-),
-partitions AS (
-    SELECT
-        child.relname AS name,
-        CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int)) AS pages
-    FROM pg_inherits i
-    JOIN pg_class child ON child.oid = i.inhrelid
-    JOIN parent p ON p.parent_oid = i.inhparent
-    UNION ALL
-    SELECT
-        c.relname AS name,
-        CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int)) AS pages
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = '%s'
-      AND c.relname = '%s'
-)
-SELECT name, pages FROM partitions ORDER BY pages DESC;`,
-		stream.Namespace(), stream.Name(),
-		stream.Namespace(), stream.Name(),
-	)
+    return fmt.Sprintf(`
+        WITH parent AS (
+            SELECT c.oid AS parent_oid
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '%s'
+                AND c.relname = '%s'
+        ),
+        partitions AS (
+            SELECT
+                child.relname AS name,
+                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int)) AS pages
+            FROM pg_inherits i
+            JOIN pg_class child ON child.oid = i.inhrelid
+            JOIN parent p ON p.parent_oid = i.inhparent
+            
+            UNION ALL
+            
+            SELECT
+                c.relname AS name,
+                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int)) AS pages
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '%s'
+                AND c.relname = '%s'
+        )
+        SELECT 
+            name, 
+            pages 
+        FROM partitions 
+        ORDER BY pages DESC;
+    `,
+        stream.Namespace(),
+        stream.Name(),
+        stream.Namespace(),
+        stream.Name(),
+    )
 }
 
 // PostgresIsPartitionedQuery returns a SQL query that checks whether a table is partitioned.
 // It counts how many partitions exist under the given parent table in the specified schema.
 func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf(`
-SELECT COUNT(i.inhrelid)
-FROM pg_inherits i
-JOIN pg_class c ON c.oid = i.inhparent
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = '%s'
-  AND c.relname = '%s';`,
-		stream.Namespace(), stream.Name(),
-	)
+    return fmt.Sprintf(`
+        SELECT 
+            COUNT(i.inhrelid)
+        FROM pg_inherits i
+        JOIN pg_class c ON c.oid = i.inhparent
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = '%s'
+            AND c.relname = '%s';
+    `,
+        stream.Namespace(),
+        stream.Name(),
+    )
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL

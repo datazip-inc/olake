@@ -121,10 +121,14 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		}
 
 		batchPages := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
-		batchSize := uint32(math.Ceil(float64(batchPages) / float64(len(partitions))))
+		partionsInRange := PartitionPagesGreaterThan(partitions, 0)
+		batchSize := uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 
 		chunks := types.NewSet[types.Chunk]()
 		for start := uint32(0); start < maxPageID; start += batchSize {
+			lastChunkEnd := start + batchSize
+			partionsInRange := PartitionPagesGreaterThan(partitions, lastChunkEnd)
+			batchSize = uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 			end := start + batchSize
 			if end >= maxPageID {
 				end = ^uint32(0)
@@ -135,8 +139,6 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 				Max: fmt.Sprintf("'(%d,0)'", end),
 			})
 
-			partionsInRange := PartitionPagesGreaterThan(partitions, end)
-			batchSize = uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 		}
 
 		return chunks, nil
@@ -262,8 +264,5 @@ func PartitionPagesGreaterThan(partitions []PartitionPage, end uint32) int {
 			count++
 		}
 	}
-	if count == 0 {
-		count = 1 // fallback for non-partitioned tables
-	}
-	return count
+	return utils.Ternary(count == 0, 1, count).(int)
 }
