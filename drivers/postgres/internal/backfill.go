@@ -80,23 +80,65 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			return nil, fmt.Errorf("failed to get block size: %s", err)
 		}
 
-		// Calculate pages per chunk
-		batchPages := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
+		//  Step 1: Detect if the table is partitioned
+		var partitionCount int
+		partitionQuery := jdbc.PostgresIsPartitionedQuery(stream)
+		err = p.client.QueryRowContext(ctx, partitionQuery).Scan(&partitionCount)
+		if err != nil {
+			return nil, fmt.Errorf("failed to detect table partitioning: %s", err)
+		}
+
+		//  Step 2: Non-partitioned
+		if partitionCount == 0 {
+			var relPages uint32
+			relPagesQuery := jdbc.PostgresRelPageCount(stream)
+			err := p.client.QueryRowContext(ctx, relPagesQuery).Scan(&relPages)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get relPages: %s", err)
+			}
+
+			batchSize := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
+			relPages = utils.Ternary(relPages == 0, uint32(1), relPages).(uint32)
+
+			chunks := types.NewSet[types.Chunk]()
+			for start := uint32(0); start < relPages; start += batchSize {
+				end := start + batchSize
+				if end >= relPages {
+					end = ^uint32(0)
+				}
+				chunks.Insert(types.Chunk{
+					Min: fmt.Sprintf("'(%d,0)'", start),
+					Max: fmt.Sprintf("'(%d,0)'", end),
+				})
+			}
+			return chunks, nil
+		}
+
+		//  Step 3: Partitioned table
 		partitions, maxPageID, err := loadPartitionPages(ctx, p.client.DB, stream)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load partition pages: %s", err)
 		}
+
+		batchPages := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
 		batchSize := uint32(math.Ceil(float64(batchPages) / float64(len(partitions))))
+
 		chunks := types.NewSet[types.Chunk]()
 		for start := uint32(0); start < maxPageID; start += batchSize {
 			end := start + batchSize
 			if end >= maxPageID {
-				end = ^uint32(0) // Use max uint32 value for the last range
+				end = ^uint32(0)
 			}
-			chunks.Insert(types.Chunk{Min: fmt.Sprintf("'(%d,0)'", start), Max: fmt.Sprintf("'(%d,0)'", end)})
-			partionesCommingInRange := PartitionPagesGreaterThan(partitions, end)
-			batchSize = uint32(math.Ceil(float64(batchPages) / float64(partionesCommingInRange)))
+
+			chunks.Insert(types.Chunk{
+				Min: fmt.Sprintf("'(%d,0)'", start),
+				Max: fmt.Sprintf("'(%d,0)'", end),
+			})
+
+			partionsInRange := PartitionPagesGreaterThan(partitions, end)
+			batchSize = uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 		}
+
 		return chunks, nil
 	}
 

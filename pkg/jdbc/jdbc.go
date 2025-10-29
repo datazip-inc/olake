@@ -163,6 +163,25 @@ SELECT name, pages FROM partitions ORDER BY pages DESC;`,
 	)
 }
 
+// PostgresIsPartitionedQuery returns a SQL query that checks whether a table is partitioned.
+// It counts how many partitions exist under the given parent table in the specified schema.
+func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+SELECT COUNT(i.inhrelid)
+FROM pg_inherits i
+JOIN pg_class c ON c.oid = i.inhparent
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = '%s'
+  AND c.relname = '%s';`,
+		stream.Namespace(), stream.Name(),
+	)
+}
+
+// PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
+func PostgresRelPageCount(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
+}
+
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL
 func PostgresWalLSNQuery() string {
 	return `SELECT pg_current_wal_lsn()::text::pg_lsn`
