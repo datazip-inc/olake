@@ -233,7 +233,7 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 	query := jdbc.PostgresPartitionPages(stream)
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to load partition pages: %v", err)
+		return nil, 0, fmt.Errorf("failed to load partition pages: %s", err)
 	}
 	var maxPageID uint32
 	defer rows.Close()
