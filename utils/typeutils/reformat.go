@@ -9,6 +9,8 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/paulmach/orb/encoding/wkb"
+	"github.com/paulmach/orb/encoding/wkt"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -33,6 +35,8 @@ var DateTimeFormats = []string{
 	"2006-01-02 15:04:05.999999-07",
 	"2006-01-02 15:04:05.999999+00",
 }
+
+var GeospatialTypes = []string{"geometry", "point", "polygon", "linestring", "multi"}
 
 func getFirstNotNullType(datatypes []types.DataType) types.DataType {
 	for _, datatype := range datatypes {
@@ -497,4 +501,39 @@ func ReformatByteArraysToString(data map[string]any) map[string]any {
 		}
 	}
 	return data
+}
+
+func ReformatGeoType(v any) (any, error) {
+	if v == nil {
+		return nil, ErrNullValue
+	}
+
+	geoValue := func(b []byte) (any, error) {
+		// skipping 4-byte SRID prefix (mysql stores 25-byte wkb including SRID)
+		if len(b) > 4 {
+			// Well Known Binary (WKB) unmarshal -> Well Known Text (WKT)
+			if geom, err := wkb.Unmarshal(b[4:]); err == nil {
+				if s := wkt.MarshalString(geom); s != "" {
+					return s, nil
+				}
+			}
+		}
+
+		return fmt.Sprintf("%x", b), nil
+	}
+
+	switch vv := v.(type) {
+	case string:
+		// already textual WKT or similar
+		return vv, nil
+	case []uint8:
+		return geoValue([]byte(vv))
+	case *any:
+		if vv == nil {
+			return nil, ErrNullValue
+		}
+		return ReformatGeoType(*vv)
+	default:
+		return fmt.Sprintf("%v", v), nil
+	}
 }
