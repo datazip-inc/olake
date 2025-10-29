@@ -219,33 +219,33 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	return parsed, nil
 }
 
-func startsWithDatePattern(value string) bool {
-	if len(value) < 10 {
-		return false
-	}
-
-	datePart := value[:10]
-	parts := strings.Split(datePart, "-")
-	if len(parts) != 3 {
-		return false
-	}
-
-	for _, part := range parts {
-		if len(part) < 1 || len(part) > 4 {
-			return false
-		}
-		for _, char := range part {
-			if char < '0' || char > '9' {
-				return false
-			}
-		}
-	}
-
-	return true
-}
-
 func parseStringTimestamp(value string) (time.Time, error) {
 	// Check if the string starts with a date pattern (YYYY-MM-DD)
+	startsWithDatePattern := func(value string) bool {
+		if len(value) < 10 {
+			return false
+		}
+
+		datePart := value[:10]
+		parts := strings.Split(datePart, "-")
+		if len(parts) != 3 {
+			return false
+		}
+
+		for _, part := range parts {
+			if len(part) < 1 || len(part) > 4 {
+				return false
+			}
+			for _, char := range part {
+				if char < '0' || char > '9' {
+					return false
+				}
+			}
+		}
+
+		return true
+	}
+
 	if !startsWithDatePattern(value) {
 		return time.Time{}, fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)")
 	}
