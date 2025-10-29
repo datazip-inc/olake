@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
@@ -218,7 +219,37 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	return parsed, nil
 }
 
+func startsWithDatePattern(value string) bool {
+	if len(value) < 10 {
+		return false
+	}
+
+	datePart := value[:10]
+	parts := strings.Split(datePart, "-")
+	if len(parts) != 3 {
+		return false
+	}
+
+	for _, part := range parts {
+		if len(part) < 1 || len(part) > 4 {
+			return false
+		}
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func parseStringTimestamp(value string) (time.Time, error) {
+	// Check if the string starts with a date pattern (YYYY-MM-DD)
+	if !startsWithDatePattern(value) {
+		return time.Time{}, fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)")
+	}
+
 	var tv time.Time
 	var err error
 	for _, layout := range DateTimeFormats {
@@ -230,7 +261,8 @@ func parseStringTimestamp(value string) (time.Time, error) {
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
+	logger.Warnf("Invalid datetime detected, failed to parse: %s. Converting to epoch start time (1970-01-01 00:00:00 UTC)", value)
+	return time.Unix(0, 0).UTC(), nil
 }
 
 func ReformatInt64(v any) (int64, error) {
