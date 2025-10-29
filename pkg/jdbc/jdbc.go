@@ -130,36 +130,37 @@ func PostgresBlockSizeQuery() string {
 	return `SHOW block_size`
 }
 
-// PostgresTableStorageStats returns a query that computes real on-disk
-// page statistics for a PostgreSQL table, including partitioned tables.
-//
-// It returns:
-//   - max_page_id: estimated upper bound of page IDs (using pg_relation_size)
-//   - relpages: estimated page count from pg_class (used as fallback)
-//   - partition_count: number of partitions (or 1 if not partitioned)
-func PostgresTableStorageStats(stream types.StreamInterface) string {
+// PostgresPartitionPages returns total relpages for each partition and the parent table.
+// This can be used to dynamically adjust chunk sizes based on partition distribution.
+func PostgresPartitionPages(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
-SELECT
-c.relpages,
-    -- The 1.05 multiplier adds a 5%% safety margin to account for
-    -- page growth or rounding errors in pg_relation_size estimates.
-    CEIL(1.05 * GREATEST(
-        pg_relation_size(c.oid) / current_setting('block_size')::int,
-        COALESCE((
-            SELECT MAX(pg_relation_size(inhrelid) / current_setting('block_size')::int)
-            FROM pg_inherits
-            WHERE inhparent = c.oid
-        ), 0)
-    )) AS max_page_id,
- COALESCE((
-        SELECT COUNT(inhrelid)::int + 1
-        FROM pg_inherits
-        WHERE inhparent = c.oid
-    ), 1) AS partition_count
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = '%s'
-  AND c.relname = '%s';`, stream.Namespace(), stream.Name())
+WITH parent AS (
+    SELECT c.oid AS parent_oid
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = '%s'
+      AND c.relname = '%s'
+),
+partitions AS (
+    SELECT
+        child.relname AS name,
+        CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int)) AS pages
+    FROM pg_inherits i
+    JOIN pg_class child ON child.oid = i.inhrelid
+    JOIN parent p ON p.parent_oid = i.inhparent
+    UNION ALL
+    SELECT
+        c.relname AS name,
+        CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int)) AS pages
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = '%s'
+      AND c.relname = '%s'
+)
+SELECT name, pages FROM partitions ORDER BY pages DESC;`,
+		stream.Namespace(), stream.Name(),
+		stream.Namespace(), stream.Name(),
+	)
 }
 
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL

@@ -73,31 +73,20 @@ func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.Write
 
 func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var (
-			maxPageID      uint32
-			blockSize      uint32
-			relPages       int64
-			partitionCount int
-		)
-		// Fetch actual table page stats
-		storageStatsQuery := jdbc.PostgresTableStorageStats(stream)
-		err := p.client.QueryRowContext(ctx, storageStatsQuery).Scan(&relPages, &maxPageID, &partitionCount)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get table storage stats: %s", err)
-		}
 		blockSizeQuery := jdbc.PostgresBlockSizeQuery()
-		err = p.client.QueryRowContext(ctx, blockSizeQuery).Scan(&blockSize)
+		var blockSize uint32
+		err := p.client.QueryRowContext(ctx, blockSizeQuery).Scan(&blockSize)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get block size: %s", err)
 		}
 
 		// Calculate pages per chunk
 		batchPages := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
-		batchSize := uint32(math.Ceil(float64(batchPages) / float64(partitionCount)))
-
-		if maxPageID <= 0 {
-			maxPageID = uint32(max(1, int(relPages)))
+		partitions, maxPageID, err := loadPartitionPages(ctx, p.client.DB, stream)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load partition pages: %s", err)
 		}
+		batchSize := uint32(math.Ceil(float64(batchPages) / float64(len(partitions))))
 		chunks := types.NewSet[types.Chunk]()
 		for start := uint32(0); start < maxPageID; start += batchSize {
 			end := start + batchSize
@@ -105,6 +94,8 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 				end = ^uint32(0) // Use max uint32 value for the last range
 			}
 			chunks.Insert(types.Chunk{Min: fmt.Sprintf("'(%d,0)'", start), Max: fmt.Sprintf("'(%d,0)'", end)})
+			partionesCommingInRange := PartitionPagesGreaterThan(partitions, end)
+			batchSize = uint32(math.Ceil(float64(batchPages) / float64(partionesCommingInRange)))
 		}
 		return chunks, nil
 	}
@@ -188,4 +179,49 @@ func (p *Postgres) nextChunkEnd(ctx context.Context, stream types.StreamInterfac
 		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
 	}
 	return chunkEnd, nil
+}
+
+type PartitionPage struct {
+	Name  string
+	Pages uint32
+}
+
+// loadPartitionPages fetches partition-level relpages using PostgresPartitionPages query.
+func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInterface) ([]PartitionPage, uint32, error) {
+	query := jdbc.PostgresPartitionPages(stream)
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to load partition pages: %v", err)
+	}
+	var maxPageID uint32
+	defer rows.Close()
+
+	var partitions []PartitionPage
+	for rows.Next() {
+		var p PartitionPage
+		if err := rows.Scan(&p.Name, &p.Pages); err != nil {
+			return nil, 0, err
+		}
+		maxPageID = max(maxPageID, p.Pages)
+		partitions = append(partitions, p)
+	}
+
+	if len(partitions) == 0 {
+		partitions = append(partitions, PartitionPage{Name: stream.Name(), Pages: 1})
+	}
+	return partitions, maxPageID, nil
+}
+
+// PartitionPagesGreaterThan returns how many partitions have pages greater than the given 'end' page.
+func PartitionPagesGreaterThan(partitions []PartitionPage, end uint32) int {
+	count := 0
+	for _, p := range partitions {
+		if p.Pages > end {
+			count++
+		}
+	}
+	if count == 0 {
+		count = 1 // fallback for non-partitioned tables
+	}
+	return count
 }
