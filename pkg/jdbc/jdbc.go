@@ -133,7 +133,7 @@ func PostgresBlockSizeQuery() string {
 // PostgresPartitionPages returns total relpages for each partition and the parent table.
 // This can be used to dynamically adjust chunk sizes based on partition distribution.
 func PostgresPartitionPages(stream types.StreamInterface) string {
-    return fmt.Sprintf(`
+	return fmt.Sprintf(`
         WITH parent AS (
             SELECT c.oid AS parent_oid
             FROM pg_class c
@@ -165,17 +165,17 @@ func PostgresPartitionPages(stream types.StreamInterface) string {
         FROM partitions 
         ORDER BY pages DESC;
     `,
-        stream.Namespace(),
-        stream.Name(),
-        stream.Namespace(),
-        stream.Name(),
-    )
+		stream.Namespace(),
+		stream.Name(),
+		stream.Namespace(),
+		stream.Name(),
+	)
 }
 
 // PostgresIsPartitionedQuery returns a SQL query that checks whether a table is partitioned.
 // It counts how many partitions exist under the given parent table in the specified schema.
 func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
-    return fmt.Sprintf(`
+	return fmt.Sprintf(`
         SELECT 
             COUNT(i.inhrelid)
         FROM pg_inherits i
@@ -184,9 +184,9 @@ func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
         WHERE n.nspname = '%s'
             AND c.relname = '%s';
     `,
-        stream.Namespace(),
-        stream.Name(),
-    )
+		stream.Namespace(),
+		stream.Name(),
+	)
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
