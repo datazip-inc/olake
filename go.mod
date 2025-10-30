@@ -31,6 +31,8 @@ require (
 	sigs.k8s.io/yaml v1.4.0
 )
 
+require github.com/paulmach/orb v0.12.0 // indirect
+
 require (
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
