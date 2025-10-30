@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/mysql
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/datazip-inc/olake v0.0.0-20250312070222-ed705d25bc0c
