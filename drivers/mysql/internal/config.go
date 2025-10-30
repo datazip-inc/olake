@@ -88,7 +88,8 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 	}
 
 	tlsConfig := &tls.Config{
-		RootCAs: rootCertPool,
+		RootCAs:    rootCertPool,
+		MinVersion: tls.VersionTLS12,
 	}
 
 	if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA {
