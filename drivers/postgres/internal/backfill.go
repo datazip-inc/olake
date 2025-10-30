@@ -115,7 +115,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		}
 
 		//  Step 3: Partitioned table
-		partitions, maxPageID, err := loadPartitionPages(ctx, p.client.DB, stream)
+		partitions, maxPageCountAcrossPartitions, err := loadPartitionPages(ctx, p.client.DB, stream)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load partition pages: %s", err)
 		}
@@ -125,12 +125,12 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		batchSize := uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 
 		chunks := types.NewSet[types.Chunk]()
-		for start := uint32(0); start < maxPageID; start += batchSize {
+		for start := uint32(0); start < maxPageCountAcrossPartitions; start += batchSize {
 			lastChunkEnd := start + batchSize
 			partionsInRange := PartitionPagesGreaterThan(partitions, lastChunkEnd)
 			batchSize = uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 			end := start + batchSize
-			if end >= maxPageID {
+			if end >= maxPageCountAcrossPartitions {
 				end = ^uint32(0)
 			}
 
@@ -237,7 +237,7 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to load partition pages: %s", err)
 	}
-	var maxPageID uint32
+	var maxPageCountAcrossPartitions uint32
 	defer rows.Close()
 
 	var partitions []PartitionPage
@@ -246,14 +246,14 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 		if err := rows.Scan(&p.Name, &p.Pages); err != nil {
 			return nil, 0, err
 		}
-		maxPageID = max(maxPageID, p.Pages)
+		maxPageCountAcrossPartitions = max(maxPageCountAcrossPartitions, p.Pages)
 		partitions = append(partitions, p)
 	}
 
 	if len(partitions) == 0 {
 		partitions = append(partitions, PartitionPage{Name: stream.Name(), Pages: 1})
 	}
-	return partitions, maxPageID, nil
+	return partitions, maxPageCountAcrossPartitions, nil
 }
 
 // PartitionPagesGreaterThan returns how many partitions have pages greater than the given 'end' page.
