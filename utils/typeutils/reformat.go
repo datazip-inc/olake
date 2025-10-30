@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/paulmach/orb/encoding/wkb"
 	"github.com/paulmach/orb/encoding/wkt"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -209,8 +211,11 @@ func ReformatDate(v interface{}) (time.Time, error) {
 
 	// manage year limit
 	// even after data being parsed if year doesn't lie in range [0,9999] it failed to get marshaled
-	if parsed.Year() < 0 {
-		parsed = parsed.AddDate(0-parsed.Year(), 0, 0)
+	// Check if year is 0000 (not supported by Spark)
+	// Spark only supports years from 1 to 9999, we are converting year 0000 to epoch start time
+	if parsed.Year() < 1 {
+		logger.Warnf("Detected invalid year %d (year 0000 or negative). Converting to epoch start time (1970-01-01 00:00:00 UTC)", parsed.Year())
+		parsed = time.Unix(0, 0).UTC()
 	} else if parsed.Year() > 9999 {
 		parsed = parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
 	}
@@ -219,6 +224,36 @@ func ReformatDate(v interface{}) (time.Time, error) {
 }
 
 func parseStringTimestamp(value string) (time.Time, error) {
+	// Check if the string starts with a date pattern (YYYY-MM-DD)
+	startsWithDatePattern := func(value string) bool {
+		if len(value) < 10 {
+			return false
+		}
+
+		datePart := value[:10]
+		parts := strings.Split(datePart, "-")
+		if len(parts) != 3 {
+			return false
+		}
+
+		for _, part := range parts {
+			if len(part) < 1 || len(part) > 4 {
+				return false
+			}
+			for _, char := range part {
+				if char < '0' || char > '9' {
+					return false
+				}
+			}
+		}
+
+		return true
+	}
+
+	if !startsWithDatePattern(value) {
+		return time.Time{}, fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)")
+	}
+
 	var tv time.Time
 	var err error
 	for _, layout := range DateTimeFormats {
@@ -230,7 +265,8 @@ func parseStringTimestamp(value string) (time.Time, error) {
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
+	logger.Warnf("Invalid datetime detected, failed to parse: %s. Converting to epoch start time (1970-01-01 00:00:00 UTC)", value)
+	return time.Unix(0, 0).UTC(), nil
 }
 
 func ReformatInt64(v any) (int64, error) {
