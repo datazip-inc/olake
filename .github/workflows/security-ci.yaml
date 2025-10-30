@@ -43,7 +43,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           check-latest: "true"
-          go-version: "1.23.x"
+          go-version: "1.24.x"
       - name: install gosec
         run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
       - name: Run Gosec Security Scanner
