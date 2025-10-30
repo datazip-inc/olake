@@ -65,7 +65,7 @@ var clearCmd = &cobra.Command{
 		// drop/clear streams from destination
 		cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
 		if cerr != nil {
-			return fmt.Errorf("failed to clear destination: %w", err)
+			return fmt.Errorf("failed to clear destination: %s", cerr)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")
 		// save new state in state file
