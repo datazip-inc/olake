@@ -130,6 +130,65 @@ func PostgresBlockSizeQuery() string {
 	return `SHOW block_size`
 }
 
+// PostgresPartitionPages returns total relpages for each partition and the parent table.
+// This can be used to dynamically adjust chunk sizes based on partition distribution.
+func PostgresPartitionPages(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        WITH parent AS (
+            SELECT c.oid AS parent_oid
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '%s'
+                AND c.relname = '%s'
+        ),
+        partitions AS (
+            SELECT
+                child.relname AS name,
+                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int)) AS pages
+            FROM pg_inherits i
+            JOIN pg_class child ON child.oid = i.inhrelid
+            JOIN parent p ON p.parent_oid = i.inhparent
+            
+            UNION ALL
+            
+            SELECT
+                c.relname AS name,
+                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int)) AS pages
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '%s'
+                AND c.relname = '%s'
+        )
+        SELECT 
+            name, 
+            pages 
+        FROM partitions 
+        ORDER BY pages DESC;
+    `,
+		stream.Namespace(),
+		stream.Name(),
+		stream.Namespace(),
+		stream.Name(),
+	)
+}
+
+// PostgresIsPartitionedQuery returns a SQL query that checks whether a table is partitioned.
+// It counts how many partitions exist under the given parent table in the specified schema.
+func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT 
+            COUNT(i.inhrelid)
+        FROM pg_inherits i
+        JOIN pg_class c ON c.oid = i.inhparent
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = '%s'
+            AND c.relname = '%s';
+    `,
+		stream.Namespace(),
+		stream.Name(),
+	)
+}
+
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
 func PostgresRelPageCount(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
@@ -417,6 +476,11 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 	}
 	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
 		quotedTable, chunkMin, filterClause)
+}
+
+// OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
+func OracleTableRowStatsQuery() string {
+	return `SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB

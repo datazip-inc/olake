@@ -14,7 +14,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           check-latest: true
-          go-version: 1.23.x
+          go-version: 1.24.x
 
       - name: Install Dependencies
         run: go mod download
