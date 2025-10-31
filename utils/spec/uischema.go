@@ -142,6 +142,35 @@ const OracleUISchema = `{
   }
 }`
 
+const KafkaUISchema = `{
+  "ui:grid": [
+    { "bootstrap_servers": 12, "consumer_group_id": 12 },
+    { "auto_offset_reset": 12, "threads_equal_total_partitions": 12 },
+    { "max_threads": 12, "backoff_retry_count": 12 },
+    { "protocol": 12 },
+  ],
+  "protocol": {
+    "ui:grid": [
+    { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
+    ],
+    "sasl_jaas_config": {
+    "ui:widget": "textarea",
+    "ui:options": {
+      "rows": 1
+    }
+    }
+  },
+  "threads_equal_total_partitions": {
+    "ui:widget": "boolean"
+  },
+  "auto_offset_reset": {
+    "ui:enumNames": [
+    "Earliest",
+    "Latest"
+    ]
+  }
+}`
+
 const ParquetUISchema = `{
   "type": {
     "ui:widget": "hidden"

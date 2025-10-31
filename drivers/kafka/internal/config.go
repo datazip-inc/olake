@@ -9,12 +9,12 @@ import (
 
 type Config struct {
 	BootstrapServers            string         `json:"bootstrap_servers"`
-	Protocol                    ProtocolConfig `json:"protocol"`
 	ConsumerGroupID             string         `json:"consumer_group_id,omitempty"`
+	AutoOffsetReset             string         `json:"auto_offset_reset,omitempty"`
+	Protocol                    ProtocolConfig `json:"protocol"`
 	MaxThreads                  int            `json:"max_threads"`
 	RetryCount                  int            `json:"backoff_retry_count"`
 	ThreadsEqualTotalPartitions bool           `json:"threads_equal_total_partitions,omitempty"`
-	AutoOffsetReset             string         `json:"auto_offset_reset,omitempty"`
 }
 
 type ProtocolConfig struct {
