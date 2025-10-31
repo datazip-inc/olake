@@ -208,7 +208,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Cat
 
 	// flag for connector which have global state support
 	// TODO: create an array of global state supported connectors in constants
-	globalStateSupportedConnector := connectorType == string(constants.Postgres) || connectorType == string(constants.MySQL)
+	// flag for connectors which have global state support (centralized in constants) 
+	globalStateSupportedConnector := constants.IsGlobalStateSupported(connectorType)
 
 	for namespace, newMetadatas := range newStreams.SelectedStreams {
 		for _, newMetadata := range newMetadatas {

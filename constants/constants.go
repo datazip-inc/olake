@@ -40,5 +40,17 @@ const (
 	MySQL    DriverType = "mysql"
 	Oracle   DriverType = "oracle"
 )
+// GlobalStateSupportedDrivers is the canonical list of connectors that support GLOBAL state
+var GlobalStateSupportedDrivers = []DriverType{Postgres, MySQL}
 
+// IsGlobalStateSupported reports whether the given connector type supports GLOBAL state
+func IsGlobalStateSupported(connectorType string) bool {
+	dt := DriverType(connectorType)
+	for _, d := range GlobalStateSupportedDrivers {
+		if d == dt {
+			return true
+		}
+	}
+	return false
+}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
