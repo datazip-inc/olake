@@ -57,14 +57,21 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			if isParallelChangeStream(a.driver.Type()) {
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
+
+					// create cdc context, so that main context not affected if cdc retries
+					cdcCtx, cdcCtxCancel := context.WithCancel(ctx)
+					defer cdcCtxCancel()
+
 					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
-					inserter, err := pool.NewWriter(ctx, streams[index], destination.WithThreadID(threadID))
+					inserter, err := pool.NewWriter(cdcCtx, streams[index], destination.WithThreadID(threadID))
 					if err != nil {
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
 					}
+
 					logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, streams[index].ID())
+
 					defer func() {
-						if threadErr := inserter.Close(ctx); threadErr != nil {
+						if threadErr := inserter.Close(cdcCtx, err != nil); threadErr != nil {
 							err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
 						}
 
@@ -73,7 +80,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 						}
 
-						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil)
+						postCDCErr := a.driver.PostCDC(cdcCtx, streams[index], err == nil)
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -82,8 +89,24 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("thread[%s]: %s", threadID, err)
 						}
 					}()
-					return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-						return a.driver.StreamChanges(ctx, streams[index], func(ctx context.Context, change CDCChange) error {
+
+					return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+						if attempt > 0 {
+							// close prev writer
+							_ = inserter.Close(cdcCtx, true)
+
+							// create new cdc context
+							cdcCtx, cdcCtxCancel = context.WithCancel(ctx)
+							threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
+
+							// re-initialize inserter
+							inserter, err = pool.NewWriter(cdcCtx, streams[index], destination.WithThreadID(threadID))
+							if err != nil {
+								return fmt.Errorf("failed to create new writer thread: %s", err)
+							}
+						}
+
+						return a.driver.StreamChanges(cdcCtx, streams[index], func(ctx context.Context, change CDCChange) error {
 							pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 							opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 							return inserter.Push(ctx, types.CreateRawRecord(
@@ -106,11 +129,15 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	}
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
 	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
+		// create cdc context, so that main context not affected if cdc retries
+		cdcCtx, cdcCtxCancel := context.WithCancel(ctx)
+		defer cdcCtxCancel()
+
 		// Set up inserters for each stream
 		inserters := make(map[types.StreamInterface]*destination.WriterThread)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
 			threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-			inserters[stream], err = pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+			inserters[stream], err = pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID))
 			if err != nil {
 				logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, stream.ID())
 			}
@@ -119,9 +146,10 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		if err != nil {
 			return fmt.Errorf("failed to create writer thread: %s", err)
 		}
+
 		defer func() {
 			for stream, insert := range inserters {
-				if threadErr := insert.Close(ctx); threadErr != nil {
+				if threadErr := insert.Close(cdcCtx, err != nil); threadErr != nil {
 					err = fmt.Errorf("failed to insert cdc record of stream %s, insert func error: %s, thread error: %s", stream.ID(), err, threadErr)
 				}
 			}
@@ -131,13 +159,34 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 			}
 
-			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil)
+			postCDCErr := a.driver.PostCDC(cdcCtx, nil, err == nil)
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}
 		}()
-		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.StreamChanges(ctx, nil, func(ctx context.Context, change CDCChange) error {
+
+		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+			if attempt > 0 {
+				// close all prev writers
+				for _, insert := range inserters {
+					_ = insert.Close(cdcCtx, true)
+				}
+
+				// create new cdc context
+				cdcCtx, cdcCtxCancel = context.WithCancel(ctx)
+
+				// re-initialize all inserters
+				for stream := range inserters {
+					// no relation with prev thread id, should not we also provide prev thread id for reference?
+					threadID := utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", utils.ULID()), utils.ULID()).(string)
+					inserters[stream], err = pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID))
+					if err != nil {
+						return fmt.Errorf("failed to create new writer thread: %s", err)
+					}
+				}
+			}
+
+			return a.driver.StreamChanges(cdcCtx, nil, func(ctx context.Context, change CDCChange) error {
 				pkFields := change.Stream.GetStream().SourceDefinedPrimaryKey.Array()
 				opType := utils.Ternary(change.Kind == "delete", "d", utils.Ternary(change.Kind == "update", "u", "c")).(string)
 				return inserters[change.Stream].Push(ctx, types.CreateRawRecord(

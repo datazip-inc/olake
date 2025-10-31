@@ -40,15 +40,21 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
+		// create backfill context, so that main context not affected if backfill retries
+		backfillCtx, backfillCtxCancel := context.WithCancel(ctx)
+		defer backfillCtxCancel()
+
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
+
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
+
 		defer func() {
 			// wait for chunk completion
-			if writerErr := inserter.Close(ctx); writerErr != nil {
+			if writerErr := inserter.Close(backfillCtx, err != nil); writerErr != nil {
 				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
 			}
 
@@ -67,10 +73,25 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				err = fmt.Errorf("thread[%s]: %s", threadID, err)
 			}
 		}()
-		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-			return a.driver.ChunkIterator(ctx, stream, chunk, func(ctx context.Context, data map[string]any) error {
-				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 
+		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+			if attempt > 0 {
+				// close prev writer
+				_ = inserter.Close(backfillCtx, true)
+
+				// create new backfill context
+				backfillCtx, backfillCtxCancel = context.WithCancel(ctx)
+				threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
+
+				// re-initialize inserter with backfillCtx for consistency
+				inserter, err = pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+				if err != nil {
+					return fmt.Errorf("failed to create new writer thread: %s", err)
+				}
+			}
+
+			return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
+				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 				// persist cdc timestamp for cdc full load
 				var cdcTimestamp *time.Time
 				if stream.GetSyncMode() == types.CDC {

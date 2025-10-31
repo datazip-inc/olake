@@ -252,10 +252,10 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context) error {
+func (wt *WriterThread) Close(ctx context.Context, closeOnError bool) error {
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context closed")
+		return wt.writer.Close(ctx, closeOnError)
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
 
@@ -270,7 +270,7 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 		wt.streamArtifact.mu.Lock()
 		defer wt.streamArtifact.mu.Unlock()
 
-		return wt.writer.Close(ctx)
+		return wt.writer.Close(ctx, closeOnError)
 	}
 }
 
