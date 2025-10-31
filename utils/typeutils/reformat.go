@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -72,6 +73,34 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	if v == nil {
 		return v, nil
 	}
+
+	// Handle json.Number type
+	if num, ok := v.(json.Number); ok {
+		switch dataType {
+		case types.Int32, types.Int64:
+			intVal, err := num.Int64()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse integer: %v", err)
+			}
+			if dataType == types.Int32 {
+				//nolint:gosec,G115
+				return int32(intVal), nil
+			}
+			return intVal, nil
+		case types.Float32, types.Float64:
+			floatVal, err := num.Float64()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse float: %v", err)
+			}
+			if dataType == types.Float32 {
+				return float32(floatVal), nil
+			}
+			return floatVal, nil
+		default:
+			v = num.String()
+		}
+	}
+
 	switch dataType {
 	case types.Null:
 		return nil, ErrNullValue
