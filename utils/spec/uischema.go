@@ -12,6 +12,7 @@ var uiSchemaMap = map[string]string{
 	"oracle":   OracleUISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
+	"kafka":    KafkaUISchema,
 }
 
 const MongoDBUISchema = `{
