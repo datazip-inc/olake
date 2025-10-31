@@ -100,7 +100,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
 
 							// re-initialize inserter
-							inserter, err = pool.NewWriter(cdcCtx, streams[index], destination.WithBackfill(true), destination.WithThreadID(threadID))
+							inserter, err = pool.NewWriter(cdcCtx, streams[index], destination.WithThreadID(threadID))
 							if err != nil {
 								return fmt.Errorf("failed to create new writer thread: %s", err)
 							}
