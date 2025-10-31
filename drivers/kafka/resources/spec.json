@@ -1,0 +1,126 @@
+{
+    "type": "object",
+    "properties": {
+        "bootstrap_servers": {
+            "type": "string",
+            "title": "Bootstrap Servers",
+            "description": "Comma-separated list of Kafka bootstrap servers (e.g., broker1:9092,broker2:9092)"
+        },
+        "protocol": {
+            "title": "Security Protocol Configuration",
+            "description": "Kafka security settings",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "PLAINTEXT",
+                    "properties": {
+                        "security_protocol": {
+                            "const": "PLAINTEXT"
+                        }
+                    },
+                    "required": [
+                        "security_protocol"
+                    ]
+                },
+                {
+                    "title": "SASL_PLAINTEXT",
+                    "properties": {
+                        "security_protocol": {
+                            "const": "SASL_PLAINTEXT"
+                        },
+                        "sasl_mechanism": {
+                            "type": "string",
+                            "title": "SASL Mechanism",
+                            "description": "Authentication mechanism for SASL",
+                            "enum": [
+                                "PLAIN",
+                                "SCRAM-SHA-512"
+                            ],
+                            "default": "PLAIN"
+                        },
+                        "sasl_jaas_config": {
+                            "type": "string",
+                            "title": "SASL JAAS Config",
+                            "description": "JAAS configuration string (e.g., org.apache.kafka.common.security.plain.PlainLoginModule required username=\"user\" password=\"pass\";)",
+                            "minLength": 1
+                        }
+                    },
+                    "required": [
+                        "security_protocol",
+                        "sasl_mechanism",
+                        "sasl_jaas_config"
+                    ]
+                },
+                {
+                    "title": "SASL_SSL",
+                    "properties": {
+                        "security_protocol": {
+                            "const": "SASL_SSL"
+                        },
+                        "sasl_mechanism": {
+                            "type": "string",
+                            "title": "SASL Mechanism",
+                            "description": "Authentication mechanism for SASL over SSL",
+                            "enum": [
+                                "PLAIN",
+                                "SCRAM-SHA-512"
+                            ],
+                            "default": "PLAIN"
+                        },
+                        "sasl_jaas_config": {
+                            "type": "string",
+                            "title": "SASL JAAS Config",
+                            "description": "JAAS configuration string (e.g., org.apache.kafka.common.security.plain.PlainLoginModule required username=\"user\" password=\"pass\";)",
+                            "minLength": 1
+                        }
+                    },
+                    "required": [
+                        "security_protocol",
+                        "sasl_mechanism",
+                        "sasl_jaas_config"
+                    ]
+                }
+            ]
+        },
+        "consumer_group_id": {
+            "type": "string",
+            "title": "Consumer Group ID",
+            "description": "Kafka consumer group ID (optional)"
+        },
+        "max_threads": {
+            "type": "integer",
+            "title": "Max Threads",
+            "description": "Maximum number of parallel processing threads",
+            "minimum": 1,
+            "default": 1
+        },
+        "backoff_retry_count": {
+            "type": "integer",
+            "title": "Retry Count",
+            "description": "Number of retry attempts with exponential backoff",
+            "minimum": 0,
+            "default": 3
+        },
+        "threads_equal_total_partitions": {
+            "type": "boolean",
+            "title": "Threads Equal Total Partitions",
+            "description": "If true, number of threads will be set equal to total partitions (overrides max_threads)",
+            "default": false
+        },
+        "auto_offset_reset": {
+            "type": "string",
+            "title": "Auto Offset Reset",
+            "description": "What to do when there is no initial offset in Kafka",
+            "enum": [
+                "earliest",
+                "latest"
+            ],
+            "default": "earliest"
+        }
+    },
+    "required": [
+        "bootstrap_servers",
+        "protocol"
+    ],
+    "additionalProperties": false
+}

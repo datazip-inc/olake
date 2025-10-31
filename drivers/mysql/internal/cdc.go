@@ -69,7 +69,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMe
 	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
 }
 
-func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
 	if noErr {
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
