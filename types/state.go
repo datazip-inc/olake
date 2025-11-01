@@ -307,14 +307,25 @@ func (s *State) DecrementRemainingRecordCount(stream *ConfiguredStream, count in
 	})
 	if contains {
 		if remaining, loaded := s.Streams[index].State.Load(RemainingRecordCountKey); loaded {
+			var currentRemaining int64
+
+			// Handle both int64 and float64 (when loaded from JSON)
 			if remainingInt64, ok := remaining.(int64); ok {
-				newRemaining := remainingInt64 - count
-				if newRemaining < 0 {
-					newRemaining = 0
-				}
-				s.Streams[index].State.Store(RemainingRecordCountKey, newRemaining)
-				s.Streams[index].HoldsValue.Store(true)
+				currentRemaining = remainingInt64
+			} else if remainingFloat64, ok := remaining.(float64); ok {
+				currentRemaining = int64(remainingFloat64)
+			} else {
+				// If neither type matches, skip decrement
+				s.LogState()
+				return
 			}
+
+			newRemaining := currentRemaining - count
+			if newRemaining < 0 {
+				newRemaining = 0
+			}
+			s.Streams[index].State.Store(RemainingRecordCountKey, newRemaining)
+			s.Streams[index].HoldsValue.Store(true)
 		}
 	}
 	s.LogState()
