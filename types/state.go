@@ -24,8 +24,8 @@ const (
 	MixedType StateType = "MIXED"
 	// constant key for chunks
 	ChunksKey = "chunks"
-	// constant key for remaining records stat
-	RemainingRecordCountKey = "remaining_record_count"
+	// number of remaining records to be synced in resumable sync
+	RemainingRecordsCount = "remaining_records_count"
 )
 
 type GlobalState struct {
@@ -265,7 +265,7 @@ func (s *State) GetRemainingRecordCount(stream *ConfiguredStream) int64 {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
 	if contains {
-		if count, loaded := s.Streams[index].State.Load(RemainingRecordCountKey); loaded {
+		if count, loaded := s.Streams[index].State.Load(RemainingRecordsCount); loaded {
 			if countInt64, ok := count.(int64); ok {
 				return countInt64
 			}
@@ -286,11 +286,11 @@ func (s *State) SetRemainingRecordCount(stream *ConfiguredStream, count int64) {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
 	if contains {
-		s.Streams[index].State.Store(RemainingRecordCountKey, count)
+		s.Streams[index].State.Store(RemainingRecordsCount, count)
 		s.Streams[index].HoldsValue.Store(true)
 	} else {
 		newStream := s.initStreamState(stream)
-		newStream.State.Store(RemainingRecordCountKey, count)
+		newStream.State.Store(RemainingRecordsCount, count)
 		newStream.HoldsValue.Store(true)
 		s.Streams = append(s.Streams, newStream)
 	}
@@ -306,7 +306,7 @@ func (s *State) DecrementRemainingRecordCount(stream *ConfiguredStream, count in
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
 	if contains {
-		if remaining, loaded := s.Streams[index].State.Load(RemainingRecordCountKey); loaded {
+		if remaining, loaded := s.Streams[index].State.Load(RemainingRecordsCount); loaded {
 			var currentRemaining int64
 
 			// Handle both int64 and float64 (when loaded from JSON)
@@ -324,7 +324,7 @@ func (s *State) DecrementRemainingRecordCount(stream *ConfiguredStream, count in
 			if newRemaining < 0 {
 				newRemaining = 0
 			}
-			s.Streams[index].State.Store(RemainingRecordCountKey, newRemaining)
+			s.Streams[index].State.Store(RemainingRecordsCount, newRemaining)
 			s.Streams[index].HoldsValue.Store(true)
 		}
 	}

@@ -115,6 +115,7 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 
+		// Setup state early to enable pre-loading remaining records before stats logger starts
 		connector.SetupState(state)
 
 		// Pre-load remaining record counts from state to pool stats for accurate progress tracking
