@@ -2,10 +2,12 @@ package driver
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
-	"strings"
-	"time"
+    "database/sql"
+    "fmt"
+    "io"
+    "net"
+    "strings"
+    "time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -30,6 +32,59 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
+
+	var forwardedHost string
+    var forwardedPort int
+
+    if o.config.SSHEnabled {
+        sshClient, err := (&utils.SSHConfig{
+            Host:       o.config.SSHHost,
+            Port:       o.config.SSHPort,
+            Username:   o.config.SSHUser,
+            PrivateKey: o.config.SSHPrivateKey,
+        }).SetupSSHConnection()
+        if err != nil {
+            return fmt.Errorf("failed to establish SSH connection: %w", err)
+        }
+
+        localListener, err := net.Listen("tcp", "localhost:0")
+        if err != nil {
+            return fmt.Errorf("failed to create local listener: %w", err)
+        }
+        localAddr := localListener.Addr().(*net.TCPAddr)
+        forwardedHost = "localhost"
+        forwardedPort = localAddr.Port
+
+        go func() {
+            for {
+                localConn, err := localListener.Accept()
+                if err != nil {
+                    time.Sleep(100 * time.Millisecond)
+                    continue
+                }
+                remoteConn, err := sshClient.Dial("tcp", fmt.Sprintf("%s:%d", o.config.Host, o.config.Port))
+                if err != nil {
+                    localConn.Close()
+                    time.Sleep(100 * time.Millisecond)
+                    continue
+                }
+                go proxy(localConn, remoteConn)
+            }
+        }()
+    } else {
+        forwardedHost = o.config.Host
+        forwardedPort = o.config.Port
+    }
+
+    // Override DSN with forwarded host/port
+    o.config.DSN = fmt.Sprintf("%s/%s@%s:%d/%s",
+        o.config.Username,
+        o.config.Password,
+        forwardedHost,
+        forwardedPort,
+        o.config.ServiceName,
+    )
+
 	// TODO: Add support for more encryption options provided in OracleDB
 	client, err := sqlx.Open("oracle", o.config.connectionString())
 	if err != nil {
@@ -169,4 +224,9 @@ func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interf
 	}
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, oracleTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
+}
+
+func proxy(local, remote net.Conn) {
+    go io.Copy(local, remote)
+    go io.Copy(remote, local)
 }

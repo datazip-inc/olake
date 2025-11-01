@@ -23,6 +23,13 @@ type Config struct {
 	RetryCount       int      `json:"backoff_retry_count"`
 	ChunkingStrategy string   `json:"chunking_strategy"`
 	UseIAM           bool     `json:"use_iam"`
+
+	// SSH tunneling support
+	SSHEnabled     bool   `json:"ssh_enabled"`
+    SSHHost        string `json:"ssh_host"`
+    SSHPort        int    `json:"ssh_port"`
+    SSHUser        string `json:"ssh_user"`
+    SSHPrivateKey  string `json:"ssh_private_key"`	
 }
 
 func (c *Config) URI() string {
