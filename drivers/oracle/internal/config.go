@@ -20,6 +20,14 @@ type Config struct {
 	RetryCount       int               `json:"backoff_retry_count"`
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
+
+	SSHEnabled    bool   `json:"ssh_enabled,omitempty"`
+    SSHHost       string `json:"ssh_host,omitempty"`
+    SSHPort       int    `json:"ssh_port,omitempty"`
+    SSHUser       string `json:"ssh_user,omitempty"`
+    SSHPrivateKey string `json:"ssh_private_key,omitempty"`
+
+	DSN 		  string `json:"dsn,omitempty"`
 }
 
 func (c *Config) connectionString() string {
