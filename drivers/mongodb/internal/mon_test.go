@@ -2,6 +2,8 @@ package driver
 
 import (
 	"testing"
+	"context"
+	"os"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/testutils"
@@ -31,4 +33,37 @@ func TestMongodbPerformance(t *testing.T) {
 	}
 
 	config.TestPerformance(t)
+}
+
+func TestMongoSSHConnection(t *testing.T) {
+    ctx := context.Background()
+
+    keyBytes, err := os.ReadFile("test_key.pem")
+    if err != nil {
+        t.Fatalf("Failed to read SSH key: %v", err)
+    }
+
+    driver := &Mongo{
+        config: &Config{
+            SSHEnabled:    true,
+            SSHHost:       "localhost",
+            SSHPort:       2222,
+            SSHUser:       "testuser",
+            SSHPrivateKey: string(keyBytes),
+            Database:      "testdb",
+            Hosts:         []string{"dummy"},
+            Username:      "mongo",
+            Password:      "mongo",
+        },
+    }
+
+    err = driver.Setup(ctx)
+    if err != nil {
+        t.Fatalf("SSH tunnel setup failed: %v", err)
+    }
+
+    defer driver.Close(ctx)
+    if !driver.CDCSupported() {
+        t.Errorf("Expected CDC Support to be true")
+    }
 }

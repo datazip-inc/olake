@@ -5,10 +5,7 @@
       "type": "string",
       "title": "Connection Type",
       "description": "Method used to establish a connection between the Oracle database server",
-      "enum": [
-        "sid",
-        "service_name"
-      ],
+      "enum": ["sid", "service_name"],
       "default": "service_name"
     },
     "host": {
@@ -53,31 +50,46 @@
           "title": "SSL Mode",
           "description": "Database connection SSL configuration (e.g., SSL mode)",
           "default": "disable",
-          "enum": [
-            "require",
-            "disable",
-            "verify-ca",
-            "verify-full"
-          ]
+          "enum": ["require", "disable", "verify-ca", "verify-full"]
         }
       },
-      "required": [
-        "mode"
-      ]
+      "required": ["mode"]
     },
     "jdbc_url_params": {
       "type": "object",
       "title": "JDBC URL Parameters",
       "description": "Additional JDBC URL parameters for connection tuning",
       "additionalProperties": true
+    },
+    "ssh_enabled": {
+      "type": "boolean",
+      "title": "Enable SSH Tunnel",
+      "description": "Enable SSH tunneling to connect to Oracle through a remote host",
+      "default": false
+    },
+    "ssh_host": {
+      "type": "string",
+      "title": "SSH Host",
+      "description": "Remote host to tunnel through (e.g., bastion or jump server)"
+    },
+    "ssh_port": {
+      "type": "integer",
+      "title": "SSH Port",
+      "description": "Port for SSH connection (default: 22)",
+      "default": 22
+    },
+    "ssh_user": {
+      "type": "string",
+      "title": "SSH Username",
+      "description": "Username for SSH authentication"
+    },
+    "ssh_private_key": {
+      "type": "string",
+      "title": "SSH Private Key",
+      "description": "PEM-encoded private key used for SSH authentication"
     }
   },
-  "required": [
-    "connection_type",
-    "host",
-    "port",
-    "username"
-  ],
+  "required": ["connection_type", "host", "port", "username"],
   "dependencies": {
     "connection_type": {
       "oneOf": [
@@ -92,9 +104,7 @@
               "description": "Unique name that identifies an instance of an Oracle database"
             }
           },
-          "required": [
-            "sid"
-          ]
+          "required": ["sid"]
         },
         {
           "properties": {
@@ -107,11 +117,29 @@
               "description": "A logical database service to connect to"
             }
           },
-          "required": [
-            "service_name"
-          ]
+          "required": ["service_name"]
+        }
+      ]
+    },
+    "ssh_enabled": {
+      "oneOf": [
+        {
+          "properties": {
+            "ssh_enabled": { "const": false }
+          }
+        },
+        {
+          "properties": {
+            "ssh_enabled": { "const": true },
+            "ssh_host": { "type": "string" },
+            "ssh_port": { "type": "integer" },
+            "ssh_user": { "type": "string" },
+            "ssh_private_key": { "type": "string" }
+          },
+          "required": ["ssh_host", "ssh_port", "ssh_user", "ssh_private_key"]
         }
       ]
     }
   }
 }
+
