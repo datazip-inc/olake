@@ -11,6 +11,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // Config represents the configuration for connecting to a MySQL database
@@ -60,8 +61,14 @@ func (c *Config) URI() string {
 		case utils.SSLModeRequire:
 			cfg.TLSConfig = "true"
 		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
-			cfg.TLSConfig = "skip-verify" // Default fallback
-			if tlsConfig, err := c.buildTLSConfig(); err == nil && mysql.RegisterTLSConfig("custom", tlsConfig) == nil {
+			tlsConfig, err := c.buildTLSConfig()
+			if err != nil {
+				logger.Warnf("Failed to build TLS config, falling back to skip-verify: %v", err)
+				cfg.TLSConfig = "skip-verify"
+			} else if err := mysql.RegisterTLSConfig("custom", tlsConfig); err != nil {
+				logger.Warnf("Failed to register TLS config, falling back to skip-verify: %v", err)
+				cfg.TLSConfig = "skip-verify"
+			} else {
 				cfg.TLSConfig = "custom"
 			}
 		}
