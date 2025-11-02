@@ -119,7 +119,7 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if logicalOp != "" {
 		Column := extractValue(matches[6], matches[7])
 		conditions = append(conditions, Condition{
-			Column: Column,
+			Column:   Column,
 			Operator: matches[8],
 			Value:    matches[9],
 		})

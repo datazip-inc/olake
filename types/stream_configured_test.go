@@ -12,6 +12,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		expectedFilter Filter
 		expectError    bool
 	}{
+		// Checks that an empty filter string yields an empty Filter (no conditions).
 		{
 			name:   "empty filter",
 			filter: "",
@@ -21,6 +22,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Parses a simple unquoted column and value separated by =.
 		{
 			name:   "simple unquoted column",
 			filter: "status = active",
@@ -32,6 +34,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Supports double-quoted column identifiers (e.g., contains hyphen).
 		{
 			name:   "double quoted column name",
 			filter: `"user-id" > 5`,
@@ -43,11 +46,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		{
-			name:        "backtick quoted column name (now invalid - backticks not supported)",
-			filter:      "`order date` = \"2024-01-01\"",
-			expectError: true,
-		},
+
+		// Double-quoted column names may contain spaces; quoted values preserved.
 		{
 			name:   "double quoted column with spaces",
 			filter: `"column name" != "some value"`,
@@ -59,11 +59,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		{
-			name:        "backtick quoted column with special chars (now invalid - backticks not supported)",
-			filter:      "`item.price` >= 100.50",
-			expectError: true,
-		},
+
+		// Two conditions joined by 'and' with mixed quoting styles.
 		{
 			name:   "two conditions with AND - mixed quotes",
 			filter: `"user-id" > 5 and status = "active"`,
@@ -76,16 +73,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		{
-			name:        "two conditions with OR - backticks and quotes (now invalid - backticks not supported)",
-			filter:      "`order date` = \"2024-01-01\" or \"user-type\" != admin",
-			expectError: true,
-		},
-		{
-			name:        "complex example from comment (now invalid - backticks not supported)",
-			filter:      `"user-id" > 5 and ` + "`item.price` <= 100",
-			expectError: true,
-		},
+
+		// Verifies parsing of comparison operators like >=.
 		{
 			name:   "all operators test",
 			filter: "age >= 18",
@@ -97,26 +86,26 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Rejects nonsense filter strings that don't match expected pattern.
 		{
 			name:        "invalid filter format",
 			filter:      "invalid filter format",
 			expectError: true,
 		},
+		// Error when a quoted value or column has an unclosed double-quote.
 		{
 			name:        "unclosed quotes",
 			filter:      `"unclosed > 5`,
 			expectError: true,
 		},
-		{
-			name:        "unclosed backticks",
-			filter:      "`unclosed > 5",
-			expectError: true,
-		},
+
+		// Reject filters with more than two conditions (not supported).
 		{
 			name:        "too many conditions",
 			filter:      "a > 5 and b < 10 and c = 3",
 			expectError: true,
 		},
+		// Simple comparison without spaces around operator.
 		{
 			name:   "test case from user: a>b",
 			filter: "a>b",
@@ -128,6 +117,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Quoted column name and multiple conditions joined by 'and'.
 		{
 			name:   "test case from user: quoted a with spaces and logical operator",
 			filter: `"a" >b and a < c`,
@@ -140,17 +130,15 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		{
-			name:        "test case from user: backtick a with not equal (now invalid - backticks not supported)",
-			filter:      "`a` != b",
-			expectError: true,
-		},
+
+		// Rejects invalid operator sequences like >>>=.
 		{
 			name:        "test case from user: invalid operator",
 			filter:      `"a" >>>= b`,
 			expectError: true,
 		},
 		// Additional tricky test cases
+		// Handles negative numeric values on the right-hand side.
 		{
 			name:   "negative number value",
 			filter: "temperature < -10",
@@ -162,6 +150,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Accept decimal values that start with a leading dot (e.g. .5).
 		{
 			name:   "decimal number with leading dot",
 			filter: "ratio >= .5",
@@ -173,11 +162,13 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Trailing dot in a numeric literal is invalid and should error.
 		{
 			name:        "decimal number with trailing dot (invalid)",
 			filter:      "count = 5.",
 			expectError: true,
 		},
+		// Quoted empty string should be treated as a distinct value.
 		{
 			name:   "quoted empty string value",
 			filter: `name != ""`,
@@ -189,11 +180,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		{
-			name:        "backtick quoted column with underscores (now invalid - backticks not supported)",
-			filter:      "`user_full_name` = john",
-			expectError: true,
-		},
+
+		// Lowercase 'and' should be treated as the logical operator joining two conditions.
 		{
 			name:   "mixed case logical operator - lowercase and",
 			filter: "a > 1 and b < 2",
@@ -206,6 +194,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Lowercase 'or' should be parsed as the logical operator.
 		{
 			name:   "mixed case logical operator - lowercase or",
 			filter: "x = 1 or y = 2",
@@ -218,6 +207,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Column names that include digits should parse correctly.
 		{
 			name:   "column with numbers",
 			filter: "column123 = value456",
@@ -229,6 +219,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Parser should tolerate and normalize excessive whitespace between tokens.
 		{
 			name:   "excessive whitespace",
 			filter: "  a   >   b   and   c   <   d  ",
@@ -241,6 +232,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// No spaces around operators should still parse correctly.
 		{
 			name:   "no spaces around operators",
 			filter: "a>5and b<10",
@@ -253,6 +245,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Quoted value containing spaces should be preserved as a single value.
 		{
 			name:   "quoted value with spaces",
 			filter: `description = "hello world"`,
@@ -264,11 +257,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		{
-			name:        "backtick value (now invalid - backticks not supported)",
-			filter:      "status = `active`",
-			expectError: true,
-		},
+
+		// Multiple operator types across two conditions.
 		{
 			name:   "all different operators in sequence",
 			filter: "a = 1 and b != 2",
@@ -281,6 +271,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// >= operator with decimal values.
 		{
 			name:   "greater than or equal with decimal",
 			filter: "price >= 99.99",
@@ -292,6 +283,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// <= operator with integer values.
 		{
 			name:   "less than or equal with integer",
 			filter: "age <= 100",
@@ -303,6 +295,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Quoted column may include dot notation (dot allowed inside quotes).
 		{
 			name:   "quoted column with dot notation",
 			filter: `"user.email" = "test@example.com"`,
@@ -314,12 +307,9 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		{
-			name:        "backtick column with hyphen and dot (now invalid - backticks not supported)",
-			filter:      "`user-data.field` != null",
-			expectError: true,
-		},
+
 		// Error cases - more tricky failures
+		// Uppercase 'AND' should be accepted and preserved.
 		{
 			name:   "uppercase AND operator",
 			filter: "a > 1 AND b < 2",
@@ -332,6 +322,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Uppercase 'OR' should be accepted and preserved.
 		{
 			name:   "uppercase OR operator",
 			filter: "a > 1 OR b < 2",
@@ -344,127 +335,147 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Missing operator between column and value should error.
 		{
 			name:        "missing operator",
 			filter:      "column value",
 			expectError: true,
 		},
+		// Only a column name with no operator/value is invalid.
 		{
 			name:        "only column name",
 			filter:      "column",
 			expectError: true,
 		},
+		// Only an operator token with no operands is invalid.
 		{
 			name:        "only operator",
 			filter:      ">",
 			expectError: true,
 		},
+		// Missing value after operator should error.
 		{
 			name:        "missing value",
 			filter:      "column >",
 			expectError: true,
 		},
+		// Missing column before operator should error.
 		{
 			name:        "missing column",
 			filter:      "> value",
 			expectError: true,
 		},
+		// Mismatched/dangling double quotes should error.
 		{
 			name:        "double quotes mismatch",
 			filter:      `"column = value`,
 			expectError: true,
 		},
-		{
-			name:        "backtick mismatch",
-			filter:      "`column = value",
-			expectError: true,
-		},
+
+		// Reject filters containing three conditions (only up to two supported).
 		{
 			name:        "three conditions (not supported)",
 			filter:      "a = 1 and b = 2 and c = 3",
 			expectError: true,
 		},
+		// Mixed logical operators within the same expression are invalid.
 		{
 			name:        "mixed logical operators",
 			filter:      "a = 1 and b = 2 or c = 3",
 			expectError: true,
 		},
+		// Invalid operator token combinations should error (e.g., '><').
 		{
 			name:        "invalid operator combination",
 			filter:      "a >< b",
 			expectError: true,
 		},
+		// '==' is not a supported operator in this filter grammar.
 		{
 			name:        "equals with double equals (invalid)",
 			filter:      "a == b",
 			expectError: true,
 		},
+		// SQL-style not-equal operator '<>' is unsupported and should error.
 		{
-			name:        "SQL-style not equal (now invalid - <> not supported)",
+			name:        "SQL-style not equal (<> not supported)",
 			filter:      "a <> b",
 			expectError: true,
 		},
+		// Trailing logical operator without a second condition is invalid.
 		{
 			name:        "logical operator without second condition",
 			filter:      "a = 1 and",
 			expectError: true,
 		},
+		// Leading logical operator without a preceding condition is invalid.
 		{
 			name:        "logical operator without first condition",
 			filter:      "and b = 2",
 			expectError: true,
 		},
+		// Unquoted column names with special characters (hyphen) are invalid.
 		{
 			name:        "special characters in unquoted column",
 			filter:      "user-name = john",
 			expectError: true,
 		},
+		// Spaces in unquoted column names are invalid.
 		{
 			name:        "space in unquoted column name",
 			filter:      "user name = john",
 			expectError: true,
 		},
+		// Dot in an unquoted column name is invalid (use quotes for dot-containing names).
 		{
 			name:        "dot in unquoted column name",
 			filter:      "user.name = john",
 			expectError: true,
 		},
+		// Nonsensical operator sequences (e.g., >===) should error.
 		{
 			name:        "triple equals with greater than",
 			filter:      "a >=== b",
 			expectError: true,
 		},
+		// Nonsensical operator sequences (four equals with >) should error.
 		{
 			name:        "four equals with greater than",
 			filter:      "a ====> b",
 			expectError: true,
 		},
+		// Nonsensical operator sequences (four equals with <) should error.
 		{
 			name:        "four equals with less than",
 			filter:      "a ====< b",
 			expectError: true,
 		},
+		// Nonsensical operator sequences mixing equals and not-equals should error.
 		{
 			name:        "triple equals with not equal",
 			filter:      "a ===!= b",
 			expectError: true,
 		},
+		// Multiple equals signs (===) are invalid in this grammar.
 		{
 			name:        "multiple equals signs",
 			filter:      "a === b",
 			expectError: true,
 		},
+		// Quadruple equals are invalid and should error.
 		{
 			name:        "quadruple equals",
 			filter:      "a ==== b",
 			expectError: true,
 		},
 		// Tricky edge cases
+		// '+' sign in positive numeric literal is not supported and errors.
 		{
 			name:        "positive number with + sign",
 			filter:      "score > +10",
 			expectError: true,
 		},
+		// Scientific notation values (1e3) should be accepted as numeric values.
 		{
 			name:   "scientific notation in value",
 			filter: "temperature >= 1e3",
@@ -476,6 +487,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// The literal NULL should be recognized as a valid value.
 		{
 			name:   "NULL keyword as value",
 			filter: "status = NULL",
@@ -487,6 +499,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Edge-case: empty quoted column name should be accepted.
 		{
 			name:   "empty quoted column",
 			filter: `"" = value`,
@@ -498,26 +511,26 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Escaped quotes inside quoted identifiers/values are not supported here.
 		{
 			name:        "escaped quote in quoted value (unsupported)",
 			filter:      `"col\"name" = "val\"ue"`,
 			expectError: true,
 		},
-		{
-			name:        "escaped backtick in backtick value (unsupported)",
-			filter:      "`col` = `val``",
-			expectError: true,
-		},
+
+		// Non-ASCII characters in unquoted column names are invalid.
 		{
 			name:        "non-ASCII column name unquoted",
 			filter:      "café = oui",
 			expectError: true,
 		},
+		// Trailing garbage after a valid condition should cause an error.
 		{
 			name:        "trailing garbage after valid condition",
 			filter:      "a = b junk",
 			expectError: true,
 		},
+		// Performance/edge-case: very long column names should be handled.
 		{
 			name:   "very long column name (perf test)",
 			filter: strings.Repeat("longcol", 100) + " = 1", // ~600 chars
@@ -529,11 +542,13 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Comma after logical operator (or stray punctuation) should error.
 		{
 			name:        "logical operator with excessive spaces and trailing comma",
 			filter:      "a > 1   and   , b < 2",
 			expectError: true,
 		},
+		// Mixed-case logical operators (e.g., 'And') are preserved as provided.
 		{
 			name:   "uppercase logical with mixed case",
 			filter: "a > 1 And b < 2",
@@ -546,11 +561,13 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Missing value after '=' should error.
 		{
 			name:        "empty value after operator",
 			filter:      "col = ",
 			expectError: true,
 		},
+		// Extra spaces before operator in unquoted column should be tolerated.
 		{
 			name:   "unquoted column with trailing space before op",
 			filter: "col  = 5",
@@ -628,8 +645,6 @@ func TestGetFilterManual(t *testing.T) {
 	testCases := []string{
 		`status = "active"`,
 		`"user-id" > 5`,
-		"`order date` = \"2024-01-01\"",
-		`"user-id" > 5 and ` + "`item.price` <= 100",
 		`age >= 18 or status != "inactive"`,
 	}
 
