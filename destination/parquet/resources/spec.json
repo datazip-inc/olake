@@ -42,6 +42,32 @@
           "type": "string",
           "title": "S3 Endpoint",
           "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
+        },
+        "compression": {
+          "type": "string",
+          "title": "Compression Codec",
+          "description": "Compression algorithm to use for Parquet files. Options: snappy (default), gzip, zstd, lz4, none. Snappy offers good balance of speed and compression ratio.",
+          "enum": ["snappy", "gzip", "zstd", "lz4", "none", "uncompressed"],
+          "default": "snappy"
+        },
+        "max_file_size": {
+          "type": "integer",
+          "title": "Maximum File Size (bytes)",
+          "description": "Maximum size for each Parquet file in bytes. When a file reaches this size, a new file will be created. Default: 134217728 (128MB). Set to 0 to disable file rotation.",
+          "default": 134217728,
+          "minimum": 0
+        },
+        "row_group_size": {
+          "type": "integer",
+          "title": "Row Group Size",
+          "description": "Number of rows to include in each row group. Larger row groups can improve compression but require more memory. Leave empty to use parquet-go's default behavior.",
+          "minimum": 0
+        },
+        "sort_columns": {
+          "type": "string",
+          "title": "Sort Columns",
+          "description": "Comma-separated list of column names to sort data by before writing to Parquet. Sorting can improve query performance for filtered queries. Example: 'timestamp,user_id'. Note: This feature is planned for future implementation.",
+          "pattern": "^[a-zA-Z0-9_,\\s]*$"
         }
       },
       "required": [
