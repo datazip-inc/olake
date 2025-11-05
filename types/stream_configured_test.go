@@ -3,6 +3,9 @@ package types
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfiguredStream_GetFilter(t *testing.T) {
@@ -587,73 +590,24 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			result, err := cs.GetFilter()
 
 			if tt.expectError {
-				if err == nil {
-					t.Errorf("expected error but got none")
-				}
+				assert.Error(t, err, "expected an error but got none")
 				return
 			}
 
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				return
-			}
+			require.NoError(t, err, "unexpected error while parsing filter")
 
 			// Check logical operator
-			if result.LogicalOperator != tt.expectedFilter.LogicalOperator {
-				t.Errorf("LogicalOperator mismatch: expected %q, got %q", tt.expectedFilter.LogicalOperator, result.LogicalOperator)
-			}
+			assert.Equal(t, tt.expectedFilter.LogicalOperator, result.LogicalOperator, "LogicalOperator mismatch")
 
 			// Check number of conditions
-			if len(result.Conditions) != len(tt.expectedFilter.Conditions) {
-				t.Errorf("Conditions length mismatch: expected %d, got %d", len(tt.expectedFilter.Conditions), len(result.Conditions))
-				return
-			}
+			require.Len(t, result.Conditions, len(tt.expectedFilter.Conditions), "Conditions length mismatch")
 
 			// Check each condition
 			for i, expectedCondition := range tt.expectedFilter.Conditions {
-				if i >= len(result.Conditions) {
-					t.Errorf("Missing condition at index %d", i)
-					continue
-				}
-
-				actualCondition := result.Conditions[i]
-
-				if actualCondition.Column != expectedCondition.Column {
-					t.Errorf("Condition[%d] Column mismatch: expected %q, got %q", i, expectedCondition.Column, actualCondition.Column)
-				}
-
-				if actualCondition.Operator != expectedCondition.Operator {
-					t.Errorf("Condition[%d] Operator mismatch: expected %q, got %q", i, expectedCondition.Operator, actualCondition.Operator)
-				}
-
-				if actualCondition.Value != expectedCondition.Value {
-					t.Errorf("Condition[%d] Value mismatch: expected %q, got %q", i, expectedCondition.Value, actualCondition.Value)
-				}
+				assert.Equal(t, expectedCondition.Column, result.Conditions[i].Column, "Condition[%d] Column mismatch", i)
+				assert.Equal(t, expectedCondition.Operator, result.Conditions[i].Operator, "Condition[%d] Operator mismatch", i)
+				assert.Equal(t, expectedCondition.Value, result.Conditions[i].Value, "Condition[%d] Value mismatch", i)
 			}
 		})
-	}
-}
-
-// Helper function to run a quick manual test
-func TestGetFilterManual(t *testing.T) {
-	testCases := []string{
-		`status = "active"`,
-		`"user-id" > 5`,
-		`age >= 18 or status != "inactive"`,
-	}
-
-	for _, filter := range testCases {
-		cs := &ConfiguredStream{
-			StreamMetadata: StreamMetadata{
-				Filter: filter,
-			},
-		}
-
-		result, err := cs.GetFilter()
-		if err != nil {
-			t.Logf("Filter: %s -> ERROR: %v", filter, err)
-		} else {
-			t.Logf("Filter: %s -> Conditions: %+v, LogicalOp: %s", filter, result.Conditions, result.LogicalOperator)
-		}
 	}
 }
