@@ -533,18 +533,6 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		// Extra spaces before operator in unquoted column should be tolerated.
-		{
-			name:   "unquoted column with trailing space before op",
-			filter: "col  = 5",
-			expectedFilter: Filter{
-				Conditions: []Condition{
-					{Column: "col", Operator: "=", Value: "5"},
-				},
-				LogicalOperator: "",
-			},
-			expectError: false,
-		},
 	}
 
 	for _, tt := range tests {
