@@ -48,7 +48,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 
 	// readers created
 	if err := readerManager.CreateReaders(ctx, streams, k.consumerGroupID); err != nil {
-		return fmt.Errorf("failed to create readers: %w", err)
+		return fmt.Errorf("failed to create readers: %s", err)
 	}
 
 	// copy of readers created and respective metadata including last message stored in kafka struct
@@ -90,7 +90,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 	for {
 		message, err := reader.FetchMessage(ctx)
 		if err != nil {
-			return fmt.Errorf("error reading message in Kafka CDC sync: %w", err)
+			return fmt.Errorf("error reading message in Kafka CDC sync: %s", err)
 		}
 
 		// Get current partition metadata and key
@@ -113,7 +113,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 				return nil
 			}
 			if err := json.Unmarshal(message.Value, &result); err != nil {
-				logger.Errorf("failed to unmarshal message value: %v", err)
+				logger.Errorf("failed to unmarshal message value: %s", err)
 				return nil
 			}
 			result["partition"] = message.Partition
@@ -204,7 +204,7 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 		}
 
 		if err := reader.CommitMessages(ctx, messages...); err != nil {
-			return fmt.Errorf("commit failed for reader %s: %w", readerID, err)
+			return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
 		}
 
 		logger.Infof("committed %d partitions for reader %s", len(messages), readerID)

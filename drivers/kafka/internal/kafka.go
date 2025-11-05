@@ -19,6 +19,14 @@ import (
 	"github.com/segmentio/kafka-go/sasl/scram"
 )
 
+const (
+	Message        = "message"
+	Key            = "key"
+	Offset         = "offset"
+	Partition      = "partition"
+	KafkaTimestamp = "kafka_timestamp"
+)
+
 type Kafka struct {
 	config             *Config
 	dialer             *kafka.Dialer
@@ -62,12 +70,12 @@ func (k *Kafka) SetupState(state *types.State) {
 
 func (k *Kafka) Setup(ctx context.Context) error {
 	if err := k.config.Validate(); err != nil {
-		return fmt.Errorf("config validation failed: %v", err)
+		return fmt.Errorf("config validation failed: %s", err)
 	}
 
 	dialer, err := k.createDialer()
 	if err != nil {
-		return fmt.Errorf("failed to create Kafka dialer: %v", err)
+		return fmt.Errorf("failed to create Kafka dialer: %s", err)
 	}
 
 	// Create admin client for metadata and offset operations
@@ -82,7 +90,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	// Test connectivity by fetching metadata
 	_, err = adminClient.Metadata(ctx, &kafka.MetadataRequest{})
 	if err != nil {
-		return fmt.Errorf("failed to ping Kafka brokers: %v", err)
+		return fmt.Errorf("failed to ping Kafka brokers: %s", err)
 	}
 	k.dialer = dialer
 	k.adminClient = adminClient
@@ -95,7 +103,7 @@ func (k *Kafka) Close() error {
 	for id, r := range k.readers {
 		if r != nil {
 			if err := r.Close(); err != nil {
-				logger.Warnf("failed to close reader %s: %v\n", id, err)
+				logger.Warnf("failed to close reader %s: %s\n", id, err)
 			}
 		}
 		delete(k.readers, id)
@@ -110,7 +118,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Kafka")
 	resp, err := k.adminClient.Metadata(ctx, &kafka.MetadataRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("[KAFKA] failed to list topics: %v", err)
+		return nil, fmt.Errorf("failed to list topics: %s", err)
 	}
 
 	var topicNames []string
@@ -121,16 +129,17 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 }
 
 func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
-	logger.Infof("[KAFKA] producing schema for topic [%s]", streamName)
-	stream := types.NewStream(streamName, "topics", nil)
+	logger.Infof("producing schema for topic [%s]", streamName)
+	stream := types.NewStream(streamName, "topics", nil).WithSyncMode(types.STRICTCDC)
+	stream.SyncMode = types.STRICTCDC
 	schema := types.NewTypeSchema()
-	schema.AddTypes("message", types.String)        // message payload
-	schema.AddTypes("key", types.String)            // Kafka message key
-	schema.AddTypes("offset", types.Int64)          // Offset for tracking
-	schema.AddTypes("partition", types.Int64)       // Partition
-	schema.AddTypes("kafka_timestamp", types.Int64) // Message timestamp
+	schema.AddTypes(Message, types.String)       // message payload
+	schema.AddTypes(Key, types.String)           // Kafka message key
+	schema.AddTypes(Offset, types.Int64)         // Offset for tracking
+	schema.AddTypes(Partition, types.Int64)      // Partition
+	schema.AddTypes(KafkaTimestamp, types.Int64) // Message timestamp
 	stream.WithSchema(schema)
-	stream.SourceDefinedPrimaryKey = types.NewSet("offset", "partition")
+	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
 	return stream, nil
 }
 
@@ -161,7 +170,7 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		case "SCRAM-SHA-512":
 			dialer.SASLMechanism, err = scram.Mechanism(scram.SHA512, username, password)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create SCRAM-SHA-512 mechanism: %v", err)
+				return nil, fmt.Errorf("failed to create SCRAM-SHA-512 mechanism: %s", err)
 			}
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
@@ -179,7 +188,7 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		case "SCRAM-SHA-512":
 			dialer.SASLMechanism, err = scram.Mechanism(scram.SHA512, username, password)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create SCRAM-SHA-512 mechanism: %v", err)
+				return nil, fmt.Errorf("failed to create SCRAM-SHA-512 mechanism: %s", err)
 			}
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)

@@ -34,12 +34,11 @@ var DefaultColumns = map[string]types.DataType{
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
-	abstractDriver := &AbstractDriver{
+	return &AbstractDriver{
 		driver:          driver,
 		GlobalCtxGroup:  utils.NewCGroup(ctx),
 		GlobalConnGroup: utils.NewCGroupWithLimit(ctx, constants.DefaultThreadCount), // default max connections
 	}
-	return abstractDriver
 }
 
 func (a *AbstractDriver) SetupState(state *types.State) {
@@ -92,9 +91,13 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		if !a.IsKafkaDriver() {
+		if convStream.SupportedSyncModes.Len() == 0 {
 			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 			convStream.SyncMode = types.FULLREFRESH
+			if a.driver.CDCSupported() {
+				convStream.WithSyncMode(types.CDC, types.STRICTCDC)
+				convStream.SyncMode = types.CDC
+			}
 		}
 
 		// add default columns
@@ -102,10 +105,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			convStream.UpsertField(column, typ, true)
 		}
 
-		if a.driver.CDCSupported() {
-			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
-			convStream.SyncMode = types.CDC
-		} else {
+		if !a.driver.CDCSupported() {
 			// remove cdc column as it is not supported
 			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
 		}

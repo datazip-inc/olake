@@ -15,13 +15,6 @@ import (
 )
 
 func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
-	if a.driver.Type() == string(constants.Kafka) {
-		logger.Warnf("[KAFKA] Backfill called for stream[%s], skipping", stream.ID())
-		if backfilledStreams != nil {
-			backfilledStreams <- stream.ID()
-		}
-		return nil
-	}
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
 	if chunksSet == nil || chunksSet.Len() == 0 {

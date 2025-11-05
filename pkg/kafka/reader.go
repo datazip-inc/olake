@@ -21,44 +21,44 @@ func NewReaderManager(config ReaderConfig) *ReaderManager {
 }
 
 // CreateReaders creates Kafka readers based on the provided streams and configuration
-func (krm *ReaderManager) CreateReaders(ctx context.Context, streams []types.StreamInterface, consumerGroupID string) error {
-	krm.partitionIndex = make(map[string]types.PartitionMetaData)
+func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.StreamInterface, consumerGroupID string) error {
+	r.partitionIndex = make(map[string]types.PartitionMetaData)
 	for _, stream := range streams {
-		if err := krm.SetPartitions(ctx, stream); err != nil {
-			return fmt.Errorf("failed to set partitions for stream %s: %w", stream.ID(), err)
+		if err := r.SetPartitions(ctx, stream); err != nil {
+			return fmt.Errorf("failed to set partitions for stream %s: %s", stream.ID(), err)
 		}
 	}
 
 	// total partitions with new messages
-	totalPartitions := len(krm.partitionIndex)
+	totalPartitions := len(r.partitionIndex)
 	if totalPartitions == 0 {
 		logger.Infof("no partitions with new messages; skipping reader creation for group %s", consumerGroupID)
 		return nil
 	}
 
-	krm.readers = make(map[string]*kafka.Reader)
-	krm.readerClientIDs = make(map[string]string)
+	r.readers = make(map[string]*kafka.Reader)
+	r.readerClientIDs = make(map[string]string)
 
 	// reader tasks according to concurrency policy
-	readersToCreate := utils.Ternary(krm.ShouldMatchPartitionCount(), totalPartitions, utils.Ternary(krm.config.MaxThreads >= totalPartitions, totalPartitions, krm.config.MaxThreads).(int)).(int)
+	readersToCreate := utils.Ternary(r.ShouldMatchPartitionCount(), totalPartitions, utils.Ternary(r.config.MaxThreads > totalPartitions, totalPartitions, r.config.MaxThreads).(int)).(int)
 
-	for i := 0; i < readersToCreate; i++ {
-		readerID := fmt.Sprintf("grp_%s", utils.ULID())
+	for readerIndex := range readersToCreate {
+		readerID := fmt.Sprintf("group_%s", utils.ULID())
 		clientID := fmt.Sprintf("olake-%s-%s", consumerGroupID, readerID)
 
 		// create a per-reader dialer with a unique clientID to identify assignments
-		dialerCopy := *krm.config.Dialer
+		dialerCopy := *r.config.Dialer
 		dialerCopy.ClientID = clientID
 
 		// custom round robin group balancer that ensures proper consumer ID distribution
 		groupBalancer := &CustomGroupBalancer{
 			requiredConsumerIDs: readersToCreate,
-			readerIndex:         i,
+			readerIndex:         readerIndex,
 		}
 
 		// readers creation
 		reader := kafka.NewReader(kafka.ReaderConfig{
-			Brokers: utils.SplitAndTrim(krm.config.BootstrapServers),
+			Brokers: utils.SplitAndTrim(r.config.BootstrapServers),
 			GroupID: consumerGroupID,
 			GroupTopics: func() []string {
 				topics := make([]string, 0, len(streams))
@@ -67,38 +67,38 @@ func (krm *ReaderManager) CreateReaders(ctx context.Context, streams []types.Str
 				}
 				return topics
 			}(),
-			MinBytes:       1,
-			MaxBytes:       10e6,
+			MinBytes:       1,    // 1 byte
+			MaxBytes:       10e6, // 10 MB
 			GroupBalancers: []kafka.GroupBalancer{groupBalancer},
 			Dialer:         &dialerCopy,
 		})
-		krm.readers[readerID] = reader
-		krm.readerLastMessages.Store(readerID, make(map[types.PartitionKey]kafka.Message))
-		krm.readerClientIDs[readerID] = clientID
+		r.readers[readerID] = reader
+		r.readerLastMessages.Store(readerID, make(map[types.PartitionKey]kafka.Message))
+		r.readerClientIDs[readerID] = clientID
 	}
-	logger.Infof("created %d readers for %d total partitions, with consumer group %s", len(krm.readers), totalPartitions, consumerGroupID)
+	logger.Infof("created %d readers for %d total partitions, with consumer group %s", len(r.readers), totalPartitions, consumerGroupID)
 	return nil
 }
 
 // GetReaders returns the created readers
-func (krm *ReaderManager) GetReaders() map[string]*kafka.Reader {
-	return krm.readers
+func (r *ReaderManager) GetReaders() map[string]*kafka.Reader {
+	return r.readers
 }
 
 // GetPartitionIndex returns the partition index
-func (krm *ReaderManager) GetPartitionIndex() map[string]types.PartitionMetaData {
-	return krm.partitionIndex
+func (r *ReaderManager) GetPartitionIndex() map[string]types.PartitionMetaData {
+	return r.partitionIndex
 }
 
 // ShouldMatchPartitionCount returns whether readers should match partition count
-func (krm *ReaderManager) ShouldMatchPartitionCount() bool {
-	return krm.config.ThreadsEqualTotalPartitions
+func (r *ReaderManager) ShouldMatchPartitionCount() bool {
+	return r.config.ThreadsEqualTotalPartitions
 }
 
 // GetReaderLastMessages returns the reader last messages
-func (krm *ReaderManager) GetReaderLastMessages() map[string]map[types.PartitionKey]kafka.Message {
+func (r *ReaderManager) GetReaderLastMessages() map[string]map[types.PartitionKey]kafka.Message {
 	result := make(map[string]map[types.PartitionKey]kafka.Message)
-	krm.readerLastMessages.Range(func(key, value interface{}) bool {
+	r.readerLastMessages.Range(func(key, value interface{}) bool {
 		if readerID, ok := key.(string); ok {
 			if messages, ok := value.(map[types.PartitionKey]kafka.Message); ok {
 				result[readerID] = messages
@@ -110,14 +110,14 @@ func (krm *ReaderManager) GetReaderLastMessages() map[string]map[types.Partition
 }
 
 // GetReaderClientIDs returns the reader client IDs
-func (krm *ReaderManager) GetReaderClientIDs() map[string]string {
-	return krm.readerClientIDs
+func (r *ReaderManager) GetReaderClientIDs() map[string]string {
+	return r.readerClientIDs
 }
 
 // SetPartitions sets up partitions for a stream
-func (krm *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamInterface) error {
+func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamInterface) error {
 	topic := stream.Name()
-	topicDetail, err := krm.GetTopicMetadata(ctx, topic)
+	topicDetail, err := r.GetTopicMetadata(ctx, topic)
 	if err != nil {
 		return err
 	}
@@ -128,13 +128,13 @@ func (krm *ReaderManager) SetPartitions(ctx context.Context, stream types.Stream
 		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.FirstOffset})
 		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.LastOffset})
 	}
-	offsetsResp, err := krm.config.AdminClient.ListOffsets(ctx, &kafka.ListOffsetsRequest{Topics: map[string][]kafka.OffsetRequest{topic: offsetRequests}})
+	offsetsResp, err := r.config.AdminClient.ListOffsets(ctx, &kafka.ListOffsetsRequest{Topics: map[string][]kafka.OffsetRequest{topic: offsetRequests}})
 	if err != nil {
-		return fmt.Errorf("failed to list offsets for topic %s: %w", topic, err)
+		return fmt.Errorf("failed to list offsets for topic %s: %s", topic, err)
 	}
 
 	// fetch already committed offset of partition
-	committedTopicOffsets := krm.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
+	committedTopicOffsets := r.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
 
 	// build partition metadata
 	for _, idx := range offsetsResp.Topics[topic] {
@@ -156,7 +156,7 @@ func (krm *ReaderManager) SetPartitions(ctx context.Context, stream types.Stream
 		startOffset := committedOffset
 		if !hasCommittedOffset {
 			// no committed offset available, auto_offset_reset setting will be used
-			startOffset = utils.Ternary(krm.config.AutoOffsetReset == "earliest", idx.FirstOffset, idx.LastOffset).(int64)
+			startOffset = utils.Ternary(r.config.AutoOffsetReset == "earliest", idx.FirstOffset, idx.LastOffset).(int64)
 		}
 
 		pm := types.PartitionMetaData{
@@ -167,26 +167,23 @@ func (krm *ReaderManager) SetPartitions(ctx context.Context, stream types.Stream
 		}
 
 		// update topic's partition index
-		if krm.partitionIndex == nil {
-			krm.partitionIndex = make(map[string]types.PartitionMetaData)
-		}
-		krm.partitionIndex[fmt.Sprintf("%s:%d", topic, pm.PartitionID)] = pm
+		r.partitionIndex[fmt.Sprintf("%s:%d", topic, pm.PartitionID)] = pm
 	}
 	return nil
 }
 
 // GetTopicMetadata fetches metadata for a topic
-func (krm *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*kafka.Topic, error) {
+func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*kafka.Topic, error) {
 	metadataReq := &kafka.MetadataRequest{Topics: []string{topic}}
-	metadataResp, err := krm.config.AdminClient.Metadata(ctx, metadataReq)
+	metadataResp, err := r.config.AdminClient.Metadata(ctx, metadataReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %w", topic, err)
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", topic, err)
 	}
 
 	for _, t := range metadataResp.Topics {
 		if t.Name == topic {
 			if t.Error != nil {
-				return nil, fmt.Errorf("topic %s not found in metadata: %v", topic, t.Error)
+				return nil, fmt.Errorf("topic %s not found in metadata: %s", topic, t.Error)
 			}
 			return &t, nil
 		}
@@ -196,20 +193,20 @@ func (krm *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*
 }
 
 // FetchCommittedOffsets fetches committed offsets for a topic
-func (krm *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions []kafka.Partition) map[int]int64 {
+func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions []kafka.Partition) map[int]int64 {
 	partitionsToFetch := make([]int, 0, len(partitions))
 	for _, p := range partitions {
 		partitionsToFetch = append(partitionsToFetch, p.ID)
 	}
 
 	fetchOffsetReq := &kafka.OffsetFetchRequest{
-		GroupID: krm.config.ConsumerGroupID,
+		GroupID: r.config.ConsumerGroupID,
 		Topics:  map[string][]int{topic: partitionsToFetch},
 	}
 
-	committedOffsetsResp, err := krm.config.AdminClient.OffsetFetch(ctx, fetchOffsetReq)
+	committedOffsetsResp, err := r.config.AdminClient.OffsetFetch(ctx, fetchOffsetReq)
 	if err != nil {
-		logger.Warnf("could not fetch committed offsets for group %s", krm.config.ConsumerGroupID)
+		logger.Warnf("could not fetch committed offsets for group %s", r.config.ConsumerGroupID)
 	}
 
 	committedTopicOffsets := make(map[int]int64)
