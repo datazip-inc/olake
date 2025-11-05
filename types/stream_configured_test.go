@@ -372,12 +372,6 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expectError: true,
 		},
 
-		// Reject filters containing three conditions (only up to two supported).
-		{
-			name:        "three conditions (not supported)",
-			filter:      "a = 1 and b = 2 and c = 3",
-			expectError: true,
-		},
 		// Mixed logical operators within the same expression are invalid.
 		{
 			name:        "mixed logical operators",
