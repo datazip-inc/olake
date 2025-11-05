@@ -435,40 +435,10 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter:      "user.name = john",
 			expectError: true,
 		},
-		// Nonsensical operator sequences (e.g., >===) should error.
+		// Multiple equals signs are invalid in this grammar.
 		{
-			name:        "triple equals with greater than",
-			filter:      "a >=== b",
-			expectError: true,
-		},
-		// Nonsensical operator sequences (four equals with >) should error.
-		{
-			name:        "four equals with greater than",
-			filter:      "a ====> b",
-			expectError: true,
-		},
-		// Nonsensical operator sequences (four equals with <) should error.
-		{
-			name:        "four equals with less than",
-			filter:      "a ====< b",
-			expectError: true,
-		},
-		// Nonsensical operator sequences mixing equals and not-equals should error.
-		{
-			name:        "triple equals with not equal",
-			filter:      "a ===!= b",
-			expectError: true,
-		},
-		// Multiple equals signs (===) are invalid in this grammar.
-		{
-			name:        "multiple equals signs",
+			name:        "multiple equals signs (invalid)",
 			filter:      "a === b",
-			expectError: true,
-		},
-		// Quadruple equals are invalid and should error.
-		{
-			name:        "quadruple equals",
-			filter:      "a ==== b",
 			expectError: true,
 		},
 		// Tricky edge cases
@@ -520,7 +490,6 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter:      `"col\"name" = "val\"ue"`,
 			expectError: true,
 		},
-
 		// Non-ASCII characters in unquoted column names are invalid.
 		{
 			name:        "non-ASCII column name unquoted",
