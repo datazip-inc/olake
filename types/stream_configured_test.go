@@ -49,6 +49,19 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
+		// Unquoted column names with underscores are valid and commonly used.
+		{
+			name:   "unquoted column with underscores",
+			filter: "user_id != 0 and user_name = john_doe",
+			expectedFilter: Filter{
+				Conditions: []Condition{
+					{Column: "user_id", Operator: "!=", Value: "0"},
+					{Column: "user_name", Operator: "=", Value: "john_doe"},
+				},
+				LogicalOperator: "and",
+			},
+			expectError: false,
+		},
 
 		// Double-quoted column names may contain spaces; quoted values preserved.
 		{
