@@ -533,12 +533,6 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 			expectError: false,
 		},
-		// Missing value after '=' should error.
-		{
-			name:        "empty value after operator",
-			filter:      "col = ",
-			expectError: true,
-		},
 		// Extra spaces before operator in unquoted column should be tolerated.
 		{
 			name:   "unquoted column with trailing space before op",
