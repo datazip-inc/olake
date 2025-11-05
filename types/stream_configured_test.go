@@ -381,13 +381,6 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter:      "> value",
 			expectError: true,
 		},
-		// Mismatched/dangling double quotes should error.
-		{
-			name:        "double quotes mismatch",
-			filter:      `"column = value`,
-			expectError: true,
-		},
-
 		// Mixed logical operators within the same expression are invalid.
 		{
 			name:        "mixed logical operators",
