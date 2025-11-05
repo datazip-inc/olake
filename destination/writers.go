@@ -11,8 +11,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-const DestError = "destination error"
-
 type (
 	NewFunc        func() Writer
 	InsertFunction func(record types.RawRecord) (err error)
@@ -44,6 +42,7 @@ type (
 		config       any
 		init         NewFunc
 		writerSchema sync.Map
+		batchSize    int64
 	}
 
 	// writer thread used by reader
@@ -52,8 +51,9 @@ type (
 		buffer         []types.RawRecord
 		threadID       string
 		writer         Writer
-		batchSize      int
+		batchSize      int64
 		streamArtifact *writerSchema
+		group          *utils.CxGroup
 	}
 )
 
@@ -83,7 +83,7 @@ func WithThreadID(threadID string) ThreadOptions {
 	}
 }
 
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams, dropStreams []string) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -99,20 +99,15 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams,
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
-	if dropStreams != nil {
-		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
-			return nil, fmt.Errorf("failed to clear destination: %s", err)
-		}
-	}
-
 	pool := &WriterPool{
 		stats: &Stats{
 			TotalRecordsToSync: atomic.Int64{},
 			ThreadCount:        atomic.Int64{},
 			ReadCount:          atomic.Int64{},
 		},
-		config: config.WriterConfig,
-		init:   newfunc,
+		config:    config.WriterConfig,
+		init:      newfunc,
+		batchSize: batchSize,
 	}
 
 	for _, stream := range syncStreams {
@@ -180,14 +175,14 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
 	}
-
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
-		batchSize:      10000,
+		batchSize:      w.batchSize,
 		threadID:       opts.ThreadID,
 		writer:         writerThread,
 		stats:          w.stats,
 		streamArtifact: streamArtifact,
+		group:          utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
 	}, nil
 }
 
@@ -195,16 +190,19 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("context closed")
+	case <-wt.group.Ctx().Done():
+		// if group context is done, return the group err
+		return wt.group.Block()
 	default:
 		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
-		if len(wt.buffer) >= wt.batchSize {
-			err := wt.flush(ctx, wt.buffer)
-			if err != nil {
-				return fmt.Errorf("failed to flush data: %s", err)
-			}
-			// empty buffer
+		if len(wt.buffer) >= int(wt.batchSize) {
+			buf := make([]types.RawRecord, len(wt.buffer))
+			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
+			wt.group.Add(func(ctx context.Context) error {
+				return wt.flush(ctx, buf)
+			})
 		}
 		return nil
 	}
@@ -216,11 +214,19 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 		return nil
 	}
 
+	defer func() {
+		if err == nil {
+			if rec := recover(); rec != nil {
+				err = fmt.Errorf("panic recovered in flush: %v", rec)
+			}
+		}
+	}()
+
 	// create flush context
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(buf)
+	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
@@ -252,8 +258,12 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 		return fmt.Errorf("context closed")
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
-		err := wt.flush(ctx, wt.buffer)
-		if err != nil {
+
+		wt.group.Add(func(ctx context.Context) error {
+			return wt.flush(ctx, wt.buffer)
+		})
+
+		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
 
@@ -262,4 +272,23 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 
 		return wt.writer.Close(ctx)
 	}
+}
+
+func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
+	newfunc, found := RegisteredWriters[config.Type]
+	if !found {
+		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+	}
+
+	adapter := newfunc()
+	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
+		return err
+	}
+
+	if dropStreams != nil {
+		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
+			return fmt.Errorf("failed to drop the streams: %s", err)
+		}
+	}
+	return nil
 }
