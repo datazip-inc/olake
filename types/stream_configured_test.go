@@ -123,7 +123,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		},
 		// Simple comparison without spaces around operator.
 		{
-			name:   "test case from user: a>b",
+			name:   "compact comparison without spaces",
 			filter: "a>b",
 			expectedFilter: Filter{
 				Conditions: []Condition{
@@ -135,7 +135,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		},
 		// Quoted column name and multiple conditions joined by 'and'.
 		{
-			name:   "test case from user: quoted a with spaces and logical operator",
+			name:   "mixed quoted and unquoted columns with logical operator",
 			filter: `"a" >b and a < c`,
 			expectedFilter: Filter{
 				Conditions: []Condition{
@@ -149,7 +149,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 
 		// Rejects invalid operator sequences like >>>=.
 		{
-			name:        "test case from user: invalid operator",
+			name:        "invalid operator sequence",
 			filter:      `"a" >>>= b`,
 			expectError: true,
 		},
