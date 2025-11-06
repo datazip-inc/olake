@@ -6,7 +6,6 @@ type PartitionMetaData struct {
 	Stream      StreamInterface
 	PartitionID int
 	EndOffset   int64
-	StartOffset int64
 }
 
 // PartitionKey represents a unique key for a Kafka partition and topic

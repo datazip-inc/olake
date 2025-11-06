@@ -152,22 +152,14 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 			continue
 		}
 
-		// decide start offset
-		startOffset := committedOffset
-		if !hasCommittedOffset {
-			// no committed offset available, auto_offset_reset setting will be used
-			startOffset = utils.Ternary(r.config.AutoOffsetReset == "earliest", idx.FirstOffset, idx.LastOffset).(int64)
-		}
-
-		pm := types.PartitionMetaData{
+		partitionMeta := types.PartitionMetaData{
 			Stream:      stream,
 			PartitionID: idx.Partition,
 			EndOffset:   idx.LastOffset,
-			StartOffset: startOffset,
 		}
 
 		// update topic's partition index
-		r.partitionIndex[fmt.Sprintf("%s:%d", topic, pm.PartitionID)] = pm
+		r.partitionIndex[fmt.Sprintf("%s:%d", topic, partitionMeta.PartitionID)] = partitionMeta
 	}
 	return nil
 }

@@ -13,7 +13,6 @@ type ReaderConfig struct {
 	ThreadsEqualTotalPartitions bool
 	BootstrapServers            string
 	ConsumerGroupID             string
-	AutoOffsetReset             string
 	Dialer                      *kafka.Dialer
 	AdminClient                 *kafka.Client
 }

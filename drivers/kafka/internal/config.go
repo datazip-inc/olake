@@ -10,7 +10,6 @@ import (
 type Config struct {
 	BootstrapServers            string         `json:"bootstrap_servers"`
 	ConsumerGroupID             string         `json:"consumer_group_id,omitempty"`
-	AutoOffsetReset             string         `json:"auto_offset_reset,omitempty"`
 	Protocol                    ProtocolConfig `json:"protocol"`
 	MaxThreads                  int            `json:"max_threads"`
 	RetryCount                  int            `json:"backoff_retry_count"`
@@ -47,10 +46,6 @@ func (c *Config) Validate() error {
 
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount
-	}
-
-	if c.AutoOffsetReset != "" && c.AutoOffsetReset != "earliest" && c.AutoOffsetReset != "latest" {
-		return fmt.Errorf("auto_offset_reset must be either 'earliest' or 'latest'")
 	}
 
 	return utils.Validate(c)

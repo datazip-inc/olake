@@ -42,7 +42,6 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		Dialer:                      k.dialer,
 		AdminClient:                 k.adminClient,
 		ThreadsEqualTotalPartitions: k.config.ThreadsEqualTotalPartitions,
-		AutoOffsetReset:             k.config.AutoOffsetReset,
 	}
 	readerManager := kafkapkg.NewReaderManager(readerConfig)
 
@@ -98,11 +97,6 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 		currentPartitionMeta, exists := k.partitionIndex[fmt.Sprintf("%s:%d", message.Topic, message.Partition)]
 		if !exists {
 			return fmt.Errorf("missing partition index for topic %s partition %d", message.Topic, message.Partition)
-		}
-
-		// Skip messages before start offset (can happen during retries or partition reassignment)
-		if currentPartitionMeta.StartOffset > 0 && message.Offset < currentPartitionMeta.StartOffset {
-			continue
 		}
 
 		// Process message data
