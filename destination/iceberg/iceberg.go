@@ -208,7 +208,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	}
 
 	// Send to gRPC server with timeout
-	reqCtx, cancel := context.WithTimeout(ctx, 3600*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	// Send the batch to the server
