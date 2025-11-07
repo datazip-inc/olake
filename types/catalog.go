@@ -174,7 +174,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
 // 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode
-// 2. Compares properties from streams: destination_database, cursor_field, sync_mode
+// 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
 // Parameters:
@@ -239,6 +239,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// destination database change
 			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
+			// destination table change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
@@ -247,7 +248,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
 					(oldStream.Stream.CursorField != newStream.Stream.CursorField) ||
-					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode)
+					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
+					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable)
 			}()
 
 			// if any difference, add stream to diff streams
@@ -258,8 +260,9 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					Stream: &newStreamCopy,
 				}
 
-				// safely change for destination database if difference present
-				deltaStream.Stream.DestinationDatabase = utils.Ternary(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase, oldStream.Stream.DestinationDatabase, newStream.Stream.DestinationDatabase).(string)
+				// safely change for destination database and table if difference present
+				deltaStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
+				deltaStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 
 				diffStreams.Streams = append(diffStreams.Streams, deltaStream)
 				diffStreams.SelectedStreams[namespace] = append(
