@@ -379,36 +379,17 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
 							}
 
-							// Test cases for incremental sync
-							incrementalTestCases := []struct {
-								name       string
-								setupQuery string
-								opSymbol   string
-								expected   map[string]interface{}
-							}{
-								{
-									name:       "full load",
-									setupQuery: "",
-									opSymbol:   "r",
-									expected:   cfg.ExpectedData,
-								},
-								{
-									name:       "insert",
-									setupQuery: "insert",
-									opSymbol:   "u",
-									expected:   cfg.ExpectedData,
-								},
+							// Initial incremental run (equivalent to full on first run)
+							t.Log("Running Incremental - full load")
+							if err := runSync(c, true, "", "r", cfg.ExpectedData); err != nil {
+								return err
 							}
 
-							for _, tc := range incrementalTestCases {
-								t.Run(tc.name, func(t *testing.T) {
-									if tc.setupQuery != "" {
-										cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, tc.setupQuery, false)
-									}
-									if err := runSync(c, true, tc.setupQuery, tc.opSymbol, tc.expected); err != nil {
-										t.Fatalf("Incremental test %s failed: %v", tc.name, err)
-									}
-								})
+							// Delta incremental: add new rows and sync again
+							t.Log("Running Incremental - inserts")
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "insert", false)
+							if err := runSync(c, true, "", "u", cfg.ExpectedData); err != nil {
+								return err
 							}
 
 							// 5. Clean up
