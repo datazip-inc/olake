@@ -1,5 +1,5 @@
 # Build Stage
-FROM golang:1.23-alpine AS base
+FROM golang:1.24-alpine AS base
 
 WORKDIR /home/app
 COPY . .
@@ -12,8 +12,8 @@ RUN go build -o /olake main.go
 # Final Runtime Stage
 FROM alpine:3.18
 
-# Install Java 17 instead of Java 11
-RUN apk add --no-cache openjdk17
+# Install Java 17 and iproute2 for ss command
+RUN apk add --no-cache openjdk17 iproute2
 
 # Copy the binary from the build stage
 COPY --from=base /olake /home/olake

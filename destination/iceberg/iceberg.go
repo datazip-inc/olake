@@ -17,6 +17,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/spf13/viper"
 )
 
 type Iceberg struct {
@@ -238,7 +239,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	}
 
 	// Send commit request for this thread using a special message format
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 
 	request := &proto.IcebergPayload{
@@ -261,8 +262,13 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	i.options = &destination.Options{
 		ThreadID: "test_iceberg_destination",
 	}
+
+	destinationDB := "test_olake"
+	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
+		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
+	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, "test_olake")
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -273,7 +279,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		i.Close(ctx)
 	}()
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	// try to create table
@@ -281,7 +287,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: "test_olake",
+			DestTableName: destinationDB,
 			Schema:        icebergRawSchema(),
 		},
 	}
@@ -296,7 +302,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
 	protoSchema := icebergRawSchema()
-	record := types.CreateRawRecord("olake_test", map[string]any{"name": "olake"}, "r", &currentTime)
+	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime)
 	protoColumns, err := rawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
@@ -305,7 +311,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
-			DestTableName: "test_olake",
+			DestTableName: destinationDB,
 			Schema:        protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{
@@ -607,17 +613,52 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	return nil
 }
 
-func (i *Iceberg) DropStreams(_ context.Context, _ []string) error {
-	logger.Info("iceberg destination not support clear destination, skipping clear operation")
+// drop streams required for clear destination
+func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error {
+	i.options = &destination.Options{
+		ThreadID: "iceberg_destination_drop",
+	}
+	if len(dropStreams) == 0 {
+		logger.Info("No streams selected for clearing Iceberg destination, skipping operation")
+		return nil
+	}
 
-	// logger.Infof("Clearing Iceberg destination for %d selected streams: %v", len(selectedStreams), selectedStreams)
+	// server setup for dropping tables
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, false, false, "")
+	if err != nil {
+		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
+	}
 
-	// TODO: Implement Iceberg table clearing logic
-	// 1. Connect to the Iceberg catalog
-	// 2. Use Iceberg's delete API or drop/recreate the table
-	// 3. Handle any Iceberg-specific cleanup
+	// to close client properly
+	i.server = server
+	defer func() {
+		i.Close(ctx)
+	}()
 
-	// logger.Info("Successfully cleared Iceberg destination for selected streams")
+	logger.Infof("Starting Clear Iceberg destination for %d selected streams", len(dropStreams))
+
+	// process each stream
+	for _, stream := range dropStreams {
+		destDB := stream.GetDestinationDatabase(&i.config.IcebergDatabase)
+		destTable := stream.GetDestinationTable()
+		dropTable := fmt.Sprintf("%s.%s", destDB, destTable)
+
+		logger.Infof("Dropping Iceberg table: %s", dropTable)
+
+		request := proto.IcebergPayload{
+			Type: proto.IcebergPayload_DROP_TABLE,
+			Metadata: &proto.IcebergPayload_Metadata{
+				DestTableName: dropTable,
+				ThreadId:      i.server.serverID,
+			},
+		}
+		_, err := i.server.sendClientRequest(ctx, &request)
+		if err != nil {
+			return fmt.Errorf("failed to drop table %s: %s", dropTable, err)
+		}
+	}
+
+	logger.Info("Successfully cleared Iceberg destination for selected streams")
 	return nil
 }
 

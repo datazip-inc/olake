@@ -62,7 +62,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 throw new Exception("Destination table name not present in metadata");
             }
 
-            if (this.icebergTable == null) {
+            if (this.icebergTable == null && request.getType() != IcebergPayload.PayloadType.DROP_TABLE) {
                 SchemaConvertor schemaConvertor = new SchemaConvertor(identifierField, schemaMetadata);
                 this.icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
                                         schemaConvertor.convertToIcebergSchema());
@@ -111,10 +111,24 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
                     
                 case DROP_TABLE:
-                    LOGGER.warn("{} Table {} not dropped, drop table not implemented", requestId, destTableName);
-                    sendResponse(responseObserver, "Drop table not implemented");
+                    String dropTable = metadata.getDestTableName();
+                    String[] parts = dropTable.split("\\.", 2);
+                    if (parts.length != 2) {
+                        throw new IllegalArgumentException("Invalid destination table name: " + dropTable);
+                    }
+                    String namespace = parts[0], tableName = parts[1];
+                    
+                    LOGGER.warn("{} Dropping table {}.{}", requestId, namespace, tableName);
+
+                    boolean dropped = IcebergUtil.dropIcebergTable(namespace, tableName, icebergCatalog);
+                    if (dropped) {
+                        sendResponse(responseObserver, "Successfully dropped table " + tableName);
+                        LOGGER.info("{} Table {} dropped", requestId, tableName);
+                    } else {
+                        sendResponse(responseObserver, "Table " + tableName + " does not exist");
+                        LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, tableName);
+                    }
                     break;
-                
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());
             }
