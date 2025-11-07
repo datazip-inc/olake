@@ -239,7 +239,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	}
 
 	// Send commit request for this thread using a special message format
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 
 	request := &proto.IcebergPayload{
@@ -279,7 +279,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		i.Close(ctx)
 	}()
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	// try to create table
