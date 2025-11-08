@@ -84,7 +84,7 @@ func compareStreams() error {
 		return fmt.Errorf("failed to read new catalog: %s", derr)
 	}
 
-	diffCatalog := types.GetStreamsDelta(&oldStreams, &newStreams, connector.Type())
+	diffCatalog := types.GetStreamsDelta(&oldStreams, &newStreams)
 	if err := logger.FileLoggerWithPath(diffCatalog, viper.GetString(constants.DifferencePath)); err != nil {
 		return fmt.Errorf("failed to write difference streams: %s", err)
 	}

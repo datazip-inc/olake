@@ -174,8 +174,8 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
 // 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode
-// 2. Compares properties from streams: destination_database, cursor_field, sync_mode
-// 3. For new streams: Only adds them if connector is Postgres/MySQL AND sync_mode is CDC
+// 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
+// 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
 // Parameters:
 //   - oldStreams: The previous catalog to compare against
@@ -183,7 +183,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 //
 // Returns:
 //   - A catalog containing only the streams that have differences
-func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Catalog {
+func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 	diffStreams := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -206,10 +206,6 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Cat
 		}
 	}
 
-	// flag for connector which have global state support
-	// TODO: create an array of global state supported connectors in constants
-	globalStateSupportedConnector := connectorType == string(constants.Postgres) || connectorType == string(constants.MySQL)
-
 	for namespace, newMetadatas := range newStreams.SelectedStreams {
 		for _, newMetadata := range newMetadatas {
 			streamID := fmt.Sprintf("%s.%s", namespace, newMetadata.StreamName)
@@ -227,14 +223,11 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Cat
 			// if new stream in selected_streams
 			if !oldMetadataExists || !oldStreamExists {
 				// addition of new streams
-				if globalStateSupportedConnector && newStream.GetStream().SyncMode == CDC {
-					diffStreams.Streams = append(diffStreams.Streams, newStream)
-					diffStreams.SelectedStreams[namespace] = append(
-						diffStreams.SelectedStreams[namespace],
-						newMetadata,
-					)
-				}
-				// skip new selected streams for mongo and sync mode != cdc
+				diffStreams.Streams = append(diffStreams.Streams, newStream)
+				diffStreams.SelectedStreams[namespace] = append(
+					diffStreams.SelectedStreams[namespace],
+					newMetadata,
+				)
 				continue
 			}
 
@@ -246,6 +239,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Cat
 			// destination database change
 			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
+			// destination table change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
@@ -254,12 +248,23 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog, connectorType string) *Cat
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
 					(oldStream.Stream.CursorField != newStream.Stream.CursorField) ||
-					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode)
+					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
+					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable)
 			}()
 
 			// if any difference, add stream to diff streams
 			if isDifferent {
-				diffStreams.Streams = append(diffStreams.Streams, newStream)
+				// copy of the new stream to modify it for the difference
+				newStreamCopy := *newStream.Stream
+				deltaStream := &ConfiguredStream{
+					Stream: &newStreamCopy,
+				}
+
+				// safely change for destination database and table if difference present
+				deltaStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
+				deltaStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+
+				diffStreams.Streams = append(diffStreams.Streams, deltaStream)
 				diffStreams.SelectedStreams[namespace] = append(
 					diffStreams.SelectedStreams[namespace],
 					newMetadata,
