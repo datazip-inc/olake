@@ -1,0 +1,18 @@
+{
+  "source_id": "my-mongo",
+  "type": "mongodb",
+  "config": {
+    "host": "127.0.0.1",
+    "port": 27017,
+    "username": "",
+    "password": "",
+    "database": "admin"
+  },
+  "ssh_tunnel": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 22,
+    "user": "lenovo",
+    "private_key_path": "/home/lenovo/.ssh/id_rsa"
+  }
+}

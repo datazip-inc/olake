@@ -6,6 +6,10 @@ use (
 	.
 	./drivers/mongodb
 	./drivers/mysql
-	./drivers/postgres
 	./drivers/oracle
+	./drivers/postgres
 )
+
+replace cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
+
+replace cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.7.0
