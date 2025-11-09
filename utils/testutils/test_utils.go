@@ -378,7 +378,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							// Initial incremental run (equivalent to full on first run)
 							t.Log("Running Incremental - full load")
-							if err := runSync(c, true, "", "r", cfg.ExpectedData); err != nil {
+							if err := runSync(c, false, "", "r", cfg.ExpectedData); err != nil {
 								return err
 							}
 
