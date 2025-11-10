@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/destination/iceberg/arrow"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -29,15 +30,16 @@ type portState struct {
 }
 
 type serverInstance struct {
-	port     int
-	cmd      *exec.Cmd
-	client   proto.RecordIngestServiceClient
-	conn     *grpc.ClientConn
-	serverID string
+	port        int
+	cmd         *exec.Cmd
+	client      proto.RecordIngestServiceClient
+	arrowClient proto.ArrowRecordIngestServiceClient
+	conn        *grpc.ClientConn
+	serverID    string
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []arrow.PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
@@ -56,8 +58,8 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		partitionFields := make([]map[string]string, 0, len(partitionInfo))
 		for _, info := range partitionInfo {
 			partitionFields = append(partitionFields, map[string]string{
-				"field":     info.field,
-				"transform": info.transform,
+				"field":     info.Field,
+				"transform": info.Transform,
 			})
 		}
 		serverConfig["partition-fields"] = partitionFields
@@ -126,7 +128,7 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 
 // setup java client
 
-func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
+func newIcebergClient(config *Config, partitionInfo []arrow.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
 	// validate configuration
 	err := config.Validate()
 	if err != nil {
@@ -226,11 +228,12 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 
 		logger.Infof("Thread[%s]: Connected to new iceberg writer on port %d", threadID, port)
 		return &serverInstance{
-			port:     port,
-			cmd:      serverCmd,
-			client:   proto.NewRecordIngestServiceClient(conn),
-			conn:     conn,
-			serverID: threadID,
+			port:        port,
+			cmd:         serverCmd,
+			client:      proto.NewRecordIngestServiceClient(conn),
+			arrowClient: proto.NewArrowRecordIngestServiceClient(conn),
+			conn:        conn,
+			serverID:    threadID,
 		}, nil
 	}
 

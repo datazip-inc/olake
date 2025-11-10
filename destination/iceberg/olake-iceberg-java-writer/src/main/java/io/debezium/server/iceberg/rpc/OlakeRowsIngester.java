@@ -1,24 +1,23 @@
 package io.debezium.server.iceberg.rpc;
 
+import java.util.List;
+import java.util.Map;
+
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
-import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.SchemaConvertor;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
-
-import org.apache.iceberg.Table;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.List;
-import java.util.Map;
 
 @Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
@@ -128,6 +127,63 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                         sendResponse(responseObserver, "Table " + tableName + " does not exist");
                         LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, tableName);
                     }
+                    break;
+
+                case REGISTER:
+                    LOGGER.info("{} Received REGISTER request for thread: {}", requestId, threadId);
+                    
+                    List<IcebergPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
+                    int dataFileCount = 0;
+                    int deleteFileCount = 0;
+                    
+                    for (IcebergPayload.FileMetadata fileMeta : fileMetadataList) {
+                        String fileType = fileMeta.getFileType();
+                        String filePath = fileMeta.getFilePath();
+                        
+                        LOGGER.info("{} File type: {}, path: {}", requestId, fileType, filePath);
+                        
+                        switch (fileType) {
+                         case "delete":
+                             int fieldId = IcebergUtil.getFieldId(this.icebergTable, "_olake_id");
+                             icebergTableOperator.registerDeleteFile(
+                                 threadId,
+                                 icebergTable,
+                                 java.util.Collections.singletonList(filePath),
+                                 fieldId
+                             );
+                             deleteFileCount++;
+                             LOGGER.info("{} Successfully registered delete file", requestId);
+                             break;
+             
+                         case "data":
+                             icebergTableOperator.registerDataFile(
+                                 threadId,
+                                 icebergTable,
+                                 java.util.Collections.singletonList(filePath)
+                             );
+                             dataFileCount++;
+                             LOGGER.info("{} Successfully registered data file", requestId);
+                             break;
+             
+                         default:
+                             LOGGER.warn("{} Unknown file type '{}' for path: {}", requestId, fileType, filePath);
+                             break;
+                        }
+                    }
+                    
+                    sendResponse(responseObserver, String.format("Successfully registered %d data files and %d delete files for thread %s", 
+                                                                  dataFileCount, deleteFileCount, threadId));
+                    break;
+                
+                case GET_FIELD_ID:
+                    LOGGER.info("{} Received GET_FIELD_ID request for thread: {}", requestId, threadId);
+                    String fieldName = metadata.getFieldName();
+                    if (fieldName == null || fieldName.isEmpty()) {
+                        throw new IllegalArgumentException("Field name is required for GET_FIELD_ID request");
+                    }
+                    int fieldId = IcebergUtil.getFieldId(this.icebergTable, fieldName);
+                    sendResponse(responseObserver, String.valueOf(fieldId));
+                    LOGGER.info("{} Field '{}' has ID: {}", requestId, fieldName, fieldId);
                     break;
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());

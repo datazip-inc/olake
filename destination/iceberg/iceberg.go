@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/destination/iceberg/arrow"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -21,21 +23,19 @@ import (
 )
 
 type Iceberg struct {
-	options       *destination.Options
-	config        *Config
-	stream        types.StreamInterface
-	partitionInfo []PartitionInfo   // ordered slice to preserve partition column order
-	server        *serverInstance   // java server instance
-	schema        map[string]string // schema for current thread associated with java writer (col -> type)
+	options          *destination.Options
+	config           *Config
+	stream           types.StreamInterface
+	partitionInfo    []arrow.PartitionInfo // ordered slice to preserve partition column order
+	server           *serverInstance             // java server instance
+	schema           map[string]string           // schema for current thread associated with java writer (col -> type)
+	createdFilePaths [][]string                  // list of created parquet file paths
+	arrowWriter      *ArrowWriter                // per-thread streaming arrow writer
+	useArrowWrites   bool                        // whether to use arrow writes (determined in Setup)
 	// Why Schema On Thread Level ?
+
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
-}
-
-// PartitionInfo represents a Iceberg partition column with its transform, preserving order
-type PartitionInfo struct {
-	field     string
-	transform string
 }
 
 func (i *Iceberg) GetConfigRef() destination.Config {
@@ -50,7 +50,7 @@ func (i *Iceberg) Spec() any {
 func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, error) {
 	i.options = options
 	i.stream = stream
-	i.partitionInfo = make([]PartitionInfo, 0)
+	i.partitionInfo = make([]arrow.PartitionInfo, 0)
 	i.schema = make(map[string]string)
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -108,11 +108,27 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	// set schema for current thread
 	i.schema = copySchema(schema)
+	i.useArrowWrites = i.config.ArrowWrites
+
+	// Initialize arrow writer during setup if enabled
+	if i.useArrowWrites {
+		var err error
+		i.arrowWriter, err = i.NewArrowWriter()
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize arrow writer: %w", err)
+		}
+		logger.Infof("Thread[%s]: Arrow writer initialized for stream [%s]", options.ThreadID, stream.Name())
+	}
+
 	return schema, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
+	if i.UseArrowWrites() {
+		return i.arrowWriter.Write(ctx, records)
+	}
+
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(i.schema))
 	for field, dType := range i.schema {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
@@ -222,6 +238,19 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 }
 
 func (i *Iceberg) Close(ctx context.Context) error {
+	if i.UseArrowWrites() && i.arrowWriter != nil {
+		finalFilePaths, err := i.arrowWriter.Close()
+		if err != nil {
+			logger.Errorf("Thread[%s]: failed to close arrow writer: %v", i.options.ThreadID, err)
+		} else if len(finalFilePaths) > 0 {
+			if i.createdFilePaths == nil {
+				i.createdFilePaths = make([][]string, 0)
+			}
+			i.createdFilePaths = append(i.createdFilePaths, finalFilePaths...)
+		}
+		i.arrowWriter = nil
+	}
+
 	// skip flushing on error
 	defer func() {
 		if i.server == nil {
@@ -242,13 +271,38 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 
-	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_COMMIT,
-		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      i.server.serverID,
-			DestTableName: i.stream.GetDestinationTable(),
-		},
+	var request *proto.IcebergPayload
+	if i.UseArrowWrites() {
+		logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
+
+		fileMetadata := make([]*proto.IcebergPayload_FileMetadata, 0, len(i.createdFilePaths))
+		for _, pathInfo := range i.createdFilePaths {
+			if len(pathInfo) >= 2 && pathInfo[1] != "" {
+				fileMetadata = append(fileMetadata, &proto.IcebergPayload_FileMetadata{
+					FileType: pathInfo[0],
+					FilePath: pathInfo[1],
+				})
+			}
+		}
+
+		request = &proto.IcebergPayload{
+			Type: proto.IcebergPayload_REGISTER,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId:      i.server.serverID,
+				DestTableName: i.stream.GetDestinationTable(),
+				FileMetadata:  fileMetadata,
+			},
+		}
+	} else {
+		request = &proto.IcebergPayload{
+			Type: proto.IcebergPayload_COMMIT,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId:      i.server.serverID,
+				DestTableName: i.stream.GetDestinationTable(),
+			},
+		}
 	}
+
 	res, err := i.server.sendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send commit message: %s", err)
@@ -259,6 +313,8 @@ func (i *Iceberg) Close(ctx context.Context) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
+	i.useArrowWrites = i.config.ArrowWrites
+
 	i.options = &destination.Options{
 		ThreadID: "test_iceberg_destination",
 	}
@@ -268,7 +324,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
 	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
+	server, err := newIcebergClient(i.config, []arrow.PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -331,6 +387,10 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 func (i *Iceberg) Type() string {
 	return string(types.Iceberg)
+}
+
+func (i *Iceberg) UseArrowWrites() bool {
+	return i.useArrowWrites
 }
 
 // validate schema change & evolution and removes null records
@@ -604,9 +664,9 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
 		// Append to ordered slice to preserve partition order
-		i.partitionInfo = append(i.partitionInfo, PartitionInfo{
-			field:     colName,
-			transform: transform,
+		i.partitionInfo = append(i.partitionInfo, arrow.PartitionInfo{
+			Field:     colName,
+			Transform: transform,
 		})
 	}
 
@@ -624,7 +684,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 	}
 
 	// server setup for dropping tables
-	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, false, false, "")
+	server, err := newIcebergClient(i.config, []arrow.PartitionInfo{}, i.options.ThreadID, false, false, "")
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
 	}
@@ -756,6 +816,89 @@ func getCommonAncestorType(d1, d2 string) string {
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
+}
+
+// This function returns the 'field-id' of a column from the iceberg table
+// This is required while creating equality delete files as the `field-id` value of the column
+// is stored in the metadata of the equality delete file
+// Possible Fix: hard code the olake fields to specific field ids while creating every iceberg table
+func (i *Iceberg) GetFieldId(ctx context.Context, fieldName string) (int, error) {
+	if i.server == nil {
+		return -1, fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_FIELD_ID,
+		Metadata: &proto.IcebergPayload_Metadata{
+			DestTableName: i.stream.GetDestinationTable(),
+			ThreadId:      i.server.serverID,
+			FieldName:     &fieldName,
+		},
+	}
+
+	response, err := i.server.sendClientRequest(ctx, &request)
+	if err != nil {
+		return -1, fmt.Errorf("failed to get field ID for column '%s': %w", fieldName, err)
+	}
+
+	fieldId, err := strconv.Atoi(response)
+	if err != nil {
+		return -1, fmt.Errorf("failed to parse field ID from response '%s': %w", response, err)
+	}
+
+	return fieldId, nil
+}
+
+func (i *Iceberg) UploadParquetFile(ctx context.Context, fileData []byte, fileType, partitionKey, filename string, equalityFieldId int) (string, error) {
+	if i.server == nil {
+		return "", fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := &proto.ArrowFileUploadRequest{
+		DestTableName:   i.stream.GetDestinationTable(),
+		ThreadId:        i.server.serverID,
+		FileData:        fileData,
+		FileType:        fileType,
+		PartitionKey:    partitionKey,
+		Filename:        filename,
+		EqualityFieldId: int32(equalityFieldId),
+	}
+
+	response, err := i.server.arrowClient.UploadFile(ctx, request)
+	if err != nil {
+		return "", fmt.Errorf("failed to upload file '%s' via Iceberg FileIO: %w", filename, err)
+	}
+
+	if !response.GetSuccess() {
+		return "", fmt.Errorf("upload failed: %s", response.GetError())
+	}
+
+	logger.Infof("Successfully uploaded file to Iceberg storage: %s", response.GetStoragePath())
+	return response.GetStoragePath(), nil
+}
+
+// GenerateFilename generates a unique filename for Iceberg data files
+func (i *Iceberg) GenerateFilename(ctx context.Context) (string, error) {
+	request := &proto.ArrowFilenameRequest{
+		DestTableName: i.stream.GetDestinationTable(),
+		ThreadId:      i.server.serverID,
+	}
+
+	resp, err := i.server.arrowClient.GenerateFilename(ctx, request)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate filename: %w", err)
+	}
+
+	if !resp.GetSuccess() {
+		return "", fmt.Errorf("generate filename failed: %s", resp.GetError())
+	}
+
+	filename := resp.GetFilename()
+	if filename == "" {
+		return "", fmt.Errorf("server returned empty filename")
+	}
+
+	return filename, nil
 }
 
 func init() {

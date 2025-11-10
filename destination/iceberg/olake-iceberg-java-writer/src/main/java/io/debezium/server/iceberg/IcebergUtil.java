@@ -8,15 +8,26 @@
 
 package io.debezium.server.iceberg;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.primitives.Ints;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.literal.NamedLiteral;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
+import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+import static org.apache.iceberg.TableProperties.FORMAT_VERSION;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -32,21 +43,11 @@ import org.eclipse.microprofile.config.ConfigValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.primitives.Ints;
 
-import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
-import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
-import static org.apache.iceberg.TableProperties.FORMAT_VERSION;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.literal.NamedLiteral;
 
 
 /**
@@ -290,5 +291,36 @@ public class IcebergUtil {
       throw new RuntimeException("Failed to drop table: " + namespace + "." + tableName, e);
     }
   }
+  
+  /**
+    * Returns the field ID of the specified column name from an Iceberg table.
+    *
+    * @param icebergTable the Iceberg table to query
+    * @param columnName the name of the column to find (e.g., "_olake_id")
+    * @return the field ID of the column
+    * @throws IllegalArgumentException if the column is not found in the table schema
+    */
+    public static int getFieldId(Table icebergTable, String columnName) {
+     Schema schema = icebergTable.schema();
+     org.apache.iceberg.types.Types.NestedField field = schema.findField(columnName);
+
+     if (field == null) {
+       throw new IllegalArgumentException(
+           String.format("Column '%s' not found in table '%s' schema", columnName, icebergTable.name()));
+     }
+
+     return field.fieldId();
+   }
+
+   /**
+    * Returns the field ID of the _olake_id column from an Iceberg table.
+    *
+    * @param icebergTable the Iceberg table to query
+    * @return the field ID of the _olake_id column
+    * @throws IllegalArgumentException if the _olake_id column is not found in the table schema
+    */
+   public static int getOlakeIdFieldId(Table icebergTable) {
+     return getFieldId(icebergTable, "_olake_id");
+   }
 
 }
