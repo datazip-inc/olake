@@ -73,7 +73,6 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 			Dialer:         &dialerCopy,
 		})
 		r.readers[readerID] = reader
-		r.readerLastMessages.Store(readerID, make(map[types.PartitionKey]kafka.Message))
 		r.readerClientIDs[readerID] = clientID
 	}
 	logger.Infof("created %d readers for %d total partitions, with consumer group %s", len(r.readers), totalPartitions, consumerGroupID)
@@ -81,13 +80,14 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 }
 
 // GetReaders returns the created readers
-func (r *ReaderManager) GetReaders() map[string]*kafka.Reader {
-	return r.readers
+func (r *ReaderManager) GetReader(readerID string) *kafka.Reader {
+	return r.readers[readerID]
 }
 
 // GetPartitionIndex returns the partition index
-func (r *ReaderManager) GetPartitionIndex() map[string]types.PartitionMetaData {
-	return r.partitionIndex
+func (r *ReaderManager) GetPartitionIndex(partitionKey string) (types.PartitionMetaData, bool) {
+	partitionMeta, exists := r.partitionIndex[partitionKey]
+	return partitionMeta, exists
 }
 
 // ShouldMatchPartitionCount returns whether readers should match partition count
@@ -95,26 +95,22 @@ func (r *ReaderManager) ShouldMatchPartitionCount() bool {
 	return r.config.ThreadsEqualTotalPartitions
 }
 
-// GetReaderLastMessages returns the reader last messages
-func (r *ReaderManager) GetReaderLastMessages() map[string]map[types.PartitionKey]kafka.Message {
-	result := make(map[string]map[types.PartitionKey]kafka.Message)
-	r.readerLastMessages.Range(func(key, value interface{}) bool {
-		if readerID, ok := key.(string); ok {
-			if messages, ok := value.(map[types.PartitionKey]kafka.Message); ok {
-				result[readerID] = messages
-			}
-		}
-		return true
-	})
-	return result
-}
-
 // GetReaderClientIDs returns the reader client IDs
-func (r *ReaderManager) GetReaderClientIDs() map[string]string {
-	return r.readerClientIDs
+func (r *ReaderManager) GetReaderClientID(readerID string) (string, bool) {
+	clientID, exists := r.readerClientIDs[readerID]
+	return clientID, exists
 }
 
-// SetPartitions sets up partitions for a stream
+// return reader ids
+func (r *ReaderManager) GetReaderIDs() []string {
+	ids := make([]string, 0, len(r.readers))
+	for readerID := range r.readers {
+		ids = append(ids, readerID)
+	}
+	return ids
+}
+
+// sets partitions that need to be synced for a stream
 func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamInterface) error {
 	topic := stream.Name()
 	topicDetail, err := r.GetTopicMetadata(ctx, topic)
@@ -128,6 +124,7 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.FirstOffset})
 		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.LastOffset})
 	}
+
 	offsetsResp, err := r.config.AdminClient.ListOffsets(ctx, &kafka.ListOffsetsRequest{Topics: map[string][]kafka.OffsetRequest{topic: offsetRequests}})
 	if err != nil {
 		return fmt.Errorf("failed to list offsets for topic %s: %s", topic, err)
@@ -152,14 +149,11 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 			continue
 		}
 
-		partitionMeta := types.PartitionMetaData{
+		r.partitionIndex[fmt.Sprintf("%s:%d", topic, idx.Partition)] = types.PartitionMetaData{
 			Stream:      stream,
 			PartitionID: idx.Partition,
 			EndOffset:   idx.LastOffset,
 		}
-
-		// update topic's partition index
-		r.partitionIndex[fmt.Sprintf("%s:%d", topic, partitionMeta.PartitionID)] = partitionMeta
 	}
 	return nil
 }
@@ -210,4 +204,18 @@ func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string,
 		}
 	}
 	return committedTopicOffsets
+}
+
+func (r *ReaderManager) Close() error {
+	for _, reader := range r.readers {
+		if err := reader.Close(); err != nil {
+			return fmt.Errorf("failed to close reader: %s", err)
+		}
+	}
+
+	for kStr := range r.partitionIndex {
+		delete(r.partitionIndex, kStr)
+	}
+
+	return nil
 }

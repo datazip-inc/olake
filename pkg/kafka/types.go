@@ -1,8 +1,6 @@
 package kafka
 
 import (
-	"sync"
-
 	"github.com/datazip-inc/olake/types"
 	"github.com/segmentio/kafka-go"
 )
@@ -19,11 +17,10 @@ type ReaderConfig struct {
 
 // ReaderManager manages Kafka readers and their metadata
 type ReaderManager struct {
-	config             ReaderConfig
-	readers            map[string]*kafka.Reader           // for fast reader access
-	partitionIndex     map[string]types.PartitionMetaData // get per-partition boundaries
-	readerClientIDs    map[string]string                  // reader's client id mapping
-	readerLastMessages sync.Map                           // map[string]map[partKey]kafka.Message
+	config          ReaderConfig
+	readers         map[string]*kafka.Reader           // for fast reader access
+	partitionIndex  map[string]types.PartitionMetaData // get per-partition boundaries
+	readerClientIDs map[string]string                  // reader's client id mapping
 }
 
 // CustomGroupBalancer ensures proper consumer ID distribution according to requirements

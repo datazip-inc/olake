@@ -20,14 +20,11 @@ func (b *CustomGroupBalancer) AssignGroups(members []kafka.GroupMember, partitio
 
 	// we need to ensure that exactly the required number of consumer IDs are used,
 	// and each gets assigned partitions accordingly.
-	consumerIDCount := b.requiredConsumerIDs
-	if consumerIDCount > len(members) {
-		consumerIDCount = len(members)
-	}
+	consumerIDCount := min(b.requiredConsumerIDs, len(members))
 
 	// partitions assigment to consumer IDs in round-robin fashion
-	for i, partition := range partitions {
-		consumerIndex := i % consumerIDCount
+	for idx, partition := range partitions {
+		consumerIndex := idx % consumerIDCount
 		if consumerIndex < len(members) {
 			memberID := members[consumerIndex].ID
 			if assignments[memberID] == nil {
