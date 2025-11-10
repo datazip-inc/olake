@@ -183,6 +183,8 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 
 	k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
 	logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
+
+	k.checkpointMessage.Delete(readerID)
 	return nil
 }
 
