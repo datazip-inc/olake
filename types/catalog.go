@@ -72,7 +72,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:     stream.Name,
 			PartitionRegex: "",
-			AppendMode:     false,
+			AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
 			Normalization:  isRelational,
 		})
 	}
