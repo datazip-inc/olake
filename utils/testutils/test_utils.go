@@ -383,18 +383,21 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							incrementalTestCases := []struct {
 								name       string
 								setupQuery string
+								useState   bool
 								opSymbol   string
 								expected   map[string]interface{}
 							}{
 								{
 									name:       "full load",
 									setupQuery: "",
+									useState:   false,
 									opSymbol:   "r",
 									expected:   cfg.ExpectedData,
 								},
 								{
 									name:       "insert",
 									setupQuery: "insert",
+									useState:   true,
 									opSymbol:   "u",
 									expected:   cfg.ExpectedData,
 								},
@@ -405,7 +408,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									if tc.setupQuery != "" {
 										cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, tc.setupQuery, false)
 									}
-									if err := runSync(c, true, tc.setupQuery, tc.opSymbol, tc.expected); err != nil {
+									if err := runSync(c, tc.useState, tc.setupQuery, tc.opSymbol, tc.expected); err != nil {
 										t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 									}
 								})
