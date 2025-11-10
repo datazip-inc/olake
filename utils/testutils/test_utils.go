@@ -355,9 +355,9 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 3. Run Sync command and verify records in Iceberg
 							for _, test := range testCases {
 								t.Logf("Running test for: %s", test.syncMode)
-								// if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
-								// 	return err
-								// }
+								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
+									return err
+								}
 							}
 
 							// 4. Phase B: Full load + Incremental (switch streams.json cdc -> incremental, set cursor_field = "id")
@@ -405,9 +405,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							for _, tc := range incrementalTestCases {
 								t.Run(tc.name, func(t *testing.T) {
-									if tc.setupQuery != "" {
-										cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, tc.setupQuery, false)
-									}
 									if err := runSync(c, tc.useState, tc.setupQuery, tc.opSymbol, tc.expected); err != nil {
 										t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 									}
