@@ -108,6 +108,8 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	// run cdc for kafka
 	if a.IsKafkaDriver() {
 		kafkaDriver, _ := a.driver.(KafkaInterface)
+		// global connection group according to reader tasks
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, len(kafkaDriver.GetReaderTasks()))
 		utils.ConcurrentInGroup(a.GlobalConnGroup, kafkaDriver.GetReaderTasks(), func(ctx context.Context, readerID string) (err error) {
 			writers := make(map[string]*destination.WriterThread)
 			defer func() {

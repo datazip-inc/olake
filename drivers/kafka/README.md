@@ -26,8 +26,7 @@ Add Kafka credentials in following format in `source.json` file. To check more a
             "security_protocol": "PLAINTEXT"
         },
         "consumer_group": "test-consumer",
-        "max_threads": 3,
-        "auto_offset_reset": "earliest"
+        "max_threads": 3
     }
 ```
 - There are 3 security protocols:<br>
@@ -236,7 +235,6 @@ Supported Sync Mode: Streaming (in CDC format).
 - The sync mode for Kafka is set to **cdc** (Change Data Capture), where changes are streamed through "offset differences" in Kafka topics.
 - To perform a **full load**, use a new consumer group ID that has never been used for the selected topics. This ensures that all data from the beginning of the topic is synced.
 - If a `consumer_group_id` is provided in the configuration, it will be used for the sync process. Otherwise, OLake will automatically create a consumer group and manage the sync progress using it.
-- The `auto_offset_reset` setting controls where to start reading when no committed offset exists. Use `"earliest"` for full historical data or `"latest"` for only new messages. This only applies when there is no previously committed offset for the consumer group. If not specified, defaults to `"latest"` behavior.
 - The `threads_equal_total_partitions` mode, when enabled, ensures that the number of Kafka readers matches the total number of partitions in the topic. This configuration also ensures that the number of writers matches the number of readers, optimizing the sync process for parallelism and performance. In this, `max_threads` provided will be ignored.
 
 ```bash

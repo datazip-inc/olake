@@ -144,28 +144,28 @@ const OracleUISchema = `{
 }`
 
 const KafkaUISchema = `{
-  "ui:grid": [
-    { "bootstrap_servers": 12, "consumer_group_id": 12 },
-    { "threads_equal_total_partitions": 12, "max_threads": 12 },
-    { "protocol": 12, "backoff_retry_count": 12 }
-  ],
-  "protocol": {
     "ui:grid": [
-    { "sasl_mechanism": 12, "sasl_jaas_config": 12 }
+      { "bootstrap_servers": 12, "consumer_group_id": 12 },
+      { "threads_equal_total_partitions": 12, "max_threads": 12 },
+      { "protocol": 12, "backoff_retry_count": 12 }
     ],
-    "sasl_jaas_config": {
-    "ui:widget": "textarea",
+    "protocol": {
+      "ui:grid": [
+      { "sasl_mechanism": 12, "sasl_jaas_config": 12 }
+      ],
+      "sasl_jaas_config": {
+      "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
       "ui:options": {
-        "rows": 1
+      "title": false
       }
     },
-    "ui:options": {
-    "title": false
+    "threads_equal_total_partitions": {
+      "ui:widget": "boolean"
     }
-  },
-  "threads_equal_total_partitions": {
-    "ui:widget": "boolean"
-  }
 }`
 
 const ParquetUISchema = `{
