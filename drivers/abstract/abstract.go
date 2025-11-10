@@ -93,23 +93,21 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		convStream, _ := value.(*types.Stream)
 		if convStream.SupportedSyncModes.Len() == 0 {
 			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-			convStream.SyncMode = types.FULLREFRESH
-			if a.driver.CDCSupported() {
-				convStream.WithSyncMode(types.CDC, types.STRICTCDC)
-				convStream.SyncMode = types.CDC
-			}
 		}
+		convStream.SyncMode = utils.Ternary(convStream.SyncMode == "", types.FULLREFRESH, convStream.SyncMode).(types.SyncMode)
 
 		// add default columns
 		for column, typ := range DefaultColumns {
 			convStream.UpsertField(column, typ, true)
 		}
 
-		if !a.driver.CDCSupported() {
+		if a.driver.CDCSupported() && !a.IsKafkaDriver() {
+			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
+			convStream.SyncMode = types.CDC
+		} else {
 			// remove cdc column as it is not supported
 			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
 		}
-
 		finalStreams = append(finalStreams, convStream)
 		return true
 	})
