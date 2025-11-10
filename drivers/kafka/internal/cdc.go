@@ -11,7 +11,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -97,7 +96,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 			result[Partition] = message.Partition
 			result[Offset] = message.Offset
 			result[Key] = string(message.Key)
-			result[KafkaTimestamp], _ = typeutils.ReformatDate(message.Time.UnixMilli())
+			result[KafkaTimestamp] = message.Time.UnixMilli()
 			return result
 		}()
 		if data != nil {
