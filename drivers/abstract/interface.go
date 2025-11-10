@@ -42,6 +42,6 @@ type DriverInterface interface {
 
 type KafkaInterface interface {
 	DriverInterface
-	GetReaderTasks() []string
+	GetReaderIDs() []string
 	PartitionStreamChanges(ctx context.Context, readerID string, processFn CDCMsgFn) error
 }

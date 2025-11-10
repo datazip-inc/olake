@@ -58,9 +58,9 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) IsKafkaDriver() bool {
-	_, ok := a.driver.(KafkaInterface)
-	return ok
+func (a *AbstractDriver) GetKafkaInterface() (KafkaInterface, bool) {
+	kafkaInterface, ok := a.driver.(KafkaInterface)
+	return kafkaInterface, ok
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
@@ -101,13 +101,15 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			convStream.UpsertField(column, typ, true)
 		}
 
-		if a.driver.CDCSupported() && !a.IsKafkaDriver() {
+		_, isKafkaDriver := a.GetKafkaInterface()
+		if a.driver.CDCSupported() && !isKafkaDriver {
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
 		} else {
 			// remove cdc column as it is not supported
 			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
 		}
+
 		finalStreams = append(finalStreams, convStream)
 		return true
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"regexp"
 	"strings"
 	"sync"
@@ -28,15 +29,13 @@ const (
 )
 
 type Kafka struct {
-	config             *Config
-	dialer             *kafka.Dialer
-	adminClient        *kafka.Client
-	state              *types.State
-	consumerGroupID    string
-	readers            map[string]*kafka.Reader           // readerID -> kafka.Reader
-	partitionIndex     map[string]types.PartitionMetaData // partitionKey (topic+":"+partition) -> partition metadata
-	readerClientIDs    map[string]string                  // readerID -> clientID used by this reader's dialer
-	readerLastMessages sync.Map                           // map[string]map[types.PartitionKey]kafka.Message (readerID -> last messages)
+	config            *Config
+	dialer            *kafka.Dialer
+	adminClient       *kafka.Client
+	state             *types.State
+	consumerGroupID   string
+	readerManager     *kafkapkg.ReaderManager
+	checkpointMessage sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -78,8 +77,8 @@ func (k *Kafka) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to create Kafka dialer: %s", err)
 	}
 
-	// Create admin client for metadata and offset operations
-	adminClient := &kafka.Client{
+	// create admin client for metadata and offset operations
+	k.adminClient = &kafka.Client{
 		Addr: kafka.TCP(utils.SplitAndTrim(k.config.BootstrapServers)...),
 		Transport: &kafka.Transport{
 			SASL: dialer.SASLMechanism,
@@ -88,29 +87,19 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	// Test connectivity by fetching metadata
-	_, err = adminClient.Metadata(ctx, &kafka.MetadataRequest{})
+	_, err = k.adminClient.Metadata(ctx, &kafka.MetadataRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to ping Kafka brokers: %s", err)
 	}
+
 	k.dialer = dialer
-	k.adminClient = adminClient
 	return nil
 }
 
 func (k *Kafka) Close() error {
 	k.adminClient = nil
 	k.dialer = nil
-	for id, r := range k.readers {
-		if r != nil {
-			if err := r.Close(); err != nil {
-				logger.Warnf("failed to close reader %s: %s\n", id, err)
-			}
-		}
-		delete(k.readers, id)
-	}
-	for kStr := range k.partitionIndex {
-		delete(k.partitionIndex, kStr)
-	}
+	k.readerManager.Close()
 	return nil
 }
 
@@ -214,18 +203,20 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
-func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, partitionKey types.PartitionKey, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
-	completedPartitions[partitionKey] = struct{}{}
+func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+	// cache observed partitions
+	if len(observedPartitions) == 0 {
+		// Ensure we have all assigned partitions tracked
+		assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
+		if err != nil {
+			return false, err
+		}
 
-	// Ensure we have all assigned partitions tracked
-	if assigned, err := k.getReaderAssignedPartitions(ctx, readerID); err == nil {
 		for _, assignedPk := range assigned {
-			if _, exists := k.partitionIndex[fmt.Sprintf("%s:%d", assignedPk.Topic, assignedPk.Partition)]; exists {
+			if _, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", assignedPk.Topic, assignedPk.Partition)); exists {
 				observedPartitions[assignedPk] = struct{}{}
 			}
 		}
-	} else {
-		return false, err
 	}
 
 	// exit when all partitions are done
@@ -235,10 +226,7 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, p
 // getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
 // assigned to the reader identified by readerID. We match on the per-reader ClientID.
 func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string) ([]types.PartitionKey, error) {
-	if k.adminClient == nil {
-		return nil, fmt.Errorf("admin client not initialized")
-	}
-	clientID, ok := k.readerClientIDs[readerID]
+	clientID, ok := k.readerManager.GetReaderClientID(readerID)
 	if !ok || clientID == "" {
 		return nil, fmt.Errorf("clientID not found for reader %s", readerID)
 	}
@@ -260,31 +248,29 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 	if err != nil {
 		return nil, fmt.Errorf("DescribeGroups failed: %w", err)
 	}
+
 	var assigned []types.PartitionKey
-	for _, g := range resp.Groups {
-		if g.GroupID != k.consumerGroupID || g.Error != nil {
+	for _, group := range resp.Groups {
+		if group.GroupID != k.consumerGroupID || group.Error != nil {
 			continue
 		}
-		for _, m := range g.Members {
+		for _, member := range group.Members {
 			// try to match the client we created: primary on ClientID, fallback to MemberID or suffix match
-			if m.ClientID != clientID && m.MemberID != clientID && !strings.Contains(m.ClientID, readerID) && !strings.Contains(m.MemberID, readerID) {
+			if member.ClientID != clientID && member.MemberID != clientID && !strings.Contains(member.ClientID, readerID) && !strings.Contains(member.MemberID, readerID) {
 				continue
 			}
-			for _, t := range m.MemberAssignments.Topics {
-				for _, p := range t.Partitions {
-					assigned = append(assigned, types.PartitionKey{Topic: t.Topic, Partition: p})
+			for _, topic := range member.MemberAssignments.Topics {
+				for _, partition := range topic.Partitions {
+					assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: partition})
 				}
 			}
 		}
 	}
+
 	return assigned, nil
 }
 
 // GetReaderTasks returns the list of reader IDs to run
-func (k *Kafka) GetReaderTasks() []string {
-	ids := make([]string, 0, len(k.readers))
-	for readerID := range k.readers {
-		ids = append(ids, readerID)
-	}
-	return ids
+func (k *Kafka) GetReaderIDs() []string {
+	return k.readerManager.GetReaderIDs()
 }
