@@ -94,10 +94,10 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 				logger.Errorf("failed to unmarshal message value: %s", err)
 				return nil
 			}
-			result["partition"] = message.Partition
-			result["offset"] = message.Offset
-			result["key"] = string(message.Key)
-			result["kafka_timestamp"], _ = typeutils.ReformatDate(message.Time.UnixMilli())
+			result[Partition] = message.Partition
+			result[Offset] = message.Offset
+			result[Key] = string(message.Key)
+			result[KafkaTimestamp], _ = typeutils.ReformatDate(message.Time.UnixMilli())
 			return result
 		}()
 		if data != nil {
@@ -184,9 +184,6 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 
 	k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
 	logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
-
-	// Clean up reader buffer
-	k.checkpointMessage.Delete(readerID)
 	return nil
 }
 

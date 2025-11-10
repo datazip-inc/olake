@@ -205,17 +205,15 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
 func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
-	if len(observedPartitions) == 0 {
-		// Ensure we have all assigned partitions tracked
-		assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
-		if err != nil {
-			return false, err
-		}
+	// Ensure we have all assigned partitions tracked
+	assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
+	if err != nil {
+		return false, err
+	}
 
-		for _, assignedPk := range assigned {
-			if _, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", assignedPk.Topic, assignedPk.Partition)); exists {
-				observedPartitions[assignedPk] = struct{}{}
-			}
+	for _, assignedPk := range assigned {
+		if _, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", assignedPk.Topic, assignedPk.Partition)); exists {
+			observedPartitions[assignedPk] = struct{}{}
 		}
 	}
 
@@ -266,6 +264,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 			}
 		}
 	}
+
 	return assigned, nil
 }
 
