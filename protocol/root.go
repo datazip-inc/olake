@@ -24,13 +24,13 @@ var (
 	syncID                    string
 	batchSize                 int64
 	noSave                    bool
-	clearDestinationFlag      bool
 	encryptionKey             string
 	destinationType           string
 	catalog                   *types.Catalog
 	state                     *types.State
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
+	differencePath            string
 
 	commands  = []*cobra.Command{}
 	connector *abstract.AbstractDriver
@@ -47,13 +47,16 @@ var RootCmd = &cobra.Command{
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
+		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
 		if !noSave {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
 			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
+			differencePathEnv := utils.Ternary(streamsPath != "", filepath.Join(filepath.Dir(streamsPath), "difference_streams.json"), filepath.Join(configFolder, "difference_streams.json")).(string)
 			statePathEnv := utils.Ternary(statePath == "", filepath.Join(configFolder, "state.json"), statePath).(string)
 			viper.Set(constants.ConfigFolder, configFolder)
 			viper.Set(constants.StatePath, statePathEnv)
 			viper.Set(constants.StreamsPath, streamsPathEnv)
+			viper.Set(constants.DifferencePath, differencePathEnv)
 		}
 
 		if encryptionKey != "" {
@@ -85,19 +88,19 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 
 func init() {
 	// TODO: replace --catalog flag with --streams
-	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd)
+	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd, clearCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationType, "destination-type", "", "not-set", "Destination type for spec")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
-	RootCmd.PersistentFlags().Int64VarP(&batchSize, "batch", "", 10000, "(Optional) Batch size for connector")
+	RootCmd.PersistentFlags().Int64VarP(&batchSize, "destination-buffer-size", "", 10000, "(Optional) Batch size for destination")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
-	RootCmd.PersistentFlags().BoolVarP(&clearDestinationFlag, "clear-destination", "", false, "(Optional) Flag to clear destination and reset sync state for selected streams to force full refresh. Note: Destination is automatically cleared for full refresh streams regardless of this flag.")
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
+	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

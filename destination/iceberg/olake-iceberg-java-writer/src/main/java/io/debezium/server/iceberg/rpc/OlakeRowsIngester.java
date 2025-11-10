@@ -185,7 +185,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, String.valueOf(fieldId));
                     LOGGER.info("{} Field '{}' has ID: {}", requestId, fieldName, fieldId);
                     break;
-                
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());
             }

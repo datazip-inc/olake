@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"runtime"
 	"strconv"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -314,9 +314,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 
 func (i *Iceberg) Check(ctx context.Context) error {
 	i.useArrowWrites = i.config.ArrowWrites
-	if i.config.ArrowWrites{
-		fmt.Println("well done Badal")
-	}
 
 	i.options = &destination.Options{
 		ThreadID: "test_iceberg_destination",

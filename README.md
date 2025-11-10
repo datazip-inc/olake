@@ -20,6 +20,9 @@
     <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
         <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
     </a>
+     <a href="https://hacktoberfest.com/">
+        <img alt="Hacktoberfest 2025" src="https://img.shields.io/badge/Hacktoberfest-2025%20🎃-orange"/>
+    </a>
 </p>
 
 ## OLake — Super-fast Sync to Apache Iceberg
@@ -38,7 +41,7 @@
 ### 🚀 Why OLake?
 
 - 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery  
-- ⚡ **High throughput**: 46K RPS (Postgres) & 64K RPS (MySQL)
+- ⚡ **High throughput**: 319K RPS (Postgres) & 64K RPS (MySQL)
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
 - 💸 **Infra-light**: No Spark, no Flink, no Kafka, no Debezium
@@ -47,17 +50,14 @@
 
 ### 📊 Benchmarks & possible connections
 
+| Source → Destination | Throughput               | Relative Performance                 | Full Report                                                  |
+|----------------------|--------------------------|--------------------------------------|--------------------------------------------------------------|
+| Postgres → Iceberg   | 3,19,562 RPS (Full load) | 6.8× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| MySQL → Iceberg      | 64,334 RPS (Full load)   | 9× faster than Airbyte               | WIP                                                          |
+| MongoDB → Iceberg    | WIP                      |                                      |                                                              |
+| Oracle → Iceberg     | WIP                      |                                      |                                                              |
 
-| Source → Destination | Throughput            | Relative Performance        |Full Report        |
-|----------------------|-----------------------|-----------------------------|-------------------|
-| Postgres → Iceberg   | 46,262 RPS (Full load)| 101× faster than Airbyte    |[Full Report](https://olake.io/docs/connectors/postgres/benchmarks) |
-| MySQL → Iceberg      | 64,334 RPS (Full load)| 9× faster than Airbyte     |[Full Report](https://olake.io/docs/connectors/mysql/benchmarks) |
-| MongoDB → Iceberg    | WIP          |                                     | |
-| Oracle → Iceberg     | WIP          |                             | |
-| Postgres → Object Store (Parquet)    | WIP          |                                     | |
-| MySQL → Object Store (Parquet)     | WIP          |                             | |
-| MongoDB → Object Store (Parquet)    | WIP          |                                     | |
-| Oracle → Object Store (Parquet)     | WIP          |                             | |
+
 
 
 **These are preliminary results. Fully reproducible benchmark scores will be published soon.*
@@ -72,7 +72,7 @@
 
 | Source        | Full Load    |  CDC          | Incremental       | Notes                       | Documentation               |
 |---------------|--------------|---------------|-------------------|-----------------------------|-----------------------------|
-| PostgreSQL    | ✅           | ✅ `wal2json` | ✅                 |`pgoutput` support WIP       |[Postgres Docs](https://olake.io/docs/connectors/postgres/overview) |
+| PostgreSQL    | ✅           | ✅ `pgoutput` | ✅                 |`wal2json` deprecated       |[Postgres Docs](https://olake.io/docs/connectors/postgres/overview) |
 | MySQL         | ✅           | ✅            | ✅                | Binlog-based CDC            | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview) |
 | MongoDB       | ✅           | ✅            | ✅                | Oplog-based CDC             |[MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview) |
 | Oracle        | ✅           | WIP  | ✅                |  JDBC based Full Load & Incremental                |  [Oracle Docs](https://olake.io/docs/connectors/oracle/overview) |

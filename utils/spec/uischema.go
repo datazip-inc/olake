@@ -21,9 +21,12 @@ const MongoDBUISchema = `{
         { "password": 12, "replica_set": 12 },
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
-        { "chunking_strategy": 12 }
+        { "chunking_strategy": 12, "use_iam": 12 }
     ],
     "srv": {
+        "ui:widget": "boolean"
+    },
+    "use_iam": {
         "ui:widget": "boolean"
     },
     "hosts": {
@@ -49,7 +52,7 @@ const PostgresUISchema = `{
       },
       "update_method": {
         "ui:widget": "radio",
-        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12 }],
+        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12}, { "publication": 12 }],
         "ui:options": {
           "title": false,
           "description": false
