@@ -119,3 +119,144 @@ var RecordIngestService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "records_ingest.proto",
 }
+
+const (
+	ArrowRecordIngestService_UploadFile_FullMethodName       = "/io.debezium.server.iceberg.rpc.ArrowRecordIngestService/UploadFile"
+	ArrowRecordIngestService_GenerateFilename_FullMethodName = "/io.debezium.server.iceberg.rpc.ArrowRecordIngestService/GenerateFilename"
+)
+
+// ArrowRecordIngestServiceClient is the client API for ArrowRecordIngestService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ArrowRecordIngestServiceClient interface {
+	UploadFile(ctx context.Context, in *ArrowFileUploadRequest, opts ...grpc.CallOption) (*ArrowFileUploadResponse, error)
+	GenerateFilename(ctx context.Context, in *ArrowFilenameRequest, opts ...grpc.CallOption) (*ArrowFilenameResponse, error)
+}
+
+type arrowRecordIngestServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewArrowRecordIngestServiceClient(cc grpc.ClientConnInterface) ArrowRecordIngestServiceClient {
+	return &arrowRecordIngestServiceClient{cc}
+}
+
+func (c *arrowRecordIngestServiceClient) UploadFile(ctx context.Context, in *ArrowFileUploadRequest, opts ...grpc.CallOption) (*ArrowFileUploadResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ArrowFileUploadResponse)
+	err := c.cc.Invoke(ctx, ArrowRecordIngestService_UploadFile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *arrowRecordIngestServiceClient) GenerateFilename(ctx context.Context, in *ArrowFilenameRequest, opts ...grpc.CallOption) (*ArrowFilenameResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ArrowFilenameResponse)
+	err := c.cc.Invoke(ctx, ArrowRecordIngestService_GenerateFilename_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ArrowRecordIngestServiceServer is the server API for ArrowRecordIngestService service.
+// All implementations must embed UnimplementedArrowRecordIngestServiceServer
+// for forward compatibility.
+type ArrowRecordIngestServiceServer interface {
+	UploadFile(context.Context, *ArrowFileUploadRequest) (*ArrowFileUploadResponse, error)
+	GenerateFilename(context.Context, *ArrowFilenameRequest) (*ArrowFilenameResponse, error)
+	mustEmbedUnimplementedArrowRecordIngestServiceServer()
+}
+
+// UnimplementedArrowRecordIngestServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedArrowRecordIngestServiceServer struct{}
+
+func (UnimplementedArrowRecordIngestServiceServer) UploadFile(context.Context, *ArrowFileUploadRequest) (*ArrowFileUploadResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UploadFile not implemented")
+}
+func (UnimplementedArrowRecordIngestServiceServer) GenerateFilename(context.Context, *ArrowFilenameRequest) (*ArrowFilenameResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GenerateFilename not implemented")
+}
+func (UnimplementedArrowRecordIngestServiceServer) mustEmbedUnimplementedArrowRecordIngestServiceServer() {
+}
+func (UnimplementedArrowRecordIngestServiceServer) testEmbeddedByValue() {}
+
+// UnsafeArrowRecordIngestServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ArrowRecordIngestServiceServer will
+// result in compilation errors.
+type UnsafeArrowRecordIngestServiceServer interface {
+	mustEmbedUnimplementedArrowRecordIngestServiceServer()
+}
+
+func RegisterArrowRecordIngestServiceServer(s grpc.ServiceRegistrar, srv ArrowRecordIngestServiceServer) {
+	// If the following call pancis, it indicates UnimplementedArrowRecordIngestServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ArrowRecordIngestService_ServiceDesc, srv)
+}
+
+func _ArrowRecordIngestService_UploadFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ArrowFileUploadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArrowRecordIngestServiceServer).UploadFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArrowRecordIngestService_UploadFile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArrowRecordIngestServiceServer).UploadFile(ctx, req.(*ArrowFileUploadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ArrowRecordIngestService_GenerateFilename_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ArrowFilenameRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArrowRecordIngestServiceServer).GenerateFilename(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArrowRecordIngestService_GenerateFilename_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArrowRecordIngestServiceServer).GenerateFilename(ctx, req.(*ArrowFilenameRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ArrowRecordIngestService_ServiceDesc is the grpc.ServiceDesc for ArrowRecordIngestService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ArrowRecordIngestService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "io.debezium.server.iceberg.rpc.ArrowRecordIngestService",
+	HandlerType: (*ArrowRecordIngestServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "UploadFile",
+			Handler:    _ArrowRecordIngestService_UploadFile_Handler,
+		},
+		{
+			MethodName: "GenerateFilename",
+			Handler:    _ArrowRecordIngestService_GenerateFilename_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "records_ingest.proto",
+}

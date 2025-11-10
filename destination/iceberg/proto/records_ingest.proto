@@ -18,23 +18,13 @@ message IcebergPayload {
     REFRESH_TABLE_SCHEMA = 5;
     REGISTER = 6;
     GET_FIELD_ID = 7;
-    UPLOAD_FILE = 8;
-    GENERATE_FILENAME = 9;
   }
-  
+
   PayloadType type = 1;
 
   message FileMetadata {
-    string file_type = 1;  
+    string file_type = 1;
     string file_path = 2;
-  }
-
-  message FileUploadRequest {
-    bytes file_data = 1;
-    string file_type = 2;  
-    string partition_key = 3;  
-    string filename = 4;
-    int32 equality_field_id = 5;  
   }
 
   message Metadata {
@@ -42,10 +32,8 @@ message IcebergPayload {
     string thread_id = 2;
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
-    repeated string file_paths = 5;  // Deprecated: use file_metadata instead
-    repeated FileMetadata file_metadata = 7;
+    repeated FileMetadata file_metadata = 5;
     optional string field_name = 6;
-    optional FileUploadRequest file_upload = 8;
   }
 
   message SchemaField {
@@ -67,7 +55,7 @@ message IcebergPayload {
         bytes bytes_value = 7;
       }
     }
-    
+
     repeated FieldValue fields = 1;
     string record_type = 2;  // "u", "c", "r"
   }
@@ -78,6 +66,37 @@ message IcebergPayload {
 
 message RecordIngestResponse {
   string result = 1;
-  bool success = 2;  // Adding success boolean for better error handling
-  optional string filename = 3;  // Generated filename for data files
+  bool success = 2;
+}
+
+service ArrowRecordIngestService {
+  rpc UploadFile(ArrowFileUploadRequest) returns (ArrowFileUploadResponse);
+  rpc GenerateFilename(ArrowFilenameRequest) returns (ArrowFilenameResponse);
+}
+
+message ArrowFileUploadRequest {
+  string dest_table_name = 1;
+  string thread_id = 2;
+  bytes file_data = 3;
+  string file_type = 4;        // "data" or "delete"
+  string partition_key = 5;
+  string filename = 6;
+  int32 equality_field_id = 7;
+}
+
+message ArrowFileUploadResponse {
+  string storage_path = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+message ArrowFilenameRequest {
+  string dest_table_name = 1;
+  string thread_id = 2;
+}
+
+message ArrowFilenameResponse {
+  string filename = 1;
+  bool success = 2;
+  string error = 3;
 }

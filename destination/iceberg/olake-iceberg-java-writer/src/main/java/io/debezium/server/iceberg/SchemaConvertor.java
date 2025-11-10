@@ -1,5 +1,10 @@
 package io.debezium.server.iceberg;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.iceberg.Schema;
@@ -9,12 +14,6 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.StructType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.HashMap;
-import java.util.List;
 
 import  io.debezium.server.iceberg.rpc.RecordIngest;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord;

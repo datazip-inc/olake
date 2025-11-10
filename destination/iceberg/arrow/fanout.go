@@ -8,44 +8,42 @@ import (
 	"sync"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 )
 
 type Fanout struct {
-	PartitionInfo []destination.PartitionInfo
-	writers       sync.Map
+	PartitionInfo []PartitionInfo
+	writers       sync.Map // stores both data and delete writers, keyed by "data:partition" or "delete:partition"
 	mu            sync.Mutex
-	ctx           context.Context
 
 	schema        map[string]string
 	Normalization bool
-	FilenameGen   FilenameGenerator 
+	FilenameGen   FilenameGenerator
+	FieldIdFunc   func(context.Context, string) (int, error) // Function to get field IDs
 }
 
-func NewFanoutWriter(ctx context.Context, p []destination.PartitionInfo, schema map[string]string) *Fanout {
+func NewFanoutWriter(p []PartitionInfo, schema map[string]string) *Fanout {
 	return &Fanout{
 		PartitionInfo: p,
 		schema:        schema,
-		ctx:           ctx,
 	}
 }
 
-func (f *Fanout) getOrCreateRollingDataWriter(partitionKey string) *RollingWriter {
+func (f *Fanout) getOrCreateRollingWriter(partitionKey string, fileType string) *RollingWriter {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	if existing, ok := f.writers.Load(partitionKey); ok {
+	key := fileType + ":" + partitionKey
+
+	if existing, ok := f.writers.Load(key); ok {
 		if writer, ok := existing.(*RollingWriter); ok {
 			return writer
 		}
-
-		panic("race: multiple creation of rolling data writers detected")
 	}
 
-	writer := NewRollingWriter(context.Background(), partitionKey, "data")
+	writer := NewRollingWriter(partitionKey, fileType)
 	writer.FilenameGen = f.FilenameGen
-	f.writers.Store(partitionKey, writer)
+	f.writers.Store(key, writer)
 
 	return writer
 }
@@ -109,69 +107,105 @@ func transformValue(val any, transform string, colType string) (any, error) {
 		}
 	}
 
-	if tf.canTransform(colType) {
-		v, err := tf.apply(val, colType)
-		if err != nil {
-			return nil, err
-		} else {
-			return v, nil
-		}
-	} else {
+	if !tf.canTransform(colType) {
 		return nil, fmt.Errorf("cannot apply transformation %v for column type: %v", transform, colType)
 	}
+
+	v, err := tf.apply(val, colType)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
 }
 
-func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRecord, []types.RawRecord, error) {
+func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRecord, map[string][]types.RawRecord, error) {
 	partitionedData := make(map[string][]types.RawRecord)
-	deleteRecords := make([]types.RawRecord, 0)
+	// Track delete records by partition to maintain partition scope
+	deleteRecordsByPartition := make(map[string][]types.RawRecord)
 
 	for _, rec := range records {
-		if rec.OperationType == "d" || rec.OperationType == "u" {
-			deleteRecords = append(deleteRecords, rec)
-		}
-
 		pKey, err := f.createPartitionKey(rec)
 		if err != nil {
 			return nil, nil, err
 		}
-		
+
+		if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
+			deleteRecordsByPartition[pKey] = append(deleteRecordsByPartition[pKey], rec)
+		}
+
 		partitionedData[pKey] = append(partitionedData[pKey], rec)
 	}
 
-	return partitionedData, deleteRecords, nil
+	return partitionedData, deleteRecordsByPartition, nil
 }
 
-func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []arrow.Field) ([]*FileUploadData, []types.RawRecord, error) {
-	partitionedData, deleteRecords, err := f.partition(records)
+func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []arrow.Field) ([]*FileUploadData, error) {
+	partitionedData, deleteRecordsByPartition, err := f.partition(records)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	uploadDataList := make([]*FileUploadData, 0, len(partitionedData))
 
+	// Write data files
 	for partitionKey, rawData := range partitionedData {
 		rec, err := CreateArrowRecordWithFields(rawData, fields, f.Normalization)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create arrow record for partition %s: %w", partitionKey, err)
+			return nil, fmt.Errorf("failed to create arrow record for partition %s: %w", partitionKey, err)
 		}
 
-		writer := f.getOrCreateRollingDataWriter(partitionKey)
+		writer := f.getOrCreateRollingWriter(partitionKey, "data")
 		uploadData, err := writer.Write(rec)
 		if err != nil {
-			return uploadDataList, nil, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)
+			return uploadDataList, fmt.Errorf("failed to write to partition %s: %w", partitionKey, err)
 		}
 		if uploadData != nil {
 			uploadDataList = append(uploadDataList, uploadData)
 		}
 	}
 
-	return uploadDataList, deleteRecords, nil
+	// Write delete files for each partition with delete records
+	if len(deleteRecordsByPartition) > 0 {
+		if f.FieldIdFunc == nil {
+			return uploadDataList, fmt.Errorf("FieldIdFunc not set on Fanout writer")
+		}
+
+		fieldId, err := f.FieldIdFunc(ctx, "_olake_id")
+		if err != nil {
+			return uploadDataList, fmt.Errorf("failed to get field ID for _olake_id: %w", err)
+		}
+
+		for partitionKey, deleteRecords := range deleteRecordsByPartition {
+			deleteWriter := f.getOrCreateRollingWriter(partitionKey, "delete")
+			deleteWriter.FieldId = fieldId
+
+			deletes := ExtractDeleteRecords(deleteRecords)
+
+			rec, err := CreateDelArrRecord(deletes, fieldId)
+			if err != nil {
+				return uploadDataList, fmt.Errorf("failed to create delete record for partition %s: %w", partitionKey, err)
+			}
+
+			defer rec.Release()
+
+			uploadData, err := deleteWriter.Write(rec)
+			if err != nil {
+				return uploadDataList, fmt.Errorf("failed to write delete record for partition %s: %w", partitionKey, err)
+			}
+			if uploadData != nil {
+				uploadDataList = append(uploadDataList, uploadData)
+			}
+		}
+	}
+
+	return uploadDataList, nil
 }
 
 func (f *Fanout) Close() ([]*FileUploadData, error) {
 	uploadDataList := make([]*FileUploadData, 0)
 	var lastErr error
 
+	// Close all writers (both data and delete)
 	f.writers.Range(func(key, value interface{}) bool {
 		if writer, ok := value.(*RollingWriter); ok {
 			if uploadData, err := writer.Close(); err != nil {

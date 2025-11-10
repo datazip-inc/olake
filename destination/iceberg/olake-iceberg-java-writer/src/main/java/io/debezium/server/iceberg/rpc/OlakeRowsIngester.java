@@ -61,7 +61,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 throw new Exception("Destination table name not present in metadata");
             }
 
-            if (this.icebergTable == null) {
+            if (this.icebergTable == null && request.getType() != IcebergPayload.PayloadType.DROP_TABLE) {
                 SchemaConvertor schemaConvertor = new SchemaConvertor(identifierField, schemaMetadata);
                 this.icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName), 
                                         schemaConvertor.convertToIcebergSchema());
@@ -110,8 +110,23 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
                     
                 case DROP_TABLE:
-                    LOGGER.warn("{} Table {} not dropped, drop table not implemented", requestId, destTableName);
-                    sendResponse(responseObserver, "Drop table not implemented");
+                    String dropTable = metadata.getDestTableName();
+                    String[] parts = dropTable.split("\\.", 2);
+                    if (parts.length != 2) {
+                        throw new IllegalArgumentException("Invalid destination table name: " + dropTable);
+                    }
+                    String namespace = parts[0], tableName = parts[1];
+                    
+                    LOGGER.warn("{} Dropping table {}.{}", requestId, namespace, tableName);
+
+                    boolean dropped = IcebergUtil.dropIcebergTable(namespace, tableName, icebergCatalog);
+                    if (dropped) {
+                        sendResponse(responseObserver, "Successfully dropped table " + tableName);
+                        LOGGER.info("{} Table {} dropped", requestId, tableName);
+                    } else {
+                        sendResponse(responseObserver, "Table " + tableName + " does not exist");
+                        LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, tableName);
+                    }
                     break;
 
                 case REGISTER:
@@ -169,72 +184,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     int fieldId = IcebergUtil.getFieldId(this.icebergTable, fieldName);
                     sendResponse(responseObserver, String.valueOf(fieldId));
                     LOGGER.info("{} Field '{}' has ID: {}", requestId, fieldName, fieldId);
-                    break;
-                
-                case UPLOAD_FILE:
-                    LOGGER.info("{} Received UPLOAD_FILE request for thread: {}", requestId, threadId);
-                    IcebergPayload.FileUploadRequest uploadReq = metadata.getFileUpload();
-                    
-                    byte[] fileData = uploadReq.getFileData().toByteArray();
-                    String fileType = uploadReq.getFileType();
-                    String partitionKey = uploadReq.getPartitionKey();
-                    String filename = uploadReq.getFilename();
-                    
-                    LOGGER.info("{} Uploading {} file: {} (size: {} bytes, partition: {})", 
-                        requestId, fileType, filename, fileData.length, partitionKey);
-                    
-                    org.apache.iceberg.io.FileIO fileIO = this.icebergTable.io();
-                    org.apache.iceberg.io.LocationProvider locations = this.icebergTable.locationProvider();
-                    
-                    String icebergLocation;
-                    if (partitionKey != null && !partitionKey.isEmpty()) {
-                        String baseLocation = locations.newDataLocation(filename);
-                        int lastSlash = baseLocation.lastIndexOf('/');
-                        if (lastSlash > 0) {
-                            String basePath = baseLocation.substring(0, lastSlash);
-                            icebergLocation = basePath + "/" + partitionKey + "/" + filename;
-                        } else {
-                            icebergLocation = partitionKey + "/" + filename;
-                        }
-                    } else {
-                        icebergLocation = locations.newDataLocation(filename);
-                    }
-                    
-                    org.apache.iceberg.io.OutputFile outputFile = fileIO.newOutputFile(icebergLocation);
-                    try (java.io.OutputStream out = outputFile.create()) {
-                        out.write(fileData);
-                        out.flush();
-                    }
-                    
-                    LOGGER.info("{} Successfully uploaded file to: {}", requestId, icebergLocation);
-                    sendResponse(responseObserver, icebergLocation);
-                    break;
-                
-                case GENERATE_FILENAME:
-                    LOGGER.debug("{} Received GENERATE_FILENAME request for thread: {}", requestId, threadId);
-                    
-                    org.apache.iceberg.FileFormat fileFormat = IcebergUtil.getTableFileFormat(this.icebergTable);
-                    org.apache.iceberg.io.OutputFileFactory fileFactory = 
-                        IcebergUtil.getTableOutputFileFactory(this.icebergTable, fileFormat);
-                    
-                    org.apache.iceberg.encryption.EncryptedOutputFile encryptedFile = fileFactory.newOutputFile();
-                    String fullPath = encryptedFile.encryptingOutputFile().location();
-                    
-                    int lastSlashIndex = fullPath.lastIndexOf('/');
-                    String generatedFilename = lastSlashIndex >= 0 
-                        ? fullPath.substring(lastSlashIndex + 1) 
-                        : fullPath;
-                    
-                    LOGGER.info("{} Generated filename: {}", requestId, generatedFilename);
-                    
-                    RecordIngest.RecordIngestResponse filenameResponse = 
-                        RecordIngest.RecordIngestResponse.newBuilder()
-                            .setResult("success")
-                            .setSuccess(true)
-                            .setFilename(generatedFilename)
-                            .build();
-                    responseObserver.onNext(filenameResponse);
-                    responseObserver.onCompleted();
                     break;
                 
                 default:

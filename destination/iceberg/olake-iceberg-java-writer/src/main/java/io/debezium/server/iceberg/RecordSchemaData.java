@@ -1,12 +1,12 @@
 package io.debezium.server.iceberg;
 
-import org.apache.iceberg.types.Types;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import org.apache.iceberg.types.Types;
 
 record RecordSchemaData(List<Types.NestedField> fields, Set<Integer> identifierFieldIds,
                         AtomicInteger nextFieldId) {

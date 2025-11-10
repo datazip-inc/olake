@@ -82,6 +82,7 @@ func CreateDelArrRecord(records []types.RawRecord, fieldId int) (arrow.Record, e
 	allocator := memory.NewGoAllocator()
 	arrowSchema := arrow.NewSchema(fields, nil)
 	recordBuilder := array.NewRecordBuilder(allocator, arrowSchema)
+
 	defer recordBuilder.Release()
 
 	for _, rec := range records {
@@ -187,17 +188,12 @@ func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arro
 		}
 	case *array.StringBuilder:
 		// OLake converts the data column to json format for a denormalized table
-		if !normalization && fieldName == "data" {
-			switch v := val.(type) {
-			case map[string]interface{}:
-				jsonBytes, err := json.Marshal(v)
-				if err != nil {
-					return fmt.Errorf("failed to marshal map to JSON: %w", err)
-				}
-				builder.Append(string(jsonBytes))
-			default:
-				builder.Append(fmt.Sprintf("%v", val))
+		if mapVal, ok := val.(map[string]interface{}); !normalization && fieldName == "data" && ok {
+			jsonBytes, err := json.Marshal(mapVal)
+			if err != nil {
+				return fmt.Errorf("failed to marshal map to JSON: %w", err)
 			}
+			builder.Append(string(jsonBytes))
 		} else {
 			builder.Append(fmt.Sprintf("%v", val))
 		}
@@ -205,4 +201,18 @@ func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arro
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
 	return nil
+}
+
+// PartitionInfo represents an Iceberg partition column with its transform, preserving order.
+type PartitionInfo struct {
+	Field     string
+	Transform string
+}
+
+func ExtractDeleteRecords(records []types.RawRecord) []types.RawRecord {
+	deletes := make([]types.RawRecord, 0, len(records))
+	for _, rec := range records {
+		deletes = append(deletes, types.RawRecord{OlakeID: rec.OlakeID})
+	}
+	return deletes
 }

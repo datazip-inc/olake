@@ -2,11 +2,7 @@ package arrow
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"regexp"
-	"runtime"
-	"strings"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/memory"
@@ -24,7 +20,7 @@ const (
 	streamChunkSize      = int64(8 * 1024 * 1024)
 )
 
-type FilenameGenerator func(ctx context.Context) (string, error)
+type FilenameGenerator func() (string, error)
 
 type FileUploadData struct {
 	FileType        string
@@ -36,7 +32,6 @@ type FileUploadData struct {
 
 type RollingWriter struct {
 	partitionKey string
-	ctx          context.Context
 
 	FieldId     int
 	fileType    string
@@ -45,19 +40,15 @@ type RollingWriter struct {
 	currentWriter         *pqarrow.FileWriter
 	currentBuffer         *bytes.Buffer
 	currentFile           string
-	currentSize           int64
 	currentRowCount       int64
 	currentCompressedSize int64
 }
 
-func NewRollingWriter(ctx context.Context, partitionKey string, fileType string) *RollingWriter {
-	writer := &RollingWriter{
+func NewRollingWriter(partitionKey string, fileType string) *RollingWriter {
+	return &RollingWriter{
 		partitionKey: partitionKey,
-		ctx:          ctx,
 		fileType:     fileType,
 	}
-
-	return writer
 }
 
 func (r *RollingWriter) flush() (*FileUploadData, error) {
@@ -92,9 +83,7 @@ func (r *RollingWriter) flush() (*FileUploadData, error) {
 	r.currentWriter = nil
 	r.currentRowCount = 0
 	r.currentFile = ""
-	r.currentSize = 0
 	r.currentCompressedSize = 0
-	runtime.GC()
 
 	return uploadData, nil
 }
@@ -110,32 +99,9 @@ func (r *RollingWriter) Close() (*FileUploadData, error) {
 	return nil, nil
 }
 
-func constructColPath(tVal, field, transform string) string {
-	if transform == "identity" {
-		return fmt.Sprintf("%s=%s", field, tVal)
-	}
-
-	re := regexp.MustCompile(`^([a-zA-Z]+)(\[\d+\])?$`)
-	matches := re.FindStringSubmatch(transform)
-	if len(matches) == 0 {
-		return fmt.Sprintf("%s_%s=%s", field, transform, tVal)
-	}
-
-	base := strings.ToLower(matches[1])
-
-	switch base {
-	case "bucket":
-		return fmt.Sprintf("%s_bucket=%s", field, tVal)
-	case "truncate":
-		return fmt.Sprintf("%s_trunc=%s", field, tVal)
-	default:
-		return fmt.Sprintf("%s_%s=%s", field, base, tVal)
-	}
-}
-
 func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 	if r.currentWriter == nil {
-		filename, err := r.FilenameGen(r.ctx)
+		filename, err := r.FilenameGen()
 		if err != nil {
 			record.Release()
 			return nil, fmt.Errorf("failed to generate filename: %w", err)
@@ -193,13 +159,9 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 	r.currentRowCount += record.NumRows()
 	record.Release()
 
-	sizeSoFar := int64(0)
-	if r.currentBuffer != nil {
-		sizeSoFar += int64(r.currentBuffer.Len())
-	}
-	if r.currentWriter != nil {
-		sizeSoFar += r.currentWriter.RowGroupTotalBytesWritten()
-	}
+	// logic : all previously flushed row groups (in buffer) + current in-progress row group (buffered in memory)
+	sizeSoFar := int64(r.currentBuffer.Len()) + r.currentWriter.RowGroupTotalBytesWritten()
+
 	r.currentCompressedSize = sizeSoFar
 
 	var targetFileSize int64

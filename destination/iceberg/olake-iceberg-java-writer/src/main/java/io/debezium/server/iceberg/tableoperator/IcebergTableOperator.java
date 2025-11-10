@@ -6,332 +6,381 @@
  *
  */
 
-package io.debezium.server.iceberg.tableoperator;
+ package io.debezium.server.iceberg.tableoperator;
 
-import com.google.common.collect.ImmutableMap;
+ import java.io.IOException;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.List;
 
-import jakarta.enterprise.context.Dependent;
-import jakarta.inject.Inject;
+ import org.apache.iceberg.AppendFiles;
+ import org.apache.iceberg.DataFile;
+ import org.apache.iceberg.DataFiles;
+ import org.apache.iceberg.DeleteFile;
+ import org.apache.iceberg.FileFormat;
+ import org.apache.iceberg.FileMetadata;
+ import org.apache.iceberg.Metrics;
+ import org.apache.iceberg.MetricsConfig;
+ import org.apache.iceberg.RowDelta;
+ import org.apache.iceberg.Schema;
+ import org.apache.iceberg.Table;
+ import org.apache.iceberg.UpdateSchema;
+ import org.apache.iceberg.data.Record;
+ import org.apache.iceberg.io.BaseTaskWriter;
+ import org.apache.iceberg.io.FileIO;
+ import org.apache.iceberg.io.InputFile;
+ import org.apache.iceberg.io.WriteResult;
+ import org.apache.iceberg.parquet.ParquetUtil;
+ import org.eclipse.microprofile.config.inject.ConfigProperty;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
 
-import org.apache.iceberg.AppendFiles;
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DataFiles;
-import org.apache.iceberg.DeleteFile;
-import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.Metrics;
-import org.apache.iceberg.MetricsConfig;
-import org.apache.iceberg.RowDelta;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.UpdateSchema;
-import org.apache.iceberg.data.Record;
-import org.apache.iceberg.io.BaseTaskWriter;
-import org.apache.iceberg.io.WriteResult;
-import org.apache.iceberg.parquet.ParquetUtil;
-import org.apache.iceberg.io.InputFile;
-import org.apache.iceberg.FileMetadata;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+ import com.google.common.collect.ImmutableMap;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
-import org.apache.iceberg.io.FileIO;
-/**
- * Wrapper to perform operations on iceberg tables
- *
- * @author Rafael Acevedo
- */
-@Dependent
-public class IcebergTableOperator {
-
-  IcebergTableWriterFactory writerFactory2;
-
-  BaseTaskWriter<Record> writer;
-
-  ArrayList<DataFile> dataFiles = new ArrayList<>();
-  ArrayList<DeleteFile> deleteFiles = new ArrayList<>();
-
-  public IcebergTableOperator(boolean upsert_records) {
-    writerFactory2 = new IcebergTableWriterFactory();
-    writerFactory2.keepDeletes = true;
-    writerFactory2.upsert = upsert_records;
-    allowFieldAddition = true;
-    upsert = upsert_records;
-    cdcOpField = "_op_type";
-    cdcSourceTsMsField = "_cdc_timestamp";
-  }
-
-  static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
-      Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
-  private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
-  String cdcSourceTsMsField;
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
-  String cdcOpField;
-  @ConfigProperty(name = "debezium.sink.iceberg.allow-field-addition", defaultValue = "true")
-  boolean allowFieldAddition;
-  @ConfigProperty(name = "debezium.sink.iceberg.create-identifier-fields", defaultValue = "true")
-  boolean createIdentifierFields;
-  @Inject
-  IcebergTableWriterFactory writerFactory;
-
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
-  boolean upsert;
-  /**
-   * If given schema contains new fields compared to target table schema then it
-   * adds new fields to target iceberg
-   * table.
-   * <p>
-   * Its used when allow field addition feature is enabled.
-   *
-   * @param icebergTable
-   * @param newSchema
-   */
-  public void applyFieldAddition(Table icebergTable, Schema newSchema) {
-    icebergTable.refresh(); // for safe case
-    UpdateSchema us = icebergTable.updateSchema().unionByNameWith(newSchema);
-    if (createIdentifierFields) {
-      us.setIdentifierFields(newSchema.identifierFieldNames());
-    }
-    Schema newSchemaCombined = us.apply();
-    // @NOTE avoid committing when there is no schema change. commit creates new
-    // commit even when there is no change!
-    if (!icebergTable.schema().sameSchema(newSchemaCombined)) {
-      LOGGER.warn("Extending schema of {}", icebergTable.name());
-      us.commit();
-    }
-  }
-  /**
-   * Commits data files for a specific thread
-   * 
-   * @param threadId The thread ID to commit
-   * @throws RuntimeException if commit fails
-   */
-  public void commitThread(String threadId, Table table) {
-    if (table == null) {
-      LOGGER.warn("No table found for thread: {}", threadId);
-      return;
-    }
-
-    try {
-      completeWriter();
-
-      // Calculate total files across all WriteResults
-      int totalDataFiles = dataFiles.size();
-      int totalDeleteFiles = deleteFiles.size();
-
-      LOGGER.info("Committing {} data files and {} delete files for thread: {}",
-          totalDataFiles, totalDeleteFiles, threadId);
-
-      // If no files were generated, nothing to commit
-      if (totalDataFiles == 0 && totalDeleteFiles == 0) {
-        LOGGER.info("No files to commit for thread: {}", threadId);
-        return;
+ import jakarta.enterprise.context.Dependent;
+ import jakarta.inject.Inject;
+ /**
+  * Wrapper to perform operations on iceberg tables
+  *
+  * @author Rafael Acevedo
+  */
+ @Dependent
+ public class IcebergTableOperator {
+ 
+   IcebergTableWriterFactory writerFactory2;
+ 
+   BaseTaskWriter<Record> writer;
+ 
+   ArrayList<DataFile> dataFiles = new ArrayList<>();
+   ArrayList<DeleteFile> deleteFiles = new ArrayList<>();
+ 
+   public IcebergTableOperator(boolean upsert_records) {
+     writerFactory2 = new IcebergTableWriterFactory();
+     writerFactory2.keepDeletes = true;
+     writerFactory2.upsert = upsert_records;
+     allowFieldAddition = true;
+     upsert = upsert_records;
+     cdcOpField = "_op_type";
+     cdcSourceTsMsField = "_cdc_timestamp";
+   }
+ 
+   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
+       Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
+   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
+   @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
+   String cdcSourceTsMsField;
+   @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
+   String cdcOpField;
+   @ConfigProperty(name = "debezium.sink.iceberg.allow-field-addition", defaultValue = "true")
+   boolean allowFieldAddition;
+   @ConfigProperty(name = "debezium.sink.iceberg.create-identifier-fields", defaultValue = "true")
+   boolean createIdentifierFields;
+   @Inject
+   IcebergTableWriterFactory writerFactory;
+ 
+   @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
+   boolean upsert;
+   /**
+    * If given schema contains new fields compared to target table schema then it
+    * adds new fields to target iceberg
+    * table.
+    * <p>
+    * Its used when allow field addition feature is enabled.
+    *
+    * @param icebergTable
+    * @param newSchema
+    */
+   public void applyFieldAddition(Table icebergTable, Schema newSchema) {
+     icebergTable.refresh(); // for safe case
+     UpdateSchema us = icebergTable.updateSchema().unionByNameWith(newSchema);
+     if (createIdentifierFields) {
+       us.setIdentifierFields(newSchema.identifierFieldNames());
+     }
+     Schema newSchemaCombined = us.apply();
+     // @NOTE avoid committing when there is no schema change. commit creates new
+     // commit even when there is no change!
+     if (!icebergTable.schema().sameSchema(newSchemaCombined)) {
+       LOGGER.warn("Extending schema of {}", icebergTable.name());
+       us.commit();
+     }
+   }
+   /**
+    * Commits data files for a specific thread
+    *
+    * @param threadId The thread ID to commit
+    * @throws RuntimeException if commit fails
+    */
+   public void commitThread(String threadId, Table table) {
+     if (table == null) {
+       LOGGER.warn("No table found for thread: {}", threadId);
+       return;
+     }
+ 
+     try {
+       completeWriter();
+ 
+       // Calculate total files across all WriteResults
+       int totalDataFiles = dataFiles.size();
+       int totalDeleteFiles = deleteFiles.size();
+ 
+       LOGGER.info("Committing {} data files and {} delete files for thread: {}",
+           totalDataFiles, totalDeleteFiles, threadId);
+ 
+       // If no files were generated, nothing to commit
+       if (totalDataFiles == 0 && totalDeleteFiles == 0) {
+         LOGGER.info("No files to commit for thread: {}", threadId);
+         return;
+       }
+ 
+       // Commit the files
+       try {
+         // Refresh table before committing
+         table.refresh();
+ 
+         // Check if any WriteResult has delete files
+         boolean hasDeleteFiles = totalDeleteFiles > 0;
+ 
+         if (hasDeleteFiles) {
+           RowDelta rowDelta = table.newRowDelta();
+           // Add all data and delete files from all WriteResults
+           dataFiles.forEach(rowDelta::addRows);
+           deleteFiles.forEach(rowDelta::addDeletes);
+           rowDelta.commit();
+         } else {
+           AppendFiles appendFiles = table.newAppend();
+           // Add all data files from all WriteResults
+           dataFiles.forEach(appendFiles::appendFile);
+           appendFiles.commit();
+         }
+ 
+         LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
+             totalDataFiles, totalDeleteFiles, threadId);
+       } catch (Exception e) {
+         String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
+         LOGGER.error(errorMsg, e);
+         throw new RuntimeException(errorMsg, e);
+       }
+     } catch (RuntimeException e) {
+       throw new RuntimeException("Failed to commit", e);
+     }
+   }
+ 
+   /**
+    * Registers parquet files for a specific thread
+    *
+    * @param threadId The thread ID to register
+    * @param filePaths The data file paths to add into the iceberg table
+    * @throws RuntimeException if registering the parquet file fails
+    */
+   public void registerDataFile(String threadId, Table table, List<String> filePaths) {
+      if (table == null) {
+           LOGGER.warn("No table found for thread: {}", threadId);
+           return;
       }
-
-      // Commit the files
+ 
       try {
-        // Refresh table before committing
-        table.refresh();
-
-        // Check if any WriteResult has delete files
-        boolean hasDeleteFiles = totalDeleteFiles > 0;
-
-        if (hasDeleteFiles) {
-          RowDelta rowDelta = table.newRowDelta();
-          // Add all data and delete files from all WriteResults
-          dataFiles.forEach(rowDelta::addRows);
-          deleteFiles.forEach(rowDelta::addDeletes);
-          rowDelta.commit();
-        } else {
-          AppendFiles appendFiles = table.newAppend();
-          // Add all data files from all WriteResults
-          dataFiles.forEach(appendFiles::appendFile);
-          appendFiles.commit();
-        }
-
-        LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
-            totalDataFiles, totalDeleteFiles, threadId);
+           completeWriter();
+ 
+           FileIO fileIO = table.io();
+           MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+ 
+           AppendFiles append = table.newAppend();
+ 
+           for (String filePath : filePaths) {
+                try {
+                     InputFile inputFile = fileIO.newInputFile(filePath);
+                     Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
+ 
+                     DataFile dataFile = DataFiles.builder(table.spec())
+                          .withPath(filePath)
+                          .withFormat(FileFormat.PARQUET)
+                          .withFileSizeInBytes(inputFile.getLength())
+                          .withMetrics(metrics)
+                          .build();
+ 
+                     append.appendFile(dataFile);
+                     LOGGER.info("Thread {}: registered parquet file {}", threadId, filePath);
+                } catch (Exception e) {
+                     LOGGER.info("Thread {}: failed to register file {}: {}", threadId, filePath, e.getMessage(), e);
+                }
+           }
+ 
+           append.commit();
+           LOGGER.info("Thread {}: successfully committed {} parquet files", threadId, filePaths.size());
       } catch (Exception e) {
-        String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
-        LOGGER.error(errorMsg, e);
-        throw new RuntimeException(errorMsg, e);
+           String errorMsg = String.format("Thread %s: failed to register parquet files: %s", threadId, e.getMessage());
+           LOGGER.error(errorMsg, e);
+           throw new RuntimeException(e);
       }
-    } catch (RuntimeException e) {
-      throw new RuntimeException("Failed to commit", e);
-    }
-  }
-
-  /**
-   * Registers parquet files for a specific thread
-   * 
-   * @param threadId The thread ID to register
-   * @param filePaths The data file paths to add into the iceberg table
-   * @throws RuntimeException if registering the parquet file fails
-   */
-  public void registerDataFile(String threadId, Table table, List<String> filePaths) {
-     if (table == null) {
-          LOGGER.warn("No table found for thread: {}", threadId);
-          return;
-     }
-
+   }
+ 
+   /**
+    * Registers equality delete files for a specific thread
+    *
+    * @param threadId The thread ID to register
+    * @param table The iceberg table
+    * @param filePaths The delete file paths to add into the iceberg table
+    * @param equalityFieldId The field ID for equality deletes (e.g., _olake_id field)
+    * @throws RuntimeException if registering the delete file fails
+    */
+   public void registerDeleteFile(String threadId, Table table, List<String> filePaths, int equalityFieldId) {
+      if (table == null) {
+           LOGGER.warn("No table found for thread: {}", threadId);
+           return;
+      }
+ 
+      try {
+           completeWriter();
+ 
+           FileIO fileIO = table.io();
+ 
+           RowDelta rowDelta = table.newRowDelta();
+ 
+           for (String filePath : filePaths) {
+                try {
+                     InputFile inputFile = fileIO.newInputFile(filePath);
+                     long fileSize = inputFile.getLength();
+ 
+                     LOGGER.info("Thread {}: registering delete file: {} (size: {} bytes)", threadId, filePath, fileSize);
+ 
+                     // Extract partition path from file path to scope delete file to partition
+                     String partitionPath = extractPartitionPath(table, filePath);
+ 
+                     FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
+                          .ofEqualityDeletes(equalityFieldId)
+                          .withPath(filePath)
+                          .withFormat(FileFormat.PARQUET)
+                          .withFileSizeInBytes(fileSize);
+ 
+                     if (partitionPath != null && !partitionPath.isEmpty()) {
+                          deleteFileBuilder.withPartitionPath(partitionPath);
+                          LOGGER.info("Thread {}: delete file scoped to partition: {}", threadId, partitionPath);
+                     } else {
+                          LOGGER.info("Thread {}: delete file created as global (unpartitioned)", threadId);
+                     }
+ 
+                     DeleteFile deleteFile = deleteFileBuilder.build();
+ 
+                     rowDelta.addDeletes(deleteFile);
+                     LOGGER.info("Thread {}: registered delete file {} with equality field ID {}", threadId, filePath, equalityFieldId);
+                } catch (Exception e) {
+                     LOGGER.error("Thread {}: failed to register delete file {}: {}", threadId, filePath, e.getMessage(), e);
+                     throw e;
+                }
+           }
+ 
+           rowDelta.commit();
+           LOGGER.info("Thread {}: successfully committed {} delete files", threadId, filePaths.size());
+      } catch (Exception e) {
+           String errorMsg = String.format("Thread %s: failed to register delete files: %s", threadId, e.getMessage());
+           LOGGER.error(errorMsg, e);
+           throw new RuntimeException(e);
+      }
+   }
+ 
+   /**
+    * Extract partition path from the full file path
+    * This assumes the file path contains partition directories in the format: key=value/
+    *
+    * @param table The iceberg table
+    * @param filePath The full file path
+    * @return The partition path (e.g., "year=2024/month=01") or empty string if unpartitioned
+    */
+   private String extractPartitionPath(Table table, String filePath) {
+      if (table.spec().isUnpartitioned()) {
+           return "";
+      }
+ 
+      try {
+           // Extract partition path from file location
+           // File path format: /table_location/partition_path/filename.parquet
+           String tableLocation = table.location();
+ 
+           // Remove table location prefix and filename suffix
+           if (filePath.startsWith(tableLocation)) {
+                String relativePath = filePath.substring(tableLocation.length());
+                if (relativePath.startsWith("/")) {
+                     relativePath = relativePath.substring(1);
+                }
+ 
+                // Get the directory part (everything before the last /)
+                int lastSlash = relativePath.lastIndexOf('/');
+                if (lastSlash > 0) {
+                     String partitionPath = relativePath.substring(0, lastSlash);
+                     return partitionPath;
+                }
+           }
+      } catch (Exception e) {
+           LOGGER.warn("Failed to extract partition path from {}: {}", filePath, e.getMessage());
+      }
+ 
+      return "";
+   }
+ 
+   public void completeWriter() {
      try {
-          completeWriter();
-
-          FileIO fileIO = table.io();
-          MetricsConfig metricsConfig = MetricsConfig.forTable(table);
-
-          AppendFiles append = table.newAppend();
-
-          for (String filePath : filePaths) {
-               try {
-                    InputFile inputFile = fileIO.newInputFile(filePath);
-                    Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
-
-                    DataFile dataFile = DataFiles.builder(table.spec())
-                         .withPath(filePath)
-                         .withFormat(FileFormat.PARQUET)
-                         .withFileSizeInBytes(inputFile.getLength())
-                         .withMetrics(metrics)
-                         .build();
-
-                    append.appendFile(dataFile);
-                    LOGGER.info("Thread {}: registered parquet file {}", threadId, filePath);
-               } catch (Exception e) {
-                    LOGGER.info("Thread {}: failed to register file {}: {}", threadId, filePath, e.getMessage(), e);
-               }
-          }
-
-          append.commit();
-          LOGGER.info("Thread {}: successfully committed {} parquet files", threadId, filePaths.size());
-     } catch (Exception e) {
-          String errorMsg = String.format("Thread %s: failed to register parquet files: %s", threadId, e.getMessage());
-          LOGGER.error(errorMsg, e);
-          throw new RuntimeException(e);
+       if (writer == null) {
+         LOGGER.warn("no writer to complete");
+         return;
+       }
+       WriteResult writerResult = writer.complete();
+       deleteFiles.addAll(Arrays.asList(writerResult.deleteFiles()));
+       dataFiles.addAll(Arrays.asList(writerResult.dataFiles()));
+     } catch (IOException e) {
+       LOGGER.error("Failed to complete writer", e);
+       throw new RuntimeException("Failed to complete writer", e);
+     } finally {
+       // Close the writer
+       try {
+         if (writer != null) {
+           writer.close();
+         }
+       } catch (IOException e) {
+         LOGGER.warn("Failed to close writer", e);
+       }
+       // to reinitiate
+       writer = null;
      }
-  }
-
-  /**
-   * Registers equality delete files for a specific thread
-   * 
-   * @param threadId The thread ID to register
-   * @param table The iceberg table
-   * @param filePaths The delete file paths to add into the iceberg table
-   * @param equalityFieldId The field ID for equality deletes (e.g., _olake_id field)
-   * @throws RuntimeException if registering the delete file fails
-   */
-  public void registerDeleteFile(String threadId, Table table, List<String> filePaths, int equalityFieldId) {
-     if (table == null) {
-          LOGGER.warn("No table found for thread: {}", threadId);
-          return;
+   }
+ 
+   /**
+    * Adds list of change events to iceberg table. All the events are having same
+    * schema.
+    *
+    * @param icebergTable
+    * @param events
+    */
+   public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
+     if (writer == null) {
+       writer = writerFactory2.create(icebergTable);
      }
-
      try {
-          completeWriter();
-
-          FileIO fileIO = table.io();
-
-          RowDelta rowDelta = table.newRowDelta();
-
-          for (String filePath : filePaths) {
-               try {
-                    InputFile inputFile = fileIO.newInputFile(filePath);
-                    long fileSize = inputFile.getLength();
-
-                    LOGGER.info("Thread {}: registering delete file: {} (size: {} bytes)", threadId, filePath, fileSize);
-
-                    DeleteFile deleteFile = FileMetadata.deleteFileBuilder(table.spec())
-                         .ofEqualityDeletes(equalityFieldId)
-                         .withPath(filePath)
-                         .withFormat(FileFormat.PARQUET)
-                         .withFileSizeInBytes(fileSize)
-                         .withRecordCount(1) // TODO: Extract actual record count from parquet metadata
-                         .build();
-
-                    rowDelta.addDeletes(deleteFile);
-                    LOGGER.info("Thread {}: registered delete file {} with equality field ID {}", threadId, filePath, equalityFieldId);
-               } catch (Exception e) {
-                    LOGGER.error("Thread {}: failed to register delete file {}: {}", threadId, filePath, e.getMessage(), e);
-                    throw e;
-               }
-          }
-
-          rowDelta.commit();
-          LOGGER.info("Thread {}: successfully committed {} delete files", threadId, filePaths.size());
-     } catch (Exception e) {
-          String errorMsg = String.format("Thread %s: failed to register delete files: %s", threadId, e.getMessage());
-          LOGGER.error(errorMsg, e);
-          throw new RuntimeException(e);
+       for (RecordWrapper record : events) {
+         try{
+            writer.write(record);
+         }catch (Exception ex) {
+           LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
+           throw ex;
+         }
+       }
+       LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadID);
+ 
+     } catch (Exception ex) {
+       LOGGER.error("Failed to write data to table: {} for thread: {}, exception: {}", icebergTable.name(), threadID, ex);
+ 
+       // Clean up the writer
+       try {
+         writer.abort();
+       } catch (IOException abortEx) {
+         LOGGER.warn("Failed to abort writer", abortEx);
+       }
+       try {
+         writer.close();
+       } catch (IOException e) {
+         LOGGER.warn("Failed to close writer", e);
+       }
+       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
      }
-  }
-
-  public void completeWriter() {
-    try {
-      if (writer == null) {
-        LOGGER.warn("no writer to complete");
-        return;
-      }
-      WriteResult writerResult = writer.complete();
-      deleteFiles.addAll(Arrays.asList(writerResult.deleteFiles()));
-      dataFiles.addAll(Arrays.asList(writerResult.dataFiles()));
-    } catch (IOException e) {
-      LOGGER.error("Failed to complete writer", e);
-      throw new RuntimeException("Failed to complete writer", e);
-    } finally {
-      // Close the writer
-      try {
-        if (writer != null) {
-          writer.close();
-        }
-      } catch (IOException e) {
-        LOGGER.warn("Failed to close writer", e);
-      }
-      // to reinitiate 
-      writer = null;
-    }
-  }
-
-  /**
-   * Adds list of change events to iceberg table. All the events are having same
-   * schema.
-   *
-   * @param icebergTable
-   * @param events
-   */
-  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
-    if (writer == null) {
-      writer = writerFactory2.create(icebergTable);
-    }
-    try {
-      for (RecordWrapper record : events) {
-        try{
-           writer.write(record);
-        }catch (Exception ex) {
-          LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
-          throw ex;
-        }
-      }
-      LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadID);
-
-    } catch (Exception ex) {
-      LOGGER.error("Failed to write data to table: {} for thread: {}, exception: {}", icebergTable.name(), threadID, ex);
-
-      // Clean up the writer
-      try {
-        writer.abort();
-      } catch (IOException abortEx) {
-        LOGGER.warn("Failed to abort writer", abortEx);
-      }
-      try {
-        writer.close();
-      } catch (IOException e) {
-        LOGGER.warn("Failed to close writer", e);
-      }
-      throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
-    }
-  }
-}
+   }
+ }
+ 

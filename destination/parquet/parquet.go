@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -99,7 +101,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[types.RawRecord](pqFile, types.GetParquetRawSchema(), pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
@@ -159,7 +161,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
 			if err != nil {
-				return fmt.Errorf("failed to create parititon file: %s", err)
+				return fmt.Errorf("failed to create partition file: %s", err)
 			}
 			partitionFile = p.partitionedFiles[partitionedPath]
 		}
@@ -302,14 +304,19 @@ func (p *Parquet) Close(_ context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, records, nil, nil
 	}
 
-	schemaChange := false
-	for idx, record := range records {
-		// add common fields
+	if len(records) == 0 {
+		return false, records, p.schema, nil
+	}
+
+	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
+
+	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
+		// Add common fields
 		records[idx].Data[constants.OlakeID] = record.OlakeID
 		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
 		records[idx].Data[constants.OpType] = record.OperationType
@@ -319,20 +326,48 @@ func (p *Parquet) FlattenAndCleanData(records []types.RawRecord) (bool, []types.
 
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to flatten record, pq writer: %s", err)
+			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
 
-		// just process the changes and upgrade new schema
-		change, typeChange, _ := p.schema.Process(flattenedRecord)
-		schemaChange = change || typeChange || schemaChange
-		err = typeutils.ReformatRecord(p.schema, flattenedRecord)
-		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
+		// Store flattened result back to the record
+		records[idx].Data = flattenedRecord
+
+		if !diffFound.Load() {
+			for columnName, columnValue := range flattenedRecord {
+				detectedType := typeutils.TypeFromValue(columnValue)
+				if _, columnExist := p.schema[columnName]; !columnExist {
+					diffFound.Store(true)
+					break
+				}
+
+				persistedTypes := p.schema[columnName].Types()
+				if _, exist := utils.ArrayContains(persistedTypes, func(elem types.DataType) bool {
+					return elem == detectedType
+				}); !exist {
+					diffFound.Store(true)
+					break
+				}
+			}
 		}
-		records[idx].Data = flattenedRecord // use idx to update slice record
+		return nil
+	})
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to process records: %s", err)
 	}
 
-	return schemaChange, records, p.schema, nil
+	schemaChange := false // note: diff schema already detected so we can avoid this in future
+
+	if diffFound.Load() {
+		for _, record := range records {
+			// Process the changes and upgrade new schema
+			change, typeChange, _ := p.schema.Process(record.Data)
+			schemaChange = change || typeChange || schemaChange
+		}
+	}
+
+	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
+		return typeutils.ReformatRecord(p.schema, record.Data)
+	})
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
@@ -421,57 +456,61 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 	return filepath.Join(p.basePath, strings.TrimSuffix(result, "/"))
 }
 
-func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []string) error {
+func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.StreamInterface) error {
+	// check for s3 writer configuration
+	err := p.initS3Writer()
+	if err != nil {
+		return err
+	}
+
 	if len(selectedStreams) == 0 {
-		logger.Infof("Thread[%s]: no streams selected for clearing, skipping clear operation", p.options.ThreadID)
+		logger.Infof("no streams selected for clearing, skipping clear operation")
 		return nil
 	}
 
-	logger.Infof("Thread[%s]: clearing destination for %d selected streams: %v", p.options.ThreadID, len(selectedStreams), selectedStreams)
+	paths := make([]string, 0, len(selectedStreams))
+	for _, stream := range selectedStreams {
+		paths = append(paths, stream.GetDestinationDatabase(nil)+"."+stream.GetDestinationTable())
+	}
 
 	if p.s3Client == nil {
-		if err := p.clearLocalFiles(selectedStreams); err != nil {
+		if err := p.clearLocalFiles(paths); err != nil {
 			return fmt.Errorf("failed to clear local files: %s", err)
 		}
 	} else {
-		if err := p.clearS3Files(ctx, selectedStreams); err != nil {
+		if err := p.clearS3Files(ctx, paths); err != nil {
 			return fmt.Errorf("failed to clear S3 files: %s", err)
 		}
 	}
-
-	logger.Infof("Thread[%s]: successfully cleared destination for selected streams", p.options.ThreadID)
 	return nil
 }
 
-func (p *Parquet) clearLocalFiles(selectedStreams []string) error {
-	for _, streamID := range selectedStreams {
+func (p *Parquet) clearLocalFiles(paths []string) error {
+	for _, streamID := range paths {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
-			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
+			logger.Warnf("invalid stream ID format: %s, skipping", streamID)
 			continue
 		}
+		namespace, tableName := parts[0], parts[1]
+		streamPath := filepath.Join(p.config.Path, namespace, tableName)
 
-		namespace, streamName := parts[0], parts[1]
-		streamPath := filepath.Join(p.config.Path, namespace, streamName)
-
-		logger.Infof("Thread[%s]: clearing local path: %s", p.options.ThreadID, streamPath)
+		logger.Infof("clearing local path: %s", streamPath)
 
 		if _, err := os.Stat(streamPath); os.IsNotExist(err) {
-			logger.Debugf("Thread[%s]: local path does not exist, skipping: %s", p.options.ThreadID, streamPath)
+			logger.Debugf("local path does not exist, skipping: %s", streamPath)
 			continue
 		}
 
 		if err := os.RemoveAll(streamPath); err != nil {
 			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
 		}
-
-		logger.Debugf("Thread[%s]: successfully cleared local path: %s", p.options.ThreadID, streamPath)
 	}
 
 	return nil
 }
 
-func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) error {
+func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 	deleteS3PrefixStandard := func(filtPath string) error {
 		iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
 			Bucket: aws.String(p.config.Bucket),
@@ -484,28 +523,23 @@ func (p *Parquet) clearS3Files(ctx context.Context, selectedStreams []string) er
 		return nil
 	}
 
-	for _, streamID := range selectedStreams {
+	for _, streamID := range paths {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
-			logger.Warnf("Thread[%s]: invalid stream ID format: %s, skipping", p.options.ThreadID, streamID)
+			logger.Warnf("invalid stream ID format: %s, skipping", streamID)
 			continue
 		}
+		prefix, namespace, tableName := strings.TrimLeft(p.config.Prefix, "/"), parts[0], parts[1]
+		s3TablePath := filepath.Join(prefix, namespace, tableName, "/")
 
-		namespace, streamName := parts[0], parts[1]
-		s3TablePath := filepath.Join(p.config.Prefix, namespace, streamName, "/")
-		logger.Debugf("Thread[%s]: clearing S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
+		logger.Debugf("clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
 			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
 		}
 
-		logger.Debugf("Thread[%s]: successfully cleared S3 prefix: s3://%s/%s", p.options.ThreadID, p.config.Bucket, s3TablePath)
+		logger.Debugf("successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 	}
 
-	return nil
-}
-
-func (p *Parquet) ArrowWrites(ctx context.Context, record []types.RawRecord) error {
-	
 	return nil
 }
 

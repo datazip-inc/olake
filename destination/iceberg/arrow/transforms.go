@@ -3,7 +3,9 @@ package arrow
 import (
 	"encoding/binary"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -274,5 +276,28 @@ func (t TruncateTransform) apply(val any, colType string) (string, error) {
 		return fmt.Sprintf("%v", tVal), nil
 	default:
 		return "", fmt.Errorf("cannot apply truncate transformation for col: %v", colType)
+	}
+}
+
+func constructColPath(tVal, field, transform string) string {
+	if transform == "identity" {
+		return fmt.Sprintf("%s=%s", field, tVal)
+	}
+
+	re := regexp.MustCompile(`^([a-zA-Z]+)(\[\d+\])?$`)
+	matches := re.FindStringSubmatch(transform)
+	if len(matches) == 0 {
+		return fmt.Sprintf("%s_%s=%s", field, transform, tVal)
+	}
+
+	base := strings.ToLower(matches[1])
+
+	switch base {
+	case "bucket":
+		return fmt.Sprintf("%s_bucket=%s", field, tVal)
+	case "truncate":
+		return fmt.Sprintf("%s_trunc=%s", field, tVal)
+	default:
+		return fmt.Sprintf("%s_%s=%s", field, base, tVal)
 	}
 }

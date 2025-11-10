@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -12,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/destination/iceberg/arrow"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -20,18 +19,27 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-var portMap sync.Map
+var (
+	portStatus     sync.Map // map[int]*portState - tracks port usage and cooldown state
+	cooldownPeriod = 180 * time.Second
+)
+
+type portState struct {
+	inUse      bool
+	releasedAt time.Time
+}
 
 type serverInstance struct {
-	port     int
-	cmd      *exec.Cmd
-	client   proto.RecordIngestServiceClient
-	conn     *grpc.ClientConn
-	serverID string
+	port        int
+	cmd         *exec.Cmd
+	client      proto.RecordIngestServiceClient
+	arrowClient proto.ArrowRecordIngestServiceClient
+	conn        *grpc.ClientConn
+	serverID    string
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []destination.PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []arrow.PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
@@ -105,55 +113,36 @@ func getServerConfigJSON(config *Config, partitionInfo []destination.PartitionIn
 		serverConfig["s3.region"] = config.Region
 	} else if config.S3Endpoint == "" && config.CatalogType == GlueCatalog {
 		// If no region is explicitly provided for Glue catalog, add a note that it will be picked from environment
-		logger.Warn("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
+		logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
 	}
 
-	// Configure custom endpoint for S3-compatible services (like MinIO)
 	if config.S3Endpoint != "" {
 		serverConfig["s3.endpoint"] = config.S3Endpoint
-		serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
-		// Set SSL/TLS configuration
-		serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	}
-
-	// Configure S3 or GCP file IO
-	serverConfig["io-impl"] = utils.Ternary(strings.HasPrefix(config.IcebergS3Path, "gs://"), "org.apache.iceberg.gcp.gcs.GCSFileIO", "org.apache.iceberg.aws.s3.S3FileIO")
+	serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
+	serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 
 	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
 }
 
 // setup java client
-func newIcebergClient(config *Config, partitionInfo []destination.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
+
+func newIcebergClient(config *Config, partitionInfo []arrow.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
 	// validate configuration
 	err := config.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	// get available port
-	port, err := FindAvailablePort(config.ServerHost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find available ports: %s", err)
-	}
+	const maxAttempts = 10
+	var (
+		port      int
+		serverCmd *exec.Cmd
+	)
 
-	// Get the server configuration JSON
-	configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create server config: %s", err)
-	}
-
-	// setup command
-	var serverCmd *exec.Cmd
-	// If debug mode is enabled and it is not check command
-	if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
-		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005", "-jar", config.JarPath, string(configJSON))
-	} else {
-		serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
-	}
-
-	// Get current environment
-	serverCmd.Env = os.Environ()
+	// nextStartPort controls from where the port scan should begin on each attempt
+	nextStartPort := 50051
 
 	addEnvIfSet := func(key, value string) {
 		if value != "" {
@@ -169,39 +158,86 @@ func newIcebergClient(config *Config, partitionInfo []destination.PartitionInfo,
 			serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
 		}
 	}
-	addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
-	addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
-	addEnvIfSet("AWS_REGION", config.Region)
-	addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
-	addEnvIfSet("AWS_PROFILE", config.ProfileName)
-
-	// Set up and start the process with logging
-	if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
-		return nil, fmt.Errorf("failed to setup logger: %s", err)
-	}
-
-	// Connect to gRPC server
-	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
-	if err != nil {
-		// If connection fails, clean up the process
-		if serverCmd != nil && serverCmd.Process != nil {
-			if killErr := serverCmd.Process.Kill(); killErr != nil {
-				logger.Errorf("Thread[%s]: Failed to kill process: %s", threadID, killErr)
-			}
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// get available port
+		port, err = FindAvailablePort(threadID, nextStartPort)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find available ports: %s", err)
 		}
-		return nil, fmt.Errorf("failed to create new grpc client: %s", err)
+
+		// Build server configuration with selected port
+		configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create server config: %s", err)
+		}
+
+		// setup command
+		// If debug mode is enabled and it is not check command
+		if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
+			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
+		} else {
+			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
+		}
+
+		// Get current environment
+		serverCmd.Env = os.Environ()
+		addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
+		addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
+		addEnvIfSet("AWS_REGION", config.Region)
+		addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
+		addEnvIfSet("AWS_PROFILE", config.ProfileName)
+
+		// Set up and start the process with logging
+		if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
+			// Mark port for cooldown since it failed to start
+			portStatus.Store(port, &portState{
+				inUse:      false,
+				releasedAt: time.Now(),
+			})
+			// If this was a bind error (EADDRINUSE), retry with the next available port
+			// This is necessary because port can collide with system ephemeral ports, which we can not detect/kill, so we skip
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "address in use") || strings.Contains(errLower, "failed to bind") || strings.Contains(errLower, "bindexception") || strings.Contains(errLower, "eaddrinuse") {
+				logger.Warnf("Thread[%s]: Port %d bind failed, retrying with next available port", threadID, port)
+				// advance the start port to the next one for the subsequent scan
+				nextStartPort = port + 1
+				continue
+			}
+			return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %s", err)
+		}
+
+		// Connect to gRPC server
+		conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
+
+		if err != nil {
+			// If connection fails, clean up the process
+			if serverCmd != nil && serverCmd.Process != nil {
+				if killErr := serverCmd.Process.Kill(); killErr != nil {
+					logger.Errorf("Thread[%s]: Failed to kill process: %s", threadID, killErr)
+				}
+			}
+			// Mark port for cooldown since connection failed
+			portStatus.Store(port, &portState{
+				inUse:      false,
+				releasedAt: time.Now(),
+			})
+			return nil, fmt.Errorf("failed to create new grpc client: %s", err)
+		}
+
+		logger.Infof("Thread[%s]: Connected to new iceberg writer on port %d", threadID, port)
+		return &serverInstance{
+			port:        port,
+			cmd:         serverCmd,
+			client:      proto.NewRecordIngestServiceClient(conn),
+			arrowClient: proto.NewArrowRecordIngestServiceClient(conn),
+			conn:        conn,
+			serverID:    threadID,
+		}, nil
 	}
 
-	logger.Infof("Thread[%s]: Connected to new iceberg writer on port %d", threadID, port)
-	return &serverInstance{
-		port:     port,
-		cmd:      serverCmd,
-		client:   proto.NewRecordIngestServiceClient(conn),
-		conn:     conn,
-		serverID: threadID,
-	}, nil
+	return nil, fmt.Errorf("failed to start iceberg writer after %d attempts due to port binding conflicts", maxAttempts)
 }
 
 func (s *serverInstance) sendClientRequest(ctx context.Context, reqPayload *proto.IcebergPayload) (string, error) {
@@ -223,54 +259,115 @@ func (s *serverInstance) closeIcebergClient() error {
 			logger.Errorf("Thread[%s]: Failed to kill Iceberg server: %s", s.serverID, err)
 		}
 	}
-	portMap.Delete(s.port)
+	// Mark port as released (cooldown period to allow OS to clean up TIME_WAIT state)
+	portStatus.Store(s.port, &portState{
+		inUse:      false,
+		releasedAt: time.Now(),
+	})
 	return nil
 }
 
-// findAvailablePort finds an available port for the RPC server
-func FindAvailablePort(serverHost string) (int, error) {
-	for p := 50051; p <= 59051; p++ {
-		// Try to store port in map - returns false if already exists
-		if _, loaded := portMap.LoadOrStore(p, true); !loaded {
-			// Check if the port is already in use by another process
-			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", serverHost, p), time.Second)
-			if err == nil {
-				// Port is in use, close our test connection
-				conn.Close()
+// findAvailablePort finds an available port for the RPC server starting from startPort
+func FindAvailablePort(threadID string, startPort int) (int, error) {
+	if startPort < 50051 {
+		startPort = 50051
+	}
+	if startPort > 59051 {
+		return 0, fmt.Errorf("startPort out of range")
+	}
+	for p := startPort; p <= 59051; p++ {
+		// Check port state
+		if state, exists := portStatus.Load(p); exists {
+			ps := state.(*portState)
+			if ps.inUse {
+				// Port is currently in use by our process
+				continue
+			}
+			// Port was released, check if cooldown period has elapsed
+			if time.Since(ps.releasedAt) < cooldownPeriod {
+				// Still in cooldown, skip this port
+				continue
+			}
+			// Cooldown period expired, remove from map and allow reuse
+			portStatus.Delete(p)
+		}
 
-				// Find the process using this port
-				cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", p), "-t")
-				output, err := cmd.Output()
-				if err != nil {
-					// Failed to find process, continue to next port
-					portMap.Delete(p)
-					continue
-				}
-
-				// Get the PID
-				pid := strings.TrimSpace(string(output))
-				if pid == "" {
-					// No process found, continue to next port
-					portMap.Delete(p)
-					continue
-				}
-
+		// Port not tracked or cooldown expired - try to acquire it
+		// Use LoadOrStore to atomically claim the port
+		if _, loaded := portStatus.LoadOrStore(p, &portState{inUse: true}); !loaded {
+			// Successfully claimed the port, try to kill any process using it
+			pid := findProcessUsingPort(threadID, p)
+			if pid != "" {
 				// Kill the process
 				killCmd := exec.Command("kill", "-9", pid)
-				err = killCmd.Run()
-				if err != nil {
-					logger.Warnf("Failed to kill process using port %d: %v", p, err)
-					portMap.Delete(p)
-					continue
+				killErr := killCmd.Run()
+				if killErr == nil {
+					logger.Infof("Thread[%s]: Killed process %s that was using port %d", threadID, pid, p)
+					// Wait for the port to be released
+					time.Sleep(time.Second * 5)
+					return p, nil
 				}
-
-				logger.Infof("Killed process %s that was using port %d", pid, p)
-
-				// Wait a moment for the port to be released
-				time.Sleep(time.Second * 5)
+				logger.Warnf("Thread[%s]: Failed to kill process %s using port %d: %s", threadID, pid, p, killErr)
+				// Release the claim and mark cooldown, then continue scanning
+				portStatus.Store(p, &portState{
+					inUse:      false,
+					releasedAt: time.Now(),
+				})
+				continue
 			}
+			// Return the port (either it was free, or we attempted to free it)
 			return p, nil
 		}
 	}
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
+}
+
+// findProcessUsingPort finds the PID of a process using the specified port
+// Tries ss first (preferred for Alpine), falls back to lsof
+func findProcessUsingPort(threadID string, port int) string {
+	// Prefer ss if available. If ss exists, do NOT fall back to lsof.
+	if _, lookErr := exec.LookPath("ss"); lookErr == nil {
+		// Use a valid filter expression: sport = :<port>
+		cmd := exec.Command("ss", "-H", "-ltnp", fmt.Sprintf("sport = :%d", port))
+		output, err := cmd.Output()
+		if err == nil {
+			// Parse ss output to extract PID
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			for _, line := range lines {
+				// ss output format: State Recv-Q Send-Q Local Address:Port Peer Address:Port Process
+				// Look for the process part at the end (e.g., "users:((\"java\",pid=123,fd=123))")
+				if strings.Contains(line, "users:") {
+					// Extract PID from the process info
+					parts := strings.Split(line, "pid=")
+					if len(parts) > 1 {
+						pidPart := strings.Split(parts[1], ",")[0]
+						if pid := strings.TrimSpace(pidPart); pid != "" {
+							logger.Infof("Thread[%s]: Found process %s using port %d using ss", threadID, pid, port)
+							return pid
+						}
+					}
+				}
+			}
+			// No users: match found; return empty without falling back
+			return ""
+		}
+		// ss failed to run (syntax/permissions/etc.). Log and return empty.
+		logger.Warnf("Thread[%s]: Failed to find process using port %d using ss: %s", threadID, port, err)
+		return ""
+	}
+
+	// ss not available: fall back to lsof if present
+	if _, lookErr := exec.LookPath("lsof"); lookErr == nil {
+		cmd := exec.Command("lsof", "-nP", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN", "-t")
+		output, err := cmd.Output()
+		if err == nil {
+			pid := strings.TrimSpace(string(output))
+			if pid != "" {
+				logger.Infof("Thread[%s]: Found process %s using port %d using lsof", threadID, pid, port)
+				return pid
+			}
+		}
+	}
+
+	return ""
 }

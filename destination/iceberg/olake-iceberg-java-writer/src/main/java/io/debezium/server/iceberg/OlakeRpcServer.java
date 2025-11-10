@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.debezium.serde.DebeziumSerdes;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
+import io.debezium.server.iceberg.rpc.ArrowRowsIngester;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import jakarta.enterprise.context.Dependent;
@@ -121,11 +122,42 @@ public class OlakeRpcServer {
             maxMessageSize = Integer.parseInt(stringConfigMap.get("max-message-size"));
         }
         
+        // ArrowRowsIngester stores references to tables dynamically as they are accessed
+        final String namespace = stringConfigMap.get("table-namespace");
+        Map<String, ArrowRowsIngester> arrowIngesters = new ConcurrentHashMap<>();
+        
         Server server = ServerBuilder.forPort(port)
                 .addService(ori)
+                .addService(new io.grpc.BindableService() {
+                    @Override
+                    public io.grpc.ServerServiceDefinition bindService() {
+                        return io.grpc.ServerServiceDefinition.builder(
+                            io.debezium.server.iceberg.rpc.ArrowRecordIngestServiceGrpc.SERVICE_NAME)
+                            .addMethod(
+                                io.debezium.server.iceberg.rpc.ArrowRecordIngestServiceGrpc.getUploadFileMethod(),
+                                io.grpc.stub.ServerCalls.asyncUnaryCall((request, responseObserver) -> {
+                                    String tableName = request.getDestTableName();
+                                    ArrowRowsIngester ingester = arrowIngesters.computeIfAbsent(tableName,
+                                        k -> new ArrowRowsIngester(icebergCatalog, namespace, tableName, request.getThreadId()));
+                                    ingester.uploadFile(request, responseObserver);
+                                }))
+                            .addMethod(
+                                io.debezium.server.iceberg.rpc.ArrowRecordIngestServiceGrpc.getGenerateFilenameMethod(),
+                                io.grpc.stub.ServerCalls.asyncUnaryCall((request, responseObserver) -> {
+                                    String tableName = request.getDestTableName();
+                                    ArrowRowsIngester ingester = arrowIngesters.computeIfAbsent(tableName,
+                                        k -> new ArrowRowsIngester(icebergCatalog, namespace, tableName, request.getThreadId()));
+                                    ingester.generateFilename(request, responseObserver);
+                                }))
+                            .build();
+                    }
+                })
                 .maxInboundMessageSize(maxMessageSize)
                 .build()
                 .start();
+        
+        LOGGER.info("Traditional record ingest service registered");
+        LOGGER.info("Arrow record ingest service registered");
 
         // Log server startup without exposing potentially sensitive configuration details
         LOGGER.info("Server started on port {} with max message size: {}MB", 
