@@ -539,7 +539,6 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 
 		logger.Debugf("successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 	}
-
 	return nil
 }
 

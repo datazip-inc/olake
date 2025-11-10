@@ -10,10 +10,8 @@ type Config interface {
 	Validate() error
 }
 
-type (
-	Write           = func(ctx context.Context, channel <-chan types.Record) error
-	FlattenFunction = func(record types.Record) (types.Record, error)
-)
+type Write = func(ctx context.Context, channel <-chan types.Record) error
+type FlattenFunction = func(record types.Record) (types.Record, error)
 
 type Writer interface {
 	GetConfigRef() Config
