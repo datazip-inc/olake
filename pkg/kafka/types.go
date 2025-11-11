@@ -27,5 +27,5 @@ type ReaderManager struct {
 type CustomGroupBalancer struct {
 	requiredConsumerIDs int
 	readerIndex         int
-	activePartitions    map[string]map[int]struct{}
+	partitionIndex      map[string]types.PartitionMetaData
 }

@@ -18,41 +18,35 @@ func (b *CustomGroupBalancer) UserData() ([]byte, error) {
 func (b *CustomGroupBalancer) AssignGroups(members []kafka.GroupMember, partitions []kafka.Partition) kafka.GroupMemberAssignments {
 	assignments := make(kafka.GroupMemberAssignments)
 
-	if len(members) == 0 {
-		return assignments
-	}
-
-	// we need to ensure that exactly the required number of consumer IDs are used,
-	// and each gets assigned partitions accordingly.
+	// number of consumers to use
 	consumerIDCount := min(b.requiredConsumerIDs, len(members))
-	if consumerIDCount == 0 {
-		return assignments
+
+	// quick lookup map from partitionIndex: topic -> set of partition IDs
+	topicPartitionsMap := make(map[string]map[int]struct{})
+	for _, metadata := range b.partitionIndex {
+		if metadata.Stream == nil || metadata.Stream.Name() == "" {
+			continue
+		}
+		if _, exists := topicPartitionsMap[metadata.Stream.Name()]; !exists {
+			topicPartitionsMap[metadata.Stream.Name()] = make(map[int]struct{})
+		}
+		topicPartitionsMap[metadata.Stream.Name()][metadata.PartitionID] = struct{}{}
 	}
 
-	filteredPartitions := make([]kafka.Partition, 0, len(partitions))
+	// active partitions with data in partition index
+	activePartitions := make([]kafka.Partition, 0, len(partitions))
 	for _, partition := range partitions {
-		if len(b.activePartitions) > 0 {
-			topicPartitions, topicExists := b.activePartitions[partition.Topic]
-			if !topicExists {
-				continue
-			}
-
-			if _, partitionExists := topicPartitions[partition.ID]; !partitionExists {
-				continue
+		if topicSet, ok := topicPartitionsMap[partition.Topic]; ok {
+			if _, exists := topicSet[partition.ID]; exists {
+				activePartitions = append(activePartitions, partition)
 			}
 		}
-
-		filteredPartitions = append(filteredPartitions, partition)
 	}
 
-	if len(filteredPartitions) == 0 {
-		return assignments
-	}
-
-	// partitions assigment to consumer IDs in round-robin fashion
-	for idx, partition := range filteredPartitions {
-		consumerIndex := idx % consumerIDCount
-		if consumerIndex < len(members) {
+	if len(activePartitions) != 0 {
+		// Assign partitions to consumers in round-robin
+		for idx, partition := range activePartitions {
+			consumerIndex := idx % consumerIDCount
 			memberID := members[consumerIndex].ID
 			if assignments[memberID] == nil {
 				assignments[memberID] = make(map[string][]int)

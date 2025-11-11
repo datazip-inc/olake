@@ -54,7 +54,7 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		groupBalancer := &CustomGroupBalancer{
 			requiredConsumerIDs: readersToCreate,
 			readerIndex:         readerIndex,
-			activePartitions:    r.activePartitions(),
+			partitionIndex:      r.partitionIndex,
 		}
 
 		// readers creation
@@ -219,25 +219,4 @@ func (r *ReaderManager) Close() error {
 	}
 
 	return nil
-}
-
-func (r *ReaderManager) activePartitions() map[string]map[int]struct{} {
-	if len(r.partitionIndex) == 0 {
-		return map[string]map[int]struct{}{}
-	}
-
-	activePartitions := make(map[string]map[int]struct{})
-	for _, metadata := range r.partitionIndex {
-		streamName := metadata.Stream.Name()
-		if metadata.Stream == nil || streamName == "" {
-			continue
-		}
-
-		if _, topicExists := activePartitions[streamName]; !topicExists {
-			activePartitions[streamName] = make(map[int]struct{})
-		}
-		activePartitions[streamName][metadata.PartitionID] = struct{}{}
-	}
-
-	return activePartitions
 }
