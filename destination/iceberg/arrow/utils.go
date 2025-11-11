@@ -8,6 +8,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
@@ -55,11 +56,11 @@ func CreateNormFields(schema map[string]string) []arrow.Field {
 func CreateDeNormFields() []arrow.Field {
 	fields := make([]arrow.Field, 0, 5)
 
-	fields = append(fields, arrow.Field{Name: "_olake_id", Type: arrow.BinaryTypes.String, Nullable: false})
-	fields = append(fields, arrow.Field{Name: "_olake_timestamp", Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: false})
-	fields = append(fields, arrow.Field{Name: "_op_type", Type: arrow.BinaryTypes.String, Nullable: false})
-	fields = append(fields, arrow.Field{Name: "_cdc_timestamp", Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: true})
-	fields = append(fields, arrow.Field{Name: "data", Type: arrow.BinaryTypes.String, Nullable: true})
+	fields = append(fields, arrow.Field{Name: constants.OlakeID, Type: arrow.BinaryTypes.String, Nullable: false})
+	fields = append(fields, arrow.Field{Name: constants.OlakeTimestamp, Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: false})
+	fields = append(fields, arrow.Field{Name: constants.OpType, Type: arrow.BinaryTypes.String, Nullable: false})
+	fields = append(fields, arrow.Field{Name: constants.CdcTimestamp, Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: true})
+	fields = append(fields, arrow.Field{Name: constants.StringifiedData, Type: arrow.BinaryTypes.String, Nullable: true})
 
 	return fields
 }
@@ -71,7 +72,7 @@ func CreateDelArrRecord(records []types.RawRecord, fieldId int) (arrow.Record, e
 
 	fields := make([]arrow.Field, 0, 1)
 	fields = append(fields, arrow.Field{
-		Name:     "_olake_id",
+		Name:     constants.OlakeID,
 		Type:     arrow.BinaryTypes.String,
 		Nullable: false,
 		Metadata: arrow.MetadataFrom(map[string]string{
@@ -111,13 +112,13 @@ func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field
 		for idx, field := range arrowSchema.Fields() {
 			var val any
 			switch field.Name {
-			case "_olake_id":
+			case constants.OlakeID:
 				val = record.OlakeID
-			case "_olake_timestamp":
+			case constants.OlakeTimestamp:
 				val = record.OlakeTimestamp
-			case "_op_type":
+			case constants.OpType:
 				val = record.OperationType
-			case "_cdc_timestamp":
+			case constants.CdcTimestamp:
 				val = record.CdcTimestamp
 			default:
 				if normalization {
@@ -132,7 +133,7 @@ func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field
 			} else {
 				if err := AppendValueToBuilder(recordBuilder.Field(idx), val, field.Type, field.Name, normalization); err != nil {
 					// for _cdc_timestamp col, we append null in case of full refresh
-					if field.Name == "_cdc_timestamp" {
+					if field.Name == constants.CdcTimestamp {
 						recordBuilder.Field(idx).AppendNull()
 					} else {
 						return nil, fmt.Errorf("cannot identify value for the col %v", field.Name)
@@ -188,7 +189,7 @@ func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arro
 		}
 	case *array.StringBuilder:
 		// OLake converts the data column to json format for a denormalized table
-		if mapVal, ok := val.(map[string]interface{}); !normalization && fieldName == "data" && ok {
+		if mapVal, ok := val.(map[string]interface{}); !normalization && fieldName == constants.StringifiedData && ok {
 			jsonBytes, err := json.Marshal(mapVal)
 			if err != nil {
 				return fmt.Errorf("failed to marshal map to JSON: %w", err)

@@ -301,3 +301,54 @@ func constructColPath(tVal, field, transform string) string {
 		return fmt.Sprintf("%s_%s=%s", field, base, tVal)
 	}
 }
+
+func transformValue(val any, transform string, colType string) (any, error) {
+	var tf Transform
+
+	switch transform {
+	case "identity":
+		tf = IdentityTransform{}
+	case "year":
+		tf = YearTransform{}
+	case "month":
+		tf = MonthTransform{}
+	case "day":
+		tf = DayTransform{}
+	case "hour":
+		tf = HourTransform{}
+	case "void":
+		tf = VoidTransform{}
+	default:
+		if strings.HasPrefix(transform, "bucket") {
+			num, err := strconv.Atoi(transform[7 : len(transform)-1])
+			if err != nil {
+				return nil, err
+			}
+
+			tf = BucketTransform{
+				NumBuckets: num,
+			}
+		} else if strings.HasPrefix(transform, "truncate") {
+			num, err := strconv.Atoi(transform[9 : len(transform)-1])
+			if err != nil {
+				return nil, err
+			}
+
+			tf = TruncateTransform{
+				Width: num,
+			}
+		} else {
+			return nil, fmt.Errorf("unknown partition transformation: %v", transform)
+		}
+	}
+
+	if !tf.canTransform(colType) {
+		return nil, fmt.Errorf("cannot apply transformation %v for column type: %v", transform, colType)
+	}
+
+	v, err := tf.apply(val, colType)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}

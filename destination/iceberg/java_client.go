@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/destination/iceberg/arrow"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -39,7 +38,7 @@ type serverInstance struct {
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []arrow.PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
@@ -128,7 +127,7 @@ func getServerConfigJSON(config *Config, partitionInfo []arrow.PartitionInfo, po
 
 // setup java client
 
-func newIcebergClient(config *Config, partitionInfo []arrow.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
+func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
 	// validate configuration
 	err := config.Validate()
 	if err != nil {

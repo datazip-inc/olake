@@ -5,15 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
-	"github.com/datazip-inc/olake/destination/iceberg/arrow"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -32,7 +31,7 @@ type Iceberg struct {
 	options          *destination.Options
 	config           *Config
 	stream           types.StreamInterface
-	partitionInfo    []arrow.PartitionInfo // ordered slice to preserve partition column order
+	partitionInfo    []PartitionInfo // ordered slice to preserve partition column order
 	server           *serverInstance       // java server instance
 	schema           map[string]string     // schema for current thread associated with java writer (col -> type)
 	createdFilePaths []FileMetadata        // list of created parquet file metadata
@@ -41,6 +40,12 @@ type Iceberg struct {
 
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
+}
+
+// PartitionInfo represents an Iceberg partition column with its transform, preserving order.
+type PartitionInfo struct {
+	Field     string
+	Transform string
 }
 
 func (i *Iceberg) GetConfigRef() destination.Config {
@@ -55,7 +60,7 @@ func (i *Iceberg) Spec() any {
 func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, error) {
 	i.options = options
 	i.stream = stream
-	i.partitionInfo = make([]arrow.PartitionInfo, 0)
+	i.partitionInfo = make([]PartitionInfo, 0)
 	i.schema = make(map[string]string)
 	// Parse partition regex from stream metadata
 	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
@@ -114,7 +119,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
-	// Initialize arrow writer during setup if enabled
 	if i.UseArrowWrites() {
 		var err error
 		i.arrowWriter, err = i.NewArrowWriter()
@@ -317,10 +321,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
-	if i.UseArrowWrites() {
-		fmt.Println("arrow writer enabled")
-	}
-
 	i.options = &destination.Options{
 		ThreadID: "test_iceberg_destination",
 	}
@@ -330,7 +330,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
 	}
 	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []arrow.PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -670,7 +670,7 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
 		// Append to ordered slice to preserve partition order
-		i.partitionInfo = append(i.partitionInfo, arrow.PartitionInfo{
+		i.partitionInfo = append(i.partitionInfo, PartitionInfo{
 			Field:     colName,
 			Transform: transform,
 		})
@@ -690,7 +690,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 	}
 
 	// server setup for dropping tables
-	server, err := newIcebergClient(i.config, []arrow.PartitionInfo{}, i.options.ThreadID, false, false, "")
+	server, err := newIcebergClient(i.config, []PartitionInfo{}, i.options.ThreadID, false, false, "")
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
 	}
@@ -884,7 +884,8 @@ func (i *Iceberg) UploadParquetFile(ctx context.Context, fileData []byte, fileTy
 	return response.GetResult(), nil
 }
 
-// GenerateFilename generates a unique filename for Iceberg data files
+// GenerateFilename generates a unique filename for Iceberg Data and Delete Files
+// Following the Iceberg standard: https://github.com/apache/iceberg/blob/059310ead702814e5d95116210b9af77b29f6b94/core/src/main/java/org/apache/iceberg/io/OutputFileFactory.java#L93-L103
 func (i *Iceberg) GenerateFilename(ctx context.Context) (string, error) {
 	request := proto.ArrowPayload{
 		Type: proto.ArrowPayload_GENERATE_FILENAME,

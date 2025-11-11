@@ -9,6 +9,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -137,7 +138,7 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 		}
 
 		if r.fileType == "delete" {
-			icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[{"id":%d,"name":"_olake_id","required":true,"type":"string"}]}`, r.FieldId)
+			icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, r.FieldId, constants.OlakeID)
 
 			writer.AppendKeyValueMetadata("delete-type", "equality")
 			writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", r.FieldId))

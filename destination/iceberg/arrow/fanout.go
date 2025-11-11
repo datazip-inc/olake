@@ -3,11 +3,11 @@ package arrow
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -70,57 +70,6 @@ func (f *Fanout) createPartitionKey(record types.RawRecord) (string, error) {
 	return partitionKey, nil
 }
 
-func transformValue(val any, transform string, colType string) (any, error) {
-	var tf Transform
-
-	switch transform {
-	case "identity":
-		tf = IdentityTransform{}
-	case "year":
-		tf = YearTransform{}
-	case "month":
-		tf = MonthTransform{}
-	case "day":
-		tf = DayTransform{}
-	case "hour":
-		tf = HourTransform{}
-	case "void":
-		tf = VoidTransform{}
-	default:
-		if strings.HasPrefix(transform, "bucket") {
-			num, err := strconv.Atoi(transform[7 : len(transform)-1])
-			if err != nil {
-				return nil, err
-			}
-
-			tf = BucketTransform{
-				NumBuckets: num,
-			}
-		} else if strings.HasPrefix(transform, "truncate") {
-			num, err := strconv.Atoi(transform[9 : len(transform)-1])
-			if err != nil {
-				return nil, err
-			}
-
-			tf = TruncateTransform{
-				Width: num,
-			}
-		} else {
-			return nil, fmt.Errorf("unknown partition transformation: %v", transform)
-		}
-	}
-
-	if !tf.canTransform(colType) {
-		return nil, fmt.Errorf("cannot apply transformation %v for column type: %v", transform, colType)
-	}
-
-	v, err := tf.apply(val, colType)
-	if err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
 func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRecord, map[string][]types.RawRecord, error) {
 	partitionedData := make(map[string][]types.RawRecord)
 	deleteRecordsByPartition := make(map[string][]types.RawRecord)
@@ -154,9 +103,9 @@ func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []
 			return fmt.Errorf("FieldIdFunc not set on Fanout writer")
 		}
 
-		fieldId, err := f.FieldIdFunc(ctx, "_olake_id")
+		fieldId, err := f.FieldIdFunc(ctx, constants.OlakeID)
 		if err != nil {
-			return fmt.Errorf("failed to get field ID for _olake_id: %w", err)
+			return fmt.Errorf("failed to get field ID for %s: %w", constants.OlakeID, err)
 		}
 
 		for partitionKey, deleteRecords := range deleteRecordsByPartition {
