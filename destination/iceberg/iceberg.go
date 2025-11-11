@@ -37,7 +37,6 @@ type Iceberg struct {
 	schema           map[string]string     // schema for current thread associated with java writer (col -> type)
 	createdFilePaths []FileMetadata        // list of created parquet file metadata
 	arrowWriter      *ArrowWriter          // per-thread streaming arrow writer
-	useArrowWrites   bool                  // whether to use arrow writes (determined in Setup)
 	// Why Schema On Thread Level ?
 
 	// Schema on thread level is identical to writer instance that is available in java server
@@ -114,10 +113,9 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	// set schema for current thread
 	i.schema = copySchema(schema)
-	i.useArrowWrites = i.config.ArrowWrites
 
 	// Initialize arrow writer during setup if enabled
-	if i.useArrowWrites {
+	if i.UseArrowWrites() {
 		var err error
 		i.arrowWriter, err = i.NewArrowWriter()
 		if err != nil {
@@ -319,8 +317,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
-	i.useArrowWrites = i.config.ArrowWrites
-	if i.useArrowWrites {
+	if i.UseArrowWrites() {
 		fmt.Println("arrow writer enabled")
 	}
 
@@ -399,7 +396,7 @@ func (i *Iceberg) Type() string {
 }
 
 func (i *Iceberg) UseArrowWrites() bool {
-	return i.useArrowWrites
+	return i.config.ArrowWrites
 }
 
 // validate schema change & evolution and removes null records
