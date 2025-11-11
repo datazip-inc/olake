@@ -28,6 +28,7 @@ type FileUploadData struct {
 	PartitionKey    string
 	Filename        string
 	EqualityFieldId int
+	RecordCount     int64
 }
 
 type RollingWriter struct {
@@ -73,6 +74,7 @@ func (r *RollingWriter) flush() (*FileUploadData, error) {
 		PartitionKey:    r.partitionKey,
 		Filename:        r.currentFile,
 		EqualityFieldId: r.FieldId,
+		RecordCount:     r.currentRowCount,
 	}
 
 	if r.currentBuffer != nil {

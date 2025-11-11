@@ -16,7 +16,6 @@ type ArrowWriter struct {
 
 	unpartitionedWriter *arrow_writer.RollingWriter
 	partitionedWriter   *arrow_writer.Fanout
-	// deleteFileWriter removed - now creating partition-specific delete writers on demand
 
 	fields       []arrow.Field
 	isNormalized bool
@@ -37,8 +36,7 @@ func (i *Iceberg) NewArrowWriter() (*ArrowWriter, error) {
 	return arrowWriter, nil
 }
 
-// uploadAndTrack uploads a file to Iceberg and tracks it in createdFilePaths
-func (aw *ArrowWriter) uploadAndTrack(ctx context.Context, uploadData *arrow_writer.FileUploadData) error {
+func (aw *ArrowWriter) uploadFile(ctx context.Context, uploadData *arrow_writer.FileUploadData) error {
 	if uploadData == nil {
 		return nil
 	}
@@ -50,20 +48,14 @@ func (aw *ArrowWriter) uploadAndTrack(ctx context.Context, uploadData *arrow_wri
 	}
 
 	if aw.iceberg.createdFilePaths == nil {
-		aw.iceberg.createdFilePaths = make([][]string, 0)
+		aw.iceberg.createdFilePaths = make([]FileMetadata, 0)
 	}
-	aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, []string{uploadData.FileType, storagePath})
+	aw.iceberg.createdFilePaths = append(aw.iceberg.createdFilePaths, FileMetadata{
+		FileType:    uploadData.FileType,
+		FilePath:    storagePath,
+		RecordCount: uploadData.RecordCount,
+	})
 
-	return nil
-}
-
-// uploadDataList uploads multiple files and tracks them
-func (aw *ArrowWriter) uploadDataList(ctx context.Context, dataList []*arrow_writer.FileUploadData) error {
-	for _, uploadData := range dataList {
-		if err := aw.uploadAndTrack(ctx, uploadData); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -81,7 +73,6 @@ func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) err
 
 	if len(aw.iceberg.partitionInfo) != 0 {
 		if aw.partitionedWriter == nil {
-			// Convert iceberg.PartitionInfo to arrow.PartitionInfo
 			arrowPartitions := make([]arrow_writer.PartitionInfo, len(aw.iceberg.partitionInfo))
 			for i, p := range aw.iceberg.partitionInfo {
 				arrowPartitions[i] = arrow_writer.PartitionInfo{
@@ -95,14 +86,15 @@ func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) err
 				return aw.iceberg.GenerateFilename(ctx)
 			}
 			aw.partitionedWriter.FieldIdFunc = aw.iceberg.GetFieldId
+			aw.partitionedWriter.UploadFunc = aw.uploadFile
 		}
 
-		uploadDataList, err := aw.partitionedWriter.Write(ctx, records, arrowFields)
+		err := aw.partitionedWriter.Write(ctx, records, arrowFields)
 		if err != nil {
 			return fmt.Errorf("failed to write partitioned data using fanout writer: %v", err)
 		}
 
-		return aw.uploadDataList(ctx, uploadDataList)
+		return nil
 	} else {
 		if aw.unpartitionedWriter == nil {
 			aw.unpartitionedWriter = arrow_writer.NewRollingWriter("", "data")
@@ -144,7 +136,7 @@ func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) err
 				return fmt.Errorf("failed to write delete arrow record: %w", err)
 			}
 
-			if err := aw.uploadAndTrack(ctx, uploadData); err != nil {
+			if err := aw.uploadFile(ctx, uploadData); err != nil {
 				return err
 			}
 
@@ -153,7 +145,7 @@ func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) err
 				return fmt.Errorf("failed to close delete writer: %w", err)
 			}
 
-			if err := aw.uploadAndTrack(ctx, finalUpload); err != nil {
+			if err := aw.uploadFile(ctx, finalUpload); err != nil {
 				return err
 			}
 		}
@@ -170,34 +162,29 @@ func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) err
 			return fmt.Errorf("failed to write arrow record to parquet: %w", err)
 		}
 
-		return aw.uploadAndTrack(ctx, uploadData)
+		return aw.uploadFile(ctx, uploadData)
 	}
 }
 
-func (aw *ArrowWriter) Close() ([][]string, error) {
+func (aw *ArrowWriter) Close() error {
 	ctx := context.Background()
 
 	if aw.partitionedWriter != nil {
-		uploadDataList, err := aw.partitionedWriter.Close()
-		if err != nil {
-			return nil, err
-		}
-
-		if err := aw.uploadDataList(ctx, uploadDataList); err != nil {
-			return nil, err
+		if err := aw.partitionedWriter.Close(ctx); err != nil {
+			return err
 		}
 	}
 
 	if aw.unpartitionedWriter != nil {
 		uploadData, err := aw.unpartitionedWriter.Close()
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		if err := aw.uploadAndTrack(ctx, uploadData); err != nil {
-			return nil, err
+		if err := aw.uploadFile(ctx, uploadData); err != nil {
+			return err
 		}
 	}
 
-	return aw.iceberg.createdFilePaths, nil
+	return nil
 }

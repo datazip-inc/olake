@@ -33,7 +33,7 @@ type serverInstance struct {
 	port        int
 	cmd         *exec.Cmd
 	client      proto.RecordIngestServiceClient
-	arrowClient proto.ArrowRecordIngestServiceClient
+	arrowClient proto.ArrowIngestServiceClient
 	conn        *grpc.ClientConn
 	serverID    string
 }
@@ -231,7 +231,7 @@ func newIcebergClient(config *Config, partitionInfo []arrow.PartitionInfo, threa
 			port:        port,
 			cmd:         serverCmd,
 			client:      proto.NewRecordIngestServiceClient(conn),
-			arrowClient: proto.NewArrowRecordIngestServiceClient(conn),
+			arrowClient: proto.NewArrowIngestServiceClient(conn),
 			conn:        conn,
 			serverID:    threadID,
 		}, nil
@@ -246,6 +246,14 @@ func (s *serverInstance) sendClientRequest(ctx context.Context, reqPayload *prot
 		return "", fmt.Errorf("failed to send grpc request: %s", err)
 	}
 	return resp.GetResult(), nil
+}
+
+func (s *serverInstance) sendArrowRequest(ctx context.Context, reqPayload *proto.ArrowPayload) (*proto.ArrowIngestResponse, error) {
+	resp, err := s.arrowClient.IcebergAPI(ctx, reqPayload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send arrow grpc request: %w", err)
+	}
+	return resp, nil
 }
 
 // closeIcebergClient closes the connection to the Iceberg server

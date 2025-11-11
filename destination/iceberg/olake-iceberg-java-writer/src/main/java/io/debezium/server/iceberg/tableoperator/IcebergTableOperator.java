@@ -190,14 +190,25 @@
                 try {
                      InputFile inputFile = fileIO.newInputFile(filePath);
                      Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
- 
-                     DataFile dataFile = DataFiles.builder(table.spec())
+
+                     // Extract partition path from file path to scope data file to partition
+                     String partitionPath = extractPartitionPath(table, filePath);
+
+                     DataFiles.Builder dataFileBuilder = DataFiles.builder(table.spec())
                           .withPath(filePath)
                           .withFormat(FileFormat.PARQUET)
                           .withFileSizeInBytes(inputFile.getLength())
-                          .withMetrics(metrics)
-                          .build();
- 
+                          .withMetrics(metrics);
+
+                     if (partitionPath != null && !partitionPath.isEmpty()) {
+                          dataFileBuilder.withPartitionPath(partitionPath);
+                          LOGGER.info("Thread {}: data file scoped to partition: {}", threadId, partitionPath);
+                     } else {
+                          LOGGER.info("Thread {}: data file created as global (unpartitioned)", threadId);
+                     }
+
+                     DataFile dataFile = dataFileBuilder.build();
+
                      append.appendFile(dataFile);
                      LOGGER.info("Thread {}: registered parquet file {}", threadId, filePath);
                 } catch (Exception e) {
@@ -221,9 +232,10 @@
     * @param table The iceberg table
     * @param filePaths The delete file paths to add into the iceberg table
     * @param equalityFieldId The field ID for equality deletes (e.g., _olake_id field)
+    * @param recordCount The number of records in the delete file
     * @throws RuntimeException if registering the delete file fails
     */
-   public void registerDeleteFile(String threadId, Table table, List<String> filePaths, int equalityFieldId) {
+   public void registerDeleteFile(String threadId, Table table, List<String> filePaths, int equalityFieldId, long recordCount) {
       if (table == null) {
            LOGGER.warn("No table found for thread: {}", threadId);
            return;
@@ -250,7 +262,8 @@
                           .ofEqualityDeletes(equalityFieldId)
                           .withPath(filePath)
                           .withFormat(FileFormat.PARQUET)
-                          .withFileSizeInBytes(fileSize);
+                          .withFileSizeInBytes(fileSize)
+                          .withRecordCount(recordCount);
  
                      if (partitionPath != null && !partitionPath.isEmpty()) {
                           deleteFileBuilder.withPartitionPath(partitionPath);
@@ -290,19 +303,24 @@
       if (table.spec().isUnpartitioned()) {
            return "";
       }
- 
+
       try {
            // Extract partition path from file location
-           // File path format: /table_location/partition_path/filename.parquet
+           // File path format: /table_location/data/partition_path/filename.parquet
            String tableLocation = table.location();
- 
+
            // Remove table location prefix and filename suffix
            if (filePath.startsWith(tableLocation)) {
                 String relativePath = filePath.substring(tableLocation.length());
                 if (relativePath.startsWith("/")) {
                      relativePath = relativePath.substring(1);
                 }
- 
+
+                // Skip the 'data/' directory prefix if present
+                if (relativePath.startsWith("data/")) {
+                     relativePath = relativePath.substring(5); // Remove "data/"
+                }
+
                 // Get the directory part (everything before the last /)
                 int lastSlash = relativePath.lastIndexOf('/');
                 if (lastSlash > 0) {
@@ -313,7 +331,7 @@
       } catch (Exception e) {
            LOGGER.warn("Failed to extract partition path from {}: {}", filePath, e.getMessage());
       }
- 
+
       return "";
    }
  

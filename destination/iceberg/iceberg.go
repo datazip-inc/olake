@@ -22,16 +22,22 @@ import (
 	"github.com/spf13/viper"
 )
 
+type FileMetadata struct {
+	FileType    string
+	FilePath    string
+	RecordCount int64
+}
+
 type Iceberg struct {
 	options          *destination.Options
 	config           *Config
 	stream           types.StreamInterface
 	partitionInfo    []arrow.PartitionInfo // ordered slice to preserve partition column order
-	server           *serverInstance             // java server instance
-	schema           map[string]string           // schema for current thread associated with java writer (col -> type)
-	createdFilePaths [][]string                  // list of created parquet file paths
-	arrowWriter      *ArrowWriter                // per-thread streaming arrow writer
-	useArrowWrites   bool                        // whether to use arrow writes (determined in Setup)
+	server           *serverInstance       // java server instance
+	schema           map[string]string     // schema for current thread associated with java writer (col -> type)
+	createdFilePaths []FileMetadata        // list of created parquet file metadata
+	arrowWriter      *ArrowWriter          // per-thread streaming arrow writer
+	useArrowWrites   bool                  // whether to use arrow writes (determined in Setup)
 	// Why Schema On Thread Level ?
 
 	// Schema on thread level is identical to writer instance that is available in java server
@@ -239,14 +245,8 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 
 func (i *Iceberg) Close(ctx context.Context) error {
 	if i.UseArrowWrites() && i.arrowWriter != nil {
-		finalFilePaths, err := i.arrowWriter.Close()
-		if err != nil {
+		if err := i.arrowWriter.Close(); err != nil {
 			logger.Errorf("Thread[%s]: failed to close arrow writer: %v", i.options.ThreadID, err)
-		} else if len(finalFilePaths) > 0 {
-			if i.createdFilePaths == nil {
-				i.createdFilePaths = make([][]string, 0)
-			}
-			i.createdFilePaths = append(i.createdFilePaths, finalFilePaths...)
 		}
 		i.arrowWriter = nil
 	}
@@ -275,24 +275,30 @@ func (i *Iceberg) Close(ctx context.Context) error {
 	if i.UseArrowWrites() {
 		logger.Infof("Thread[%s]: Registering %d parquet files with Iceberg table: %v", i.options.ThreadID, len(i.createdFilePaths), i.createdFilePaths)
 
-		fileMetadata := make([]*proto.IcebergPayload_FileMetadata, 0, len(i.createdFilePaths))
-		for _, pathInfo := range i.createdFilePaths {
-			if len(pathInfo) >= 2 && pathInfo[1] != "" {
-				fileMetadata = append(fileMetadata, &proto.IcebergPayload_FileMetadata{
-					FileType: pathInfo[0],
-					FilePath: pathInfo[1],
-				})
-			}
+		fileMetadata := make([]*proto.ArrowPayload_FileMetadata, 0, len(i.createdFilePaths))
+		for _, fileMeta := range i.createdFilePaths {
+			fileMetadata = append(fileMetadata, &proto.ArrowPayload_FileMetadata{
+				FileType:    fileMeta.FileType,
+				FilePath:    fileMeta.FilePath,
+				RecordCount: fileMeta.RecordCount,
+			})
 		}
 
-		request = &proto.IcebergPayload{
-			Type: proto.IcebergPayload_REGISTER,
-			Metadata: &proto.IcebergPayload_Metadata{
+		arrowRequest := &proto.ArrowPayload{
+			Type: proto.ArrowPayload_REGISTER,
+			Metadata: &proto.ArrowPayload_Metadata{
 				ThreadId:      i.server.serverID,
 				DestTableName: i.stream.GetDestinationTable(),
 				FileMetadata:  fileMetadata,
 			},
 		}
+
+		res, err := i.server.sendArrowRequest(ctx, arrowRequest)
+		if err != nil {
+			return fmt.Errorf("failed to register arrow files: %s", err)
+		}
+		logger.Debugf("Thread[%s]: Registered arrow files: %s", i.options.ThreadID, res.GetResult())
+		return nil
 	} else {
 		request = &proto.IcebergPayload{
 			Type: proto.IcebergPayload_COMMIT,
@@ -314,6 +320,9 @@ func (i *Iceberg) Close(ctx context.Context) error {
 
 func (i *Iceberg) Check(ctx context.Context) error {
 	i.useArrowWrites = i.config.ArrowWrites
+	if i.useArrowWrites {
+		fmt.Println("arrow writer enabled")
+	}
 
 	i.options = &destination.Options{
 		ThreadID: "test_iceberg_destination",
@@ -827,23 +836,23 @@ func (i *Iceberg) GetFieldId(ctx context.Context, fieldName string) (int, error)
 		return -1, fmt.Errorf("iceberg server not initialized")
 	}
 
-	request := proto.IcebergPayload{
-		Type: proto.IcebergPayload_GET_FIELD_ID,
-		Metadata: &proto.IcebergPayload_Metadata{
+	request := proto.ArrowPayload{
+		Type: proto.ArrowPayload_GET_FIELD_ID,
+		Metadata: &proto.ArrowPayload_Metadata{
 			DestTableName: i.stream.GetDestinationTable(),
 			ThreadId:      i.server.serverID,
 			FieldName:     &fieldName,
 		},
 	}
 
-	response, err := i.server.sendClientRequest(ctx, &request)
+	response, err := i.server.sendArrowRequest(ctx, &request)
 	if err != nil {
 		return -1, fmt.Errorf("failed to get field ID for column '%s': %w", fieldName, err)
 	}
 
-	fieldId, err := strconv.Atoi(response)
+	fieldId, err := strconv.Atoi(response.GetResult())
 	if err != nil {
-		return -1, fmt.Errorf("failed to parse field ID from response '%s': %w", response, err)
+		return -1, fmt.Errorf("failed to parse field ID from response '%s': %w", response.GetResult(), err)
 	}
 
 	return fieldId, nil
@@ -854,43 +863,43 @@ func (i *Iceberg) UploadParquetFile(ctx context.Context, fileData []byte, fileTy
 		return "", fmt.Errorf("iceberg server not initialized")
 	}
 
-	request := &proto.ArrowFileUploadRequest{
-		DestTableName:   i.stream.GetDestinationTable(),
-		ThreadId:        i.server.serverID,
-		FileData:        fileData,
-		FileType:        fileType,
-		PartitionKey:    partitionKey,
-		Filename:        filename,
-		EqualityFieldId: int32(equalityFieldId),
+	request := proto.ArrowPayload{
+		Type: proto.ArrowPayload_UPLOAD_FILE,
+		Metadata: &proto.ArrowPayload_Metadata{
+			DestTableName: i.stream.GetDestinationTable(),
+			ThreadId:      i.server.serverID,
+			FileUpload: &proto.ArrowPayload_FileUploadRequest{
+				FileData:        fileData,
+				FileType:        fileType,
+				PartitionKey:    partitionKey,
+				Filename:        filename,
+				EqualityFieldId: int32(equalityFieldId),
+			},
+		},
 	}
 
-	response, err := i.server.arrowClient.UploadFile(ctx, request)
+	response, err := i.server.sendArrowRequest(ctx, &request)
 	if err != nil {
 		return "", fmt.Errorf("failed to upload file '%s' via Iceberg FileIO: %w", filename, err)
 	}
 
-	if !response.GetSuccess() {
-		return "", fmt.Errorf("upload failed: %s", response.GetError())
-	}
-
-	logger.Infof("Successfully uploaded file to Iceberg storage: %s", response.GetStoragePath())
-	return response.GetStoragePath(), nil
+	logger.Infof("Successfully uploaded file to Iceberg storage: %s", response.GetResult())
+	return response.GetResult(), nil
 }
 
 // GenerateFilename generates a unique filename for Iceberg data files
 func (i *Iceberg) GenerateFilename(ctx context.Context) (string, error) {
-	request := &proto.ArrowFilenameRequest{
-		DestTableName: i.stream.GetDestinationTable(),
-		ThreadId:      i.server.serverID,
+	request := proto.ArrowPayload{
+		Type: proto.ArrowPayload_GENERATE_FILENAME,
+		Metadata: &proto.ArrowPayload_Metadata{
+			DestTableName: i.stream.GetDestinationTable(),
+			ThreadId:      i.server.serverID,
+		},
 	}
 
-	resp, err := i.server.arrowClient.GenerateFilename(ctx, request)
+	resp, err := i.server.sendArrowRequest(ctx, &request)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate filename: %w", err)
-	}
-
-	if !resp.GetSuccess() {
-		return "", fmt.Errorf("generate filename failed: %s", resp.GetError())
 	}
 
 	filename := resp.GetFilename()

@@ -14,24 +14,15 @@ message IcebergPayload {
     DROP_TABLE = 3;
     GET_OR_CREATE_TABLE = 4;
     REFRESH_TABLE_SCHEMA = 5;
-    REGISTER = 6;
-    GET_FIELD_ID = 7;
   }
-  
-  PayloadType type = 1;
 
-  message FileMetadata {
-    string file_type = 1;  
-    string file_path = 2;
-  }
+  PayloadType type = 1;
 
   message Metadata {
     string dest_table_name = 1;
     string thread_id = 2;
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
-    repeated FileMetadata file_metadata = 5;
-    optional string field_name = 6;
   }
 
   message SchemaField {
@@ -53,7 +44,7 @@ message IcebergPayload {
         bytes bytes_value = 7;
       }
     }
-    
+
     repeated FieldValue fields = 1;
     string record_type = 2;  // "u", "c", "r"
   }
@@ -64,41 +55,50 @@ message IcebergPayload {
 
 message RecordIngestResponse {
   string result = 1;
+  bool success = 2;  // Adding success boolean for better error handling
+}
+
+service ArrowIngestService {
+  rpc IcebergAPI(ArrowPayload) returns (ArrowIngestResponse);
+}
+
+message ArrowPayload {
+  enum PayloadType {
+    REGISTER = 0;
+    GET_FIELD_ID = 1;
+    UPLOAD_FILE = 2;
+    GENERATE_FILENAME = 3;
+  }
+
+  PayloadType type = 1;
+
+  message FileMetadata {
+    string file_type = 1;
+    string file_path = 2;
+    int64 record_count = 3;
+  }
+
+  message FileUploadRequest {
+    bytes file_data = 1;
+    string file_type = 2;
+    string partition_key = 3;
+    string filename = 4;
+    int32 equality_field_id = 5;
+  }
+
+  message Metadata {
+    string dest_table_name = 1;
+    string thread_id = 2;
+    repeated FileMetadata file_metadata = 3;
+    optional string field_name = 4;
+    optional FileUploadRequest file_upload = 5;
+  }
+
+  Metadata metadata = 2;
+}
+
+message ArrowIngestResponse {
+  string result = 1;
   bool success = 2;
-}
-
-// ============================================================================
-// Arrow Writer Specific Messages - Separate from traditional Iceberg payload
-// ============================================================================
-
-service ArrowRecordIngestService {
-  rpc UploadFile(ArrowFileUploadRequest) returns (ArrowFileUploadResponse);
-  rpc GenerateFilename(ArrowFilenameRequest) returns (ArrowFilenameResponse);
-}
-
-message ArrowFileUploadRequest {
-  string dest_table_name = 1;
-  string thread_id = 2;
-  bytes file_data = 3;
-  string file_type = 4;        // "data" or "delete"
-  string partition_key = 5;
-  string filename = 6;
-  int32 equality_field_id = 7;
-}
-
-message ArrowFileUploadResponse {
-  string storage_path = 1;
-  bool success = 2;
-  string error = 3;
-}
-
-message ArrowFilenameRequest {
-  string dest_table_name = 1;
-  string thread_id = 2;
-}
-
-message ArrowFilenameResponse {
-  string filename = 1;
-  bool success = 2;
-  string error = 3;
+  optional string filename = 3;
 }

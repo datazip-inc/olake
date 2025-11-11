@@ -17,7 +17,7 @@ message IcebergPayload {
     GET_OR_CREATE_TABLE = 4;
     REFRESH_TABLE_SCHEMA = 5;
   }
-
+  
   PayloadType type = 1;
 
   message Metadata {
@@ -46,7 +46,7 @@ message IcebergPayload {
         bytes bytes_value = 7;
       }
     }
-
+    
     repeated FieldValue fields = 1;
     string record_type = 2;  // "u", "c", "r"
   }
@@ -58,49 +58,4 @@ message IcebergPayload {
 message RecordIngestResponse {
   string result = 1;
   bool success = 2;  // Adding success boolean for better error handling
-}
-
-service ArrowIngestService {
-  rpc IcebergAPI(ArrowPayload) returns (ArrowIngestResponse);
-}
-
-message ArrowPayload {
-  enum PayloadType {
-    REGISTER = 0;
-    GET_FIELD_ID = 1;
-    UPLOAD_FILE = 2;
-    GENERATE_FILENAME = 3;
-  }
-
-  PayloadType type = 1;
-
-  message FileMetadata {
-    string file_type = 1;
-    string file_path = 2;
-    int64 record_count = 3;
-  }
-
-  message FileUploadRequest {
-    bytes file_data = 1;
-    string file_type = 2;
-    string partition_key = 3;
-    string filename = 4;
-    int32 equality_field_id = 5;
-  }
-
-  message Metadata {
-    string dest_table_name = 1;
-    string thread_id = 2;
-    repeated FileMetadata file_metadata = 3;
-    optional string field_name = 4;
-    optional FileUploadRequest file_upload = 5;
-  }
-
-  Metadata metadata = 2;
-}
-
-message ArrowIngestResponse {
-  string result = 1;
-  bool success = 2;
-  optional string filename = 3;
 }
