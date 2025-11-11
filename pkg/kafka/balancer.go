@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"fmt"
+
 	"github.com/segmentio/kafka-go"
 )
 
@@ -21,25 +23,11 @@ func (b *CustomGroupBalancer) AssignGroups(members []kafka.GroupMember, partitio
 	// number of consumers to use
 	consumerIDCount := min(b.requiredConsumerIDs, len(members))
 
-	// quick lookup map from partitionIndex: topic -> set of partition IDs
-	topicPartitionsMap := make(map[string]map[int]struct{})
-	for _, metadata := range b.partitionIndex {
-		if metadata.Stream == nil || metadata.Stream.Name() == "" {
-			continue
-		}
-		if _, exists := topicPartitionsMap[metadata.Stream.Name()]; !exists {
-			topicPartitionsMap[metadata.Stream.Name()] = make(map[int]struct{})
-		}
-		topicPartitionsMap[metadata.Stream.Name()][metadata.PartitionID] = struct{}{}
-	}
-
 	// active partitions with data in partition index
 	activePartitions := make([]kafka.Partition, 0, len(partitions))
 	for _, partition := range partitions {
-		if topicSet, ok := topicPartitionsMap[partition.Topic]; ok {
-			if _, exists := topicSet[partition.ID]; exists {
-				activePartitions = append(activePartitions, partition)
-			}
+		if _, exists := b.partitionIndex[fmt.Sprintf("%s:%d", partition.Topic, partition.ID)]; exists {
+			activePartitions = append(activePartitions, partition)
 		}
 	}
 
