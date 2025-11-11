@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
@@ -154,7 +156,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		colName := rel.Columns[idx].Name
 		colType := rel.Columns[idx].DataType
 		if col.Data == nil {
-			data[colName] = nil
+			data[colName] = utils.Ternary(col.DataType == uint8('u'), constants.OlakeUnavailableValue, nil)
 			continue
 		}
 
