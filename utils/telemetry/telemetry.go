@@ -135,12 +135,13 @@ func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []
 	}()
 }
 
-func TrackSyncCompleted(status bool, records int64) {
+func TrackSyncCompleted(syncID string, status bool, records int64) {
 	go func() {
 		if telemetry == nil {
 			return
 		}
 		props := map[string]interface{}{
+			"sync_id":        syncID,
 			"sync_end":       time.Now(),
 			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
 			"records_synced": records,
