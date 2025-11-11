@@ -18,12 +18,39 @@ func (b *CustomGroupBalancer) UserData() ([]byte, error) {
 func (b *CustomGroupBalancer) AssignGroups(members []kafka.GroupMember, partitions []kafka.Partition) kafka.GroupMemberAssignments {
 	assignments := make(kafka.GroupMemberAssignments)
 
+	if len(members) == 0 {
+		return assignments
+	}
+
 	// we need to ensure that exactly the required number of consumer IDs are used,
 	// and each gets assigned partitions accordingly.
 	consumerIDCount := min(b.requiredConsumerIDs, len(members))
+	if consumerIDCount == 0 {
+		return assignments
+	}
+
+	filteredPartitions := make([]kafka.Partition, 0, len(partitions))
+	for _, partition := range partitions {
+		if len(b.activePartitions) > 0 {
+			topicPartitions, topicExists := b.activePartitions[partition.Topic]
+			if !topicExists {
+				continue
+			}
+
+			if _, partitionExists := topicPartitions[partition.ID]; !partitionExists {
+				continue
+			}
+		}
+
+		filteredPartitions = append(filteredPartitions, partition)
+	}
+
+	if len(filteredPartitions) == 0 {
+		return assignments
+	}
 
 	// partitions assigment to consumer IDs in round-robin fashion
-	for idx, partition := range partitions {
+	for idx, partition := range filteredPartitions {
 		consumerIndex := idx % consumerIDCount
 		if consumerIndex < len(members) {
 			memberID := members[consumerIndex].ID
