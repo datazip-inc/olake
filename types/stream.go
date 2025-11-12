@@ -134,7 +134,7 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	}
 	logger.Info(message)
 	// write catalog to the specified file
-	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
+	message.Catalog = mergeCatalogs(driver, oldCatalog, message.Catalog)
 
 	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
 	if err != nil {

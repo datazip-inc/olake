@@ -48,20 +48,33 @@ type StreamMetadata struct {
 	Filter         string `json:"filter,omitempty"`
 }
 
-// ConfiguredCatalog is a dto for formatted airbyte catalog serialization
-type Catalog struct {
-	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
-	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
-}
-
-func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
+// createStreamMetadata creates StreamMetadata with proper defaults based on driver type
+func CreateStreamMetadata(streamName, driver string) StreamMetadata {
 	// Whether the source is a relational driver or not
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
 	})
+
+	return StreamMetadata{
+		StreamName:     streamName,
+		PartitionRegex: "",
+		AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+		Normalization:  isRelational,
+	}
+}
+
+// ConfiguredCatalog is a dto for formatted airbyte catalog serialization
+type Catalog struct {
+	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
+	DisabledStreams map[string][]StreamMetadata `json:"disabled_streams,omitempty"`
+	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
+}
+
+func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
+		DisabledStreams: make(map[string][]StreamMetadata),
 	}
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
@@ -69,12 +82,10 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
 		})
-		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:     stream.Name,
-			PartitionRegex: "",
-			AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:  isRelational,
-		})
+		catalog.SelectedStreams[stream.Namespace] = append(
+			catalog.SelectedStreams[stream.Namespace],
+			CreateStreamMetadata(stream.Name, driver),
+		)
 	}
 
 	return catalog
@@ -83,8 +94,9 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
 // 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
-// 3. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
+// 3. DisabledStreams: Retain only streams present in both oldCatalog.DisabledStreams and newCatalog.Streams
+// 4. Everything else: Keep as new catalog
+func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -97,9 +109,46 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return sm
 	}
 
+	newStreams := createStreamMap(newCatalog)
+
+	// backward compatibility: build disabled_streams if old catalog doesn't have it
+	if oldCatalog.DisabledStreams == nil {
+		oldCatalog.DisabledStreams = make(map[string][]StreamMetadata)
+
+		// create a map of old selected streams for quick lookup
+		oldSelectedMap := make(map[string]bool)
+		for namespace, metadataList := range oldCatalog.SelectedStreams {
+			for _, metadata := range metadataList {
+				oldSelectedMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)] = true
+			}
+		}
+
+		// add all non selected streams to disabled_streams
+		for _, configuredStream := range oldCatalog.Streams {
+			if _, exists := oldSelectedMap[configuredStream.Stream.ID()]; !exists {
+				namespace := configuredStream.Stream.Namespace
+				oldCatalog.DisabledStreams[namespace] = append(
+					oldCatalog.DisabledStreams[namespace],
+					CreateStreamMetadata(configuredStream.Stream.Name, driver),
+				)
+			}
+		}
+	}
+
+	// merge disabled streams: retain only streams that still exist in new catalog
+	newCatalog.DisabledStreams = make(map[string][]StreamMetadata)
+	for namespace, metadataList := range oldCatalog.DisabledStreams {
+		_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
+			_, exists := newStreams[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]
+			if exists {
+				newCatalog.DisabledStreams[namespace] = append(newCatalog.DisabledStreams[namespace], metadata)
+			}
+			return nil
+		})
+	}
+
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
-		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
 			_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
@@ -126,6 +175,13 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			return nil
+		} else {
+			//  add new stream to disabled_streams
+			namespace := newStream.Stream.Namespace
+			newCatalog.DisabledStreams[namespace] = append(
+				newCatalog.DisabledStreams[namespace],
+				CreateStreamMetadata(newStream.Stream.Name, driver),
+			)
 		}
 
 		// manipulate destination db in new streams according to old streams
