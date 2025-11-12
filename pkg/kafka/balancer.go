@@ -3,6 +3,7 @@ package kafka
 import (
 	"fmt"
 
+	"github.com/datazip-inc/olake/utils"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -25,22 +26,24 @@ func (b *CustomGroupBalancer) AssignGroups(members []kafka.GroupMember, partitio
 
 	// active partitions with data in partition index
 	activePartitions := make([]kafka.Partition, 0, len(partitions))
-	for _, partition := range partitions {
+	err := utils.ForEach(partitions, func(partition kafka.Partition) error {
 		if _, exists := b.partitionIndex[fmt.Sprintf("%s:%d", partition.Topic, partition.ID)]; exists {
 			activePartitions = append(activePartitions, partition)
 		}
+		return nil
+	})
+	if err != nil {
+		return assignments
 	}
 
-	if len(activePartitions) != 0 {
-		// Assign partitions to consumers in round-robin
-		for idx, partition := range activePartitions {
-			consumerIndex := idx % consumerIDCount
-			memberID := members[consumerIndex].ID
-			if assignments[memberID] == nil {
-				assignments[memberID] = make(map[string][]int)
-			}
-			assignments[memberID][partition.Topic] = append(assignments[memberID][partition.Topic], partition.ID)
+	// Assign partitions to consumers in round-robin
+	for idx, partition := range activePartitions {
+		consumerIndex := idx % consumerIDCount
+		memberID := members[consumerIndex].ID
+		if assignments[memberID] == nil {
+			assignments[memberID] = make(map[string][]int)
 		}
+		assignments[memberID][partition.Topic] = append(assignments[memberID][partition.Topic], partition.ID)
 	}
 
 	return assignments
