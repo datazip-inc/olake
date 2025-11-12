@@ -15,14 +15,16 @@ type UploadFunc func(context.Context, *FileUploadData) error
 
 type Fanout struct {
 	PartitionInfo []PartitionInfo
-	writers       sync.Map 
+	writers       sync.Map
 	mu            sync.Mutex
 
-	schema        map[string]string
-	Normalization bool
-	FilenameGen   FilenameGenerator
-	FieldIdFunc   func(context.Context, string) (int, error)
-	UploadFunc    UploadFunc
+	schema            map[string]string
+	fieldIds          map[string]int
+	icebergSchemaJSON string
+	Normalization     bool
+	FilenameGen       FilenameGenerator
+	FieldIdFunc       func(context.Context, string) (int, error)
+	UploadFunc        UploadFunc
 }
 
 func NewFanoutWriter(p []PartitionInfo, schema map[string]string) *Fanout {
@@ -46,9 +48,32 @@ func (f *Fanout) getOrCreateRollingWriter(partitionKey string, fileType string) 
 
 	writer := NewRollingWriter(partitionKey, fileType)
 	writer.FilenameGen = f.FilenameGen
+	if fileType == "data" {
+		writer.IcebergSchemaJSON = f.icebergSchemaJSON
+	}
 	f.writers.Store(key, writer)
 
 	return writer
+}
+
+func (f *Fanout) initializeFieldIds(ctx context.Context) error {
+	if f.FieldIdFunc == nil {
+		return fmt.Errorf("FieldIdFunc not set on Fanout writer")
+	}
+
+	f.fieldIds = make(map[string]int)
+
+	for fieldName := range f.schema {
+		fieldId, err := f.FieldIdFunc(ctx, fieldName)
+		if err != nil {
+			return fmt.Errorf("failed to get field ID for column %s: %w", fieldName, err)
+		}
+		f.fieldIds[fieldName] = fieldId
+	}
+
+	f.icebergSchemaJSON = BuildIcebergSchemaJSON(f.schema, f.fieldIds)
+
+	return nil
 }
 
 func (f *Fanout) createPartitionKey(record types.RawRecord) (string, error) {
@@ -91,6 +116,12 @@ func (f *Fanout) partition(records []types.RawRecord) (map[string][]types.RawRec
 }
 
 func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []arrow.Field) error {
+	if f.fieldIds == nil && f.FieldIdFunc != nil {
+		if err := f.initializeFieldIds(ctx); err != nil {
+			return fmt.Errorf("failed to initialize field IDs: %w", err)
+		}
+	}
+
 	partitionedData, deleteRecordsByPartition, err := f.partition(records)
 	if err != nil {
 		return err

@@ -17,8 +17,10 @@ type ArrowWriter struct {
 	unpartitionedWriter *arrow_writer.RollingWriter
 	partitionedWriter   *arrow_writer.Fanout
 
-	fields       []arrow.Field
-	isNormalized bool
+	fields            []arrow.Field
+	fieldIds          map[string]int
+	icebergSchemaJSON string
+	isNormalized      bool
 }
 
 func (i *Iceberg) NewArrowWriter() (*ArrowWriter, error) {
@@ -28,12 +30,29 @@ func (i *Iceberg) NewArrowWriter() (*ArrowWriter, error) {
 	}
 
 	if arrowWriter.isNormalized {
-		arrowWriter.fields = arrow_writer.CreateNormFields(i.schema)
+		arrowWriter.fields = arrow_writer.CreateNormFields(i.schema, nil)
 	} else {
 		arrowWriter.fields = arrow_writer.CreateDeNormFields()
 	}
 
 	return arrowWriter, nil
+}
+
+func (aw *ArrowWriter) initializeFieldIds(ctx context.Context) error {
+	aw.fieldIds = make(map[string]int)
+
+	for fieldName := range aw.iceberg.schema {
+		fieldId, err := aw.iceberg.GetFieldId(ctx, fieldName)
+		if err != nil {
+			return fmt.Errorf("failed to get field ID for column %s: %w", fieldName, err)
+		}
+		aw.fieldIds[fieldName] = fieldId
+	}
+
+	aw.fields = arrow_writer.CreateNormFields(aw.iceberg.schema, aw.fieldIds)
+	aw.icebergSchemaJSON = arrow_writer.BuildIcebergSchemaJSON(aw.iceberg.schema, aw.fieldIds)
+
+	return nil
 }
 
 func (aw *ArrowWriter) uploadFile(ctx context.Context, uploadData *arrow_writer.FileUploadData) error {
@@ -62,6 +81,12 @@ func (aw *ArrowWriter) uploadFile(ctx context.Context, uploadData *arrow_writer.
 func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
 	if len(records) == 0 {
 		return nil
+	}
+
+	if aw.isNormalized && aw.fieldIds == nil {
+		if err := aw.initializeFieldIds(ctx); err != nil {
+			return fmt.Errorf("failed to initialize field IDs: %w", err)
+		}
 	}
 
 	now := time.Now().UTC()
@@ -100,6 +125,9 @@ func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) err
 			aw.unpartitionedWriter = arrow_writer.NewRollingWriter("", "data")
 			aw.unpartitionedWriter.FilenameGen = func() (string, error) {
 				return aw.iceberg.GenerateFilename(ctx)
+			}
+			if aw.isNormalized {
+				aw.unpartitionedWriter.IcebergSchemaJSON = aw.icebergSchemaJSON
 			}
 		}
 

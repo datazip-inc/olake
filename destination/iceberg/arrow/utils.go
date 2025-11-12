@@ -13,7 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func CreateNormFields(schema map[string]string) []arrow.Field {
+func CreateNormFields(schema map[string]string, fieldIds map[string]int) []arrow.Field {
 	fieldNames := make([]string, 0, len(schema)+1)
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
@@ -43,10 +43,23 @@ func CreateNormFields(schema map[string]string) []arrow.Field {
 			arrowType = arrow.BinaryTypes.String
 		}
 
+		// _olake_id is the primary key and must be non-nullable (REQUIRED)
+		nullable := fieldName != constants.OlakeID
+
+		var metadata arrow.Metadata
+		if fieldIds != nil {
+			if fieldId, ok := fieldIds[fieldName]; ok {
+				metadata = arrow.MetadataFrom(map[string]string{
+					"PARQUET:field_id": fmt.Sprintf("%d", fieldId),
+				})
+			}
+		}
+
 		fields = append(fields, arrow.Field{
 			Name:     fieldName,
 			Type:     arrowType,
-			Nullable: true,
+			Nullable: nullable,
+			Metadata: metadata,
 		})
 	}
 
@@ -216,4 +229,37 @@ func ExtractDeleteRecords(records []types.RawRecord) []types.RawRecord {
 		deletes = append(deletes, types.RawRecord{OlakeID: rec.OlakeID})
 	}
 	return deletes
+}
+
+// OLake's arrow writer writes the iceberg schema as a metadata in every parquet file
+func BuildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int) string {
+	if len(fieldIds) == 0 {
+		return ""
+	}
+
+	fieldNames := make([]string, 0, len(schema))
+	for fieldName := range schema {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+
+	fieldsJSON := ""
+	for i, fieldName := range fieldNames {
+		icebergType := schema[fieldName]
+		fieldId, ok := fieldIds[fieldName]
+		if !ok {
+			continue
+		}
+
+		typeStr := fmt.Sprintf(`"%s"`, icebergType)
+		required := fieldName == constants.OlakeID
+
+		if i > 0 {
+			fieldsJSON += ","
+		}
+		fieldsJSON += fmt.Sprintf(`{"id":%d,"name":"%s","required":%t,"type":%s}`,
+			fieldId, fieldName, required, typeStr)
+	}
+
+	return fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[%s]}`, fieldsJSON)
 }

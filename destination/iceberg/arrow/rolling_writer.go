@@ -35,9 +35,10 @@ type FileUploadData struct {
 type RollingWriter struct {
 	partitionKey string
 
-	FieldId     int
-	fileType    string
-	FilenameGen FilenameGenerator
+	FieldId           int
+	fileType          string
+	FilenameGen       FilenameGenerator
+	IcebergSchemaJSON string 
 
 	currentWriter         *pqarrow.FileWriter
 	currentBuffer         *bytes.Buffer
@@ -115,7 +116,7 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 
 		writerProps := parquet.NewWriterProperties(
 			parquet.WithCompression(compress.Codecs.Zstd),
-			parquet.WithCompressionLevel(1),
+			parquet.WithCompressionLevel(3),
 			parquet.WithDataPageSize(1*1024*1024),
 			parquet.WithDictionaryPageSizeLimit(2*1024*1024),
 			parquet.WithDictionaryDefault(false),
@@ -123,6 +124,7 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 			parquet.WithBatchSize(4096),
 			parquet.WithStats(true),
 			parquet.WithAllocator(allocator),
+			parquet.WithRootName("table"),
 		)
 
 		arrowProps := pqarrow.NewArrowWriterProperties(
@@ -143,6 +145,8 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 			writer.AppendKeyValueMetadata("delete-type", "equality")
 			writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", r.FieldId))
 			writer.AppendKeyValueMetadata("iceberg.schema", icebergSchemaJSON)
+		} else if r.fileType == "data" && r.IcebergSchemaJSON != "" {
+			writer.AppendKeyValueMetadata("iceberg.schema", r.IcebergSchemaJSON)
 		}
 
 		r.currentWriter = writer
