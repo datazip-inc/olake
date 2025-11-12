@@ -59,10 +59,6 @@ type (
 
 var RegisteredWriters = map[types.DestinationType]NewFunc{}
 
-type ArrowToggle interface {
-	UseArrowWrites() bool
-}
-
 func WithIdentifier(identifier string) ThreadOptions {
 	return func(opt *Options) {
 		opt.Identifier = identifier
@@ -86,7 +82,6 @@ func WithThreadID(threadID string) ThreadOptions {
 		opt.ThreadID = threadID
 	}
 }
-
 
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
