@@ -343,6 +343,11 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									opSymbol:        "d",
 									dummySchema:     nil,
 								},
+								// Reset database for parquet testcases
+								{
+									syncMode:  "Reset Database",
+									operation: "reset",
+								},
 								// Parquet test cases
 								{
 									syncMode:        "Parquet Full-Refresh",
@@ -406,6 +411,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							// 3. Run Sync command and verify records in Iceberg and Parquet
 							for _, test := range testCases {
+								if test.operation == "reset" {
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+									continue
+								}
 								t.Logf("Running test for: %s", test.syncMode)
 								if strings.Contains(test.operation, "schema") {
 									if cfg.TestConfig.Driver != "mongodb" {
