@@ -72,7 +72,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:     stream.Name,
 			PartitionRegex: "",
-			AppendMode:     false,
+			AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
 			Normalization:  isRelational,
 		})
 	}
@@ -242,14 +242,17 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// destination table change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
+				// check cursor field if SyncMode is incremental
+				cursorDelta := utils.Ternary(newStream.Stream.SyncMode == INCREMENTAL, oldStream.Stream.CursorField != newStream.Stream.CursorField, false).(bool)
+
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
-					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
-					(oldStream.Stream.CursorField != newStream.Stream.CursorField) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
-					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable)
+					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
+					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
+					cursorDelta
 			}()
 
 			// if any difference, add stream to diff streams
