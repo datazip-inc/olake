@@ -37,14 +37,15 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
+			// if all primary and secondary (if given) cursor values are nil, then failing sync and suggesting to proceed with clear destination, as otherwise on backfill, duplication will take place
 			a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
 			if maxPrimaryCursorValue == nil {
-				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
+				logger.Errorf("max primary cursor value is nil for stream: %s, please proceed with clear destination", stream.ID())
 			}
 			if secondaryCursor != "" {
 				a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
-					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
+					logger.Errorf("max secondary cursor value is nil for stream: %s, please proceed with clear destination", stream.ID())
 				}
 			}
 		}
