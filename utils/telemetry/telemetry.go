@@ -107,7 +107,7 @@ func TrackDiscover(streamCount int, sourceType string) {
 	}()
 }
 
-func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []string, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
+func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []string, fullLoadStreams, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -121,6 +121,7 @@ func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []
 			"sync_id":             syncID,
 			"stream_count":        len(streams),
 			"selected_count":      len(selectedStreams),
+			"full_load_streams":   len(fullLoadStreams),
 			"cdc_streams":         len(cdcStreams),
 			"source_type":         sourceType,
 			"destination_type":    string(destinationConfig.Type),
