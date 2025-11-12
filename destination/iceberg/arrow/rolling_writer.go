@@ -18,7 +18,6 @@ const (
 	// the delete file target size is as per Apache Iceberg
 	// https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L323
 	deleteFileTargetSize = int64(64*1024*1024 - 1*1024*1024)
-	streamChunkSize      = int64(8 * 1024 * 1024)
 )
 
 type FilenameGenerator func() (string, error)
@@ -38,7 +37,7 @@ type RollingWriter struct {
 	FieldId           int
 	fileType          string
 	FilenameGen       FilenameGenerator
-	IcebergSchemaJSON string 
+	IcebergSchemaJSON string
 
 	currentWriter         *pqarrow.FileWriter
 	currentBuffer         *bytes.Buffer
@@ -114,17 +113,29 @@ func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
 		r.currentBuffer = &bytes.Buffer{}
 		allocator := memory.NewGoAllocator()
 
+		// OLake's arrow writer properties are aligned with Apache Iceberg's Parquet Defaults. 
 		writerProps := parquet.NewWriterProperties(
+			// Apache Iceberg sets its default compression to 'zstd'
+			// https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L147
 			parquet.WithCompression(compress.Codecs.Zstd),
+			// Apache Iceberg default compression level is "null", and thus doesn't set any compression level config (https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L152)
+			// thus, falls back to the underlying Parquet-Java library's default which is compression level 3 (https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/ZstandardCodec.java#L52)
 			parquet.WithCompressionLevel(3),
+			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L130-L133
 			parquet.WithDataPageSize(1*1024*1024),
+			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L139-L142
 			parquet.WithDictionaryPageSizeLimit(2*1024*1024),
-			parquet.WithDictionaryDefault(false),
-			parquet.WithMaxRowGroupLength(streamChunkSize),
+			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L612
+			parquet.WithDictionaryDefault(true),
+			// Setting it up as 4096 to improve performance, arrow-go's default value is 1024
 			parquet.WithBatchSize(4096),
+			// Apache Iceberg relies on Parquet-Java: https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-column/src/main/java/org/apache/parquet/column/ParquetProperties.java#L67
 			parquet.WithStats(true),
-			parquet.WithAllocator(allocator),
+			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L171
+			parquet.WithVersion(parquet.V1_0),
+			// iceberg writes root name as "table" in parquet's meta
 			parquet.WithRootName("table"),
+			parquet.WithAllocator(allocator),
 		)
 
 		arrowProps := pqarrow.NewArrowWriterProperties(
