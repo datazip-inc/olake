@@ -27,13 +27,11 @@ type ActionRow struct {
 	// add truncate
 }
 
-// Log is a dto for airbyte logs serialization
 type Log struct {
 	Level   string `json:"level,omitempty"`
 	Message string `json:"message,omitempty"`
 }
 
-// StatusRow is a dto for airbyte result status serialization
 type StatusRow struct {
 	Status  ConnectionStatus `json:"status,omitempty"`
 	Message string           `json:"message,omitempty"`
@@ -63,7 +61,6 @@ func CreateStreamMetadata(streamName, driver string) StreamMetadata {
 	}
 }
 
-// ConfiguredCatalog is a dto for formatted airbyte catalog serialization
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	DisabledStreams map[string][]StreamMetadata `json:"disabled_streams,omitempty"`
