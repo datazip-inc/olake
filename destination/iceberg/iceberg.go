@@ -31,18 +31,17 @@ type Iceberg struct {
 	options          *destination.Options
 	config           *Config
 	stream           types.StreamInterface
-	partitionInfo    []PartitionInfo // ordered slice to preserve partition column order
-	server           *serverInstance       // java server instance
-	schema           map[string]string     // schema for current thread associated with java writer (col -> type)
-	createdFilePaths []FileMetadata        // list of created parquet file metadata
-	arrowWriter      *ArrowWriter          // per-thread streaming arrow writer
+	partitionInfo    []PartitionInfo   // ordered slice to preserve partition column order
+	server           *serverInstance   // java server instance
+	schema           map[string]string // schema for current thread associated with java writer (col -> type)
+	createdFilePaths []FileMetadata    // list of created parquet file metadata
+	arrowWriter      *ArrowWriter      // per-thread streaming arrow writer
 	// Why Schema On Thread Level ?
-
 	// Schema on thread level is identical to writer instance that is available in java server
 	// It tells when to complete java writer and when to evolve schema.
 }
 
-// PartitionInfo represents an Iceberg partition column with its transform, preserving order.
+// PartitionInfo represents a Iceberg partition column with its transform, preserving order
 type PartitionInfo struct {
 	Field     string
 	Transform string
@@ -118,7 +117,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	// set schema for current thread
 	i.schema = copySchema(schema)
-
 	if i.UseArrowWrites() {
 		var err error
 		i.arrowWriter, err = i.NewArrowWriter()
@@ -310,7 +308,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 			},
 		}
 	}
-
 	res, err := i.server.sendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send commit message: %s", err)
