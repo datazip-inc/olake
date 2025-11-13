@@ -58,6 +58,11 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
+func (a *AbstractDriver) GetKafkaInterface() (KafkaInterface, bool) {
+	kafkaInterface, ok := a.driver.(KafkaInterface)
+	return kafkaInterface, ok
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
 	if a.driver.MaxConnections() > 0 {
@@ -86,15 +91,18 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		convStream.SyncMode = types.FULLREFRESH
+		if convStream.SupportedSyncModes.Len() == 0 {
+			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		}
+		convStream.SyncMode = utils.Ternary(convStream.SyncMode == "", types.FULLREFRESH, convStream.SyncMode).(types.SyncMode)
 
 		// add default columns
 		for column, typ := range DefaultColumns {
 			convStream.UpsertField(column, typ, true)
 		}
 
-		if a.driver.CDCSupported() {
+		_, isKafkaDriver := a.GetKafkaInterface()
+		if a.driver.CDCSupported() && !isKafkaDriver {
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
 		} else {
