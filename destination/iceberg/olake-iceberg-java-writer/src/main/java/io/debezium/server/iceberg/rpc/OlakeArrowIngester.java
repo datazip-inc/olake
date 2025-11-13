@@ -52,8 +52,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
 
             switch (request.getType()) {
                 case REGISTER:
-                    LOGGER.info("{} Received REGISTER request for thread: {}", requestId, threadId);
-                    
                     java.util.List<ArrowPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
                     int dataFileCount = 0;
                     int deleteFileCount = 0;
@@ -63,12 +61,10 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                         String filePath = fileMeta.getFilePath();
                         long recordCount = fileMeta.getRecordCount();
                         
-                        LOGGER.info("{} File type: {}, path: {}, records: {}", requestId, fileType, filePath, recordCount);
-                        
                         switch (fileType) {
                             case "delete":
                                 int fieldId = IcebergUtil.getFieldId(this.icebergTable, "_olake_id");
-                                icebergTableOperator.registerDeleteFile(
+                                icebergTableOperator.accumulateDeleteFiles(
                                     threadId,
                                     icebergTable,
                                     java.util.Collections.singletonList(filePath),
@@ -76,17 +72,15 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                     recordCount
                                 );
                                 deleteFileCount++;
-                                LOGGER.info("{} Successfully registered delete file", requestId);
                                 break;
                 
                             case "data":
-                                icebergTableOperator.registerDataFile(
+                                icebergTableOperator.accumulateDataFiles(
                                     threadId,
                                     icebergTable,
                                     java.util.Collections.singletonList(filePath)
                                 );
                                 dataFileCount++;
-                                LOGGER.info("{} Successfully registered data file", requestId);
                                 break;
                 
                             default:
@@ -95,13 +89,16 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                         }
                     }
                     
-                    icebergTableOperator.commitThread(threadId, this.icebergTable);
-                    sendResponse(responseObserver, String.format("Successfully registered %d data files and %d delete files for thread %s", 
+                    sendResponse(responseObserver, String.format("Successfully accumulated %d data files and %d delete files for thread %s", 
                                                                   dataFileCount, deleteFileCount, threadId));
                     break;
                 
+                case COMMIT:
+                    icebergTableOperator.commitThread(threadId, this.icebergTable);
+                    sendResponse(responseObserver, String.format("Successfully registered data for thread %s", threadId));
+                    break;
+                
                 case GET_FIELD_ID:
-                    LOGGER.info("{} Received GET_FIELD_ID request for thread: {}", requestId, threadId);
                     String fieldName = metadata.getFieldName();
                     if (fieldName == null || fieldName.isEmpty()) {
                         throw new IllegalArgumentException("Field name is required for GET_FIELD_ID request");

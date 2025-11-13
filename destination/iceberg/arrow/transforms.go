@@ -12,7 +12,7 @@ import (
 	"github.com/twmb/murmur3"
 )
 
-// The current transforms logic is limited to the data types which are handled by OLake
+// The current transforms logic is limited to the data types handled by OLake
 // As we start handling more data types, we will update the transformations logic here
 
 type Transform interface {

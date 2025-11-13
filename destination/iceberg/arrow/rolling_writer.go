@@ -2,6 +2,7 @@ package arrow
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -13,14 +14,44 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-const (
-	dataFileTargetSize = int64(350*1024*1024 - 1*1024*1024)
-	// the delete file target size is as per Apache Iceberg
-	// https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L323
-	deleteFileTargetSize = int64(64*1024*1024 - 1*1024*1024)
+var (
+	// Apache Iceberg sets its default compression to 'zstd'
+	// https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L147
+	DefaultCompression = parquet.WithCompression(compress.Codecs.Zstd)
+
+	// Apache Iceberg default compression level is "null", and thus doesn't set any compression level config (https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L152)
+	// thus, falls back to the underlying Parquet-Java library's default which is compression level 3 (https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/ZstandardCodec.java#L52)
+	DefaultCompressionLevel = parquet.WithCompressionLevel(3)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L130-L133
+	DefaultDataPageSize = parquet.WithDataPageSize(1 * 1024 * 1024)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L139-L142
+	DefaultDictionaryPageSizeLimit = parquet.WithDictionaryPageSizeLimit(2 * 1024 * 1024)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L612
+	DefaultDictionaryEncoding = parquet.WithDictionaryDefault(true)
+
+	// Setting it up as 4096 to improve performance, arrow-go's default value is 1024
+	DefaultBatchSize = parquet.WithBatchSize(4096)
+
+	// Apache Iceberg relies on Parquet-Java: https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-column/src/main/java/org/apache/parquet/column/ParquetProperties.java#L67
+	DefaultStatsEnabled = parquet.WithStats(true)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L171
+	DefaultParquetVersion = parquet.WithVersion(parquet.V1_0)
+
+	// iceberg writes root name as "table" in parquet's meta
+	DefaultRootName = parquet.WithRootName("table")
 )
 
-type FilenameGenerator func() (string, error)
+const (
+	dataFileTargetSize = int64(350 * 1024 * 1024)
+
+	// the delete file target size is as per Apache Iceberg
+	// https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L323
+	deleteFileTargetSize = int64(64 * 1024 * 1024)
+)
 
 type FileUploadData struct {
 	FileType        string
@@ -36,7 +67,7 @@ type RollingWriter struct {
 
 	FieldId           int
 	fileType          string
-	FilenameGen       FilenameGenerator
+	ops               IcebergOperations
 	IcebergSchemaJSON string
 
 	currentWriter         *pqarrow.FileWriter
@@ -46,28 +77,21 @@ type RollingWriter struct {
 	currentCompressedSize int64
 }
 
-func NewRollingWriter(partitionKey string, fileType string) *RollingWriter {
+func NewRollingWriter(partitionKey string, fileType string, ops IcebergOperations) *RollingWriter {
 	return &RollingWriter{
 		partitionKey: partitionKey,
 		fileType:     fileType,
+		ops:          ops,
 	}
 }
 
 func (r *RollingWriter) flush() (*FileUploadData, error) {
-	if r.currentWriter == nil {
-		return nil, nil
-	}
-
 	if err := r.currentWriter.Close(); err != nil {
 		return nil, err
 	}
 
 	fileData := make([]byte, r.currentBuffer.Len())
 	copy(fileData, r.currentBuffer.Bytes())
-
-	fileSize := int64(len(fileData))
-	logger.Infof("Prepared file for upload: %s (%.2f MB, %d records, partition: %s)",
-		r.currentFile, float64(fileSize)/1024/1024, r.currentRowCount, r.partitionKey)
 
 	uploadData := &FileUploadData{
 		FileType:        r.fileType,
@@ -78,11 +102,7 @@ func (r *RollingWriter) flush() (*FileUploadData, error) {
 		RecordCount:     r.currentRowCount,
 	}
 
-	if r.currentBuffer != nil {
-		r.currentBuffer.Reset()
-		r.currentBuffer = nil
-	}
-
+	r.currentBuffer = nil
 	r.currentWriter = nil
 	r.currentRowCount = 0
 	r.currentFile = ""
@@ -102,72 +122,70 @@ func (r *RollingWriter) Close() (*FileUploadData, error) {
 	return nil, nil
 }
 
-func (r *RollingWriter) Write(record arrow.Record) (*FileUploadData, error) {
+func (r *RollingWriter) createWriter(ctx context.Context, record arrow.Record) error {
+	filename, err := r.ops.GenerateFilename(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to generate filename: %w", err)
+	}
+
+	r.currentFile = filename
+	r.currentBuffer = &bytes.Buffer{}
+
+	allocator := memory.NewGoAllocator()
+
+	baseProps := []parquet.WriterProperty{
+		DefaultCompression,
+		DefaultCompressionLevel,
+		DefaultDataPageSize,
+		DefaultDictionaryPageSizeLimit,
+		DefaultDictionaryEncoding,
+		DefaultBatchSize,
+		DefaultStatsEnabled,
+		DefaultParquetVersion,
+		DefaultRootName,
+		parquet.WithAllocator(allocator),
+	}
+
+	writerProps := parquet.NewWriterProperties(baseProps...)
+
+	arrowProps := pqarrow.NewArrowWriterProperties(
+		pqarrow.WithStoreSchema(),
+		pqarrow.WithNoMapLogicalType(),
+	)
+
+	writer, err := pqarrow.NewFileWriter(record.Schema(), r.currentBuffer, writerProps, arrowProps)
+	if err != nil {
+		record.Release()
+
+		return err
+	}
+
+	if r.fileType == "delete" {
+		icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, r.FieldId, constants.OlakeID)
+
+		writer.AppendKeyValueMetadata("delete-type", "equality")
+		writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", r.FieldId))
+		writer.AppendKeyValueMetadata("iceberg.schema", icebergSchemaJSON)
+	} else if r.fileType == "data" && r.IcebergSchemaJSON != "" {
+		writer.AppendKeyValueMetadata("iceberg.schema", r.IcebergSchemaJSON)
+	}
+
+	r.currentWriter = writer
+	r.currentRowCount = 0
+	r.currentCompressedSize = 0
+
+	if r.fileType == "delete" {
+		logger.Infof("Starting delete file: %s with field ID %d", r.currentFile, r.FieldId)
+	} else {
+		logger.Infof("Starting data file: %s (partition: %s)", r.currentFile, r.partitionKey)
+	}
+
+	return nil
+}
+
+func (r *RollingWriter) Write(ctx context.Context, record arrow.Record) (*FileUploadData, error) {
 	if r.currentWriter == nil {
-		filename, err := r.FilenameGen()
-		if err != nil {
-			record.Release()
-			return nil, fmt.Errorf("failed to generate filename: %w", err)
-		}
-		r.currentFile = filename
-		r.currentBuffer = &bytes.Buffer{}
-		allocator := memory.NewGoAllocator()
-
-		// OLake's arrow writer properties are aligned with Apache Iceberg's Parquet Defaults. 
-		writerProps := parquet.NewWriterProperties(
-			// Apache Iceberg sets its default compression to 'zstd'
-			// https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L147
-			parquet.WithCompression(compress.Codecs.Zstd),
-			// Apache Iceberg default compression level is "null", and thus doesn't set any compression level config (https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L152)
-			// thus, falls back to the underlying Parquet-Java library's default which is compression level 3 (https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/ZstandardCodec.java#L52)
-			parquet.WithCompressionLevel(3),
-			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L130-L133
-			parquet.WithDataPageSize(1*1024*1024),
-			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L139-L142
-			parquet.WithDictionaryPageSizeLimit(2*1024*1024),
-			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L612
-			parquet.WithDictionaryDefault(true),
-			// Setting it up as 4096 to improve performance, arrow-go's default value is 1024
-			parquet.WithBatchSize(4096),
-			// Apache Iceberg relies on Parquet-Java: https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-column/src/main/java/org/apache/parquet/column/ParquetProperties.java#L67
-			parquet.WithStats(true),
-			// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L171
-			parquet.WithVersion(parquet.V1_0),
-			// iceberg writes root name as "table" in parquet's meta
-			parquet.WithRootName("table"),
-			parquet.WithAllocator(allocator),
-		)
-
-		arrowProps := pqarrow.NewArrowWriterProperties(
-			pqarrow.WithStoreSchema(),
-			pqarrow.WithNoMapLogicalType(),
-		)
-
-		writer, err := pqarrow.NewFileWriter(record.Schema(), r.currentBuffer, writerProps, arrowProps)
-		if err != nil {
-			record.Release()
-
-			return nil, err
-		}
-
-		if r.fileType == "delete" {
-			icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, r.FieldId, constants.OlakeID)
-
-			writer.AppendKeyValueMetadata("delete-type", "equality")
-			writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", r.FieldId))
-			writer.AppendKeyValueMetadata("iceberg.schema", icebergSchemaJSON)
-		} else if r.fileType == "data" && r.IcebergSchemaJSON != "" {
-			writer.AppendKeyValueMetadata("iceberg.schema", r.IcebergSchemaJSON)
-		}
-
-		r.currentWriter = writer
-		r.currentRowCount = 0
-		r.currentCompressedSize = 0
-		if r.fileType == "delete" {
-			logger.Infof("Starting delete file: %s with field ID %d", r.currentFile, r.FieldId)
-		} else {
-			logger.Infof("Starting data file: %s (partition: %s)", r.currentFile, r.partitionKey)
-		}
+		r.createWriter(ctx, record)
 	}
 
 	if err := r.currentWriter.WriteBuffered(record); err != nil {

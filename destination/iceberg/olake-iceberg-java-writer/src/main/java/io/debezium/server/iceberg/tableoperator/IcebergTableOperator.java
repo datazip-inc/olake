@@ -119,178 +119,165 @@
      try {
        completeWriter();
  
-       // Calculate total files across all WriteResults
        int totalDataFiles = dataFiles.size();
        int totalDeleteFiles = deleteFiles.size();
  
        LOGGER.info("Committing {} data files and {} delete files for thread: {}",
            totalDataFiles, totalDeleteFiles, threadId);
  
-       // If no files were generated, nothing to commit
        if (totalDataFiles == 0 && totalDeleteFiles == 0) {
          LOGGER.info("No files to commit for thread: {}", threadId);
          return;
        }
  
-       // Commit the files
        try {
-         // Refresh table before committing
          table.refresh();
  
-         // Check if any WriteResult has delete files
          boolean hasDeleteFiles = totalDeleteFiles > 0;
  
          if (hasDeleteFiles) {
            RowDelta rowDelta = table.newRowDelta();
-           // Add all data and delete files from all WriteResults
            dataFiles.forEach(rowDelta::addRows);
            deleteFiles.forEach(rowDelta::addDeletes);
            rowDelta.commit();
          } else {
            AppendFiles appendFiles = table.newAppend();
-           // Add all data files from all WriteResults
            dataFiles.forEach(appendFiles::appendFile);
            appendFiles.commit();
          }
  
          LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
-             totalDataFiles, totalDeleteFiles, threadId);
-       } catch (Exception e) {
-         String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
-         LOGGER.error(errorMsg, e);
-         throw new RuntimeException(errorMsg, e);
-       }
-     } catch (RuntimeException e) {
-       throw new RuntimeException("Failed to commit", e);
-     }
-   }
- 
-   /**
-    * Registers parquet files for a specific thread
-    *
-    * @param threadId The thread ID to register
-    * @param filePaths The data file paths to add into the iceberg table
-    * @throws RuntimeException if registering the parquet file fails
-    */
-   public void registerDataFile(String threadId, Table table, List<String> filePaths) {
-      if (table == null) {
-           LOGGER.warn("No table found for thread: {}", threadId);
-           return;
-      }
- 
-      try {
-           completeWriter();
- 
-           FileIO fileIO = table.io();
-           MetricsConfig metricsConfig = MetricsConfig.forTable(table);
- 
-           AppendFiles append = table.newAppend();
- 
-           for (String filePath : filePaths) {
-                try {
-                     InputFile inputFile = fileIO.newInputFile(filePath);
-                     Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
-
-                     // Extract partition path from file path to scope data file to partition
-                     String partitionPath = extractPartitionPath(table, filePath);
-
-                     DataFiles.Builder dataFileBuilder = DataFiles.builder(table.spec())
-                          .withPath(filePath)
-                          .withFormat(FileFormat.PARQUET)
-                          .withFileSizeInBytes(inputFile.getLength())
-                          .withMetrics(metrics);
-
-                     if (partitionPath != null && !partitionPath.isEmpty()) {
-                          dataFileBuilder.withPartitionPath(partitionPath);
-                          LOGGER.info("Thread {}: data file scoped to partition: {}", threadId, partitionPath);
-                     } else {
-                          LOGGER.info("Thread {}: data file created as global (unpartitioned)", threadId);
-                     }
-
-                     DataFile dataFile = dataFileBuilder.build();
-
-                     append.appendFile(dataFile);
-                     LOGGER.info("Thread {}: registered parquet file {}", threadId, filePath);
-                } catch (Exception e) {
-                     LOGGER.info("Thread {}: failed to register file {}: {}", threadId, filePath, e.getMessage(), e);
-                }
-           }
- 
-           append.commit();
-           LOGGER.info("Thread {}: successfully committed {} parquet files", threadId, filePaths.size());
+            totalDataFiles, totalDeleteFiles, threadId);
+        
+        dataFiles.clear();
+        deleteFiles.clear();
       } catch (Exception e) {
-           String errorMsg = String.format("Thread %s: failed to register parquet files: %s", threadId, e.getMessage());
-           LOGGER.error(errorMsg, e);
-           throw new RuntimeException(e);
+        String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
+        LOGGER.error(errorMsg, e);
+        throw new RuntimeException(errorMsg, e);
       }
-   }
+    } catch (RuntimeException e) {
+      throw new RuntimeException("Failed to commit", e);
+    }
+  } 
  
    /**
-    * Registers equality delete files for a specific thread
+    * Accumulates data files for a specific thread WITHOUT committing
+    * Files are added to the dataFiles list and will be committed later via commitThread()
     *
-    * @param threadId The thread ID to register
+    * @param threadId The thread ID to accumulate files for
     * @param table The iceberg table
-    * @param filePaths The delete file paths to add into the iceberg table
+    * @param filePaths The data file paths to accumulate
+    * @throws RuntimeException if accumulating the data file fails
+    */
+   public void accumulateDataFiles(String threadId, Table table, List<String> filePaths) {
+     if (table == null) {
+          LOGGER.warn("No table found for thread: {}", threadId);
+          return;
+     }
+
+     try {
+          FileIO fileIO = table.io();
+          MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+
+          for (String filePath : filePaths) {
+               try {
+                    InputFile inputFile = fileIO.newInputFile(filePath);
+                    Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
+
+                    // Extract partition path from file path to scope data file to partition
+                    String partitionPath = extractPartitionPath(table, filePath);
+
+                    DataFiles.Builder dataFileBuilder = DataFiles.builder(table.spec())
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(inputFile.getLength())
+                         .withMetrics(metrics);
+
+                    if (partitionPath != null && !partitionPath.isEmpty()) {
+                         dataFileBuilder.withPartitionPath(partitionPath);
+                         LOGGER.debug("Thread {}: data file scoped to partition: {}", threadId, partitionPath);
+                    } else {
+                         LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
+                    }
+
+                    DataFile dataFile = dataFileBuilder.build();
+                    dataFiles.add(dataFile);
+                    LOGGER.debug("Thread {}: accumulated data file {} (total: {})", threadId, filePath, dataFiles.size());
+               } catch (Exception e) {
+                    LOGGER.error("Thread {}: failed to accumulate file {}: {}", threadId, filePath, e.getMessage(), e);
+                    throw e;
+               }
+          }
+
+          LOGGER.info("Thread {}: accumulated {} data files (total: {})", threadId, filePaths.size(), dataFiles.size());
+     } catch (Exception e) {
+          String errorMsg = String.format("Thread %s: failed to accumulate data files: %s", threadId, e.getMessage());
+          LOGGER.error(errorMsg, e);
+          throw new RuntimeException(e);
+     }
+  }
+
+   /**
+    * Accumulates delete files for a specific thread WITHOUT committing
+    * Files are added to the deleteFiles list and will be committed later via commitThread()
+    *
+    * @param threadId The thread ID to accumulate files for
+    * @param table The iceberg table
+    * @param filePaths The delete file paths to accumulate
     * @param equalityFieldId The field ID for equality deletes (e.g., _olake_id field)
     * @param recordCount The number of records in the delete file
-    * @throws RuntimeException if registering the delete file fails
+    * @throws RuntimeException if accumulating the delete file fails
     */
-   public void registerDeleteFile(String threadId, Table table, List<String> filePaths, int equalityFieldId, long recordCount) {
-      if (table == null) {
-           LOGGER.warn("No table found for thread: {}", threadId);
-           return;
-      }
- 
-      try {
-           completeWriter();
- 
-           FileIO fileIO = table.io();
- 
-           RowDelta rowDelta = table.newRowDelta();
- 
-           for (String filePath : filePaths) {
-                try {
-                     InputFile inputFile = fileIO.newInputFile(filePath);
-                     long fileSize = inputFile.getLength();
- 
-                     LOGGER.info("Thread {}: registering delete file: {} (size: {} bytes)", threadId, filePath, fileSize);
- 
-                     // Extract partition path from file path to scope delete file to partition
-                     String partitionPath = extractPartitionPath(table, filePath);
- 
-                     FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
-                          .ofEqualityDeletes(equalityFieldId)
-                          .withPath(filePath)
-                          .withFormat(FileFormat.PARQUET)
-                          .withFileSizeInBytes(fileSize)
-                          .withRecordCount(recordCount);
- 
-                     if (partitionPath != null && !partitionPath.isEmpty()) {
-                          deleteFileBuilder.withPartitionPath(partitionPath);
-                          LOGGER.info("Thread {}: delete file scoped to partition: {}", threadId, partitionPath);
-                     } else {
-                          LOGGER.info("Thread {}: delete file created as global (unpartitioned)", threadId);
-                     }
- 
-                     DeleteFile deleteFile = deleteFileBuilder.build();
- 
-                     rowDelta.addDeletes(deleteFile);
-                     LOGGER.info("Thread {}: registered delete file {} with equality field ID {}", threadId, filePath, equalityFieldId);
-                } catch (Exception e) {
-                     LOGGER.error("Thread {}: failed to register delete file {}: {}", threadId, filePath, e.getMessage(), e);
-                     throw e;
-                }
-           }
- 
-           rowDelta.commit();
-           LOGGER.info("Thread {}: successfully committed {} delete files", threadId, filePaths.size());
-      } catch (Exception e) {
-           String errorMsg = String.format("Thread %s: failed to register delete files: %s", threadId, e.getMessage());
-           LOGGER.error(errorMsg, e);
-           throw new RuntimeException(e);
-      }
-   }
- 
+   public void accumulateDeleteFiles(String threadId, Table table, List<String> filePaths, int equalityFieldId, long recordCount) {
+     if (table == null) {
+          LOGGER.warn("No table found for thread: {}", threadId);
+          return;
+     }
+
+     try {
+          FileIO fileIO = table.io();
+
+          for (String filePath : filePaths) {
+               try {
+                    InputFile inputFile = fileIO.newInputFile(filePath);
+                    long fileSize = inputFile.getLength();
+
+                    // Extract partition path from file path to scope delete file to partition
+                    String partitionPath = extractPartitionPath(table, filePath);
+
+                    FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
+                         .ofEqualityDeletes(equalityFieldId)
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(fileSize)
+                         .withRecordCount(recordCount);
+
+                    if (partitionPath != null && !partitionPath.isEmpty()) {
+                         deleteFileBuilder.withPartitionPath(partitionPath);
+                         LOGGER.debug("Thread {}: delete file scoped to partition: {}", threadId, partitionPath);
+                    } else {
+                         LOGGER.debug("Thread {}: delete file created as global (unpartitioned)", threadId);
+                    }
+
+                    DeleteFile deleteFile = deleteFileBuilder.build();
+                    deleteFiles.add(deleteFile);
+                    LOGGER.debug("Thread {}: accumulated delete file {} with equality field ID {} (total: {})", 
+                                 threadId, filePath, equalityFieldId, deleteFiles.size());
+               } catch (Exception e) {
+                    LOGGER.error("Thread {}: failed to accumulate delete file {}: {}", threadId, filePath, e.getMessage(), e);
+                    throw e;
+               }
+          }
+
+          LOGGER.info("Thread {}: accumulated {} delete files (total: {})", threadId, filePaths.size(), deleteFiles.size());
+     } catch (Exception e) {
+          String errorMsg = String.format("Thread %s: failed to accumulate delete files: %s", threadId, e.getMessage());
+          LOGGER.error(errorMsg, e);
+          throw new RuntimeException(e);
+     }
+  }
+
    /**
     * Extract partition path from the full file path
     * This assumes the file path contains partition directories in the format: key=value/

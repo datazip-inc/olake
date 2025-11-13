@@ -14,7 +14,7 @@ import (
 )
 
 func CreateNormFields(schema map[string]string, fieldIds map[string]int) []arrow.Field {
-	fieldNames := make([]string, 0, len(schema)+1)
+	fieldNames := make([]string, 0, len(schema)+1) // need to check this up
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
 	}
@@ -46,6 +46,7 @@ func CreateNormFields(schema map[string]string, fieldIds map[string]int) []arrow
 		// _olake_id is the primary key and must be non-nullable (REQUIRED)
 		nullable := fieldName != constants.OlakeID
 
+		// arrow metadata
 		var metadata arrow.Metadata
 		if fieldIds != nil {
 			if fieldId, ok := fieldIds[fieldName]; ok {
@@ -66,23 +67,44 @@ func CreateNormFields(schema map[string]string, fieldIds map[string]int) []arrow
 	return fields
 }
 
-func CreateDeNormFields() []arrow.Field {
+func CreateDeNormFields(fieldIds map[string]int) []arrow.Field {
 	fields := make([]arrow.Field, 0, 5)
 
-	fields = append(fields, arrow.Field{Name: constants.OlakeID, Type: arrow.BinaryTypes.String, Nullable: false})
-	fields = append(fields, arrow.Field{Name: constants.OlakeTimestamp, Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: false})
-	fields = append(fields, arrow.Field{Name: constants.OpType, Type: arrow.BinaryTypes.String, Nullable: false})
-	fields = append(fields, arrow.Field{Name: constants.CdcTimestamp, Type: arrow.FixedWidthTypes.Timestamp_us, Nullable: true})
-	fields = append(fields, arrow.Field{Name: constants.StringifiedData, Type: arrow.BinaryTypes.String, Nullable: true})
+	denormFieldDefs := []struct {
+		name     string
+		dataType arrow.DataType
+		nullable bool
+	}{
+		{constants.CdcTimestamp, arrow.FixedWidthTypes.Timestamp_us, true},
+		{constants.OlakeID, arrow.BinaryTypes.String, false},
+		{constants.OlakeTimestamp, arrow.FixedWidthTypes.Timestamp_us, false},
+		{constants.OpType, arrow.BinaryTypes.String, false},
+		{constants.StringifiedData, arrow.BinaryTypes.String, true},
+	}
+
+	for _, def := range denormFieldDefs {
+		var metadata arrow.Metadata
+		if fieldIds != nil {
+			if fieldId, ok := fieldIds[def.name]; ok {
+				metadata = arrow.MetadataFrom(map[string]string{
+					"PARQUET:field_id": fmt.Sprintf("%d", fieldId),
+				})
+			}
+		}
+
+		fields = append(fields, arrow.Field{
+			Name:     def.name,
+			Type:     def.dataType,
+			Nullable: def.nullable,
+			Metadata: metadata,
+		})
+	}
 
 	return fields
 }
 
-func CreateDelArrRecord(records []types.RawRecord, fieldId int) (arrow.Record, error) {
-	if len(records) == 0 {
-		return nil, fmt.Errorf("no records provided")
-	}
-
+func CreateDelArrowRec(records []types.RawRecord, fieldId int) (arrow.Record, error) {
+	// need to check the metadata requirement here as well
 	fields := make([]arrow.Field, 0, 1)
 	fields = append(fields, arrow.Field{
 		Name:     constants.OlakeID,
@@ -102,18 +124,15 @@ func CreateDelArrRecord(records []types.RawRecord, fieldId int) (arrow.Record, e
 	for _, rec := range records {
 		recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
 	}
+	
 	arrRec := recordBuilder.NewRecord()
 
 	return arrRec, nil
 }
 
-func CreateArrowRecordWithFields(records []types.RawRecord, fields []arrow.Field, normalization bool) (arrow.Record, error) {
+func CreateArrowRecord(records []types.RawRecord, fields []arrow.Field, normalization bool) (arrow.Record, error) {
 	if len(records) == 0 {
 		return nil, fmt.Errorf("no records provided")
-	}
-
-	if !normalization {
-		fields = CreateDeNormFields()
 	}
 
 	allocator := memory.NewGoAllocator()
@@ -223,35 +242,39 @@ type PartitionInfo struct {
 	Transform string
 }
 
+// In OLake, for equality deletes, we use OlakeID as the id
+// we create equality delete files for:
+// "d" : delete operation
+// "u" : update operation
+// "c" : insert operation
 func ExtractDeleteRecords(records []types.RawRecord) []types.RawRecord {
 	deletes := make([]types.RawRecord, 0, len(records))
 	for _, rec := range records {
-		deletes = append(deletes, types.RawRecord{OlakeID: rec.OlakeID})
+		if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
+			deletes = append(deletes, types.RawRecord{OlakeID: rec.OlakeID})
+		}
 	}
+
 	return deletes
 }
 
 // OLake's arrow writer writes the iceberg schema as a metadata in every parquet file
 func BuildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int) string {
-	if len(fieldIds) == 0 {
-		return ""
-	}
-
 	fieldNames := make([]string, 0, len(schema))
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
 	}
-	sort.Strings(fieldNames)
+
+	sort.Strings(fieldNames) // need to check this
 
 	fieldsJSON := ""
 	for i, fieldName := range fieldNames {
 		icebergType := schema[fieldName]
-		fieldId, ok := fieldIds[fieldName]
-		if !ok {
-			continue
-		}
+		fieldId := fieldIds[fieldName]
 
 		typeStr := fmt.Sprintf(`"%s"`, icebergType)
+
+		// OLakeID is a REQUIRED field, cannot be NULL
 		required := fieldName == constants.OlakeID
 
 		if i > 0 {
@@ -259,6 +282,42 @@ func BuildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int) s
 		}
 		fieldsJSON += fmt.Sprintf(`{"id":%d,"name":"%s","required":%t,"type":%s}`,
 			fieldId, fieldName, required, typeStr)
+	}
+
+	return fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[%s]}`, fieldsJSON)
+}
+
+// BuildIcebergSchemaJSONForDenorm builds the Iceberg schema JSON for denormalized tables
+func BuildIcebergSchemaJSONForDenorm(fieldIds map[string]int) string {
+	if len(fieldIds) == 0 {
+		return ""
+	}
+
+	denormFieldDefs := []struct {
+		name        string
+		icebergType string
+		required    bool
+	}{
+		{constants.OlakeID, "string", true},
+		{constants.OlakeTimestamp, "timestamptz", true},
+		{constants.OpType, "string", true},
+		{constants.CdcTimestamp, "timestamptz", false},
+		{constants.StringifiedData, "string", false},
+	}
+
+	fieldsJSON := ""
+	for i, def := range denormFieldDefs {
+		fieldId, ok := fieldIds[def.name]
+		if !ok {
+			continue
+		}
+
+		typeStr := fmt.Sprintf(`"%s"`, def.icebergType)
+		if i > 0 {
+			fieldsJSON += ","
+		}
+		fieldsJSON += fmt.Sprintf(`{"id":%d,"name":"%s","required":%t,"type":%s}`,
+			fieldId, def.name, def.required, typeStr)
 	}
 
 	return fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[%s]}`, fieldsJSON)
