@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -169,8 +170,8 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			// stop waiting after 5 minutes or if parent ctx is cancelled
-			return fmt.Errorf("LSN not updated after 5 minutes")
+			// stop waiting after 5 minutes or if parent ctx is canceled
+			return fmt.Errorf("%s", constants.LSNNotUpdatedError)
 		case <-ticker.C:
 			slot, err := getSlotPosition(timeoutCtx, db, socket.ReplicationSlot)
 			if err != nil {
