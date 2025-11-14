@@ -101,7 +101,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
-					if err := AcknowledgeLSN(ctx, p.socket, true); err != nil {
+					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)
 					}
 				}
