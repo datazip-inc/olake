@@ -263,7 +263,7 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 		}
 
 		if strings.ToUpper(value) != expectedValue {
-			logger.Warnf(warnMessage)
+			logger.Warn(warnMessage)
 			return false, nil
 		}
 

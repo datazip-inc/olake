@@ -106,7 +106,7 @@ var syncCmd = &cobra.Command{
 			}
 			cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
 			if cerr != nil {
-				return fmt.Errorf("failed to clear destination: %w", err)
+				return fmt.Errorf("failed to clear destination: %s", cerr)
 			}
 		}
 

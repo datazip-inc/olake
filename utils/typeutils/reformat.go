@@ -214,7 +214,7 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	// Check if year is 0000 (not supported by Spark)
 	// Spark only supports years from 1 to 9999, we are converting year 0000 to epoch start time
 	if parsed.Year() < 1 {
-		logger.Warnf("Detected invalid year %d (year 0000 or negative). Converting to epoch start time (1970-01-01 00:00:00 UTC)", parsed.Year())
+		logger.Debugf("Detected invalid year %d (year 0000 or negative). Converting to epoch start time (1970-01-01 00:00:00 UTC)", parsed.Year())
 		parsed = time.Unix(0, 0).UTC()
 	} else if parsed.Year() > 9999 {
 		parsed = parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
