@@ -172,14 +172,14 @@ func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			return nil
-		} else {
-			//  add new stream to disabled_streams
-			namespace := newStream.Stream.Namespace
-			newCatalog.DisabledStreams[namespace] = append(
-				newCatalog.DisabledStreams[namespace],
-				CreateStreamMetadata(newStream.Stream.Name, driver),
-			)
 		}
+
+		//  add new stream to disabled_streams
+		namespace := newStream.Stream.Namespace
+		newCatalog.DisabledStreams[namespace] = append(
+			newCatalog.DisabledStreams[namespace],
+			CreateStreamMetadata(newStream.Stream.Name, driver),
+		)
 
 		// manipulate destination db in new streams according to old streams
 
