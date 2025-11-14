@@ -54,6 +54,7 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		groupBalancer := &CustomGroupBalancer{
 			requiredConsumerIDs: readersToCreate,
 			readerIndex:         readerIndex,
+			partitionIndex:      r.partitionIndex,
 		}
 
 		// readers creation
