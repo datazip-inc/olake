@@ -95,7 +95,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr b
 	if noErr {
 		socket := p.replicator.Socket()
 		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-		return waljs.AcknowledgeLSN(ctx, socket, false)
+		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
 	return nil
 }

@@ -97,7 +97,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				if pkm.ReplyRequested {
 					logger.Debugf("keep alive message received: %v", pkm)
 					// send fake acknowledgement
-					err := AcknowledgeLSN(ctx, w.socket, true)
+					err := AcknowledgeLSN(ctx, db, w.socket, true)
 					if err != nil {
 						return fmt.Errorf("failed to ack lsn: %s", err)
 					}

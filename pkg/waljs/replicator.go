@@ -96,10 +96,9 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	logger.Infof("SystemID:%s Timeline:%d XLogPos:%s Database:%s",
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName)
 
-	// Get replication slot position
-	var slot ReplicationSlot
-	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, config.ReplicationSlotName)); err != nil {
-		return nil, fmt.Errorf("failed to get replication slot: %s", err)
+	slot, err := getSlotPosition(ctx, db, config.ReplicationSlotName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get slot position: %s", err)
 	}
 
 	// Create and return final connection object
@@ -122,6 +121,13 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	}
 }
 
+func getSlotPosition(ctx context.Context, db *sqlx.DB, replicationSlotName string) (ReplicationSlot, error) {
+	// Get replication slot position
+	var slot ReplicationSlot
+	err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, replicationSlotName))
+	return slot, err
+}
+
 // advanceLSN advances the logical replication position to the current WAL position.
 func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) error {
 	// Get replication slot position
@@ -134,7 +140,7 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) er
 
 // Confirm that Logs has been recorded
 // in fake ack prev confirmed flush lsn is sent
-func AcknowledgeLSN(ctx context.Context, socket *Socket, fakeAck bool) error {
+func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bool) error {
 	walPosition := utils.Ternary(fakeAck, socket.ConfirmedFlushLSN, socket.ClientXLogPos).(pglogrepl.LSN)
 	err := pglogrepl.SendStandbyStatusUpdate(ctx, socket.pgConn, pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: walPosition,
@@ -147,7 +153,34 @@ func AcknowledgeLSN(ctx context.Context, socket *Socket, fakeAck bool) error {
 	}
 
 	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
-	return nil
+
+	// if fakeAck, no need to wait for slot to be updated
+	if fakeAck {
+		return nil
+	}
+
+	// wait for slot to be updated
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			// stop waiting after 5 minutes or if parent ctx is cancelled
+			return fmt.Errorf("LSN not updated after 5 minutes")
+		case <-ticker.C:
+			slot, err := getSlotPosition(timeoutCtx, db, socket.ReplicationSlot)
+			if err != nil {
+				return fmt.Errorf("failed to get slot position: %s", err)
+			}
+			if slot.LSN == walPosition {
+				return nil
+			}
+		}
+	}
 }
 
 // cleanup replicator
