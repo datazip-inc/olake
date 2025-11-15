@@ -1,3 +1,4 @@
+go name=drivers/mysql/internal/config.go url=https://github.com/datazip-inc/olake/blob/bcf3953a5f7aa3100a28798084080ffb4d05fa1d/drivers/mysql/internal/config.go
 package driver
 
 import (
@@ -13,22 +14,25 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
+
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
-	Host          string      `json:"hosts"`
-	Username      string      `json:"username"`
-	Password      string      `json:"password"`
-	Database      string      `json:"database"`
-	Port          int         `json:"port"`
-	TLSSkipVerify bool        `json:"tls_skip_verify"` // Add this field
-	UpdateMethod  interface{} `json:"update_method"`
-	MaxThreads    int         `json:"max_threads"`
-	RetryCount    int         `json:"backoff_retry_count"`
-	JDBCURLParams map[string]string `json:"jdbc_url_params,omitempty"`
-	SSLConfig     *utils.SSLConfig  `json:"ssl_config,omitempty"`
+	Host          string             `json:"hosts"`
+	Username      string             `json:"username"`
+	Password      string             `json:"password"`
+	Database      string             `json:"database"`
+	Port          int                `json:"port"`
+	TLSSkipVerify bool               `json:"tls_skip_verify"`
+	UpdateMethod  interface{}        `json:"update_method"`
+	MaxThreads    int                `json:"max_threads"`
+	RetryCount    int                `json:"backoff_retry_count"`
+	SSHConfig     *utils.SSHConfig   `json:"ssh_config"`
+	JDBCURLParams map[string]string  `json:"jdbc_url_params,omitempty"`
+	SSLConfig     *utils.SSLConfig   `json:"ssl_config,omitempty"`
 }
+
 type CDC struct {
-	InitialWaitTime int `json:"intial_wait_time"`
+	InitialWaitTime int `json:"initial_wait_time"`
 }
 
 // URI generates the connection URI for the MySQL database
@@ -51,8 +55,11 @@ func (c *Config) URI() string {
 		DBName:               c.Database,
 		AllowNativePasswords: true,
 	}
-	// Handle SSL configuration (only if present)
+
+	// Prepare query parameters to append to DSN
 	urlParams := url.Values{}
+
+	// Handle SSL configuration (only if present and not disabled)
 	if c.SSLConfig != nil && c.SSLConfig.Mode != utils.Unknown && c.SSLConfig.Mode != utils.SSLModeDisable {
 		// Compose TLS config
 		rootCertPool := x509.NewCertPool()
@@ -132,10 +139,13 @@ func (c *Config) Validate() error {
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
+
+	// Validate SSLConfig when present
 	if c.SSLConfig != nil {
 		if err := c.SSLConfig.Validate(); err != nil {
 			return fmt.Errorf("invalid SSL config: %w", err)
 		}
 	}
+
 	return utils.Validate(c)
 }
