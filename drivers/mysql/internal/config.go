@@ -1,4 +1,4 @@
-go name=drivers/mysql/internal/config.go url=https://github.com/datazip-inc/olake/blob/bcf3953a5f7aa3100a28798084080ffb4d05fa1d/drivers/mysql/internal/config.go
+
 package driver
 
 import (
