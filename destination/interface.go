@@ -2,7 +2,6 @@ package destination
 
 import (
 	"context"
-	"time"
 
 	"github.com/datazip-inc/olake/types"
 )
@@ -24,18 +23,15 @@ type Writer interface {
 	Check(ctx context.Context) error
 	// Setup sets up an Adapter for dedicated use for a stream
 	// avoiding the headover for different streams
-	Setup(stream types.StreamInterface, opts *Options) error
+	Setup(ctx context.Context, stream types.StreamInterface, schema any, opts *Options) (any, error)
 	// Write function being used by drivers
-	Write(ctx context.Context, record types.RawRecord) error
-
-	// ReInitiationRequiredOnSchemaEvolution is implemented by Writers incase the writer needs to be re-initialized
-	// such as when writing parquet files, but in destinations like Kafka/Clickhouse/BigQuery they can handle
-	// schema update with an Alter Query
-	Flattener() FlattenFunction
+	Write(ctx context.Context, record []types.RawRecord) error
+	// flatten data and validates thread schema (return true if thread schema is different w.r.t records)
+	FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error)
 	// EvolveSchema updates the schema based on changes.
 	// Need to pass olakeTimestamp as end argument to get the correct partition path based on record ingestion time.
-	EvolveSchema(bool, bool, map[string]*types.Property, types.Record, time.Time) error
+	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
 	// DropStreams is used to clear the destination before re-writing the stream
-	DropStreams(ctx context.Context, selectedStream []string) error
+	DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error
 	Close(ctx context.Context) error
 }

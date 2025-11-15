@@ -18,7 +18,7 @@ env:
 
 jobs:
   integration-tests:
-    runs-on: ubuntu-latest
+    runs-on: 32gb-runner
     timeout-minutes: 30
     steps:
       - name: Checkout code
@@ -27,7 +27,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.23.2'
+          go-version: '1.24.x'
 
       - name: Set up Java for Maven
         uses: actions/setup-java@v3
@@ -39,6 +39,7 @@ jobs:
         run: |
           docker compose -f ./drivers/mysql/docker-compose.yml up -d
           docker compose -f ./drivers/postgres/docker-compose.yml up -d
+          docker compose -f ./drivers/mongodb/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
@@ -58,6 +59,15 @@ jobs:
           retry_wait_seconds: 5
           command: |
             docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
+      
+      - name: Wait for MongoDB
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec primary_mongo mongosh --host localhost --port 27017 -u mongodb -p secure_password123 --authenticationDatabase admin --eval "db.adminCommand('ping')"
 
       - name: Set up Data Directories
         run: |
@@ -87,7 +97,7 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 2 ./drivers/mysql/internal/... ./drivers/postgres/internal/... -tags=integration --timeout 0
+        run: go test -v -p 3 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... -timeout 0 -run 'Integration'
 
       - name: Cleanup
         if: always()

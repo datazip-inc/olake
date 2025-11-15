@@ -7,14 +7,66 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
 )
 
+// QuoteIdentifier returns the properly quoted identifier based on database driver
+func QuoteIdentifier(identifier string, driver constants.DriverType) string {
+	switch driver {
+	case constants.MySQL:
+		return fmt.Sprintf("`%s`", identifier) // MySQL uses backticks for quoting identifiers
+	case constants.Postgres:
+		return fmt.Sprintf("%q", identifier)
+	case constants.Oracle:
+		return fmt.Sprintf("%q", identifier)
+	default:
+		return identifier
+	}
+}
+
+// GetPlaceholder returns the appropriate placeholder for the given driver
+func GetPlaceholder(driver constants.DriverType) func(int) string {
+	switch driver {
+	case constants.MySQL:
+		return func(_ int) string { return "?" }
+	case constants.Postgres:
+		return func(i int) string { return fmt.Sprintf("$%d", i) }
+	case constants.Oracle:
+		return func(i int) string { return fmt.Sprintf(":%d", i) }
+	default:
+		return func(_ int) string { return "?" }
+	}
+}
+
+// QuoteTable returns the properly quoted schema.table combination
+func QuoteTable(schema, table string, driver constants.DriverType) string {
+	return fmt.Sprintf("%s.%s",
+		QuoteIdentifier(schema, driver),
+		QuoteIdentifier(table, driver))
+}
+
+// QuoteColumns returns a slice of quoted column names
+func QuoteColumns(columns []string, driver constants.DriverType) []string {
+	quoted := make([]string, len(columns))
+	for i, col := range columns {
+		quoted[i] = QuoteIdentifier(col, driver)
+	}
+	return quoted
+}
+
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a Postgres table
 func MinMaxQuery(stream types.StreamInterface, column string) string {
-	return fmt.Sprintf(`SELECT MIN(%[1]s) AS min_value, MAX(%[1]s) AS max_value FROM %[2]s.%[3]s`, column, stream.Namespace(), stream.Name())
+	quotedColumn := QuoteIdentifier(column, constants.Postgres)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
+	return fmt.Sprintf(
+		`SELECT MIN(%[1]s) AS min_value, MAX(%[1]s) AS max_value FROM %[2]s`,
+		quotedColumn, quotedTable,
+	)
 }
 
 // NextChunkEndQuery returns the query to calculate the next chunk boundary
@@ -28,20 +80,23 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //
 // Output:
 //
-//	SELECT MAX(key_str) FROM (
-//	  SELECT CONCAT_WS(',', id, created_at) AS key_str
+//	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
+//	  SELECT (',', id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
 //	  ORDER BY id, created_at
-//	  LIMIT 1000
+//	  LIMIT 1 OFFSET 1000
 //	) AS subquery
-func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64, filter string) string {
+func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
+	quotedCols := QuoteColumns(columns, constants.MySQL)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT MAX(key_str) FROM (SELECT CONCAT_WS(',', %s) AS key_str FROM `%s`.`%s`",
-		strings.Join(columns, ", "),
-		stream.Namespace(),
-		stream.Name(),
+	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM %s",
+		strings.Join(quotedCols, ", "),
+		strings.Join(quotedCols, ", "),
+		quotedTable,
 	)
 	// WHERE clause for lexicographic "greater than"
 	query.WriteString(" WHERE ")
@@ -52,17 +107,14 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 		}
 		query.WriteString("(")
 		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
-			fmt.Fprintf(&query, "`%s` = ? AND ", columns[equalityColIndex])
+			fmt.Fprintf(&query, "%s = ? AND ", quotedCols[equalityColIndex])
 		}
-		fmt.Fprintf(&query, "`%s` > ?", columns[currentColIndex])
+		fmt.Fprintf(&query, "%s > ?", quotedCols[currentColIndex])
 		query.WriteString(")")
 	}
-	if filter != "" {
-		query.WriteString(" AND (" + filter + ")")
-	}
 	// ORDER + LIMIT
-	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(columns, ", "))
-	fmt.Fprintf(&query, " LIMIT %d) AS subquery", chunkSize)
+	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(quotedCols, ", "))
+	fmt.Fprintf(&query, " LIMIT 1 OFFSET %d) AS subquery", chunkSize)
 	return query.String()
 }
 
@@ -71,6 +123,70 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
 func PostgresRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT reltuples::bigint AS approx_row_count FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '%s' AND n.nspname = '%s';`, stream.Name(), stream.Namespace())
+}
+
+// PostgresBlockSizeQuery returns the query to fetch the block size in PostgreSQL
+func PostgresBlockSizeQuery() string {
+	return `SHOW block_size`
+}
+
+// PostgresPartitionPages returns total relpages for each partition and the parent table.
+// This can be used to dynamically adjust chunk sizes based on partition distribution.
+func PostgresPartitionPages(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        WITH parent AS (
+            SELECT c.oid AS parent_oid
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '%s'
+                AND c.relname = '%s'
+        ),
+        partitions AS (
+            SELECT
+                child.relname AS name,
+                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int)) AS pages
+            FROM pg_inherits i
+            JOIN pg_class child ON child.oid = i.inhrelid
+            JOIN parent p ON p.parent_oid = i.inhparent
+            
+            UNION ALL
+            
+            SELECT
+                c.relname AS name,
+                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int)) AS pages
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '%s'
+                AND c.relname = '%s'
+        )
+        SELECT 
+            name, 
+            pages 
+        FROM partitions 
+        ORDER BY pages DESC;
+    `,
+		stream.Namespace(),
+		stream.Name(),
+		stream.Namespace(),
+		stream.Name(),
+	)
+}
+
+// PostgresIsPartitionedQuery returns a SQL query that checks whether a table is partitioned.
+// It counts how many partitions exist under the given parent table in the specified schema.
+func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT 
+            COUNT(i.inhrelid)
+        FROM pg_inherits i
+        JOIN pg_class c ON c.oid = i.inhparent
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = '%s'
+            AND c.relname = '%s';
+    `,
+		stream.Namespace(),
+		stream.Name(),
+	)
 }
 
 // PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
@@ -84,36 +200,37 @@ func PostgresWalLSNQuery() string {
 }
 
 // PostgresNextChunkEndQuery generates a SQL query to fetch the maximum value of a specified column
-func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}, batchSize int, extraFilter string) string {
-	baseCond := fmt.Sprintf(`%s > %v`, filterColumn, filterValue)
-	baseCond = utils.Ternary(extraFilter == "", baseCond, fmt.Sprintf(`(%s) AND (%s)`, baseCond, extraFilter)).(string)
-	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM "%s"."%s" WHERE %s ORDER BY %s ASC LIMIT %d) AS T`, filterColumn, filterColumn, stream.Namespace(), stream.Name(), baseCond, filterColumn, batchSize)
-}
-
-// PostgresMinQuery returns the query to fetch the minimum value of a column in PostgreSQL
-func PostgresMinQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
-	return fmt.Sprintf(`SELECT MIN(%s) FROM "%s"."%s" WHERE %s > %v`, filterColumn, stream.Namespace(), stream.Name(), filterColumn, filterValue)
+func PostgresNextChunkEndQuery(stream types.StreamInterface, filterColumn string, filterValue interface{}) string {
+	quotedColumn := QuoteIdentifier(filterColumn, constants.Postgres)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
+	baseCond := fmt.Sprintf(`%s > %v`, quotedColumn, filterValue)
+	return fmt.Sprintf(`SELECT MAX(%s) FROM (SELECT %s FROM %s WHERE %s ORDER BY %s ASC LIMIT %d) AS T`,
+		quotedColumn, quotedColumn, quotedTable, baseCond, quotedColumn, 10000)
 }
 
 // PostgresBuildSplitScanQuery builds a chunk scan query for PostgreSQL
 func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, chunk types.Chunk, filter string) string {
+	quotedFilterColumn := QuoteIdentifier(filterColumn, constants.Postgres)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
+
 	chunkCond := ""
 	if chunk.Min != nil && chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", filterColumn, chunk.Min, filterColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", quotedFilterColumn, chunk.Min, quotedFilterColumn, chunk.Max)
 	} else if chunk.Min != nil {
-		chunkCond = fmt.Sprintf("%s >= %v", filterColumn, chunk.Min)
+		chunkCond = fmt.Sprintf("%s >= %v", quotedFilterColumn, chunk.Min)
 	} else if chunk.Max != nil {
-		chunkCond = fmt.Sprintf("%s < %v", filterColumn, chunk.Max)
+		chunkCond = fmt.Sprintf("%s < %v", quotedFilterColumn, chunk.Max)
 	}
 
 	chunkCond = utils.Ternary(filter != "" && chunkCond != "", fmt.Sprintf("(%s) AND (%s)", chunkCond, filter), chunkCond).(string)
-	return fmt.Sprintf(`SELECT * FROM "%s"."%s" WHERE %s`, stream.Namespace(), stream.Name(), chunkCond)
+	return fmt.Sprintf(`SELECT * FROM %s WHERE %s`, quotedTable, chunkCond)
 }
 
 // MySQL-Specific Queries
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
 func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
-	colTuple := "(" + strings.Join(filterColumns, ", ") + ")"
+	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
+	colTuple := "(" + strings.Join(quotedCols, ", ") + ")"
 
 	buildSQLTuple := func(val any) string {
 		parts := strings.Split(val.(string), ",")
@@ -140,7 +257,8 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 
 // MysqlLimitOffsetScanQuery is used to get the rows
 func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s`", stream.Namespace(), stream.Name())
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	query := fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	query = utils.Ternary(filter == "", query, fmt.Sprintf("%s WHERE %s", query, filter)).(string)
 	if chunk.Min == nil {
 		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
@@ -160,29 +278,29 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 // MySQLWithoutState builds a chunk scan query for MySql
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
-	return fmt.Sprintf("SELECT * FROM `%s`.`%s` WHERE %s", stream.Namespace(), stream.Name(), condition)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
-func MinMaxQueryMySQL(stream types.StreamInterface, columns []string, filter string) string {
-	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(columns, ", "))
-	orderAsc := strings.Join(columns, ", ")
-	descCols := make([]string, len(columns))
-	for i, col := range columns {
+func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
+	quotedCols := QuoteColumns(columns, constants.MySQL)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
+
+	orderAsc := strings.Join(quotedCols, ", ")
+	descCols := make([]string, len(quotedCols))
+	for i, col := range quotedCols {
 		descCols[i] = col + " DESC"
 	}
 	orderDesc := strings.Join(descCols, ", ")
-	filterClause := ""
-	if filter != "" {
-		filterClause = fmt.Sprintf("WHERE %s", filter)
-	}
 	return fmt.Sprintf(`
-	SELECT
-		(SELECT %s FROM %s.%s %s ORDER BY %s LIMIT 1) AS min_value,
-		(SELECT %s FROM %s.%s %s ORDER BY %s LIMIT 1) AS max_value
-	`,
-		concatCols, stream.Namespace(), stream.Name(), filterClause, orderAsc,
-		concatCols, stream.Namespace(), stream.Name(), filterClause, orderDesc,
+    SELECT
+        (SELECT %s FROM %s ORDER BY %s LIMIT 1) AS min_value,
+        (SELECT %s FROM %s ORDER BY %s LIMIT 1) AS max_value
+    `,
+		concatCols, quotedTable, orderAsc,
+		concatCols, quotedTable, orderDesc,
 	)
 }
 
@@ -230,14 +348,21 @@ func MySQLPrimaryKeyQuery() string {
 	`
 }
 
-// MySQLTableRowsQuery returns the query to fetch the estimated row count of a table in MySQL
-func MySQLTableRowsQuery() string {
+// MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
+func MySQLTableRowStatsQuery() string {
 	return `
-		SELECT TABLE_ROWS
+		SELECT TABLE_ROWS,
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
 	`
+}
+
+// MySQLTableExistsQuery returns the query to check if a table has any rows using EXISTS
+func MySQLTableExistsQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	return fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s LIMIT 1)", quotedTable)
 }
 
 // MySQLMasterStatusQuery returns the query to fetch the current binlog position in MySQL: mysql v8.3 and below
@@ -277,9 +402,9 @@ func MySQLTableColumnsQuery() string {
 
 // MySQLVersion returns the version of the MySQL server
 // It returns the major and minor version of the MySQL server
-func MySQLVersion(client *sqlx.DB) (int, int, error) {
+func MySQLVersion(ctx context.Context, client *sqlx.DB) (int, int, error) {
 	var version string
-	err := client.QueryRow("SELECT @@version").Scan(&version)
+	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
@@ -339,31 +464,34 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 
 // OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
 func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
-	currentSCN := strings.Split(chunk.Min.(string), ",")[0]
-	chunkMin := strings.Split(chunk.Min.(string), ",")[1]
+	chunkMin := chunk.Min.(string)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Oracle)
 
-	filterClause := utils.Ternary(filter == "", "", " AND "+filter).(string)
+	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
-		return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID >= '%v' AND ROWID < '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, chunkMax, filterClause)
+		return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
+			quotedTable, chunkMin, chunkMax, filterClause)
 	}
-	return fmt.Sprintf("SELECT * FROM %q.%q AS OF SCN %s WHERE ROWID >= '%v' %s", stream.Namespace(), stream.Name(), currentSCN, chunkMin, filterClause)
+	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
+		quotedTable, chunkMin, filterClause)
+}
+
+// OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
+func OracleTableRowStatsQuery() string {
+	return `SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
 func OracleBlockSizeQuery() string {
-	return `SELECT TO_NUMBER(value) FROM v$parameter WHERE name = 'db_block_size'`
-}
-
-// OracleCurrentSCNQuery returns the query to fetch the current SCN in OracleDB
-func OracleCurrentSCNQuery() string {
-	return `SELECT TO_CHAR(DBMS_FLASHBACK.GET_SYSTEM_CHANGE_NUMBER) AS SCN_STR FROM DUAL`
+	return `SELECT CEIL(BYTES / NULLIF(BLOCKS, 0)) FROM user_segments WHERE BLOCKS IS NOT NULL AND ROWNUM =1`
 }
 
 // OracleEmptyCheckQuery returns the query to check if a table is empty in OracleDB
 func OracleEmptyCheckQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf("SELECT 1 FROM %q.%q WHERE ROWNUM = 1", stream.Namespace(), stream.Name())
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Oracle)
+	return fmt.Sprintf("SELECT 1 FROM %s WHERE ROWNUM = 1", quotedTable)
 }
 
 // OracleTaskCreationQuery returns the query to create a task in OracleDB
@@ -396,12 +524,53 @@ func OracleChunkRetrievalQuery(taskName string) string {
 	return fmt.Sprintf(`SELECT chunk_id, start_rowid, end_rowid FROM user_parallel_execute_chunks WHERE task_name = '%s' ORDER BY chunk_id`, taskName)
 }
 
-// ParseFilter converts a filter string to a valid SQL WHERE condition
-func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
+// OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
+func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
+	// Get the datatype of the cursor field from streams
+	stream := opts.Stream
+	// in case of incremental sync mode, during backfill to avoid duplicate records we need to use '<=', otherwise use '>'
+	operator := utils.Ternary(isBackfill, "<=", ">").(string)
+	// remove cursorField conversion to lower case once column normalization is based on writer side
+	datatype, err := stream.Self().Stream.Schema.GetType(cursorField)
+	if err != nil {
+		return "", nil, fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
+	}
+
+	isTimestamp := strings.Contains(string(datatype), "timestamp")
+	formattedValue, err := typeutils.ReformatValue(datatype, lastCursorValue)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %s", lastCursorValue, lastCursorValue, err)
+	}
+
+	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+	err = opts.Client.QueryRowContext(ctx, query).Scan(&datatype)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+	}
+	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
+	quotedCol := QuoteIdentifier(cursorField, constants.Oracle)
+	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
+		return fmt.Sprintf("%s %s CAST(%s AS TIMESTAMP)", quotedCol, operator, argumentPlaceholder), formattedValue, nil
+	}
+	return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), formattedValue, nil
+}
+
+// ParseFilter converts a filter string to a valid SQL WHERE condition, also appends the threshold filter if present
+func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter string) (string, error) {
 	buildCondition := func(cond types.Condition, driver string) (string, error) {
-		// Get column quote style
-		quote := utils.Ternary(driver == "mysql", "`", "\"").(string)
-		quotedColumn := fmt.Sprintf("%s%s%s", quote, cond.Column, quote)
+		var driverType constants.DriverType
+		switch driver {
+		case "mysql":
+			driverType = constants.MySQL
+		case "postgres":
+			driverType = constants.Postgres
+		case "oracle":
+			driverType = constants.Oracle
+		default:
+			driverType = constants.Postgres // default fallback
+		}
+
+		quotedColumn := QuoteIdentifier(cond.Column, driverType)
 
 		// Handle unquoted null value
 		if cond.Value == "null" {
@@ -439,13 +608,14 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 		return "", fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
+	var finalFilter string
+	var filterErr error
 	switch {
 	case len(filter.Conditions) == 0:
-		return "", nil // No conditions, return empty string
+		return thresholdFilter, nil
 	case len(filter.Conditions) == 1:
-		return buildCondition(filter.Conditions[0], driver)
+		finalFilter, filterErr = buildCondition(filter.Conditions[0], driver)
 	default:
-		// for size 2
 		conditions := make([]string, 0, len(filter.Conditions))
 		err := utils.ForEach(filter.Conditions, func(cond types.Condition) error {
 			formatted, err := buildCondition(cond, driver)
@@ -455,6 +625,143 @@ func SQLFilter(stream types.StreamInterface, driver string) (string, error) {
 			conditions = append(conditions, formatted)
 			return nil
 		})
-		return strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
+		finalFilter, filterErr = strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
 	}
+
+	return utils.Ternary(thresholdFilter == "", finalFilter, fmt.Sprintf("(%s) AND (%s)", thresholdFilter, finalFilter)).(string), filterErr
+}
+
+// DriverOptions contains options for creating various queries
+type DriverOptions struct {
+	Driver constants.DriverType
+	Stream types.StreamInterface
+	State  *types.State
+	Client *sqlx.DB
+}
+
+// BuildIncrementalQuery generates the incremental query SQL based on driver type
+func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []any, error) {
+	primaryCursor, secondaryCursor := opts.Stream.Cursor()
+	lastPrimaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
+	lastSecondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
+	// cursor values cannot contain only nil values
+	if lastPrimaryCursorValue == nil {
+		logger.Warnf("last primary cursor value is nil for stream[%s]", opts.Stream.ID())
+	}
+	if secondaryCursor != "" && lastSecondaryCursorValue == nil {
+		logger.Warnf("last secondary cursor value is nil for stream[%s]", opts.Stream.ID())
+	}
+
+	placeholder := GetPlaceholder(opts.Driver)
+
+	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
+	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
+		if opts.Driver == constants.Oracle {
+			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
+		}
+		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
+		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
+	}
+
+	// Build primary cursor condition
+	incrementalCondition, primaryArg, err := buildCursorCondition(primaryCursor, lastPrimaryCursorValue, 1)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to format primary cursor value: %s", err)
+	}
+	queryArgs := []any{primaryArg}
+
+	// Add secondary cursor condition if present
+	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
+		secondaryCondition, secondaryArg, err := buildCursorCondition(secondaryCursor, lastSecondaryCursorValue, 2)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to format secondary cursor value: %s", err)
+		}
+		quotedPrimaryCursor := QuoteIdentifier(primaryCursor, opts.Driver)
+		incrementalCondition = fmt.Sprintf("%s OR (%s IS NULL AND %s)",
+			incrementalCondition, quotedPrimaryCursor, secondaryCondition)
+		queryArgs = append(queryArgs, secondaryArg)
+	}
+
+	logger.Infof("Starting incremental sync for stream[%s] with condition: %s and args: %v", opts.Stream.ID(), incrementalCondition, queryArgs)
+
+	// Use QuoteTable helper function for consistent table quoting
+	quotedTable := QuoteTable(opts.Stream.Namespace(), opts.Stream.Name(), opts.Driver)
+	incrementalQuery := fmt.Sprintf("SELECT * FROM %s WHERE (%s)", quotedTable, incrementalCondition)
+
+	return incrementalQuery, queryArgs, nil
+}
+
+func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constants.DriverType, stream types.StreamInterface) (any, any, error) {
+	primaryCursor, secondaryCursor := stream.Cursor()
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), driverType)
+
+	primaryCursorQuoted := QuoteIdentifier(primaryCursor, driverType)
+	secondaryCursorQuoted := QuoteIdentifier(secondaryCursor, driverType)
+
+	var maxPrimaryCursorValue, maxSecondaryCursorValue any
+
+	bytesConverter := func(value any) any {
+		switch v := value.(type) {
+		case []byte:
+			return string(v)
+		default:
+			return v
+		}
+	}
+
+	cursorValueQuery := utils.Ternary(secondaryCursor == "",
+		fmt.Sprintf("SELECT MAX(%s) FROM %s", primaryCursorQuoted, quotedTable),
+		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
+
+	if secondaryCursor != "" {
+		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to scan the cursor values: %s", err)
+		}
+		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
+	} else {
+		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %s", err)
+		}
+	}
+	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
+}
+
+// ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
+// This is to avoid dupliction of records, as max cursor value is fetched before the chunk creation.
+func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, error) {
+	if opts.Stream.GetSyncMode() != types.INCREMENTAL {
+		return "", nil, nil
+	}
+	primaryCursor, secondaryCursor := opts.Stream.Cursor()
+	primaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), primaryCursor)
+	placeholder := GetPlaceholder(opts.Driver)
+
+	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
+		if opts.Driver == constants.Oracle {
+			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		}
+		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
+		return conditionFilter, cursorValue, nil
+	}
+
+	thresholdFilter, argument, err := createThresholdCondition(1, primaryCursor, primaryCursorValue)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to format primary cursor value: %s", err)
+	}
+	// IS NULL condition is required to handle the case where cursor value is NULL for some rows.
+	// Some driver will avoid returning such rows when <= condition is used.
+	thresholdFilter = fmt.Sprintf("(%s IS NULL OR %s)", QuoteIdentifier(primaryCursor, opts.Driver), thresholdFilter)
+	arguments := []any{argument}
+	if secondaryCursor != "" {
+		secondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
+		secondaryCondition, argument, err := createThresholdCondition(2, secondaryCursor, secondaryCursorValue)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to format secondary cursor value: %s", err)
+		}
+		thresholdFilter = fmt.Sprintf("%s AND (%s IS NULL OR %s)", thresholdFilter, QuoteIdentifier(secondaryCursor, opts.Driver), secondaryCondition)
+		arguments = append(arguments, argument)
+	}
+	return thresholdFilter, arguments, nil
 }

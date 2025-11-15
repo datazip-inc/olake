@@ -7,23 +7,39 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
 
 // ExecuteQuery executes MySQL queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
-	db, ok := sqlx.ConnectContext(ctx, "mysql",
-		"mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true",
-	)
-	require.NoError(t, ok, "failed to connect to  mysql")
 
-	var (
-		query string
-		err   error
-	)
+	var connStr string
+	if fileConfig {
+		var config Config
+		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+			config.Username,
+			config.Password,
+			config.Host,
+			config.Port,
+			config.Database)
+	} else {
+		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
+	}
+	db, err := sqlx.ConnectContext(ctx, "mysql", connStr)
+	require.NoError(t, err, "failed to connect to  mysql")
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	// integration test uses only one stream for testing
+	integrationTestTable := streams[0]
+	var query string
 
 	switch operation {
 	case "create":
@@ -59,16 +75,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 				long_varchar MEDIUMTEXT,
 				name_bool TINYINT(1) DEFAULT '1',
 				PRIMARY KEY (id)
-			)`, tableName)
+			)`, integrationTestTable)
 
 	case "drop":
-		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
 
 	case "clean":
-		query = fmt.Sprintf("DELETE FROM %s", tableName)
+		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
-		insertTestData(t, ctx, db, tableName)
+		insertTestData(t, ctx, db, integrationTestTable)
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
@@ -94,7 +110,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1
-		)`, tableName)
+		)`, integrationTestTable)
 
 	case "update":
 		query = fmt.Sprintf(`
@@ -114,10 +130,35 @@ func ExecuteQuery(ctx context.Context, t *testing.T, tableName string, operation
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0
-			WHERE id = 1`, tableName)
+			WHERE id = 1`, integrationTestTable)
 
 	case "delete":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", tableName)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
+
+	case "setup_cdc":
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		// truncate the cdc tables
+		for idx, cdcStream := range streams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+			// mysql chunking strategy does not support 0 record sync
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s WHERE id > 15000000 LIMIT 1", cdcStream, backfillStreams[idx]))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		}
+		return
+
+	case "bulk_cdc_data_insert":
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		// insert the data into the cdc tables concurrently
+		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber]))
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)

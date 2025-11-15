@@ -100,21 +100,27 @@ func LogRequest(req *http.Request) {
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
 func FileLogger(content any, fileName, fileExtension string) error {
-	// get config folder
-	filePath := viper.GetString(constants.ConfigFolder)
-	if filePath == "" {
+	configFolder := viper.GetString(constants.ConfigFolder)
+	if configFolder == "" {
 		return fmt.Errorf("config folder is not set")
 	}
-	// Construct the full file path
+
+	return FileLoggerWithPath(content, filepath.Join(configFolder, fileName+fileExtension))
+}
+
+func FileLoggerWithPath(content any, path string) error {
+	if path == "" {
+		return fmt.Errorf("path is not set")
+	}
+
+	// Marshal content to JSON
 	contentBytes, err := json.Marshal(content)
 	if err != nil {
 		return fmt.Errorf("failed to marshal content: %s", err)
 	}
 
-	fullPath := filepath.Join(filePath, fileName+fileExtension)
-
 	// Create or truncate the file
-	file, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to create or open file: %s", err)
 	}
@@ -140,7 +146,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
-				syncedRecords, runningThreads, recordsToSync := statsFunc()
+				runningThreads, recordsToSync, syncedRecords := statsFunc()
 				memStats := new(runtime.MemStats)
 				runtime.ReadMemStats(memStats)
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
@@ -151,7 +157,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 					estimatedSeconds = fmt.Sprintf("%.2f s", float64(remainingRecords)/speed)
 				}
 				stats := map[string]interface{}{
-					"Running Threads":          runningThreads,
+					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
 					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
 					"Speed":                    fmt.Sprintf("%.2f rps", speed),
@@ -167,10 +173,6 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 }
 
 func Init() {
-	// check working directory
-	if viper.GetString(constants.ConfigFolder) == "" {
-		viper.SetDefault(constants.ConfigFolder, os.TempDir())
-	}
 	// Set up timestamp for log file names
 	currentTimestamp := time.Now().UTC()
 	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d",
@@ -242,6 +244,12 @@ type ProcessOutputReader struct {
 	reader    *bufio.Scanner
 	closeFn   func() error
 	closeOnce sync.Once
+
+	// readiness detection only (do not fail on error logs)
+	readinessPattern *regexp.Regexp
+	readinessCh      chan struct{}
+	readinessOnce    sync.Once
+	errorLines       sync.Map // map[string]string → procKey -> first error line
 }
 
 // NewProcessOutputReader creates a new ProcessOutputReader for a given process
@@ -292,10 +300,21 @@ func (p *ProcessOutputReader) StartReading() {
 				inStackTrace = false
 			}
 
+			// Notify readiness if the configured readiness pattern matches
+			if p.readinessPattern != nil && p.readinessCh != nil && p.readinessPattern.MatchString(line) {
+				p.readinessOnce.Do(func() {
+					select {
+					case p.readinessCh <- struct{}{}:
+					default:
+					}
+				})
+			}
+
 			if isErrorLine || isStackTraceLine || inStackTrace {
-				Error(fmt.Sprintf("[%s] %s", p.Name, line))
+				Error(fmt.Sprintf("%s %s", p.Name, line))
+				p.errorLines.LoadOrStore(p.Name, line)
 			} else {
-				Info(fmt.Sprintf("[%s] %s", p.Name, line))
+				Info(fmt.Sprintf("%s %s", p.Name, line))
 			}
 		}
 	}()
@@ -343,6 +362,19 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		return fmt.Errorf("failed to set up process output capture: %s", err)
 	}
 
+	// Channels to coordinate readiness or early startup failure
+	readyCh := make(chan struct{}, 1)
+	errCh := make(chan error, 1)
+	readinessPattern := regexp.MustCompile(`(?i)Server started on port`)
+
+	// Configure readers for readiness/error notifications BEFORE starting the process
+	stdoutReader.readinessPattern = readinessPattern
+	stdoutReader.readinessCh = readyCh
+
+	// do not fail on error lines; only use errCh for early process exit
+	stderrReader.readinessPattern = readinessPattern
+	stderrReader.readinessCh = readyCh
+
 	// Set the command's stdout and stderr to our pipes
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = stderrWriter
@@ -363,6 +395,71 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	// since they're only needed by the child process
 	stdoutWriter.Close()
 	stderrWriter.Close()
+	getFirstErrorLine := func(procKey string) string {
+		if v, ok := stderrReader.errorLines.Load(procKey); ok {
+			return v.(string)
+		}
+		return ""
+	}
 
-	return nil
+	timeoutSec := 30
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	// Watch for early process exit before readiness
+	go func() {
+		// Wait will return when the child process exits (successfully or not)
+		wErr := cmd.Wait()
+		select {
+		case <-done:
+			// readiness already confirmed; ignore
+			return
+		default:
+			if wErr != nil {
+				select {
+				case errCh <- fmt.Errorf("%s exited before ready: %w", processName, wErr):
+				default:
+				}
+			} else {
+				select {
+				case errCh <- fmt.Errorf("%s exited before ready", processName):
+				default:
+				}
+			}
+		}
+	}()
+
+	// Block until ready, error, or timeout
+	select {
+	case <-readyCh:
+		close(done)
+		// Clear notification channels to avoid further sends
+		stdoutReader.readinessCh = nil
+		stderrReader.readinessCh = nil
+		return nil
+	case e := <-errCh:
+		close(done)
+		// Attempt to stop the process if it is still running
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		// Include captured error tail from stderr only
+		stderrTail := getFirstErrorLine(processName)
+		if stderrTail == "" {
+			return fmt.Errorf("failed to start iceberg writer: %s", e)
+		}
+		return fmt.Errorf("failed to start iceberg writer: %s: %s", e, stderrTail)
+	case <-ctx.Done():
+		close(done)
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		stderrTail := getFirstErrorLine(processName)
+		if stderrTail == "" {
+			return fmt.Errorf("iceberg writer %s did not become ready within %d seconds", processName, timeoutSec)
+		}
+		return fmt.Errorf("iceberg writer %s did not become ready within %d seconds: %s", processName, timeoutSec, stderrTail)
+	}
 }

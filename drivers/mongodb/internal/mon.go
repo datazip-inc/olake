@@ -24,11 +24,12 @@ const (
 )
 
 type Mongo struct {
-	config     *Config
-	client     *mongo.Client
-	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
-	cdcCursor  sync.Map
-	state      *types.State // reference to globally present state
+	config        *Config
+	client        *mongo.Client
+	CDCSupport    bool // indicates if the MongoDB instance supports Change Streams
+	cdcCursor     sync.Map
+	state         *types.State        // reference to globally present state
+	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
 }
 
 // config reference; must be pointer
@@ -125,7 +126,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name()).WithSyncMode(types.INCREMENTAL)
+		stream := types.NewStream(streamName, db.Name(), nil)
 		// find primary keys
 		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
 		if err != nil {
@@ -182,7 +183,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
 		if fieldName, ok := key.(string); ok {
-				stream.WithCursorField(fieldName)
+			stream.WithCursorField(fieldName)
 		}
 		return true
 	})
@@ -193,7 +194,6 @@ func filterMongoObject(doc bson.M) {
 	for key, value := range doc {
 		// first make key small case as data being typeresolved with small case keys
 		delete(doc, key)
-		key = typeutils.Reformat(key)
 		switch value := value.(type) {
 		case primitive.Timestamp:
 			doc[key] = value.T

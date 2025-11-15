@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/typeutils"
-	"golang.org/x/sync/errgroup"
+	"github.com/datazip-inc/olake/utils/logger"
 )
-
-const DestError = "destination error"
 
 type (
 	NewFunc        func() Writer
@@ -25,28 +21,43 @@ type (
 		Identifier string
 		Number     int64
 		Backfill   bool
+		ThreadID   string
 	}
 
 	ThreadOptions func(opt *Options)
+	writerSchema  struct {
+		mu     sync.RWMutex
+		schema any
+	}
 
-	ThreadEvent struct {
-		Close  CloseFunction
-		Insert InsertFunction
+	Stats struct {
+		TotalRecordsToSync atomic.Int64 // total record that are required to sync
+		ReadCount          atomic.Int64 // records that got read
+		ThreadCount        atomic.Int64 // total number of writer threads
 	}
 
 	WriterPool struct {
-		totalRecords  atomic.Int64
-		recordCount   atomic.Int64
-		ThreadCounter atomic.Int64 // Used in naming files in S3 and global count for threads
-		config        any          // respective writer config
-		init          NewFunc      // To initialize exclusive destination threads
-		group         *errgroup.Group
-		groupCtx      context.Context
-		tmu           sync.Mutex // Mutex between threads
+		configMutex  sync.Mutex
+		stats        *Stats
+		config       any
+		init         NewFunc
+		writerSchema sync.Map
+		batchSize    int64
+	}
+
+	// writer thread used by reader
+	WriterThread struct {
+		stats          *Stats
+		buffer         []types.RawRecord
+		threadID       string
+		writer         Writer
+		batchSize      int64
+		streamArtifact *writerSchema
+		group          *utils.CxGroup
 	}
 )
 
-var RegisteredWriters = map[types.AdapterType]NewFunc{}
+var RegisteredWriters = map[types.DestinationType]NewFunc{}
 
 func WithIdentifier(identifier string) ThreadOptions {
 	return func(opt *Options) {
@@ -66,8 +77,13 @@ func WithBackfill(backfill bool) ThreadOptions {
 	}
 }
 
-// NewWriter creates a new WriterPool with optional configuration
-func NewWriter(ctx context.Context, config *types.WriterConfig, dropStreams []string) (*WriterPool, error) {
+func WithThreadID(threadID string) ThreadOptions {
+	return func(opt *Options) {
+		opt.ThreadID = threadID
+	}
+}
+
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -83,166 +99,196 @@ func NewWriter(ctx context.Context, config *types.WriterConfig, dropStreams []st
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
-	// Clear destination if flag is set
-	if dropStreams != nil {
-		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
-			return nil, fmt.Errorf("failed to clear destination: %s", err)
-		}
+	pool := &WriterPool{
+		stats: &Stats{
+			TotalRecordsToSync: atomic.Int64{},
+			ThreadCount:        atomic.Int64{},
+			ReadCount:          atomic.Int64{},
+		},
+		config:    config.WriterConfig,
+		init:      newfunc,
+		batchSize: batchSize,
 	}
 
-	group, ctx := errgroup.WithContext(ctx)
-	return &WriterPool{
-		totalRecords:  atomic.Int64{},
-		recordCount:   atomic.Int64{},
-		ThreadCounter: atomic.Int64{},
-		config:        config.WriterConfig,
-		init:          newfunc,
-		group:         group,
-		groupCtx:      ctx,
-		tmu:           sync.Mutex{},
-	}, nil
+	for _, stream := range syncStreams {
+		pool.writerSchema.Store(stream, &writerSchema{
+			mu:     sync.RWMutex{},
+			schema: nil,
+		})
+	}
+
+	return pool, nil
 }
 
-// Initialize new adapter thread for writing into destination
-func (w *WriterPool) NewThread(parent context.Context, stream types.StreamInterface, errChan chan error, options ...ThreadOptions) *ThreadEvent {
-	// setup options
+func (w *WriterPool) AddRecordsToSyncStats(count int64) {
+	w.stats.TotalRecordsToSync.Add(count)
+}
+
+func (w *WriterPool) GetStats() *Stats {
+	return w.stats
+}
+
+func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, error) {
+	w.stats.ThreadCount.Add(1)
+
 	opts := &Options{}
 	for _, one := range options {
 		one(opts)
 	}
 
-	var thread Writer
-	recordChan := make(chan types.RawRecord)
-	child, childCancel := context.WithCancel(parent)
+	rawStreamArtifact, ok := w.writerSchema.Load(stream.ID())
+	if !ok {
+		return nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", stream.ID())
+	}
 
-	// fields to make sure schema evolution remain specifc to one thread
-	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
+	streamArtifact, ok := rawStreamArtifact.(*writerSchema)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
+	}
 
-	initNewWriter := func() error {
-		w.tmu.Lock() // lock for concurrent access of w.config
-		defer w.tmu.Unlock()
-		thread = w.init() // set the thread variable
-		if err := utils.Unmarshal(w.config, thread.GetConfigRef()); err != nil {
+	var writerThread Writer
+	err := func() error {
+		// init writer with configurations
+		writerThread = w.init()
+		w.configMutex.Lock()
+		err := utils.Unmarshal(w.config, writerThread.GetConfigRef())
+		w.configMutex.Unlock()
+		if err != nil {
 			return err
 		}
-		return thread.Setup(stream, opts)
-	}
 
-	normalizeFunc := func(rawRecord types.RawRecord) (types.Record, error) {
-		flattenedData, err := thread.Flattener()(rawRecord.Data) // flatten the record first
+		// setup table and schema
+		streamArtifact.mu.Lock()
+		defer streamArtifact.mu.Unlock()
+
+		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
 
-		// schema evolution
-		change, typeChange, mutations := fields.Process(flattenedData)
-		if change || typeChange {
-			w.tmu.Lock()
-			stream.Schema().Override(fields.ToProperties()) // update the schema in Stream
-			w.tmu.Unlock()
-			err := thread.EvolveSchema(change, typeChange, mutations.ToProperties(), flattenedData, rawRecord.OlakeTimestamp)
-			if err != nil {
-				return nil, fmt.Errorf("failed to evolve schema: %s", err)
+		if streamArtifact.schema == nil {
+			streamArtifact.schema = output
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
+	}
+	return &WriterThread{
+		buffer:         []types.RawRecord{},
+		batchSize:      w.batchSize,
+		threadID:       opts.ThreadID,
+		writer:         writerThread,
+		stats:          w.stats,
+		streamArtifact: streamArtifact,
+		group:          utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
+	}, nil
+}
+
+func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context closed")
+	case <-wt.group.Ctx().Done():
+		// if group context is done, return the group err
+		return wt.group.Block()
+	default:
+		wt.stats.ReadCount.Add(1)
+		wt.buffer = append(wt.buffer, record)
+		if len(wt.buffer) >= int(wt.batchSize) {
+			buf := make([]types.RawRecord, len(wt.buffer))
+			copy(buf, wt.buffer)
+			wt.buffer = wt.buffer[:0]
+			wt.group.Add(func(ctx context.Context) error {
+				return wt.flush(ctx, buf)
+			})
+		}
+		return nil
+	}
+}
+
+func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err error) {
+	// skip empty buffers
+	if len(buf) == 0 {
+		return nil
+	}
+
+	defer func() {
+		if err == nil {
+			if rec := recover(); rec != nil {
+				err = fmt.Errorf("panic recovered in flush: %v", rec)
 			}
 		}
-		err = typeutils.ReformatRecord(fields, flattenedData)
+	}()
+
+	// create flush context
+	flushCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
+	if err != nil {
+		return fmt.Errorf("failed to flatten and clean data: %s", err)
+	}
+
+	// TODO: after flattening record type raw_record not make sense
+	if evolution {
+		wt.streamArtifact.mu.Lock()
+		newSchema, err := wt.writer.EvolveSchema(flushCtx, wt.streamArtifact.schema, threadSchema)
+		if err == nil && newSchema != nil {
+			wt.streamArtifact.schema = newSchema
+		}
+		wt.streamArtifact.mu.Unlock()
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("failed to evolve schema: %s", err)
 		}
-		return flattenedData, nil
 	}
 
-	w.group.Go(func() (err error) {
-		w.ThreadCounter.Add(1)
-		defer func() {
-			w.ThreadCounter.Add(-1)
-			childCancel() // no more inserts
-			// must be called before return
-			if err != nil {
-				errChan <- fmt.Errorf("%s, %s", DestError, err)
-			}
-			close(errChan)
-		}()
-		// init writer first
-		if err := initNewWriter(); err != nil {
-			return fmt.Errorf("failed to initialize writer: %s", err)
+	if err := wt.writer.Write(flushCtx, buf); err != nil {
+		return fmt.Errorf("failed to write records: %s", err)
+	}
+
+	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
+	return nil
+}
+
+func (wt *WriterThread) Close(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context closed")
+	default:
+		defer wt.stats.ThreadCount.Add(-1)
+
+		wt.group.Add(func(ctx context.Context) error {
+			return wt.flush(ctx, wt.buffer)
+		})
+
+		if err := wt.group.Block(); err != nil {
+			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
 
-		defer func() {
-			// Need to lock as iceberg writer closes the rpc server if number of threads calling it goes to zero per stream.
-			w.tmu.Lock()
-			defer w.tmu.Unlock()
+		wt.streamArtifact.mu.Lock()
+		defer wt.streamArtifact.mu.Unlock()
 
-			if recErr := recover(); err == nil && recErr != nil {
-				err = fmt.Errorf("panic recovered in writer thread: %s", recErr)
-			}
-
-			// capture error on thread close
-			if err == nil {
-				if threadCloseErr := thread.Close(child); threadCloseErr != nil {
-					err = fmt.Errorf("failed to close thread: %s", threadCloseErr)
-				}
-			}
-		}()
-
-		for {
-			select {
-			case <-parent.Done():
-				return nil
-			default:
-				record, ok := <-recordChan
-				if !ok {
-					return nil
-				}
-				// add insert time
-				record.OlakeTimestamp = time.Now().UTC()
-
-				// check for normalization
-				if stream.NormalizationEnabled() {
-					normalizedData, err := normalizeFunc(record)
-					if err != nil {
-						return fmt.Errorf("failed to normalize record: %s", err)
-					}
-					record.Data = normalizedData
-				}
-				// insert record
-				if err := thread.Write(child, record); err != nil {
-					return fmt.Errorf("failed to write record: %s", err)
-				}
-				w.recordCount.Add(1) // increase the record count
-			}
-		}
-	})
-
-	return &ThreadEvent{
-		Insert: func(record types.RawRecord) error {
-			select {
-			case <-child.Done():
-				return fmt.Errorf("%s, main writer closed", DestError)
-			case recordChan <- record:
-				return nil
-			}
-		},
-		Close: func() {
-			close(recordChan)
-		},
+		return wt.writer.Close(ctx)
 	}
 }
 
-// Returns total records fetched at runtime
-func (w *WriterPool) SyncedRecords() int64 {
-	return w.recordCount.Load()
-}
+func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
+	newfunc, found := RegisteredWriters[config.Type]
+	if !found {
+		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+	}
 
-func (w *WriterPool) AddRecordsToSync(recordCount int64) {
-	w.totalRecords.Add(recordCount)
-}
+	adapter := newfunc()
+	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
+		return err
+	}
 
-func (w *WriterPool) GetRecordsToSync() int64 {
-	return w.totalRecords.Load()
-}
-
-func (w *WriterPool) Wait() error {
-	return w.group.Wait()
+	if dropStreams != nil {
+		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
+			return fmt.Errorf("failed to drop the streams: %s", err)
+		}
+	}
+	return nil
 }

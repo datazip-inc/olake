@@ -10,6 +10,8 @@ The Postgres Driver enables data synchronization from Postgres to your desired d
    Tracks and syncs incremental changes from Postgres in real time.
 3. **Strict CDC (Change Data Capture)**
    Tracks only new changes from the current position in the PostgreSQL WAL, without performing an initial backfill.
+4. **Incremental**
+   Fetches and syncs changes which have cursor value greater than or equal to the saved position.
 
 ---
 
@@ -37,11 +39,17 @@ Add Postgres credentials in following format in `config.json` file. [More detail
     },
     "update_method": {
         "replication_slot": "postgres_slot",
-        "intial_wait_time":120
+        "initial_wait_time":120
     },
     "reader_batch_size": 100000,
     "max_threads" :50,
     "retry_count" :2,
+    "ssh_config":{
+         "host": "ssh_host",
+         "port": 22,
+         "username": "ssh_user",
+         "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nssh_passkey\n-----END OPENSSH PRIVATE KEY-----"
+    }
   }
 ```
 
@@ -71,7 +79,7 @@ After executing the Discover command, a formatted response will look like this:
                   "stream_name": "table_1",
                   "chunk_column":"",
                   "normalization": false,
-                  "append_only": false,
+                  "append_mode": false,
                   "filter": "id > 1"
                }
          ]
@@ -107,7 +115,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
       ```json
       "cursor_field": "<cursor field from available_cursor_fields>"
       ```
-   - To enable `append_only` mode, explicitly set it to `true` in the selected stream configuration. \
+   - To enable `append_mode` mode, explicitly set it to `true` in the selected stream configuration. \
       Similarly, for `chunk_column`, ensure it is defined in the stream settings as required.
       ```json
          "selected_streams": {
@@ -117,7 +125,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                      "stream_name": "table_1",
                      "chunk_column":"",         //column name to be specified
                      "normalization": false,
-                     "append_only": false
+                     "append_mode": false
                   }
             ]
          },
@@ -135,10 +143,16 @@ Before running the Sync command, the generated `streams.json` file must be confi
             ]
          },
       ```
+   - Add `cursor_field` from set of `available_cursor_fields` in case of incremental sync. This column will be used to track which rows from the table must be synced. If the primary cursor field is expected to contain `null` values, a fallback cursor field can be specified after the primary cursor field using a colon separator. The system will use the fallback cursor when the primary cursor is `null`.
+        > **Note**: For incremental sync to work correctly, the primary cursor field (and fallback cursor field if defined) must contain at least one non-null value. Defined cursor fields cannot be entirely null.
+      ```json
+         "sync_mode": "incremental",
+         "cursor_field": "UPDATED_AT:CREATED_AT" // UPDATED_AT is the primary cursor field, CREATED_AT is the fallback cursor field (which can be skipped if the primary cursor is not expected to contain null values)
+      ```
 
 - Final Streams Example
 <br> `normalization` determines that level 1 flattening is required. <br>
-<br> The `append_only` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow)<br>
+<br> The `append_mode` flag determines whether records can be written to the iceberg delete file. If set to true, no records will be written to the delete file. Know more about delete file: [Iceberg MOR and COW](https://olake.io/iceberg/mor-vs-cow)<br>
    ```json
    {
       "selected_streams": {
@@ -147,7 +161,7 @@ Before running the Sync command, the generated `streams.json` file must be confi
                   "partition_regex": "",
                   "stream_name": "table_1",
                   "normalization": false,
-                  "append_only": false
+                  "append_mode": false
                }
          ]
       },
@@ -218,8 +232,7 @@ Example (Local Test Configuration (JDBC + Minio))
       "s3_use_ssl": false,
       "s3_path_style": true,
       "aws_access_key": "admin",
-      "aws_secret_key": "password",
-      "iceberg_db": "olake_iceberg"
+      "aws_secret_key": "password"
     }
   }
   ```

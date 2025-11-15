@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/postgres
 
-go 1.23.2
+go 1.24.0
 
 toolchain go1.24.3
 
@@ -79,5 +79,3 @@ require (
 	golang.org/x/tools v0.30.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
-
-replace github.com/datazip-inc/olake => ../../

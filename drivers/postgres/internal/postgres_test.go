@@ -11,11 +11,25 @@ import (
 func TestPostgresIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		Driver:             string(constants.Postgres),
+		TestConfig:         testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:          "public",
 		ExpectedData:       ExpectedPostgresData,
 		ExpectedUpdateData: ExpectedUpdatedPostgresData,
 		DataTypeSchema:     PostgresToIcebergSchema,
 		ExecuteQuery:       ExecuteQuery,
+		IcebergDB:          "postgres_postgres_public",
 	}
 	testConfig.TestIntegration(t)
+}
+
+func TestPostgresPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:      testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:       "public",
+		BackfillStreams: []string{"trips", "fhv_trips"},
+		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:    ExecuteQuery,
+	}
+
+	config.TestPerformance(t)
 }

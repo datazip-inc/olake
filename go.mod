@@ -1,8 +1,6 @@
 module github.com/datazip-inc/olake
 
-go 1.23.2
-
-toolchain go1.23.7
+go 1.24.0
 
 require (
 	github.com/apache/spark-connect-go/v35 v35.0.0-20250317154112-ffd832059443
@@ -14,6 +12,7 @@ require (
 	github.com/go-playground/validator/v10 v10.25.0
 	github.com/goccy/go-json v0.10.5
 	github.com/jackc/pglogrepl v0.0.0-20250322012620-f1e2b1498ed6
+	github.com/jackc/pgtype v1.10.0
 	github.com/jackc/pgx/v5 v5.7.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
@@ -21,7 +20,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/xitongsys/parquet-go v1.6.2
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
 	go.mongodb.org/mongo-driver v1.17.3
@@ -29,7 +28,6 @@ require (
 	google.golang.org/grpc v1.72.2
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
@@ -118,7 +116,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.8.0 // indirect
-	github.com/segmentio/backo-go v1.1.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/siddontang/go-log v0.0.0-20190221022429-1e957dd83bed // indirect
@@ -154,12 +151,10 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go v1.55.6
-	github.com/brainicorn/ganno v0.0.0-20220304182003-e638228cd865
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0
 	github.com/oklog/ulid v1.3.1
-	github.com/segmentio/analytics-go/v3 v3.3.0
 	github.com/spf13/pflag v1.0.6 // indirect
 	golang.org/x/sync v0.14.0
 )

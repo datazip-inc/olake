@@ -4,17 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 type CDCChange struct {
 	Stream    types.StreamInterface
-	Timestamp typeutils.Time
+	Timestamp time.Time
 	Kind      string
 	Data      map[string]interface{}
 }
@@ -28,9 +28,9 @@ type AbstractDriver struct { //nolint:gosec,revive
 
 var DefaultColumns = map[string]types.DataType{
 	constants.OlakeID:        types.String,
-	constants.OlakeTimestamp: types.Int64,
+	constants.OlakeTimestamp: types.TimestampMicro,
 	constants.OpType:         types.String,
-	constants.CdcTimestamp:   types.Int64,
+	constants.CdcTimestamp:   types.TimestampMicro,
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
@@ -58,16 +58,18 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	discoverCtx, cancel := context.WithTimeout(ctx, constants.DefaultDiscoverTimeout)
-	defer cancel()
+func (a *AbstractDriver) GetKafkaInterface() (KafkaInterface, bool) {
+	kafkaInterface, ok := a.driver.(KafkaInterface)
+	return kafkaInterface, ok
+}
 
+func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
 	if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(discoverCtx, a.driver.MaxConnections())
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	streams, err := a.driver.GetStreamNames(discoverCtx)
+	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
 	}
@@ -89,17 +91,25 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		convStream.WithSyncMode(types.FULLREFRESH)
-		convStream.SyncMode = types.FULLREFRESH
+		if convStream.SupportedSyncModes.Len() == 0 {
+			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		}
+		convStream.SyncMode = utils.Ternary(convStream.SyncMode == "", types.FULLREFRESH, convStream.SyncMode).(types.SyncMode)
 
-		// Add CDC columns if supported
-		if a.driver.CDCSupported() {
-			for column, typ := range DefaultColumns {
-				convStream.UpsertField(column, typ, true)
-			}
+		// add default columns
+		for column, typ := range DefaultColumns {
+			convStream.UpsertField(column, typ, true)
+		}
+
+		_, isKafkaDriver := a.GetKafkaInterface()
+		if a.driver.CDCSupported() && !isKafkaDriver {
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
+		} else {
+			// remove cdc column as it is not supported
+			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
 		}
+
 		finalStreams = append(finalStreams, convStream)
 		return true
 	})
@@ -111,7 +121,39 @@ func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
 }
 
-// Read handles different sync modes for data retrieval
+func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.State, error) {
+	if a.state == nil {
+		return &types.State{}, nil
+	}
+
+	dropStreams := make(map[string]bool)
+	for _, stream := range streams {
+		dropStreams[stream.ID()] = true
+	}
+
+	// if global state exists (in case of relational sources)
+	if a.state.Global != nil && a.state.Global.Streams != nil {
+		for streamID := range dropStreams {
+			a.state.Global.Streams.Remove(streamID)
+		}
+	}
+
+	// if all global streams are dropped, no point for global state itself, making it null
+	if len(a.state.Global.Streams.Array()) == 0 {
+		a.state.Global.State = nil
+	}
+
+	if len(a.state.Streams) > 0 {
+		for _, streamState := range a.state.Streams {
+			if dropStreams[fmt.Sprintf("%s.%s", streamState.Namespace, streamState.Stream)] {
+				streamState.HoldsValue.Store(false)
+				streamState.State = sync.Map{}
+			}
+		}
+	}
+	return a.state, nil
+}
+
 func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
 	// set max read connections
 	if a.driver.MaxConnections() > 0 {
