@@ -89,25 +89,30 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
+	// FilterRegex supports the following filter patterns:
+	// Single condition:
+	//   - Normal columns: age > 18, status = active, count != 0
+	//   - Special char columns (quoted): "user-name" = "john", "email@domain" = "test@example.com"
+	//   - Numeric values: price >= 99.99, discount <= 0.5, id = 123
+	//   - Quoted string values: name = "John Doe", city = "New York"
+	//   - Mixed special chars: "column.name" > 10, "data[0]" = "value"
+	// Two conditions with logical operators:
+	//   - AND operator: age > 18 AND status = "active"
+	//   - OR operator: role = "admin" OR role = "moderator"
+	//   - Mixed types: "user-id" = 123 AND "is-active" = true
+	//   - Special chars both sides: "first-name" = "John" AND "last-name" = "Doe"
+	//   - Case insensitive: age > 18 and status = active, price < 100 or discount > 0
+	// Supported operators: =, !=, <, >, <=, >=
+	// Value types: quoted strings, integers, floats (including negative), decimals, unquoted words
 	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
 	}
 
-	// Helper function to extract value from multiple capture groups
-	extractValue := func(groups ...string) string {
-		for _, group := range groups {
-			if group != "" {
-				return group
-			}
-		}
-		return ""
-	}
-
 	var conditions []Condition
 
-	Column := extractValue(matches[1], matches[2])
+	Column := utils.ExtractColumnName(matches[1], matches[2])
 	conditions = append(conditions, Condition{
 		Column:   Column,
 		Operator: matches[3],
@@ -117,7 +122,7 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	// Check if there's a logical operator (and/or)
 	logicalOp := matches[5]
 	if logicalOp != "" {
-		Column := extractValue(matches[6], matches[7])
+		Column := utils.ExtractColumnName(matches[6], matches[7])
 		conditions = append(conditions, Condition{
 			Column:   Column,
 			Operator: matches[8],
