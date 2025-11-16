@@ -117,7 +117,6 @@ For testing the Java component, you'll need to set up a local environment.
        "s3_path_style": true,
        "aws_access_key": "admin",
        "aws_secret_key": "password",
-       "iceberg_db": "olake_iceberg",
        "debug_mode": true
      }
    }
