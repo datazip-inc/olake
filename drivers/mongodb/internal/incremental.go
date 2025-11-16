@@ -152,9 +152,12 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert primary cursor value: %s", err)
 		}
-		conditions = append(conditions, bson.D{
-			{Key: primaryCursor, Value: bson.D{{Key: "$lte", Value: formattedPrimaryValue}}},
+		condition := buildMongoCondition(types.Condition{
+			Column:   primaryCursor,
+			Value:    fmt.Sprintf("%v", formattedPrimaryValue),
+			Operator: "<=",
 		})
+		conditions = append(conditions, condition)
 	}
 
 	if maxSecondaryCursorValue != nil && secondaryCursor != "" {
@@ -162,9 +165,12 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert secondary cursor value: %s", err)
 		}
-		conditions = append(conditions, bson.D{
-			{Key: secondaryCursor, Value: bson.D{{Key: "$lte", Value: formattedSecondaryValue}}},
+		condition := buildMongoCondition(types.Condition{
+			Column:   secondaryCursor,
+			Value:    fmt.Sprintf("%v", formattedSecondaryValue),
+			Operator: "<=",
 		})
+		conditions = append(conditions, condition)
 	}
 
 	return conditions, nil
