@@ -20,12 +20,14 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
      private final Catalog icebergCatalog;
      private final IcebergTableOperator icebergTableOperator;
      private Table icebergTable;
+     private org.apache.iceberg.io.OutputFileFactory outputFileFactory;
 
      public OlakeArrowIngester(boolean upsertRecords, String icebergNamespace, Catalog icebergCatalog) {
           this.icebergNamespace = icebergNamespace;
           this.icebergCatalog = icebergCatalog;
           this.icebergTableOperator = new IcebergTableOperator(upsertRecords);
           this.icebergTable = null;
+          this.outputFileFactory = null;
      }
 
      @Override
@@ -158,11 +160,15 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                     case GENERATE_FILENAME:
                          LOGGER.debug("{} Received GENERATE_FILENAME request for thread: {}", requestId, threadId);
 
-                         org.apache.iceberg.FileFormat fileFormat = IcebergUtil.getTableFileFormat(this.icebergTable);
-                         org.apache.iceberg.io.OutputFileFactory fileFactory = IcebergUtil
-                                   .getTableOutputFileFactory(this.icebergTable, fileFormat);
+                         if (this.outputFileFactory == null) {
+                              org.apache.iceberg.FileFormat fileFormat = IcebergUtil
+                                        .getTableFileFormat(this.icebergTable);
+                              this.outputFileFactory = IcebergUtil.getTableOutputFileFactory(this.icebergTable,
+                                        fileFormat);
+                         }
 
-                         org.apache.iceberg.encryption.EncryptedOutputFile encryptedFile = fileFactory.newOutputFile();
+                         org.apache.iceberg.encryption.EncryptedOutputFile encryptedFile = this.outputFileFactory
+                                   .newOutputFile();
                          String fullPath = encryptedFile.encryptingOutputFile().location();
 
                          int lastSlashIndex = fullPath.lastIndexOf('/');
