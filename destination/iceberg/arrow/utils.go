@@ -86,7 +86,7 @@ func CreateDeNormFields(fieldIds map[string]int) []arrow.Field {
 
 		fields = append(fields, arrow.Field{
 			Name: fieldName,
-			Type: arrowType, 
+			Type: arrowType,
 			Nullable: nullable,
 			Metadata: arrow.MetadataFrom(map[string]string{
 				"PARQUET:field_id": fmt.Sprintf("%d", fieldIds[fieldName]),
@@ -118,7 +118,7 @@ func CreateDelArrowRec(records []types.RawRecord, fieldId int) (arrow.Record, er
 	for _, rec := range records {
 		recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
 	}
-	
+
 	arrRec := recordBuilder.NewRecord()
 
 	return arrRec, nil
@@ -253,13 +253,13 @@ func ExtractDeleteRecords(records []types.RawRecord) []types.RawRecord {
 }
 
 // OLake's arrow writer writes the iceberg schema as a metadata in every parquet file
-func BuildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int) string {
+func BuildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int, schemaId int) string {
 	fieldNames := make([]string, 0, len(schema))
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
 	}
 
-	sort.Strings(fieldNames) // need to check this
+	sort.Strings(fieldNames)
 
 	fieldsJSON := ""
 	for i, fieldName := range fieldNames {
@@ -278,5 +278,5 @@ func BuildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int) s
 			fieldId, fieldName, required, typeStr)
 	}
 
-	return fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[%s]}`, fieldsJSON)
+	return fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[%s]}`, schemaId, fieldsJSON)
 }

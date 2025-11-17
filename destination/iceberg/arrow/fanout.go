@@ -25,17 +25,19 @@ type Fanout struct {
 	schema            map[string]string
 	fieldIds          map[string]int
 	icebergSchemaJSON string
+	schemaId          int
 	Normalization     bool
 
 	ops IcebergOperations
 }
 
-func NewFanoutWriter(p []PartitionInfo, schema map[string]string, fieldIds map[string]int, icebergSchemaJSON string, ops IcebergOperations) *Fanout {
+func NewFanoutWriter(p []PartitionInfo, schema map[string]string, fieldIds map[string]int, icebergSchemaJSON string, schemaId int, ops IcebergOperations) *Fanout {
 	return &Fanout{
 		PartitionInfo:     p,
 		schema:            schema,
 		fieldIds:          fieldIds,
 		icebergSchemaJSON: icebergSchemaJSON,
+		schemaId:          schemaId,
 		ops:               ops,
 	}
 }
@@ -122,6 +124,7 @@ func (f *Fanout) Write(ctx context.Context, records []types.RawRecord, fields []
 		for pKey, record := range deletes {
 			deleteWriter := f.getOrCreateRollingWriter(pKey, "delete")
 			deleteWriter.FieldId = fieldId
+			deleteWriter.SchemaId = f.schemaId
 
 			deletes := ExtractDeleteRecords(record)
 

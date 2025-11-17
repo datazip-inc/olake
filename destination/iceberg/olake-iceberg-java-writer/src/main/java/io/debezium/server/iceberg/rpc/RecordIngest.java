@@ -6225,6 +6225,10 @@ public final class RecordIngest {
        * <code>COMMIT = 4;</code>
        */
       COMMIT(4),
+      /**
+       * <code>GET_SCHEMA_ID = 5;</code>
+       */
+      GET_SCHEMA_ID(5),
       UNRECOGNIZED(-1),
       ;
 
@@ -6248,6 +6252,10 @@ public final class RecordIngest {
        * <code>COMMIT = 4;</code>
        */
       public static final int COMMIT_VALUE = 4;
+      /**
+       * <code>GET_SCHEMA_ID = 5;</code>
+       */
+      public static final int GET_SCHEMA_ID_VALUE = 5;
 
 
       public final int getNumber() {
@@ -6279,6 +6287,7 @@ public final class RecordIngest {
           case 2: return UPLOAD_FILE;
           case 3: return GENERATE_FILENAME;
           case 4: return COMMIT;
+          case 5: return GET_SCHEMA_ID;
           default: return null;
         }
       }
@@ -11100,7 +11109,7 @@ public final class RecordIngest {
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
       "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\352\005\n\014ArrowPayload\022F\n\004type\030\001" +
+      "success\030\002 \001(\010\"\375\005\n\014ArrowPayload\022F\n\004type\030\001" +
       " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
       "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
       "25.io.debezium.server.iceberg.rpc.ArrowP" +
@@ -11116,19 +11125,19 @@ public final class RecordIngest {
       "\nfield_name\030\004 \001(\tH\000\210\001\001\022X\n\013file_upload\030\005 " +
       "\001(\0132>.io.debezium.server.iceberg.rpc.Arr" +
       "owPayload.FileUploadRequestH\001\210\001\001B\r\n\013_fie" +
-      "ld_nameB\016\n\014_file_upload\"a\n\013PayloadType\022\014" +
+      "ld_nameB\016\n\014_file_upload\"t\n\013PayloadType\022\014" +
       "\n\010REGISTER\020\000\022\020\n\014GET_FIELD_ID\020\001\022\017\n\013UPLOAD" +
       "_FILE\020\002\022\025\n\021GENERATE_FILENAME\020\003\022\n\n\006COMMIT" +
-      "\020\004\"Z\n\023ArrowIngestResponse\022\016\n\006result\030\001 \001(" +
-      "\t\022\017\n\007success\030\002 \001(\010\022\025\n\010filename\030\003 \001(\tH\000\210\001" +
-      "\001B\013\n\t_filename2\212\001\n\023RecordIngestService\022s" +
-      "\n\013SendRecords\022..io.debezium.server.icebe" +
-      "rg.rpc.IcebergPayload\0324.io.debezium.serv" +
-      "er.iceberg.rpc.RecordIngestResponse2\205\001\n\022" +
-      "ArrowIngestService\022o\n\nIcebergAPI\022,.io.de" +
-      "bezium.server.iceberg.rpc.ArrowPayload\0323" +
-      ".io.debezium.server.iceberg.rpc.ArrowIng" +
-      "estResponseb\006proto3"
+      "\020\004\022\021\n\rGET_SCHEMA_ID\020\005\"Z\n\023ArrowIngestResp" +
+      "onse\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\022\025\n" +
+      "\010filename\030\003 \001(\tH\000\210\001\001B\013\n\t_filename2\212\001\n\023Re" +
+      "cordIngestService\022s\n\013SendRecords\022..io.de" +
+      "bezium.server.iceberg.rpc.IcebergPayload" +
+      "\0324.io.debezium.server.iceberg.rpc.Record" +
+      "IngestResponse2\205\001\n\022ArrowIngestService\022o\n" +
+      "\nIcebergAPI\022,.io.debezium.server.iceberg" +
+      ".rpc.ArrowPayload\0323.io.debezium.server.i" +
+      "ceberg.rpc.ArrowIngestResponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,

@@ -87,6 +87,7 @@ const (
 	ArrowPayload_UPLOAD_FILE       ArrowPayload_PayloadType = 2
 	ArrowPayload_GENERATE_FILENAME ArrowPayload_PayloadType = 3
 	ArrowPayload_COMMIT            ArrowPayload_PayloadType = 4
+	ArrowPayload_GET_SCHEMA_ID     ArrowPayload_PayloadType = 5
 )
 
 // Enum value maps for ArrowPayload_PayloadType.
@@ -97,6 +98,7 @@ var (
 		2: "UPLOAD_FILE",
 		3: "GENERATE_FILENAME",
 		4: "COMMIT",
+		5: "GET_SCHEMA_ID",
 	}
 	ArrowPayload_PayloadType_value = map[string]int32{
 		"REGISTER":          0,
@@ -104,6 +106,7 @@ var (
 		"UPLOAD_FILE":       2,
 		"GENERATE_FILENAME": 3,
 		"COMMIT":            4,
+		"GET_SCHEMA_ID":     5,
 	}
 )
 
@@ -957,7 +960,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x14REFRESH_TABLE_SCHEMA\x10\x05\"H\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\"\x97\a\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\"\xaa\a\n" +
 	"\fArrowPayload\x12L\n" +
 	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
 	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1ak\n" +
@@ -980,14 +983,15 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\vfile_upload\x18\x05 \x01(\v2>.io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequestH\x01R\n" +
 	"fileUpload\x88\x01\x01B\r\n" +
 	"\v_field_nameB\x0e\n" +
-	"\f_file_upload\"a\n" +
+	"\f_file_upload\"t\n" +
 	"\vPayloadType\x12\f\n" +
 	"\bREGISTER\x10\x00\x12\x10\n" +
 	"\fGET_FIELD_ID\x10\x01\x12\x0f\n" +
 	"\vUPLOAD_FILE\x10\x02\x12\x15\n" +
 	"\x11GENERATE_FILENAME\x10\x03\x12\n" +
 	"\n" +
-	"\x06COMMIT\x10\x04\"u\n" +
+	"\x06COMMIT\x10\x04\x12\x11\n" +
+	"\rGET_SCHEMA_ID\x10\x05\"u\n" +
 	"\x13ArrowIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x1f\n" +

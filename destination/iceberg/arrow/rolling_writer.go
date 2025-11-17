@@ -32,8 +32,8 @@ var (
 	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L612
 	DefaultDictionaryEncoding = parquet.WithDictionaryDefault(true)
 
-	// Setting it up as 4096 to improve performance, arrow-go's default value is 1024
-	DefaultBatchSize = parquet.WithBatchSize(4096)
+	// Apache Iceberg page row count limit: https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L137
+	DefaultBatchSize = parquet.WithBatchSize(int64(20000))
 
 	// Apache Iceberg relies on Parquet-Java: https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-column/src/main/java/org/apache/parquet/column/ParquetProperties.java#L67
 	DefaultStatsEnabled = parquet.WithStats(true)
@@ -51,6 +51,10 @@ const (
 	// the delete file target size is as per Apache Iceberg
 	// https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L323
 	deleteFileTargetSize = int64(64 * 1024 * 1024)
+
+	// Row group size threshold matching Iceberg's default
+	// https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L128
+	rowGroupSizeThreshold = int64(128 * 1024 * 1024)
 )
 
 type FileUploadData struct {
@@ -66,15 +70,17 @@ type RollingWriter struct {
 	partitionKey string
 
 	FieldId           int
+	SchemaId          int
 	fileType          string
 	ops               IcebergOperations
 	IcebergSchemaJSON string
 
-	currentWriter         *pqarrow.FileWriter
-	currentBuffer         *bytes.Buffer
-	currentFile           string
-	currentRowCount       int64
-	currentCompressedSize int64
+	currentWriter           *pqarrow.FileWriter
+	currentBuffer           *bytes.Buffer
+	currentFile             string
+	currentRowCount         int64
+	currentCompressedSize   int64
+	currentRowGroupRowCount int64
 }
 
 func NewRollingWriter(partitionKey string, fileType string, ops IcebergOperations) *RollingWriter {
@@ -107,6 +113,7 @@ func (r *RollingWriter) flush() (*FileUploadData, error) {
 	r.currentRowCount = 0
 	r.currentFile = ""
 	r.currentCompressedSize = 0
+	r.currentRowGroupRowCount = 0
 
 	return uploadData, nil
 }
@@ -161,7 +168,7 @@ func (r *RollingWriter) createWriter(ctx context.Context, record arrow.Record) e
 	}
 
 	if r.fileType == "delete" {
-		icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":0,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, r.FieldId, constants.OlakeID)
+		icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, r.SchemaId, r.FieldId, constants.OlakeID)
 
 		writer.AppendKeyValueMetadata("delete-type", "equality")
 		writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", r.FieldId))
@@ -173,6 +180,9 @@ func (r *RollingWriter) createWriter(ctx context.Context, record arrow.Record) e
 	r.currentWriter = writer
 	r.currentRowCount = 0
 	r.currentCompressedSize = 0
+	r.currentRowGroupRowCount = 0
+
+	writer.NewBufferedRowGroup()
 
 	if r.fileType == "delete" {
 		logger.Infof("Starting delete file: %s with field ID %d", r.currentFile, r.FieldId)
@@ -193,11 +203,17 @@ func (r *RollingWriter) Write(ctx context.Context, record arrow.Record) (*FileUp
 	}
 
 	r.currentRowCount += record.NumRows()
+	r.currentRowGroupRowCount += record.NumRows()
 	record.Release()
 
-	// logic : all previously flushed row groups (in buffer) + current in-progress row group (buffered in memory)
-	sizeSoFar := int64(r.currentBuffer.Len()) + r.currentWriter.RowGroupTotalBytesWritten()
+	rowGroupSize := r.currentWriter.RowGroupTotalBytesWritten()
+	if rowGroupSize >= rowGroupSizeThreshold {
+		r.currentWriter.NewBufferedRowGroup()
+		r.currentRowGroupRowCount = 0
+	}
 
+	// Check total file size: all flushed row groups in buffer + current in-progress row group in memory
+	sizeSoFar := int64(r.currentBuffer.Len()) + r.currentWriter.RowGroupTotalBytesWritten()
 	r.currentCompressedSize = sizeSoFar
 
 	var targetFileSize int64

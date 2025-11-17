@@ -25,6 +25,7 @@ type ArrowWriter struct {
 
 	fields   []arrow.Field
 	fieldIds map[string]int // iceberg schema column ids
+	schemaId int            // iceberg current schema id
 }
 
 func (i *Iceberg) NewArrowWriter(ctx context.Context) (*ArrowWriter, error) {
@@ -43,7 +44,7 @@ func (i *Iceberg) NewArrowWriter(ctx context.Context) (*ArrowWriter, error) {
 			}
 		}
 
-		arrowWriter.partitionedWriter = arrow_writer.NewFanoutWriter(arrowPartitions, i.schema, arrowWriter.fieldIds, arrowWriter.icebergSchemaJSON, arrowWriter)
+		arrowWriter.partitionedWriter = arrow_writer.NewFanoutWriter(arrowPartitions, i.schema, arrowWriter.fieldIds, arrowWriter.icebergSchemaJSON, arrowWriter.schemaId, arrowWriter)
 		arrowWriter.partitionedWriter.Normalization = i.stream.NormalizationEnabled()
 	} else {
 		arrowWriter.unpartitionedDataWriter = arrow_writer.NewRollingWriter("", "data", arrowWriter)
@@ -66,13 +67,20 @@ func (aw *ArrowWriter) intitializeFields(ctx context.Context) error {
 		aw.fieldIds[fieldName] = fieldId
 	}
 
+	schemaId, err := aw.GetSchemaId(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get schema ID: %w", err)
+	}
+	
+	aw.schemaId = schemaId
+
 	if aw.iceberg.stream.NormalizationEnabled() {
 		aw.fields = arrow_writer.CreateNormFields(aw.iceberg.schema, aw.fieldIds)
 	} else {
 		aw.fields = arrow_writer.CreateDeNormFields(aw.fieldIds)
 	}
 
-	aw.icebergSchemaJSON = arrow_writer.BuildIcebergSchemaJSON(aw.iceberg.schema, aw.fieldIds)
+	aw.icebergSchemaJSON = arrow_writer.BuildIcebergSchemaJSON(aw.iceberg.schema, aw.fieldIds, aw.schemaId)
 
 	return nil
 }
@@ -125,6 +133,7 @@ func (aw *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) err
 			if aw.unpartitionedDeleteWriter == nil {
 				aw.unpartitionedDeleteWriter = arrow_writer.NewRollingWriter("", "delete", aw)
 				aw.unpartitionedDeleteWriter.FieldId = fieldId
+				aw.unpartitionedDeleteWriter.SchemaId = aw.schemaId
 			}
 
 			rec, err := arrow_writer.CreateDelArrowRec(deletes, fieldId)
@@ -271,4 +280,32 @@ func (aw *ArrowWriter) GetFieldId(ctx context.Context, fieldName string) (int, e
 	}
 
 	return fieldId, nil
+}
+
+// GetSchemaId returns the current schema ID from the iceberg table
+// This is critical for equality delete files to reference the correct schema version
+func (aw *ArrowWriter) GetSchemaId(ctx context.Context) (int, error) {
+	if aw.iceberg.server == nil {
+		return -1, fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := proto.ArrowPayload{
+		Type: proto.ArrowPayload_GET_SCHEMA_ID,
+		Metadata: &proto.ArrowPayload_Metadata{
+			DestTableName: aw.iceberg.stream.GetDestinationTable(),
+			ThreadId:      aw.iceberg.server.serverID,
+		},
+	}
+
+	response, err := aw.iceberg.server.sendArrowRequest(ctx, &request)
+	if err != nil {
+		return -1, fmt.Errorf("failed to get schema ID: %w", err)
+	}
+
+	schemaId, err := strconv.Atoi(response.GetResult())
+	if err != nil {
+		return -1, fmt.Errorf("failed to parse schema ID from response '%s': %w", response.GetResult(), err)
+	}
+
+	return schemaId, nil
 }

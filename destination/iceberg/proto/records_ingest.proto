@@ -71,6 +71,7 @@ message ArrowPayload {
     UPLOAD_FILE = 2;
     GENERATE_FILENAME = 3;
     COMMIT = 4;
+    GET_SCHEMA_ID = 5;
   }
 
   PayloadType type = 1;
