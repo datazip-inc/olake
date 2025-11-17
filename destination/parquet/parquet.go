@@ -537,8 +537,8 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 			logger.Warnf("invalid stream ID format: %s, skipping", streamID)
 			continue
 		}
-		namespace, tableName := parts[0], parts[1]
-		s3TablePath := filepath.Join(p.config.Prefix, namespace, tableName, "/")
+		prefix, namespace, tableName := strings.TrimLeft(p.config.Prefix, "/"), parts[0], parts[1]
+		s3TablePath := filepath.Join(prefix, namespace, tableName, "/")
 
 		logger.Debugf("clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 		if err := deleteS3PrefixStandard(s3TablePath); err != nil {

@@ -425,6 +425,18 @@ func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) 
 	return dbName, Reformat(name)
 }
 
+// splitAndTrim splits a comma-separated string and trims whitespace
+func SplitAndTrim(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
 // RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
 func RetryOnBackoff(attempts int, sleep time.Duration, f func(attempt int) error) (err error) {
 	for cur := range attempts {
