@@ -13,7 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 
@@ -32,7 +32,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			// Reset only mentioned cursor state while preserving other state values
 			a.state.ResetCursor(stream.Self())
 
-			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(mainCtx, stream)
 			if err != nil {
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
@@ -49,7 +49,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			}
 		}
 
-		return a.Backfill(ctx, backfillWaitChannel, pool, stream)
+		return a.Backfill(mainCtx, backfillWaitChannel, pool, stream)
 	})
 	if err != nil {
 		return fmt.Errorf("backfill failed: %s", err)
@@ -59,9 +59,9 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	backfilledStreams := make([]string, 0, len(streams))
 	for len(backfilledStreams) < len(streams) {
 		select {
-		case <-ctx.Done():
+		case <-mainCtx.Done():
 			// if main context stuck in error
-			return ctx.Err()
+			return mainCtx.Err()
 		case <-a.GlobalConnGroup.Ctx().Done():
 			// if global conn group stuck in error
 			return nil
@@ -70,7 +70,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				return fmt.Errorf("backfill channel closed unexpectedly")
 			}
 			backfilledStreams = append(backfilledStreams, streamID)
-			a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
+			a.GlobalConnGroup.Add(func(gCtx context.Context) (err error) {
 				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 				stream := streams[index]
 				primaryCursor, secondaryCursor := stream.Cursor()
@@ -82,7 +82,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				}
 
 				// create incremental context, so that main context not affected if incremental retries
-				incrementalCtx, incrementalCtxCancel := context.WithCancel(ctx)
+				incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
 				defer incrementalCtxCancel()
 
 				threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
@@ -118,7 +118,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						_ = inserter.Close(incrementalCtx, true)
 
 						// create new incremental context
-						incrementalCtx, incrementalCtxCancel = context.WithCancel(ctx)
+						incrementalCtx, incrementalCtxCancel = context.WithCancel(gCtx)
 						threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
 
 						// re-initialize inserter

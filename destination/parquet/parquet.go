@@ -245,9 +245,6 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 	for basePath, parquetFile := range p.partitionedFiles {
 		// construct full file path
 		filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
-		if closeOnError {
-			removeLocalFile(filePath, "closing parquet files due to retry attempt")
-		}
 
 		// Close writers
 		var err error
@@ -266,6 +263,12 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 		}
 
 		logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, filePath)
+
+		// close after closing writers
+		if closeOnError {
+			removeLocalFile(filePath, "closing parquet files due to retry attempt")
+			continue
+		}
 
 		if p.s3Client != nil {
 			// Open file for S3 upload

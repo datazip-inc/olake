@@ -14,11 +14,11 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
+func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
 	if chunksSet == nil || chunksSet.Len() == 0 {
-		chunksSet, err = a.driver.GetOrSplitChunks(ctx, pool, stream)
+		chunksSet, err = a.driver.GetOrSplitChunks(mainCtx, pool, stream)
 		if err != nil {
 			return fmt.Errorf("failed to get or split chunks: %s", err)
 		}
@@ -39,9 +39,9 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	})
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
-	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
+	chunkProcessor := func(gCtx context.Context, chunk types.Chunk) (err error) {
 		// create backfill context, so that main context not affected if backfill retries
-		backfillCtx, backfillCtxCancel := context.WithCancel(ctx)
+		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
 		defer backfillCtxCancel()
 
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
@@ -79,8 +79,11 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				// close prev writer
 				_ = inserter.Close(backfillCtx, true)
 
+				// cancel previous backfill context
+				backfillCtxCancel()
+
 				// create new backfill context
-				backfillCtx, backfillCtxCancel = context.WithCancel(ctx)
+				backfillCtx, backfillCtxCancel = context.WithCancel(gCtx)
 				threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
 
 				// re-initialize inserter with backfillCtx for consistency

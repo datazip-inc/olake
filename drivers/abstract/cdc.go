@@ -11,9 +11,9 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	// run pre cdc of drivers
-	if err := a.driver.PreCDC(ctx, streams); err != nil {
+	if err := a.driver.PreCDC(mainCtx, streams); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
 	}
 
@@ -25,7 +25,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			logger.Infof("backfill %s for stream[%s], skipping", utils.Ternary(isStrictCDC, "not enabled", "completed").(string), stream.ID())
 			backfillWaitChannel <- stream.ID()
 		} else {
-			err := a.Backfill(ctx, backfillWaitChannel, pool, stream)
+			err := a.Backfill(mainCtx, backfillWaitChannel, pool, stream)
 			if err != nil {
 				return err
 			}
@@ -40,9 +40,9 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	backfilledStreams := make([]string, 0, len(streams))
 	for len(backfilledStreams) < len(streams) {
 		select {
-		case <-ctx.Done():
+		case <-mainCtx.Done():
 			// if main context stuck in error
-			return ctx.Err()
+			return mainCtx.Err()
 		case <-a.GlobalConnGroup.Ctx().Done():
 			// if global conn group stuck in error
 			return nil
@@ -55,11 +55,11 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 			// run parallel change stream
 			// TODO: remove duplicate code
 			if isParallelChangeStream(a.driver.Type()) {
-				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
+				a.GlobalConnGroup.Add(func(gCtx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 
 					// create cdc context, so that main context not affected if cdc retries
-					cdcCtx, cdcCtxCancel := context.WithCancel(ctx)
+					cdcCtx, cdcCtxCancel := context.WithCancel(gCtx)
 					defer cdcCtxCancel()
 
 					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
@@ -80,7 +80,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 						}
 
-						postCDCErr := a.driver.PostCDC(ctx, streams[index], err == nil, "")
+						postCDCErr := a.driver.PostCDC(cdcCtx, streams[index], err == nil, "")
 						if postCDCErr != nil {
 							err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 						}
@@ -96,7 +96,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 							_ = inserter.Close(cdcCtx, true)
 
 							// create new cdc context
-							cdcCtx, cdcCtxCancel = context.WithCancel(ctx)
+							cdcCtx, cdcCtxCancel = context.WithCancel(gCtx)
 							threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
 
 							// re-initialize inserter
@@ -132,12 +132,17 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	kafkaDriver, ok := a.GetKafkaInterface()
 	if ok {
 		// set limit to global connection group according to readers available
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, len(kafkaDriver.GetReaderIDs()))
-		utils.ConcurrentInGroup(a.GlobalConnGroup, kafkaDriver.GetReaderIDs(), func(ctx context.Context, readerID string) (err error) {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(mainCtx, len(kafkaDriver.GetReaderIDs()))
+		utils.ConcurrentInGroup(a.GlobalConnGroup, kafkaDriver.GetReaderIDs(), func(gCtx context.Context, readerID string) (err error) {
 			inserters := make(map[string]*destination.WriterThread)
+
+			// create cdc context, so that main context not affected if cdc retries
+			cdcCtx, cdcCtxCancel := context.WithCancel(gCtx)
+			defer cdcCtxCancel()
+
 			defer func() {
 				for streamID, inserter := range inserters {
-					if threadErr := inserter.Close(ctx); threadErr != nil {
+					if threadErr := inserter.Close(cdcCtx, err != nil); threadErr != nil {
 						err = fmt.Errorf("failed closing writer[%s]: %s", streamID, threadErr)
 					}
 				}
@@ -146,13 +151,37 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					err = fmt.Errorf("panic recovered in cdc: %s, prev error: %v", r, err)
 				}
 
-				postCDCErr := a.driver.PostCDC(ctx, nil, err == nil, readerID)
+				postCDCErr := a.driver.PostCDC(cdcCtx, nil, err == nil, readerID)
 				if postCDCErr != nil {
 					err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %v", postCDCErr, err)
 				}
 			}()
-			return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-				return kafkaDriver.PartitionStreamChanges(ctx, readerID, func(ctx context.Context, message CDCChange) error {
+			return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+				if attempt > 0 {
+					// close all prev writers
+					for _, inserter := range inserters {
+						_ = inserter.Close(cdcCtx, true)
+					}
+
+					// cancel previous cdc context
+					cdcCtxCancel()
+
+					// create new cdc context
+					cdcCtx, cdcCtxCancel = context.WithCancel(gCtx)
+
+					// re-initialize all inserters
+					for streamID := range inserters {
+						streamIdx, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
+						// no relation with prev thread id, should not we also provide prev thread id for reference?
+						threadID := utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", utils.ULID()), utils.ULID()).(string)
+						inserters[streamID], err = pool.NewWriter(cdcCtx, streams[streamIdx], destination.WithThreadID(threadID))
+						if err != nil {
+							return fmt.Errorf("failed to create new writer thread: %s", err)
+						}
+					}
+				}
+
+				return kafkaDriver.PartitionStreamChanges(cdcCtx, readerID, func(ctx context.Context, message CDCChange) error {
 					inserter := inserters[message.Stream.ID()]
 					if inserter == nil {
 						// reader can read from multiple streams in kafka which we cant decide (r1 -> s1, s2, r2 -> s2, s3)
@@ -178,9 +207,9 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 	}
 
 	// TODO: For a big table cdc (for all tables) will not start until backfill get finished, need to study alternate ways to do cdc sync
-	a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
+	a.GlobalConnGroup.Add(func(gCtx context.Context) (err error) {
 		// create cdc context, so that main context not affected if cdc retries
-		cdcCtx, cdcCtxCancel := context.WithCancel(ctx)
+		cdcCtx, cdcCtxCancel := context.WithCancel(gCtx)
 		defer cdcCtxCancel()
 
 		// Set up inserters for each stream
@@ -209,7 +238,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				err = fmt.Errorf("panic recovered in cdc: %v, prev error: %s", r, err)
 			}
 
-			postCDCErr := a.driver.PostCDC(ctx, nil, err == nil, "")
+			postCDCErr := a.driver.PostCDC(cdcCtx, nil, err == nil, "")
 			if postCDCErr != nil {
 				err = fmt.Errorf("post cdc error: %s, cdc insert thread error: %s", postCDCErr, err)
 			}
@@ -218,12 +247,15 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
 			if attempt > 0 {
 				// close all prev writers
-				for _, insert := range inserters {
-					_ = insert.Close(cdcCtx, true)
+				for _, inserter := range inserters {
+					_ = inserter.Close(cdcCtx, true)
 				}
 
+				// cancel previous cdc context
+				cdcCtxCancel()
+
 				// create new cdc context
-				cdcCtx, cdcCtxCancel = context.WithCancel(ctx)
+				cdcCtx, cdcCtxCancel = context.WithCancel(gCtx)
 
 				// re-initialize all inserters
 				for stream := range inserters {
