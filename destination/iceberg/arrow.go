@@ -67,13 +67,6 @@ func (aw *ArrowWriter) intitializeFields(ctx context.Context) error {
 		aw.fieldIds[fieldName] = fieldId
 	}
 
-	schemaId, err := aw.GetSchemaId(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get schema ID: %w", err)
-	}
-	
-	aw.schemaId = schemaId
-
 	if aw.iceberg.stream.NormalizationEnabled() {
 		aw.fields = arrow_writer.CreateNormFields(aw.iceberg.schema, aw.fieldIds)
 	} else {

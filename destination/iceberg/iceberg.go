@@ -123,6 +123,13 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			return nil, fmt.Errorf("failed to initialize arrow writer for thread[%s] stream [%s]: %w", i.options.ThreadID, stream.Name(), err)
 		}
 
+		schemaId, err := i.arrowWriter.GetSchemaId(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get schema id for arrow writer thread[%s] stream [%s]: %w", i.options.ThreadID, stream.Name(), err)
+		}
+	
+		i.arrowWriter.schemaId = schemaId
+
 		logger.Infof("Thread[%s]: Arrow writer initialized for stream [%s]", i.options.ThreadID, stream.Name())
 	}
 
