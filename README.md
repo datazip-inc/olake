@@ -53,9 +53,9 @@
 | Source → Destination | Throughput               | Relative Performance                 | Full Report                                                  |
 |----------------------|--------------------------|--------------------------------------|--------------------------------------------------------------|
 | Postgres → Iceberg   | 3,19,562 RPS (Full load) | 6.8× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
-| MySQL → Iceberg      | 3,38,005 RPS (Full load) | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql) |
+| MySQL → Iceberg      | 3,38,005 RPS (Full load) | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
 | MongoDB → Iceberg    | -                        | 6x faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
-| Oracle → Iceberg     | 2,61,793 RPS (Full Load) | -                                    | [Full Load](https://olake.io/docs/benchmarks/?tab=oracle)    |
+| Oracle → Iceberg     | 2,61,793 RPS (Full Load) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
 
 
 
