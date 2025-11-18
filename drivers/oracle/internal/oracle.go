@@ -3,7 +3,9 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -15,7 +17,8 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/sijms/go-ora/v2"
+	go_ora "github.com/sijms/go-ora/v2"
+	"golang.org/x/crypto/ssh"
 )
 
 type Oracle struct {
@@ -23,6 +26,7 @@ type Oracle struct {
 	client     *sqlx.DB
 	state      *types.State
 	CDCSupport bool
+	sshClient  *ssh.Client
 }
 
 func (o *Oracle) Setup(ctx context.Context) error {
@@ -30,10 +34,42 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
-	// TODO: Add support for more encryption options provided in OracleDB
-	client, err := sqlx.Open("oracle", o.config.connectionString())
-	if err != nil {
-		return fmt.Errorf("failed to open database connection: %s", err)
+
+	if o.config.SSHConfig != nil && o.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		o.sshClient, err = o.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
+	}
+
+	var client *sqlx.DB
+	if o.sshClient != nil {
+		logger.Info("Connecting to Oracle via SSH tunnel")
+
+		oracleCfg, err := go_ora.ParseConfig(o.config.connectionString())
+		if err != nil {
+			return fmt.Errorf("failed to parse oracle connection string: %s", err)
+		}
+
+		// Allows oracle driver to use the SSH client to connect to the database
+		oracleCfg.RegisterDial(func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return o.sshClient.Dial("tcp", addr)
+		})
+
+		//! TODO not sure on this part,
+		go_ora.RegisterConnConfig(oracleCfg)
+
+		client, err = sqlx.Open("oracle", o.config.connectionString())
+		if err != nil {
+			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+		}
+	} else {
+		// TODO: Add support for more encryption options provided in OracleDB
+		client, err = sqlx.Open("oracle", o.config.connectionString())
+		if err != nil {
+			return fmt.Errorf("failed to open database connection: %s", err)
+		}
 	}
 
 	// Set connection pool size
@@ -62,8 +98,23 @@ func (o *Oracle) Spec() any {
 
 // Close closes the database connection
 func (o *Oracle) Close() error {
+	var errs []error
 	if o.client != nil {
-		return o.client.Close()
+		if err := o.client.Close(); err != nil {
+			logger.Errorf("failed to close database connection with Oracle: %s", err)
+			errs = append(errs, err)
+		}
+	}
+
+	if o.sshClient != nil {
+		if err := o.sshClient.Close(); err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to close Oracle: %w", errors.Join(errs...))
 	}
 	return nil
 }

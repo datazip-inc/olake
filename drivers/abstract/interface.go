@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"net"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -44,4 +45,9 @@ type KafkaInterface interface {
 	DriverInterface
 	GetReaderIDs() []string
 	PartitionStreamChanges(ctx context.Context, readerID string, processFn CDCMsgFn) error
+}
+
+type MongoInterface interface {
+	DriverInterface
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
