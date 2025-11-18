@@ -76,18 +76,17 @@ func (t YearTransform) apply(val any, colType string) (string, error) {
 			return NULL_PARTITION_VALUE, nil
 		}
 
-		var tm int
+		var years int32
 
-		switch t := val.(type) {
+		switch v := val.(type) {
 		case time.Time:
-			tm = t.UTC().Year()
+			// Iceberg year transform: years since epoch (year - 1970)
+			years = int32(v.UTC().Year() - epochTM.Year())
 		default:
 			return "", fmt.Errorf("cannot apply year transform for col: %v", colType)
 		}
 
-		out := int32(tm - epochTM.Year())
-
-		return fmt.Sprintf("%v", out), nil
+		return fmt.Sprintf("%v", years), nil
 	default:
 		return "", fmt.Errorf("cannot apply year transformation for col: %v", colType)
 	}
@@ -106,20 +105,18 @@ func (t MonthTransform) apply(val any, colType string) (string, error) {
 			return NULL_PARTITION_VALUE, nil
 		}
 
-		var tm time.Time
+		var months int32
 
-		switch t := val.(type) {
+		switch v := val.(type) {
 		case time.Time:
-			tm = t
+			// Iceberg month transform: months since epoch (1970-01)
+			months = int32((v.Year()-epochTM.Year())*12 + (int(v.Month()) - int(epochTM.Month())))
 		default:
 			return "", fmt.Errorf("cannot apply month transformation for col: %v", colType)
 		}
 
-		out := int32((tm.Year()-epochTM.Year())*12 + (int(tm.Month()) - int(epochTM.Month())))
-
-		return fmt.Sprintf("%v", out), nil
+		return fmt.Sprintf("%v", months), nil
 	default:
-
 		return "", fmt.Errorf("cannot apply month transformation for col: %v", colType)
 	}
 }
@@ -137,16 +134,17 @@ func (t DayTransform) apply(val any, colType string) (string, error) {
 			return NULL_PARTITION_VALUE, nil
 		}
 
-		var tm int32
+		var tm time.Time
 
 		switch v := val.(type) {
 		case time.Time:
-			tm = int32(v.Truncate(24*time.Hour).Unix() / int64((time.Hour * 24).Seconds()))
+			tm = v.UTC().Truncate(24 * time.Hour)
 		default:
 			return "", fmt.Errorf("cannot apply day transformation for col: %v", colType)
 		}
 
-		return fmt.Sprintf("%v", tm), nil
+		// Return ISO date format (YYYY-MM-DD) as expected by Iceberg's fromPartitionString
+		return tm.Format("2006-01-02"), nil
 	default:
 		return "", fmt.Errorf("cannot apply day transformation for col: %v", colType)
 	}
@@ -165,16 +163,17 @@ func (t HourTransform) apply(val any, colType string) (string, error) {
 			return NULL_PARTITION_VALUE, nil
 		}
 
-		var tm int32
+		var hours int32
 
 		switch v := val.(type) {
 		case time.Time:
-			tm = int32(v.Truncate(24*time.Hour).Unix() / int64((time.Hour * 24).Seconds()))
+			// Iceberg hour transform: hours since epoch (1970-01-01 00:00:00 UTC)
+			hours = int32(v.Unix() / 3600)
 		default:
 			return "", fmt.Errorf("cannot apply hour transformation for col: %v", colType)
 		}
 
-		return fmt.Sprintf("%v", tm), nil
+		return fmt.Sprintf("%v", hours), nil
 	default:
 		return "", fmt.Errorf("cannot apply hour transformation for col: %v", colType)
 	}
