@@ -33,7 +33,18 @@ type Mongo struct {
 	cdcCursor     sync.Map
 	state         *types.State        // reference to globally present state
 	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
-	sshClient     *ssh.Client
+	sshDialer     *MongoSSHDialer
+}
+
+type MongoSSHDialer struct {
+	sshClient *ssh.Client
+}
+
+func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.sshClient == nil {
+		return nil, fmt.Errorf("SSH client is not initialized")
+	}
+	return d.sshClient.Dial("tcp", address)
 }
 
 // config reference; must be pointer
@@ -50,13 +61,6 @@ func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
 }
 
-func (m *Mongo) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	if m.sshClient == nil {
-		return nil, fmt.Errorf("SSH client is not initialized")
-	}
-	return m.sshClient.Dial("tcp", address)
-}
-
 func (m *Mongo) Setup(ctx context.Context) error {
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
@@ -65,13 +69,13 @@ func (m *Mongo) Setup(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to setup SSH connection: %s", err)
 		}
-		m.sshClient = sshClient
+		m.sshDialer = &MongoSSHDialer{sshClient: sshClient}
 	}
 
 	opts := options.Client()
 
-	if m.sshClient != nil {
-		opts.SetDialer(m)
+	if m.sshDialer != nil {
+		opts.SetDialer(m.sshDialer)
 	} else {
 		opts.ApplyURI(m.config.URI())
 	}
@@ -104,8 +108,8 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 func (m *Mongo) Close(ctx context.Context) error {
 	var errs []error
-	if m.sshClient != nil {
-		if err := m.sshClient.Close(); err != nil {
+	if m.sshDialer != nil && m.sshDialer.sshClient != nil {
+		if err := m.sshDialer.sshClient.Close(); err != nil {
 			logger.Errorf("failed to close SSH client: %s", err)
 			errs = append(errs, err)
 		}
