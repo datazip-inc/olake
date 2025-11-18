@@ -534,6 +534,13 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
 							}
+
+							// reset replication slot for postgres
+							if cfg.TestConfig.Driver == string(constants.Postgres) {
+								cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "reset_replication_slot", true)
+								t.Log("replication slot reset completed")
+							}
+
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
 							destDBPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
