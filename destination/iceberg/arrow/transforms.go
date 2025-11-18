@@ -211,6 +211,10 @@ func (t BucketTransform) canTransform(colType string) bool {
 }
 
 func (t BucketTransform) apply(val any, colType string) (string, error) {
+	if val == nil {
+		return NULL_PARTITION_VALUE, nil
+	}
+
 	var hash uint32
 
 	switch colType {
@@ -242,7 +246,10 @@ func (t BucketTransform) apply(val any, colType string) (string, error) {
 		return "", fmt.Errorf("cannot apply bucket transformation for colType %s", colType)
 	}
 
-	return fmt.Sprintf("%v", hash), nil
+	// Apache Iceberg's bucket algorithm: (hash & Integer.MAX_VALUE) % numBuckets
+	bucketValue := int32(hash&0x7FFFFFFF) % int32(t.NumBuckets)
+
+	return fmt.Sprintf("%v", bucketValue), nil
 }
 
 type TruncateTransform struct {
