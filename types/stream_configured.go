@@ -89,23 +89,32 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	if filter == "" {
 		return Filter{}, nil
 	}
-	// TODO: handle special characters in column name in filter
-	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
-	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
+
+	// Updated regex: supports special characters in column names
+	// Examples supported:
+	// "user name" >= 10
+	// order-id != "abc"
+	// payload.value = 123 and "user id" > 5
+	var FilterRegex = regexp.MustCompile(
+		`^(".*?"|[A-Za-z0-9_.-]+)\s*(>=|<=|!=|>|<|=)\s*(".*?"|\d*\.?\d+|[A-Za-z0-9_.-]+)\s*(?:(and|or)\s*(".*?"|[A-Za-z0-9_.-]+)\s*(>=|<=|!=|>|<|=)\s*(".*?"|\d*\.?\d+|[A-Za-z0-9_.-]+))?\s*$`,
+	)
+
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
 	}
+
 	var conditions []Condition
+
 	conditions = append(conditions, Condition{
-		Column:   matches[1],
+		Column:   strings.Trim(matches[1], `"`), // strip quotes
 		Operator: matches[2],
 		Value:    matches[3],
 	})
 
 	if matches[4] != "" {
 		conditions = append(conditions, Condition{
-			Column:   matches[5],
+			Column:   strings.Trim(matches[5], `"`),
 			Operator: matches[6],
 			Value:    matches[7],
 		})
@@ -135,7 +144,7 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
-		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
+		return fmt.Errorf("difference found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
 	}
 
 	_, err := s.GetFilter()
