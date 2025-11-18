@@ -41,7 +41,7 @@
 ### 🚀 Why OLake?
 
 - 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery  
-- ⚡ **High throughput**: 319K RPS (Postgres) & 64K RPS (MySQL)
+- ⚡ **High throughput**: 319K RPS (Postgres) & 338K RPS (MySQL)
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
 - 💸 **Infra-light**: No Spark, no Flink, no Kafka, no Debezium
@@ -53,9 +53,9 @@
 | Source → Destination | Throughput               | Relative Performance                 | Full Report                                                  |
 |----------------------|--------------------------|--------------------------------------|--------------------------------------------------------------|
 | Postgres → Iceberg   | 3,19,562 RPS (Full load) | 6.8× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
-| MySQL → Iceberg      | 64,334 RPS (Full load)   | 9× faster than Airbyte               | WIP                                                          |
-| MongoDB → Iceberg    | WIP                      |                                      |                                                              |
-| Oracle → Iceberg     | WIP                      |                                      |                                                              |
+| MySQL → Iceberg      | 3,38,005 RPS (Full load) | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
+| MongoDB → Iceberg    | -                        | 6x faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| Oracle → Iceberg     | 2,61,793 RPS (Full Load) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
 
 
 

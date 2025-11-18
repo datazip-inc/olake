@@ -72,13 +72,10 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			if err != nil {
 				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
 			}
-			// TODO: handle cursor mismatch with user input (Example: user provide if it has to fail or do full load with new resume token)
-			// if confirmed flush lsn is not same as stored in state
+			// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
+			// suggesting to proceed with clear destination
 			if parsed != socket.ConfirmedFlushLSN {
-				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
-				if err := fullLoadAck(); err != nil {
-					return fmt.Errorf("failed to ack lsn for full load: %s", err)
-				}
+				return fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
 			}
 		}
 	}
@@ -95,7 +92,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr b
 	if noErr {
 		socket := p.replicator.Socket()
 		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-		return waljs.AcknowledgeLSN(ctx, socket, false)
+		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
 	return nil
 }
