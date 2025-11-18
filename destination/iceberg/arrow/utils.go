@@ -145,7 +145,9 @@ func CreateArrowRecord(records []types.RawRecord, fields []arrow.Field, normaliz
 			case constants.OpType:
 				val = record.OperationType
 			case constants.CdcTimestamp:
-				val = record.CdcTimestamp
+				if record.CdcTimestamp != nil {
+					val = record.CdcTimestamp
+				}
 			default:
 				if normalization {
 					val = record.Data[field.Name]
@@ -158,12 +160,7 @@ func CreateArrowRecord(records []types.RawRecord, fields []arrow.Field, normaliz
 				recordBuilder.Field(idx).AppendNull()
 			} else {
 				if err := AppendValueToBuilder(recordBuilder.Field(idx), val, field.Type, field.Name, normalization); err != nil {
-					// for _cdc_timestamp col, we append null in case of full refresh
-					if field.Name == constants.CdcTimestamp {
-						recordBuilder.Field(idx).AppendNull()
-					} else {
-						return nil, fmt.Errorf("cannot identify value for the col %v", field.Name)
-					}
+					return nil, fmt.Errorf("cannot identify value for the col %v", field.Name)
 				}
 			}
 		}
