@@ -12,6 +12,8 @@ import (
 	"github.com/twmb/murmur3"
 )
 
+const NULL_PARTITION_VALUE = "null"
+
 // The current transforms logic is limited to the data types handled by OLake
 // As we start handling more data types, we will update the transformations logic here
 
@@ -32,7 +34,7 @@ func (t IdentityTransform) canTransform(colType string) bool {
 func (t IdentityTransform) apply(val any, colType string) (string, error) {
 	switch v := val.(type) {
 	case nil:
-		return "null", nil
+		return NULL_PARTITION_VALUE, nil
 	case bool:
 		return strconv.FormatBool(v), nil
 	default:
@@ -71,7 +73,7 @@ func (t YearTransform) apply(val any, colType string) (string, error) {
 	switch colType {
 	case "timestamptz":
 		if val == nil {
-			return "null", nil
+			return NULL_PARTITION_VALUE, nil
 		}
 
 		var tm int
@@ -101,7 +103,7 @@ func (t MonthTransform) apply(val any, colType string) (string, error) {
 	switch colType {
 	case "timestamptz":
 		if val == nil {
-			return "null", nil
+			return NULL_PARTITION_VALUE, nil
 		}
 
 		var tm time.Time
@@ -132,7 +134,7 @@ func (t DayTransform) apply(val any, colType string) (string, error) {
 	switch colType {
 	case "timestamp", "timestamptz":
 		if val == nil {
-			return "null", nil
+			return NULL_PARTITION_VALUE, nil
 		}
 
 		var tm int32
@@ -160,7 +162,7 @@ func (t HourTransform) apply(val any, colType string) (string, error) {
 	switch colType {
 	case "timestamptz":
 		if val == nil {
-			return "null", nil
+			return NULL_PARTITION_VALUE, nil
 		}
 
 		var tm int32
@@ -181,7 +183,7 @@ func (t HourTransform) apply(val any, colType string) (string, error) {
 type VoidTransform struct{}
 
 func (t VoidTransform) canTransform(colType string) bool              { return true }
-func (t VoidTransform) apply(val any, colType string) (string, error) { return "null", nil }
+func (t VoidTransform) apply(val any, colType string) (string, error) { return NULL_PARTITION_VALUE, nil }
 
 func hashFunction[T ~int32 | ~int64](v any) uint32 {
 	var (
@@ -258,7 +260,7 @@ func (t TruncateTransform) canTransform(colType string) bool {
 
 func (t TruncateTransform) apply(val any, colType string) (string, error) {
 	if val == nil {
-		return "null", nil
+		return NULL_PARTITION_VALUE, nil
 	}
 
 	switch colType {
