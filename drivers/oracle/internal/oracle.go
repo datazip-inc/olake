@@ -99,24 +99,22 @@ func (o *Oracle) Spec() any {
 // Close closes the database connection
 func (o *Oracle) Close() error {
 	var errs []error
+
 	if o.client != nil {
 		if err := o.client.Close(); err != nil {
 			logger.Errorf("failed to close database connection with Oracle: %s", err)
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("oracle client close: %w", err))
 		}
 	}
 
 	if o.sshClient != nil {
 		if err := o.sshClient.Close(); err != nil {
 			logger.Errorf("failed to close SSH client: %s", err)
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("ssh client close: %w", err))
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to close Oracle: %w", errors.Join(errs...))
-	}
-	return nil
+	return utils.Ternary(len(errs) > 0, errors.Join(errs...), nil).(error)
 }
 
 // Type returns the database type
