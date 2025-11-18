@@ -246,6 +246,9 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 
 		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
 			if attempt > 0 {
+				// close previous cdc session
+				_ = a.driver.PostCDC(cdcCtx, nil, false, "")
+
 				// close all prev writers
 				for _, inserter := range inserters {
 					_ = inserter.Close(cdcCtx, true)
@@ -257,6 +260,10 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 				// create new cdc context
 				cdcCtx, cdcCtxCancel = context.WithCancel(gCtx)
 
+				// recreate CDC replication session
+				if err := a.driver.PreCDC(cdcCtx, streams); err != nil {
+					return fmt.Errorf("failed to re-initialize cdc on retry: %s", err)
+				}
 				// re-initialize all inserters
 				for stream := range inserters {
 					// no relation with prev thread id, should not we also provide prev thread id for reference?
