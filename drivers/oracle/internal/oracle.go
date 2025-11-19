@@ -57,10 +57,9 @@ func (o *Oracle) Setup(ctx context.Context) error {
 			return o.sshClient.Dial("tcp", addr)
 		})
 
-		//! TODO not sure on this part,
 		go_ora.RegisterConnConfig(oracleCfg)
 
-		client, err = sqlx.Open("oracle", o.config.connectionString())
+		client, err = sqlx.Open("oracle", "")
 		if err != nil {
 			return fmt.Errorf("failed to open tunneled database connection: %s", err)
 		}

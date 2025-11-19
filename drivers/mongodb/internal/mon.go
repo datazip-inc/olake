@@ -74,12 +74,10 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	opts := options.Client()
 
+	opts.ApplyURI(m.config.URI())
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
-	} else {
-		opts.ApplyURI(m.config.URI())
 	}
-
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
 	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
