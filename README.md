@@ -87,7 +87,7 @@
 | MySQL         | ✅           | ✅            | ✅                | Binlog-based CDC            | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview) |
 | MongoDB       | ✅           | ✅            | ✅                | Oplog-based CDC             |[MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview) |
 | Oracle        | ✅           | WIP  | ✅                |  JDBC based Full Load & Incremental                |  [Oracle Docs](https://olake.io/docs/connectors/oracle/overview) |
-| Kafka        | ❌ | ✅ | ❌                | CDC with Append only mode                        | [Kafka Docs](https://olake.io/docs/connectors/kafka/) |
+| Kafka        | ✅ | -  | ✅                | Consumer Group Based Incremental (Append Only)  |  [Kafka Docs](https://olake.io/docs/connectors/kafka)  |
 
 
 #### Destinations
