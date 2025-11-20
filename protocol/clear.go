@@ -2,7 +2,9 @@ package protocol
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -30,14 +32,23 @@ var clearCmd = &cobra.Command{
 			return err
 		}
 
+		// Initialize state - version will be set only for new state files
 		state = &types.State{
-			Type: types.StreamType,
+			Type:    types.StreamType,
+			Version: 0,
 		}
 		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
-				return err
+				if strings.Contains(err.Error(), "does not exist") {
+					state.Version = constants.StateVersion
+				} else {
+					return err
+				}
 			}
+		} else {
+			state.Version = constants.StateVersion
 		}
+		types.SetStateVersion(state.Version)
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {

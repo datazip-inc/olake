@@ -63,15 +63,23 @@ var syncCmd = &cobra.Command{
 
 		// default state
 		state = &types.State{
-			Type: types.StreamType,
+			Type:    types.StreamType,
+			Version: 0,
 		}
 		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
-				return err
+				if strings.Contains(err.Error(), "does not exist") {
+					state.Version = constants.StateVersion
+				} else {
+					return err
+				}
 			}
+		} else {
+			state.Version = constants.StateVersion
 		}
 
 		state.RWMutex = &sync.RWMutex{}
+		types.SetStateVersion(state.Version)
 		stateBytes, _ := state.MarshalJSON()
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
