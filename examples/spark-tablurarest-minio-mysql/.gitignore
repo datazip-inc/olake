@@ -8,3 +8,5 @@ postgres-data/
 .DS_Store
 *.log
 tmp/
+olake-data/
+.ipynb_checkpoints/

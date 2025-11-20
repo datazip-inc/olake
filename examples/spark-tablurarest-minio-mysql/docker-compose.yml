@@ -19,12 +19,22 @@ services:
     networks:
       - olake-network
     depends_on:
+      mc:
+        condition: service_completed_successfully 
       postgresql:
         condition: service_started
-      mc:
-        condition: service_completed_successfully
-    restart: unless-stopped
 
+  postgresql:
+    image: postgres:13
+    container_name: postgresql
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: postgres
+    networks:
+      - olake-network
+    restart: unless-stopped
+    
   minio:
     image: minio/minio
     hostname: minio
