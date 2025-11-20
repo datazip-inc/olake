@@ -136,11 +136,10 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 		for streamID := range dropStreams {
 			a.state.Global.Streams.Remove(streamID)
 		}
-	}
-
-	// if all global streams are dropped, no point for global state itself, making it null
-	if len(a.state.Global.Streams.Array()) == 0 {
-		a.state.Global.State = nil
+		// if all global streams are dropped, no point for global state itself, making it null
+		if len(a.state.Global.Streams.Array()) == 0 {
+			a.state.Global.State = nil
+		}
 	}
 
 	if len(a.state.Streams) > 0 {
