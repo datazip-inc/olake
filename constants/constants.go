@@ -27,6 +27,8 @@ const (
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
+	LSNNotUpdatedError     = "LSN not updated after 5 minutes"
+	NoRecordsFoundError    = "no records found in given initial wait time"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
@@ -44,3 +46,5 @@ const (
 )
 
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
+
+var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
