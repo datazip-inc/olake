@@ -47,6 +47,5 @@ func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address strin
 	if err != nil {
 		return nil, err
 	}
-	// Wrap the SSH connection to provide deadline support
 	return &deadlineConn{Conn: conn}, nil
 }
