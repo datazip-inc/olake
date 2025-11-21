@@ -113,7 +113,11 @@ func (o *Oracle) Close() error {
 		}
 	}
 
-	return utils.Ternary(len(errs) > 0, errors.Join(errs...), nil).(error)
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
 
 // Type returns the database type
