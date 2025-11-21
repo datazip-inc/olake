@@ -48,7 +48,7 @@ var clearCmd = &cobra.Command{
 		} else {
 			state.Version = constants.StateVersion
 		}
-		types.SetStateVersion(state.Version)
+		types.SetStateVersion(int32(state.Version))
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {

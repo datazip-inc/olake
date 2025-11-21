@@ -83,7 +83,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	case types.Int32:
 		return ReformatInt32(v)
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
-		return ReformatDate(v)
+		return ReformatDate(v, true)
 	case types.String:
 		switch v := v.(type) {
 		case int, int8, int16, int32, int64:
@@ -109,7 +109,10 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		if value, isArray := v.([]any); isArray {
 			return value, nil
 		}
-
+		// Handle byte arrays, convert to string
+		if byteArray, ok := v.([]byte); ok {
+			return string(byteArray), nil
+		}
 		// make it an array
 		return []any{v}, nil
 	default:
@@ -147,19 +150,19 @@ func ReformatBool(v interface{}) (bool, error) {
 }
 
 // reformat date
-func ReformatDate(v interface{}) (time.Time, error) {
+func ReformatDate(v interface{}, isTimestamp bool) (time.Time, error) {
 	parsed, err := func() (time.Time, error) {
 		switch v := v.(type) {
 		case []uint8:
 			strVal := string(v)
-			return parseStringTimestamp(strVal, false)
+			return parseStringTimestamp(strVal, isTimestamp)
 		case []int8:
 			b := make([]byte, 0, len(v))
 			for _, i := range v {
 				b = append(b, byte(i))
 			}
 			strVal := string(b)
-			return parseStringTimestamp(strVal, false)
+			return parseStringTimestamp(strVal, isTimestamp)
 		case int64:
 			return time.Unix(v, 0), nil
 		case *int64:
@@ -195,16 +198,16 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		case nil:
 			return time.Time{}, nil
 		case string:
-			return parseStringTimestamp(v, true)
+			return parseStringTimestamp(v, isTimestamp)
 		case *string:
 			if v == nil || *v == "" {
 				return time.Time{}, fmt.Errorf("empty string passed")
 			}
-			return parseStringTimestamp(*v, true)
+			return parseStringTimestamp(*v, isTimestamp)
 		case primitive.DateTime:
 			return v.Time(), nil
 		case *any:
-			return ReformatDate(*v)
+			return ReformatDate(*v, isTimestamp)
 		}
 		return time.Time{}, fmt.Errorf("unhandled type[%T] passed: unable to parse into time", v)
 	}()
@@ -226,7 +229,7 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	return parsed, nil
 }
 
-func parseStringTimestamp(value string, isString bool) (time.Time, error) {
+func parseStringTimestamp(value string, isTimestamp bool) (time.Time, error) {
 	// Check if the string starts with a date pattern (YYYY-MM-DD)
 	startsWithDatePattern := func(value string) bool {
 		if len(value) < 10 {
@@ -268,16 +271,16 @@ func parseStringTimestamp(value string, isString bool) (time.Time, error) {
 		}
 	}
 
-	// Only perform fallback to epoch time for state version >= 1 (backward compatibility)
-	if !isString && types.GetStateVersion() >= constants.StateVersion {
-		logger.Warnf("Invalid datetime detected, failed to parse: %s. Converting to epoch start time (1970-01-01 00:00:00 UTC)", value)
-		return time.Unix(0, 0).UTC(), nil
+	// time unable to be parsed string will be returned as it state version >= 1 (backward compatibility)
+	if !isTimestamp && types.GetStateVersion() >= constants.StateVersion {
+		// return the string with no error in case passed value was a stirng as
+		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
 
-	// return the string with no error in case passed value was a stirng as
-	// this might cause issue when user passes a string as a datetime, but it's not a valid datetime
-	return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
+	logger.Warnf("Invalid datetime detected, failed to parse: %s. Converting to epoch start time (1970-01-01 00:00:00 UTC)", value)
+	return time.Unix(0, 0).UTC(), nil
 }
+
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
 	case float32:

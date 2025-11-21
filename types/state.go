@@ -75,22 +75,17 @@ var (
 	ErrStateCursorMissing = errors.New("cursor field missing from state")
 	// stateVersion stores the current state file version for backward compatibility checks
 	// Defaults to 0 for old state files without version
-	stateVersion      int
-	stateVersionMutex sync.RWMutex
+	stateVersion int32
 )
 
 // SetStateVersion sets the global state version (called when state is loaded or created)
-func SetStateVersion(version int) {
-	stateVersionMutex.Lock()
-	defer stateVersionMutex.Unlock()
-	stateVersion = version
+func SetStateVersion(version int32) {
+	atomic.StoreInt32(&stateVersion, int32(version))
 }
 
 // GetStateVersion returns the current state version (defaults to 0 if not set)
-func GetStateVersion() int {
-	stateVersionMutex.RLock()
-	defer stateVersionMutex.RUnlock()
-	return stateVersion
+func GetStateVersion() int32 {
+	return int32(atomic.LoadInt32(&stateVersion))
 }
 
 func (s *State) isZero() bool {

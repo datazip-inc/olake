@@ -79,7 +79,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		state.RWMutex = &sync.RWMutex{}
-		types.SetStateVersion(state.Version)
+		types.SetStateVersion(int32(state.Version))
 		stateBytes, _ := state.MarshalJSON()
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
