@@ -58,7 +58,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 	}
 
 	// TODO:move it to stream change function
-	lastOplogTime, err := m.getClusterOpTime(cdcCtx, m.config.AuthDB)
+	lastOplogTime, err := m.getClusterOpTime(cdcCtx, m.config.Database)
 	if err != nil {
 		logger.Warnf("Failed to get cluster op time: %s", err)
 		return err
@@ -176,7 +176,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	return OnMessage(ctx, change)
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
 	if noErr {
 		val, ok := m.cdcCursor.Load(stream.ID())
 		if ok {
@@ -201,12 +201,12 @@ func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.
 
 // getClusterOpTime retrieves the latest cluster operation time from MongoDB.
 // It first tries the modern 'hello' command and falls back to 'isMaster' for older servers.
-func (m *Mongo) getClusterOpTime(ctx context.Context, authDB string) (primitive.Timestamp, error) {
+func (m *Mongo) getClusterOpTime(ctx context.Context, dbName string) (primitive.Timestamp, error) {
 	var opTime primitive.Timestamp
 
 	// Helper to run a command and return raw result
 	runCmd := func(cmd bson.M) (bson.Raw, error) {
-		return m.client.Database(authDB).RunCommand(ctx, cmd).Raw()
+		return m.client.Database(dbName).RunCommand(ctx, cmd).Raw()
 	}
 
 	// Try 'hello' command first

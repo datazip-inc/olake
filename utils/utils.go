@@ -424,3 +424,15 @@ func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) 
 	// Final table name is always reformatted
 	return dbName, Reformat(name)
 }
+
+// splitAndTrim splits a comma-separated string and trims whitespace
+func SplitAndTrim(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}

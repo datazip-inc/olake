@@ -72,13 +72,10 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			if err != nil {
 				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
 			}
-			// TODO: handle cursor mismatch with user input (Example: user provide if it has to fail or do full load with new resume token)
-			// if confirmed flush lsn is not same as stored in state
+			// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
+			// suggesting to proceed with clear destination
 			if parsed != socket.ConfirmedFlushLSN {
-				logger.Warnf("lsn mismatch, backfill will start again. prev lsn [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
-				if err := fullLoadAck(); err != nil {
-					return fmt.Errorf("failed to ack lsn for full load: %s", err)
-				}
+				return fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
 			}
 		}
 	}
@@ -90,19 +87,20 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, c
 	return p.replicator.StreamChanges(ctx, p.client, callback)
 }
 
-func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool) error {
+func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool, _ string) error {
 	defer waljs.Cleanup(ctx, p.replicator.Socket())
 	if noErr {
 		socket := p.replicator.Socket()
 		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-		return waljs.AcknowledgeLSN(ctx, socket, false)
+		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
 	return nil
 }
 
-func doesReplicationSlotExists(conn *sqlx.DB, slotName string, publication string) (bool, error) {
+func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string) (bool, error) {
 	var exists bool
-	err := conn.QueryRow(
+	err := conn.QueryRowContext(
+		ctx,
 		"SELECT EXISTS(Select 1 from pg_replication_slots where slot_name = $1)",
 		slotName,
 	).Scan(&exists)
@@ -110,12 +108,12 @@ func doesReplicationSlotExists(conn *sqlx.DB, slotName string, publication strin
 		return false, err
 	}
 
-	return exists, validateReplicationSlot(conn, slotName, publication)
+	return exists, validateReplicationSlot(ctx, conn, slotName, publication)
 }
 
-func validateReplicationSlot(conn *sqlx.DB, slotName string, publication string) error {
+func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string, publication string) error {
 	slot := waljs.ReplicationSlot{}
-	err := conn.Get(&slot, fmt.Sprintf(waljs.ReplicationSlotTempl, slotName))
+	err := conn.GetContext(ctx, &slot, fmt.Sprintf(waljs.ReplicationSlotTempl, slotName))
 	if err != nil {
 		return err
 	}
