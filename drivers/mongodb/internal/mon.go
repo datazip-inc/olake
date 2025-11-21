@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"sync"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -34,17 +32,6 @@ type Mongo struct {
 	state         *types.State        // reference to globally present state
 	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
 	sshDialer     *MongoSSHDialer
-}
-
-type MongoSSHDialer struct {
-	sshClient *ssh.Client
-}
-
-func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	if d.sshClient == nil {
-		return nil, fmt.Errorf("SSH client is not initialized")
-	}
-	return d.sshClient.Dial("tcp", address)
 }
 
 // config reference; must be pointer
@@ -75,10 +62,10 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 
 	opts.ApplyURI(m.config.URI())
+	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
-	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
 	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
@@ -121,7 +108,10 @@ func (m *Mongo) Close(ctx context.Context) error {
 		}
 	}
 
-	return utils.Ternary(len(errs) > 0, errors.Join(errs...), nil).(error)
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 func (m *Mongo) Type() string {
