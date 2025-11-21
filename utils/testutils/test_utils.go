@@ -38,6 +38,8 @@ type IntegrationTest struct {
 	Namespace          string
 	ExecuteQuery       func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 	IcebergDB          string
+	CursorField        string
+	PartitionRegex     string
 }
 
 type PerformanceTest struct {
@@ -124,8 +126,8 @@ func discoverCommand(config TestConfig, flags ...string) string {
 	return baseCmd
 }
 
-// TODO: check if we can remove namespace from being passed as a parameter and use a common namespace for all drivers
-func updateStreamsCommand(config TestConfig, namespace string, stream []string, isBackfill bool) string {
+// update normalization=true for selected streams under selected_streams.<namespace> by name
+func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -136,16 +138,34 @@ func updateStreamsCommand(config TestConfig, namespace string, stream []string, 
 	condition := strings.Join(streamConditions, " or ")
 	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 	jqExpr := fmt.Sprintf(
-		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true)) }' %s > %s && mv %s %s`,
+		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s")) }' %s > %s && mv %s %s`,
 		namespace,
 		namespace,
 		condition,
+		partitionRegex,
 		config.CatalogPath,
 		tmpCatalog,
 		tmpCatalog,
 		config.CatalogPath,
 	)
 	return jqExpr
+}
+
+// set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
+func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
+	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
+	// map/select pattern updates nested array members
+	return fmt.Sprintf(
+		`jq --arg ns "%s" --arg name "%s" --arg mode "%s" --arg cursor "%s" '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = $mode | .stream.cursor_field = $cursor) else . end))' %s > %s && mv %s %s`,
+		namespace, streamName, syncMode, cursorField,
+		config.CatalogPath, tmpCatalog, tmpCatalog, config.CatalogPath,
+	)
+}
+
+// reset state file so incremental can perform initial load (equivalent to full load on first run)
+func resetStateFileCommand(config TestConfig) string {
+	// Ensure the state is clean irrespective of previous CDC run
+	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
 // to get backfill streams from cdc streams e.g. "demo_cdc" -> "demo"
@@ -271,15 +291,15 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 							// )
-							streamUpdateCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true)
+							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
-								return fmt.Errorf("failed to enable normalization in streams.json (%d): %s\n%s",
+								return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 									code, err, out,
 								)
 							}
 
-							t.Logf("Enabled normalization in %s", cfg.TestConfig.CatalogPath)
-
+							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
+							// 3. Phase A: Full load + CDC
 							testCases := []struct {
 								syncMode    string
 								operation   string
@@ -316,7 +336,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									dummySchema: nil,
 								},
 							}
-
+							// Helper to run sync and verify
 							destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
 								cmd := syncCommand(*cfg.TestConfig, useState, "--destination-database-prefix", destDBPrefix)
@@ -328,7 +348,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
 								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
 								return nil
 							}
 
@@ -340,7 +360,58 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								}
 							}
 
-							// 4. Clean up
+							// 4. Phase B: Full load + Incremental (switch streams.json cdc -> incremental, set cursor_field = "id")
+							// Reset table to isolate incremental scenario
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+
+							// Patch: sync_mode = incremental, cursor_field = "id"
+							incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable, "incremental", cfg.CursorField)
+							if code, out, err := utils.ExecCommand(ctx, c, incPatch); err != nil || code != 0 {
+								return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
+							}
+
+							// Reset state so initial incremental behaves like a first full incremental load
+							resetState := resetStateFileCommand(*cfg.TestConfig)
+							if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+								return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
+							}
+
+							// Test cases for incremental sync
+							incrementalTestCases := []struct {
+								name       string
+								setupQuery string
+								useState   bool
+								opSymbol   string
+								expected   map[string]interface{}
+							}{
+								{
+									name:       "full load",
+									setupQuery: "",
+									useState:   false,
+									opSymbol:   "r",
+									expected:   cfg.ExpectedData,
+								},
+								{
+									name:       "insert",
+									setupQuery: "insert",
+									useState:   true,
+									opSymbol:   "u",
+									expected:   cfg.ExpectedData,
+								},
+							}
+
+							for _, tc := range incrementalTestCases {
+								t.Run(tc.name, func(t *testing.T) {
+									if err := runSync(c, tc.useState, tc.setupQuery, tc.opSymbol, tc.expected); err != nil {
+										t.Fatalf("Incremental test %s failed: %v", tc.name, err)
+									}
+								})
+							}
+
+							// 5. Clean up
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 							t.Logf("%s sync test-container clean up", cfg.TestConfig.Driver)
 							return nil
@@ -364,8 +435,9 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	})
 }
 
+// TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -434,7 +506,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		for key, expected := range schema {
 			icebergValue, ok := icebergMap[key]
 			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.Equal(t, icebergValue, expected, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
@@ -467,6 +539,24 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
+
+	// Partition verification using only metadata tables
+	if partitionRegex == "" {
+		t.Log("No partitionRegex provided, skipping partition verification")
+		return
+	}
+	// Extract partition columns from describe rows
+	partitionCols := extractFirstPartitionColFromRows(describeRows)
+	require.NotEmpty(t, partitionCols, "Partition columns not found in Iceberg metadata")
+
+	// Parse expected partition columns from pattern like "/{col,identity}"
+	// Supports multiple entries like "/{col1,identity}" by taking the first token as the source column
+	clean := strings.TrimPrefix(partitionRegex, "/{")
+	clean = strings.TrimSuffix(clean, "}")
+	toks := strings.Split(clean, ",")
+	expectedCol := strings.TrimSpace(toks[0])
+	require.Equal(t, expectedCol, partitionCols, "Partition column does not match expected '%s'", expectedCol)
+	t.Logf("Verified partition column: %s", expectedCol)
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
@@ -545,7 +635,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStreams, true)
+							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.BackfillStreams, true)
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -579,7 +669,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStreams, false)
+								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.CDCStreams, false)
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
@@ -628,4 +718,48 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			}
 		}()
 	})
+}
+
+// extractFirstPartitionColFromRows extracts the first partition column from DESCRIBE EXTENDED rows
+func extractFirstPartitionColFromRows(rows []types.Row) string {
+	inPartitionSection := false
+
+	for _, row := range rows {
+		// Convert []any -> []string
+		vals := row.Values()
+		parts := make([]string, len(vals))
+		for i, v := range vals {
+			if v == nil {
+				parts[i] = ""
+			} else {
+				parts[i] = fmt.Sprint(v) // safe string conversion
+			}
+		}
+		line := strings.TrimSpace(strings.Join(parts, " "))
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "# Partition Information") {
+			inPartitionSection = true
+			continue
+		}
+
+		if inPartitionSection {
+			if strings.HasPrefix(line, "# col_name") {
+				continue
+			}
+
+			if strings.HasPrefix(line, "#") {
+				break
+			}
+
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				return fields[0] // return the first partition col
+			}
+		}
+	}
+
+	return ""
 }
