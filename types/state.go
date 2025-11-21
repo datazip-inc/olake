@@ -65,6 +65,7 @@ func (s *State) initStreamState(stream *ConfiguredStream) *StreamState {
 type State struct {
 	*sync.RWMutex `json:"-"`
 	Type          StateType      `json:"type"`
+	Version       int            `json:"version,omitempty"` // version of state file for backward compatibility
 	Global        *GlobalState   `json:"global,omitempty"`
 	Streams       []*StreamState `json:"streams,omitempty"` // TODO: make it set
 }
@@ -72,7 +73,20 @@ type State struct {
 var (
 	ErrStateMissing       = errors.New("stream missing from state")
 	ErrStateCursorMissing = errors.New("cursor field missing from state")
+	// stateVersion stores the current state file version for backward compatibility checks
+	// Defaults to 0 for old state files without version
+	stateVersion int32
 )
+
+// SetStateVersion sets the global state version (called when state is loaded or created)
+func SetStateVersion(version int32) {
+	atomic.StoreInt32(&stateVersion, int32(version))
+}
+
+// GetStateVersion returns the current state version (defaults to 0 if not set)
+func GetStateVersion() int32 {
+	return int32(atomic.LoadInt32(&stateVersion))
+}
 
 func (s *State) isZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
