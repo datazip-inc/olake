@@ -96,15 +96,15 @@ type NoDeadlineConn struct {
 	net.Conn
 }
 
-func (c *NoDeadlineConn) SetDeadline(t time.Time) error {
+func (c *NoDeadlineConn) SetDeadline(_ time.Time) error {
 	return nil // Ignore deadline setting
 }
 
-func (c *NoDeadlineConn) SetReadDeadline(t time.Time) error {
+func (c *NoDeadlineConn) SetReadDeadline(_ time.Time) error {
 	return nil // Ignore read deadline setting
 }
 
-func (c *NoDeadlineConn) SetWriteDeadline(t time.Time) error {
+func (c *NoDeadlineConn) SetWriteDeadline(_ time.Time) error {
 	return nil // Ignore write deadline setting
 }
 
