@@ -54,7 +54,11 @@ func (o *Oracle) Setup(ctx context.Context) error {
 
 		// Allows oracle driver to use the SSH client to connect to the database
 		oracleCfg.RegisterDial(func(ctx context.Context, _, addr string) (net.Conn, error) {
-			return o.sshClient.Dial("tcp", addr)
+			conn, err := o.sshClient.Dial("tcp", addr)
+			if err != nil {
+				return nil, err
+			}
+			return utils.ConnWithCustomDeadlineSupport(conn)
 		})
 
 		go_ora.RegisterConnConfig(oracleCfg)

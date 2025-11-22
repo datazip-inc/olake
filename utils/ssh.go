@@ -91,3 +91,26 @@ func ParsePrivateKey(pemText, passphrase string) (ssh.Signer, error) {
 	}
 	return nil, err
 }
+
+type NoDeadlineConn struct {
+	net.Conn
+}
+
+func (c *NoDeadlineConn) SetDeadline(t time.Time) error {
+	return nil // Ignore deadline setting
+}
+
+func (c *NoDeadlineConn) SetReadDeadline(t time.Time) error {
+	return nil // Ignore read deadline setting
+}
+
+func (c *NoDeadlineConn) SetWriteDeadline(t time.Time) error {
+	return nil // Ignore write deadline setting
+}
+
+func ConnWithCustomDeadlineSupport(conn net.Conn) (net.Conn, error) {
+	if conn == nil {
+		return nil, fmt.Errorf("connection is nil")
+	}
+	return &NoDeadlineConn{Conn: conn}, nil
+}

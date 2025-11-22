@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -32,6 +34,21 @@ type Mongo struct {
 	state         *types.State        // reference to globally present state
 	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
 	sshDialer     *MongoSSHDialer
+}
+
+type MongoSSHDialer struct {
+	sshClient *ssh.Client
+}
+
+func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.sshClient == nil {
+		return nil, fmt.Errorf("SSH client is not initialized")
+	}
+	conn, err := d.sshClient.Dial("tcp", address)
+	if err != nil {
+		return nil, err
+	}
+	return utils.ConnWithCustomDeadlineSupport(conn)
 }
 
 // config reference; must be pointer
