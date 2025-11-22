@@ -111,17 +111,17 @@ func (m *Mongo) Setup(ctx context.Context) error {
 func (m *Mongo) Close(ctx context.Context) error {
 	var errs []error
 
-	if m.sshDialer != nil && m.sshDialer.sshClient != nil {
-		if err := m.sshDialer.sshClient.Close(); err != nil {
-			logger.Errorf("failed to close SSH client: %s", err)
-			errs = append(errs, fmt.Errorf("ssh client close: %w", err))
-		}
-	}
-
 	if m.client != nil {
 		if err := m.client.Disconnect(ctx); err != nil {
 			logger.Errorf("failed to disconnect from MongoDB: %s", err)
 			errs = append(errs, fmt.Errorf("mongo disconnect: %w", err))
+		}
+	}
+
+	if m.sshDialer != nil && m.sshDialer.sshClient != nil {
+		if err := m.sshDialer.sshClient.Close(); err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+			errs = append(errs, fmt.Errorf("ssh client close: %w", err))
 		}
 	}
 
