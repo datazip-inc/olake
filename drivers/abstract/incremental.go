@@ -38,12 +38,12 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
-			a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
+			a.state.SetCursor(stream.Self(), primaryCursor, formatCursorValue(maxPrimaryCursorValue))
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
 			if secondaryCursor != "" {
-				a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, formatCursorValue(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
 					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
 				}
@@ -99,8 +99,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, a.reformatCursorValue(maxPrimaryCursorValue))
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.reformatCursorValue(maxSecondaryCursorValue))
+						a.state.SetCursor(stream.Self(), primaryCursor, formatCursorValue(maxPrimaryCursorValue))
+						a.state.SetCursor(stream.Self(), secondaryCursor, formatCursorValue(maxSecondaryCursorValue))
 					} else {
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
@@ -119,6 +119,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 	return nil
 }
 
+// RefomratCursorValue to parse the cursor value to the correct type
 func ReformatCursorValue(cursorField string, cursorValue any, stream types.StreamInterface) (any, error) {
 	if cursorField == "" {
 		return cursorValue, nil
@@ -159,8 +160,8 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 	return primaryCursorValue, secondaryCursorValue
 }
 
-// reformatCursorValue is used to make time format consistent in state (Removing timezone info)
-func (a *AbstractDriver) reformatCursorValue(cursorValue any) any {
+// formatCursorValue is used to make time format and object id format consistent to be saved in state
+func formatCursorValue(cursorValue any) any {
 	if _, ok := cursorValue.(time.Time); ok {
 		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
 	}
