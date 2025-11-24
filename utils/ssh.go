@@ -8,16 +8,25 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type SSHConfig struct {
-	Host       string `json:"host,omitempty"`
-	Port       int    `json:"port,omitempty"`
-	Username   string `json:"username,omitempty"`
-	PrivateKey string `json:"private_key,omitempty"`
-	Passphrase string `json:"passphrase,omitempty"`
-	Password   string `json:"password,omitempty"`
+	Host                    string `json:"host,omitempty"`
+	Port                    int    `json:"port,omitempty"`
+	Username                string `json:"username,omitempty"`
+	PrivateKey              string `json:"private_key,omitempty"`
+	Passphrase              string `json:"passphrase,omitempty"`
+	Password                string `json:"password,omitempty"`
+	HostKeyVerificationMode string `json:"host_key_verification_mode,omitempty"`
+	KnownHostsFilePath      string `json:"known_hosts_file_path,omitempty"`
 }
+
+const (
+	StrictHostKeyVerification   = "strict"
+	InsecureHostKeyVerification = "insecure"
+	EmptyHostKeyVerification    = ""
+)
 
 func (c *SSHConfig) Validate() error {
 	if c.Host == "" {
@@ -36,7 +45,43 @@ func (c *SSHConfig) Validate() error {
 		return errors.New("private key or password is required")
 	}
 
+	if c.HostKeyVerificationMode == StrictHostKeyVerification {
+		if c.KnownHostsFilePath == "" {
+			return errors.New("known_hosts file path is required for strict verification")
+		}
+	}
+
 	return nil
+}
+
+func (c *SSHConfig) getHostKeyCallback() (ssh.HostKeyCallback, error) {
+	strictStrategy := func() (ssh.HostKeyCallback, error) {
+		if err := CheckIfFilesExists(c.KnownHostsFilePath); err != nil {
+			return nil, fmt.Errorf("known_hosts file validation failed: %w", err)
+		}
+
+		callback, err := knownhosts.New(c.KnownHostsFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load known_hosts file: %w", err)
+		}
+
+		return callback, nil
+	}
+
+	insecureStrategy := func() (ssh.HostKeyCallback, error) {
+		return ssh.InsecureIgnoreHostKey(), nil // #nosec G106
+	}
+
+	switch c.HostKeyVerificationMode {
+	case EmptyHostKeyVerification:
+		return insecureStrategy()
+	case InsecureHostKeyVerification:
+		return insecureStrategy()
+	case StrictHostKeyVerification:
+		return strictStrategy()
+	default:
+		return nil, fmt.Errorf("unknown host key verification strategy: %s", c.HostKeyVerificationMode)
+	}
 }
 
 func (c *SSHConfig) SetupSSHConnection() (*ssh.Client, error) {
@@ -58,12 +103,15 @@ func (c *SSHConfig) SetupSSHConnection() (*ssh.Client, error) {
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
 
+	hostKeyCallback, err := c.getHostKeyCallback()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get host key callback: %s", err)
+	}
+
 	sshCfg := &ssh.ClientConfig{
-		User: c.Username,
-		Auth: authMethods,
-		// Allows everyone to connect to the server without verifying the host key
-		// TODO: Add proper host key verification
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+		User:            c.Username,
+		Auth:            authMethods,
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         30 * time.Second,
 	}
 
