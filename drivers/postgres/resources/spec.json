@@ -162,6 +162,22 @@
                             "title": "SSH Passphrase",
                             "description": "Passphrase to decrypt the encrypted SSH private key",
                             "format": "password"
+                        },
+                        "host_key_verification_mode": {
+                            "type": "string",
+                            "title": "Host Key Verification Mode",
+                            "description": "Mode for SSH host key verification. Use 'strict' to verify against known_hosts file, 'insecure' to skip verification, or leave empty for insecure (default)",
+                            "enum": [
+                                "strict",
+                                "insecure",
+                                ""
+                            ],
+                            "default": ""
+                        },
+                        "known_hosts_file_path": {
+                            "type": "string",
+                            "title": "Known Hosts File Path",
+                            "description": "Absolute path to the known_hosts file. Required when host_key_verification_mode is 'strict'"
                         }
                     },
                     "required": [
@@ -200,6 +216,22 @@
                             "description": "Password to authenticate with the SSH server",
                             "format": "password",
                             "minLength": 1
+                        },
+                        "host_key_verification_mode": {
+                            "type": "string",
+                            "title": "Host Key Verification Mode",
+                            "description": "Mode for SSH host key verification. Use 'strict' to verify against known_hosts file, 'insecure' to skip verification, or leave empty for insecure (default)",
+                            "enum": [
+                                "strict",
+                                "insecure",
+                                ""
+                            ],
+                            "default": ""
+                        },
+                        "known_hosts_file_path": {
+                            "type": "string",
+                            "title": "Known Hosts File Path",
+                            "description": "Absolute path to the known_hosts file. Required when host_key_verification_mode is 'strict'"
                         }
                     },
                     "required": [
