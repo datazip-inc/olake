@@ -69,8 +69,7 @@ Now create a writer.json for iceberg writer as follows :
     "s3_use_ssl": false,
     "s3_path_style": true,
     "aws_access_key": "admin",
-    "aws_secret_key": "password",
-    "iceberg_db": "olake_iceberg"
+    "aws_secret_key": "password"
   }
 }  
 ```
@@ -100,7 +99,6 @@ Create a json for writer config (Works for S3 as storage and AWS Glue as a catal
       "aws_region": "ap-south-1",
       "aws_access_key": "XXX",
       "aws_secret_key": "XXX",
-      "iceberg_db": "olake_iceberg",
       "grpc_port": 50051,
       "sink_rpc_server_host": "localhost"
     }
@@ -113,7 +111,6 @@ And run the sync normally as mentioned in the getting started doc.
 * `aws_region` -> Region for AWS bucket and catalog
 * `aws_access_key` -> AWS access key which has full access to glue & AWS S3
 * `aws_secret_key` -> AWS secret key
-* `iceberg_db` -> database you want to create in glue.
 
 ### REST Catalog
 Create a json for writer config (writer.json)
@@ -123,8 +120,7 @@ Create a json for writer config (writer.json)
   "writer": {
     "catalog_type": "rest",
     "rest_catalog_url": "http://localhost:8181/catalog",
-    "iceberg_s3_path": "warehouse",
-    "iceberg_db": "ICEBERG_DATABASE_NAME"
+    "iceberg_s3_path": "warehouse"
   }
 }
 ```
@@ -148,7 +144,6 @@ Create a json for writer config (writer.json)
     "catalog_type": "rest",
     "rest_catalog_url": "https://s3tables.us-east-1.amazonaws.com/iceberg",
     "iceberg_s3_path": "arn:aws:s3tables:<REGION>:<ACCOUNT_ID>:bucket/<BUCKET_NAME>",
-    "iceberg_db": "<NAMESPACE>",
     "aws_access_key": "",
     "aws_secret_key": "",
     "aws_region": "<REGION>",
@@ -174,7 +169,6 @@ change the placeholders with actual values
     "normalization": true,
     "rest_catalog_url": "https://<DATABRICK_WORKSPACE_URL>/api/2.1/unity-catalog/iceberg-rest",
     "iceberg_s3_path": "<CATALOG_NAME>",
-    "iceberg_db": "<NAMESPACE>",
     "token": "<DATABRICK_USER_PERSONAL_ACCESS_TOKEN>",
     "no_identifier_fields": true
   }
@@ -206,8 +200,7 @@ Create a json for writer config (writer.json)
         "s3_use_ssl": false,
         "s3_path_style": true,
         "hive_clients": 5,
-        "hive_sasl_enabled": false,
-        "iceberg_db": "olake_iceberg"
+        "hive_sasl_enabled": false
     }
 }
 ```
@@ -221,7 +214,6 @@ To use Iceberg with GCP, configure the writer to connect to a Hive Metastore hos
       "hive_uri": "thrift://<hive-dataproc-metastore-ip>:9083",
       "hive_clients": 10,
       "hive_sasl_enabled": false,
-      "iceberg_db": "olake_iceberg",
       "iceberg_s3_path": "gs://gcp-Dataproc-bucket/hive-warehouse",
       "aws_region": "us-central1"
   }
