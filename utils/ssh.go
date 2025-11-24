@@ -56,6 +56,7 @@ func (c *SSHConfig) Validate() error {
 
 func (c *SSHConfig) getHostKeyCallback() (ssh.HostKeyCallback, error) {
 	strictStrategy := func() (ssh.HostKeyCallback, error) {
+		// need an absolute path to the known_hosts file
 		if err := CheckIfFilesExists(c.KnownHostsFilePath); err != nil {
 			return nil, fmt.Errorf("known_hosts file validation failed: %w", err)
 		}
