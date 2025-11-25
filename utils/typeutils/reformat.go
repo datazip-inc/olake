@@ -538,3 +538,14 @@ func ReformatGeoType(v any) (any, error) {
 		return fmt.Sprintf("%v", v), nil
 	}
 }
+
+// FormatCursorValue is used to make time format and object id format consistent to be saved in state
+func FormatCursorValue(cursorValue any) any {
+	if _, ok := cursorValue.(time.Time); ok {
+		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
+	}
+	if oid, ok := cursorValue.(primitive.ObjectID); ok {
+		return oid.Hex()
+	}
+	return cursorValue
+}

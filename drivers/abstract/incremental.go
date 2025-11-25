@@ -3,7 +3,6 @@ package abstract
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -11,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
@@ -38,12 +36,12 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
-			a.state.SetCursor(stream.Self(), primaryCursor, formatCursorValue(maxPrimaryCursorValue))
+			a.state.SetCursor(stream.Self(), primaryCursor, typeutils.FormatCursorValue(maxPrimaryCursorValue))
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
 			if secondaryCursor != "" {
-				a.state.SetCursor(stream.Self(), secondaryCursor, formatCursorValue(maxSecondaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.FormatCursorValue(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
 					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
 				}
@@ -99,8 +97,8 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 
 					// set state (no comparison)
 					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, formatCursorValue(maxPrimaryCursorValue))
-						a.state.SetCursor(stream.Self(), secondaryCursor, formatCursorValue(maxSecondaryCursorValue))
+						a.state.SetCursor(stream.Self(), primaryCursor, typeutils.FormatCursorValue(maxPrimaryCursorValue))
+						a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.FormatCursorValue(maxSecondaryCursorValue))
 					} else {
 						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
@@ -158,15 +156,4 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 		secondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 	}
 	return primaryCursorValue, secondaryCursorValue
-}
-
-// formatCursorValue is used to make time format and object id format consistent to be saved in state
-func formatCursorValue(cursorValue any) any {
-	if _, ok := cursorValue.(time.Time); ok {
-		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
-	}
-	if oid, ok := cursorValue.(primitive.ObjectID); ok {
-		return oid.Hex()
-	}
-	return cursorValue
 }
