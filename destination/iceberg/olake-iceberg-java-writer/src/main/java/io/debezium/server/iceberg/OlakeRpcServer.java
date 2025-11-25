@@ -27,7 +27,7 @@ import java.util.ArrayList;
 public class OlakeRpcServer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRpcServer.class);
-
+    
     protected static final Serde<JsonNode> valSerde = DebeziumSerdes.payloadJson(JsonNode.class);
     protected static final Serde<JsonNode> keySerde = DebeziumSerdes.payloadJson(JsonNode.class);
     final static Configuration hadoopConf = new Configuration();
@@ -47,13 +47,13 @@ public class OlakeRpcServer {
             System.exit(1);
         }
 
-
+        
 
         String jsonConfig = args[0];
         ObjectMapper objectMapper = new ObjectMapper();
         Map<String, Object> configMap = objectMapper.readValue(jsonConfig, new TypeReference<Map<String, Object>>() {
         });
-
+        
         // Simplified logging setup - console only
         LOGGER.info("Logs will be output to console only");
 
@@ -64,7 +64,7 @@ public class OlakeRpcServer {
                 stringConfigMap.put(key, value.toString());
             }
         });
-
+        
         stringConfigMap.forEach(hadoopConf::set);
         icebergProperties.putAll(stringConfigMap);
         String catalogName = "iceberg";
@@ -78,7 +78,7 @@ public class OlakeRpcServer {
 
         if (stringConfigMap.get("upsert") != null) {
             upsert_records = Boolean.parseBoolean(stringConfigMap.get("upsert"));
-        }
+        }       
 
         if (stringConfigMap.get("create-identifier-fields") != null) {
             createIdFields = Boolean.parseBoolean(stringConfigMap.get("create-identifier-fields"));
@@ -110,19 +110,19 @@ public class OlakeRpcServer {
 
         OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms);
         OlakeArrowIngester oai = new OlakeArrowIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog);
-
+        
         // Build the server to listen on port 50051
         int port = 50051; // Default port
         if (stringConfigMap.get("port") != null) {
             port = Integer.parseInt(stringConfigMap.get("port"));
         }
-
+        
         // Get max message size from config or use a reasonable default 1GB
         int maxMessageSize =  1024 * 1024 * 1024;
         if (stringConfigMap.get("max-message-size") != null) {
             maxMessageSize = Integer.parseInt(stringConfigMap.get("max-message-size"));
         }
-
+        
         Server server = ServerBuilder.forPort(port)
                 .addService(ori)
                 .addService(oai)
@@ -131,7 +131,7 @@ public class OlakeRpcServer {
                 .start();
 
         // Log server startup without exposing potentially sensitive configuration details
-        LOGGER.info("Server started on port {} with max message size: {}MB",
+        LOGGER.info("Server started on port {} with max message size: {}MB", 
                     port, (maxMessageSize / (1024 * 1024)));
         server.awaitTermination();
     }
