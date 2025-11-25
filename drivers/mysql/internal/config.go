@@ -1,7 +1,12 @@
+
 package driver
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
@@ -12,16 +17,18 @@ import (
 
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
-	Host          string           `json:"hosts"`
-	Username      string           `json:"username"`
-	Password      string           `json:"password"`
-	Database      string           `json:"database"`
-	Port          int              `json:"port"`
-	TLSSkipVerify bool             `json:"tls_skip_verify"` // Add this field
-	UpdateMethod  interface{}      `json:"update_method"`
-	MaxThreads    int              `json:"max_threads"`
-	RetryCount    int              `json:"backoff_retry_count"`
-	SSHConfig     *utils.SSHConfig `json:"ssh_config"`
+	Host          string             `json:"hosts"`
+	Username      string             `json:"username"`
+	Password      string             `json:"password"`
+	Database      string             `json:"database"`
+	Port          int                `json:"port"`
+	TLSSkipVerify bool               `json:"tls_skip_verify"`
+	UpdateMethod  interface{}        `json:"update_method"`
+	MaxThreads    int                `json:"max_threads"`
+	RetryCount    int                `json:"backoff_retry_count"`
+	SSHConfig     *utils.SSHConfig   `json:"ssh_config"`
+	JDBCURLParams map[string]string  `json:"jdbc_url_params,omitempty"`
+	SSLConfig     *utils.SSLConfig   `json:"ssl_config,omitempty"`
 }
 
 type CDC struct {
@@ -49,7 +56,52 @@ func (c *Config) URI() string {
 		AllowNativePasswords: true,
 	}
 
-	return cfg.FormatDSN()
+	// Prepare query parameters to append to DSN
+	urlParams := url.Values{}
+
+	// Handle SSL configuration (only if present and not disabled)
+	if c.SSLConfig != nil && c.SSLConfig.Mode != utils.Unknown && c.SSLConfig.Mode != utils.SSLModeDisable {
+		// Compose TLS config
+		rootCertPool := x509.NewCertPool()
+		if c.SSLConfig.ServerCA != "" {
+			pem, err := os.ReadFile(c.SSLConfig.ServerCA)
+			if err == nil {
+				rootCertPool.AppendCertsFromPEM(pem)
+			}
+		}
+
+		clientCert := make([]tls.Certificate, 0, 1)
+		if c.SSLConfig.ClientCert != "" && c.SSLConfig.ClientKey != "" {
+			cert, err := tls.LoadX509KeyPair(c.SSLConfig.ClientCert, c.SSLConfig.ClientKey)
+			if err == nil {
+				clientCert = append(clientCert, cert)
+			}
+		}
+
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: c.TLSSkipVerify,
+			RootCAs:            rootCertPool,
+			Certificates:       clientCert,
+		}
+		mysql.RegisterTLSConfig("custom", tlsConfig)
+		urlParams.Set("tls", "custom")
+	}
+
+	// Add custom JDBC URL parameters
+	for k, v := range c.JDBCURLParams {
+		urlParams.Set(k, v)
+	}
+
+	// Build DSN with query params if any
+	dsn := cfg.FormatDSN()
+	if len(urlParams) > 0 {
+		if strings.Contains(dsn, "?") {
+			dsn = fmt.Sprintf("%s&%s", dsn, urlParams.Encode())
+		} else {
+			dsn = fmt.Sprintf("%s?%s", dsn, urlParams.Encode())
+		}
+	}
+	return dsn
 }
 
 // Validate checks the configuration for any missing or invalid fields
@@ -86,6 +138,13 @@ func (c *Config) Validate() error {
 	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
+	}
+
+	// Validate SSLConfig when present
+	if c.SSLConfig != nil {
+		if err := c.SSLConfig.Validate(); err != nil {
+			return fmt.Errorf("invalid SSL config: %w", err)
+		}
 	}
 
 	return utils.Validate(c)
