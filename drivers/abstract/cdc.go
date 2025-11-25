@@ -173,7 +173,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 					for streamID := range inserters {
 						streamIdx, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 						// no relation with prev thread id, should not we also provide prev thread id for reference?
-						threadID := utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", utils.ULID()), utils.ULID()).(string)
+						threadID := utils.Ternary(attempt == 1, fmt.Sprintf("%s_%s-retry-attempt", streamID, utils.ULID()), fmt.Sprintf("%s_%s", streamID, utils.ULID())).(string)
 						inserters[streamID], err = pool.NewWriter(cdcCtx, streams[streamIdx], destination.WithThreadID(threadID))
 						if err != nil {
 							return fmt.Errorf("failed to create new writer thread: %s", err)
@@ -267,7 +267,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 				// re-initialize all inserters
 				for stream := range inserters {
 					// no relation with prev thread id, should not we also provide prev thread id for reference?
-					threadID := utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", utils.ULID()), utils.ULID()).(string)
+					threadID := utils.Ternary(attempt == 1, fmt.Sprintf("%s_%s-retry-attempt", stream.ID(), utils.ULID()), fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())).(string)
 					inserters[stream], err = pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID))
 					if err != nil {
 						return fmt.Errorf("failed to create new writer thread: %s", err)
