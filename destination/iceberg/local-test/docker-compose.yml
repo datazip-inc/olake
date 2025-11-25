@@ -2,6 +2,7 @@ version: "3"
 
 services:
   lakekeeper:
+    profiles: ["lakekeeper"]
     image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
     pull_policy: &lakekeeper-pull-policy always
     environment: &lakekeeper-environment
@@ -32,6 +33,7 @@ services:
 
 
   migrate:
+    profiles: ["lakekeeper"]
     image: *lakekeeper-image
     pull_policy: *lakekeeper-pull-policy
     environment: *lakekeeper-environment
