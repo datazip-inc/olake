@@ -15,6 +15,8 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/docker/docker/api/types/container"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	// load pq driver for SQL tests
 	_ "github.com/lib/pq"
@@ -33,8 +35,7 @@ const (
 type IntegrationTest struct {
 	TestConfig                       *TestConfig
 	ExpectedData                     map[string]interface{}
-	ExpectedIcebergUpdateData        map[string]interface{}
-	ExpectedParquetUpdateData        map[string]interface{}
+	ExpectedUpdatedData              map[string]interface{}
 	DestinationDataTypeSchema        map[string]string
 	UpdatedDestinationDataTypeSchema map[string]string
 	Namespace                        string
@@ -167,6 +168,52 @@ func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
 		backfillStreams = append(backfillStreams, strings.TrimSuffix(stream, "_cdc"))
 	}
 	return backfillStreams
+}
+
+// DeleteParquetFiles deletes only .parquet files directly in the table folder in MinIO
+func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
+	t.Helper()
+	bucketName := "warehouse"
+	parquetPath := fmt.Sprintf("%s/%s/", parquetDB, tableName)
+
+	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", bucketName, parquetPath)
+
+	minioClient, err := minio.New("localhost:9000", &minio.Options{
+		Creds:  credentials.NewStaticV4("admin", "password", ""),
+		Secure: false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create MinIO client: %w", err)
+	}
+
+	ctx := context.Background()
+
+	objectsCh := minioClient.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
+		Prefix:    parquetPath,
+		Recursive: false,
+	})
+
+	deletedCount := 0
+
+	for object := range objectsCh {
+		if object.Err != nil {
+			return fmt.Errorf("error listing objects: %w", object.Err)
+		}
+
+		if strings.HasSuffix(object.Key, ".parquet") {
+			fileName := strings.TrimPrefix(object.Key, parquetPath)
+			t.Logf("Deleting: %s", fileName)
+
+			err := minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to delete %s: %w", object.Key, err)
+			}
+			deletedCount++
+		}
+	}
+
+	t.Logf("--- Cleanup Complete: Deleted %d files ---", deletedCount)
+	return nil
 }
 
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
@@ -325,20 +372,15 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								{
 									syncMode:        "Iceberg CDC - update",
 									destinationType: "iceberg",
-									operation:       "update-iceberg",
+									operation:       "update",
 									useState:        true,
 									opSymbol:        "u",
-									dummySchema:     cfg.ExpectedIcebergUpdateData,
-								},
-								{
-									syncMode:        "Iceberg - devolve schema",
-									destinationType: "iceberg",
-									operation:       "devolve-schema",
+									dummySchema:     cfg.ExpectedUpdatedData,
 								},
 								{
 									syncMode:        "Iceberg CDC - delete",
 									destinationType: "iceberg",
-									operation:       "delete-iceberg",
+									operation:       "delete",
 									useState:        true,
 									opSymbol:        "d",
 									dummySchema:     nil,
@@ -366,17 +408,32 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									dummySchema:     cfg.ExpectedData,
 								},
 								{
+									syncMode:        "Parquet cleanup",
+									destinationType: "parquet",
+									operation:       "cleanup-parquet-files",
+								},
+								{
+									syncMode:        "Parquet - evolve schema",
+									destinationType: "parquet",
+									operation:       "evolve-schema",
+								},
+								{
 									syncMode:        "Parquet CDC - update",
 									destinationType: "parquet",
-									operation:       "update-parquet",
+									operation:       "update",
 									useState:        true,
 									opSymbol:        "u",
-									dummySchema:     cfg.ExpectedParquetUpdateData,
+									dummySchema:     cfg.ExpectedUpdatedData,
+								},
+								{
+									syncMode:        "Parquet cleanup",
+									destinationType: "parquet",
+									operation:       "cleanup-parquet-files",
 								},
 								{
 									syncMode:        "Parquet CDC - delete",
 									destinationType: "parquet",
-									operation:       "delete-parquet",
+									operation:       "delete",
 									useState:        true,
 									opSymbol:        "d",
 									dummySchema:     nil,
@@ -404,7 +461,13 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 										}
 									}
 								case "parquet":
-									VerifyParquetSync(t, currentTestTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+									{
+										if opSymbol == "u" {
+											VerifyParquetSync(t, currentTestTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										} else {
+											VerifyParquetSync(t, currentTestTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										}
+									}
 								}
 								return nil
 							}
@@ -417,7 +480,16 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 									continue
 								}
+								// Delete old parquet files before schema evolution
+								if test.operation == "cleanup-parquet-files" {
+									if err := DeleteParquetFiles(t, cfg.DestinationDB, currentTestTable); err != nil {
+										return fmt.Errorf("failed to cleanup parquet files: %w", err)
+									}
+									continue
+								}
 								t.Logf("Running test for: %s", test.syncMode)
+
+								// Handle schema evolution operations
 								if strings.Contains(test.operation, "schema") {
 									if cfg.TestConfig.Driver != "mongodb" {
 										cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, test.operation, false)

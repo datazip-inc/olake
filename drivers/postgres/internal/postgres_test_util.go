@@ -69,6 +69,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_uuid UUID,
 				col_varbit VARBIT(20),
 				col_xml XML,
+				col_point POINT,
+				col_polygon POLYGON,
+				col_circle CIRCLE,
 				CONSTRAINT unique_custom_key UNIQUE (col_bigserial)
 			)`, integrationTestTable)
 
@@ -90,7 +93,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_double_precision, col_float4, col_int, col_int2,
 				col_integer, col_interval, col_json, col_jsonb,
 				col_name, col_numeric, col_real, col_text,
-				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
+				col_point, col_polygon, col_circle
 			) VALUES (
 				123456789012345, TRUE, 'c', 'char_val',
 				'varchar_val', '2023-01-01', 123.45,
@@ -99,10 +103,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'test_name', 123.45, 123.45, 'sample text',
 				'2023-01-01 12:00:00', '2023-01-01 12:00:00+00',
 				'123e4567-e89b-12d3-a456-426614174000', B'101010',
-				'<tag>value</tag>'
+				'<tag>value</tag>',
+				'(10.5,20.5)'::point,
+				'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+				'<(5,5),3.5>'::circle
 			)`, integrationTestTable)
 
-	case "update-iceberg":
+	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
 				col_bigint = 123456789012340,
@@ -128,43 +135,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_timestamptz = '2024-07-01 15:30:00+00',
 				col_uuid = '00000000-0000-0000-0000-000000000000',
 				col_varbit = B'111000',
-				col_xml = '<updated>value</updated>'
+				col_xml = '<updated>value</updated>',
+				col_point = '(15.5,25.5)'::point,
+				col_polygon = '((5,5),(15,5),(15,15),(5,15),(5,5))'::polygon,
+				col_circle = '<(10,10),5.5>'::circle
 			WHERE col_bigserial = 1`, integrationTestTable)
 
-	case "update-parquet":
-		query = fmt.Sprintf(`
-			UPDATE %s SET
-				col_bigint = 987654321098765,
-				col_bool = TRUE,
-				col_char = 'p',
-				col_character = 'parquet__',
-				col_character_varying = 'parquet val',
-				col_date = '2024-08-01',
-				col_decimal = 999.99,
-				col_double_precision = 111.222333,
-				col_float4 = 999.99,
-				col_int = 999,
-				col_int2 = 999,
-				col_integer = 99999,
-				col_interval = '3 hours',
-				col_json = '{"parquet": "json"}',
-				col_jsonb = '{"parquet": "jsonb"}',
-				col_name = 'parquet_name',
-				col_numeric = 999.00,
-				col_real = 999.00,
-				col_text = 'parquet text',
-				col_timestamp = '2024-08-01 16:45:00',
-				col_timestamptz = '2024-08-01 16:45:00+00',
-				col_uuid = '11111111-1111-1111-1111-111111111111',
-				col_varbit = B'000111',
-				col_xml = '<parquet>value</parquet>'
-			WHERE col_bigserial = 2`, integrationTestTable)
-
-	case "delete-iceberg":
+	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
-
-	case "delete-parquet":
-		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 2", integrationTestTable)
 
 	case "setup_cdc":
 		for _, cdcStream := range streams {
@@ -200,9 +178,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "evolve-schema":
 		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT`, integrationTestTable)
 
-	case "devolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE INT, ALTER COLUMN col_float4 TYPE REAL`, integrationTestTable)
-
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
@@ -223,7 +198,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_double_precision, col_float4, col_int, col_int2, col_integer,
 			col_interval, col_json, col_jsonb, col_name, col_numeric,
 			col_real, col_text, col_timestamp, col_timestamptz,
-			col_uuid, col_varbit, col_xml
+			col_uuid, col_varbit, col_xml,
+			col_point, col_polygon, col_circle
 		) VALUES (
 			123456789012345, DEFAULT, TRUE, 'c', 'char_val',
 			'varchar_val', '2023-01-01', 123.45,
@@ -232,7 +208,10 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'sample text', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00+00',
 			'123e4567-e89b-12d3-a456-426614174000', B'101010',
-			'<tag>value</tag>'
+			'<tag>value</tag>',
+			'(10.5,20.5)'::point,
+			'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+			'<(5,5),3.5>'::circle
 		)`, tableName)
 
 		_, err := db.ExecContext(ctx, query)
@@ -265,9 +244,12 @@ var ExpectedPostgresData = map[string]interface{}{
 	"col_uuid":              "123e4567-e89b-12d3-a456-426614174000",
 	"col_varbit":            "101010",
 	"col_xml":               "<tag>value</tag>",
+	"col_point":             "(10.5,20.5)",
+	"col_polygon":           "((0,0),(10,0),(10,10),(0,10),(0,0))",
+	"col_circle":            "<(5,5),3.5>",
 }
 
-var ExpectedIcebergUpdatedData = map[string]interface{}{
+var ExpectedUpdatedData = map[string]interface{}{
 	"col_bigint":            int64(123456789012340),
 	"col_bool":              false,
 	"col_char":              "d",
@@ -292,33 +274,9 @@ var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"col_uuid":              "00000000-0000-0000-0000-000000000000",
 	"col_varbit":            "111000",
 	"col_xml":               "<updated>value</updated>",
-}
-
-var ExpectedParquetUpdatedData = map[string]interface{}{
-	"col_bigint":            int64(987654321098765),
-	"col_bool":              true,
-	"col_char":              "p",
-	"col_character":         "parquet__ ",
-	"col_character_varying": "parquet val",
-	"col_date":              arrow.Timestamp(time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":           float64(999.99),
-	"col_double_precision":  111.222333,
-	"col_float4":            float32(999.99),
-	"col_int":               int32(999),
-	"col_int2":              int32(999),
-	"col_integer":           int32(99999),
-	"col_interval":          "03:00:00",
-	"col_json":              `{"parquet": "json"}`,
-	"col_jsonb":             `{"parquet": "jsonb"}`,
-	"col_name":              "parquet_name",
-	"col_numeric":           float64(999.00),
-	"col_real":              float32(999.00),
-	"col_text":              "parquet text",
-	"col_timestamp":         arrow.Timestamp(time.Date(2024, 8, 1, 16, 45, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_timestamptz":       arrow.Timestamp(time.Date(2024, 8, 1, 16, 45, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_uuid":              "11111111-1111-1111-1111-111111111111",
-	"col_varbit":            "000111",
-	"col_xml":               "<parquet>value</parquet>",
+	"col_point":             "(15.5,25.5)",
+	"col_polygon":           "((5,5),(15,5),(15,15),(5,15),(5,5))",
+	"col_circle":            "<(10,10),5.5>",
 }
 
 var PostgresToDestinationSchema = map[string]string{
@@ -347,6 +305,9 @@ var PostgresToDestinationSchema = map[string]string{
 	"col_uuid":              "uuid",
 	"col_varbit":            "varbit",
 	"col_xml":               "xml",
+	"col_point":             "point",
+	"col_polygon":           "polygon",
+	"col_circle":            "circle",
 }
 
 var UpdatedPostgresToDestinationSchema = map[string]string{
@@ -375,4 +336,7 @@ var UpdatedPostgresToDestinationSchema = map[string]string{
 	"col_uuid":              "uuid",
 	"col_varbit":            "varbit",
 	"col_xml":               "xml",
+	"col_point":             "point",
+	"col_polygon":           "polygon",
+	"col_circle":            "circle",
 }

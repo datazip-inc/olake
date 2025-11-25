@@ -31,11 +31,6 @@ var (
 		"nested_string": "nested_value",
 		"nested_int":    42,
 	}
-
-	pqNestedDoc = bson.M{
-		"nested_string": "pq_nested_value",
-		"nested_int":    789,
-	}
 )
 
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
@@ -109,7 +104,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert document")
 
-	case "update-iceberg":
+	case "update":
 		filter := bson.M{"id": int32(1)}
 		update := bson.M{
 			"$set": bson.M{
@@ -130,34 +125,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err := collection.UpdateOne(ctx, filter, update)
 		require.NoError(t, err, "Failed to update document")
 
-	case "update-parquet":
-		filter := bson.M{"id": int32(2)}
-		update := bson.M{
-			"$set": bson.M{
-				"id_bigint":         int64(5243623234247324),
-				"id_int":            int32(500),
-				"id_timestamp":      time.Date(2023, 12, 19, 15, 30, 0, 0, time.UTC),
-				"id_double":         float64(302.295),
-				"id_bool":           false,
-				"created_timestamp": primitive.Timestamp{T: uint32(1754907699), I: 1},
-				"id_nil":            nil,
-				"id_regex":          primitive.Regex{Pattern: "updated.*", Options: "i"},
-				"id_nested":         pqNestedDoc,
-				"id_minkey":         primitive.MinKey{},
-				"id_maxkey":         primitive.MaxKey{},
-				"name_varchar":      "new updated varchar",
-			},
-		}
-		_, err := collection.UpdateOne(ctx, filter, update)
-		require.NoError(t, err, "Failed to update document")
-
-	case "delete-iceberg":
+	case "delete":
 		filter := bson.M{"id": 1}
-		_, err := collection.DeleteOne(ctx, filter)
-		require.NoError(t, err, "Failed to delete document")
-
-	case "delete-parquet":
-		filter := bson.M{"id": 2}
 		_, err := collection.DeleteOne(ctx, filter)
 		require.NoError(t, err, "Failed to delete document")
 
@@ -168,12 +137,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
 		return
-
-	case "devolve-schema":
-		_, err := collection.DeleteMany(ctx, bson.M{})
-		require.NoError(t, err, "Failed to clean collection")
-		// Re-insert test data after cleaning
-		insertTestData(t, ctx, collection)
 
 	case "bulk_cdc_data_insert":
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
@@ -254,7 +217,7 @@ var ExpectedMongoData = map[string]interface{}{
 	"name_varchar":      "varchar_val",
 }
 
-var ExpectedIcebergUpdatedData = map[string]interface{}{
+var ExpectedUpdatedData = map[string]interface{}{
 	"id_bigint":         int64(987654321098765),
 	"id_int":            int64(200),
 	"id_timestamp":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -266,20 +229,6 @@ var ExpectedIcebergUpdatedData = map[string]interface{}{
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "updated varchar",
-}
-
-var ExpectedParquetUpdatedData = map[string]interface{}{
-	"id_bigint":         int64(5243623234247324),
-	"id_int":            int32(500),
-	"id_timestamp":      arrow.Timestamp(time.Date(2023, 12, 19, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"id_double":         float64(302.295),
-	"id_bool":           false,
-	"created_timestamp": int32(1754907699),
-	"id_regex":          `{"pattern": "updated.*", "options": "i"}`,
-	"id_nested":         `{"nested_int":789,"nested_string":"pq_nested_value"}`,
-	"id_minkey":         `{}`,
-	"id_maxkey":         `{}`,
-	"name_varchar":      "new updated varchar",
 }
 
 var MongoToDestinationSchema = map[string]string{

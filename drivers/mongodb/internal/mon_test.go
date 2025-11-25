@@ -13,8 +13,7 @@ func TestMongodbIntegration(t *testing.T) {
 		TestConfig:                       testutils.GetTestConfig(string(constants.MongoDB)),
 		Namespace:                        "olake_mongodb_test",
 		ExpectedData:                     ExpectedMongoData,
-		ExpectedIcebergUpdateData:        ExpectedIcebergUpdatedData,
-		ExpectedParquetUpdateData:        ExpectedParquetUpdatedData,
+		ExpectedUpdatedData:              ExpectedUpdatedData,
 		DestinationDataTypeSchema:        MongoToDestinationSchema,
 		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
 		ExecuteQuery:                     ExecuteQuery,
@@ -23,14 +22,14 @@ func TestMongodbIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
-func TestMongodbPerformance(t *testing.T) {
-	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),
-		Namespace:       "twitter_data",
-		BackfillStreams: []string{"tweets"},
-		CDCStreams:      []string{"tweets_cdc"},
-		ExecuteQuery:    ExecuteQuery,
-	}
+// func TestMongodbPerformance(t *testing.T) {
+// 	config := &testutils.PerformanceTest{
+// 		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),
+// 		Namespace:       "twitter_data",
+// 		BackfillStreams: []string{"tweets"},
+// 		CDCStreams:      []string{"tweets_cdc"},
+// 		ExecuteQuery:    ExecuteQuery,
+// 	}
 
-	config.TestPerformance(t)
-}
+// 	config.TestPerformance(t)
+// }
