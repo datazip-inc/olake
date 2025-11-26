@@ -83,7 +83,7 @@ const PostgresUISchema = `{
           "ui:options": {
             "title": false,
             "description": false
-          },
+          }
         },
         "known_hosts_file_path": {
           "ui:widget": "text",
@@ -139,7 +139,7 @@ const MySQLUISchema = `{
       "ui:options": {
         "title": false,
         "description": false
-      },
+      }
     },
     "known_hosts_file_path": {
       "ui:widget": "text",
