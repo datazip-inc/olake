@@ -94,7 +94,7 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	//   - Normal columns: age > 18, status = active, count != 0
 	//   - Special char columns (quoted): "user-name" = "john", "email@domain" = "test@example.com"
 	//   - Numeric values: price >= 99.99, discount <= 0.5, id = 123
-	//   - Quoted string values: name = "John Doe", city = "New York"
+	//   - Quoted string values: name = "John Doe", city = "New York", a = "val"
 	//   - Mixed special chars: "column.name" > 10, "data[0]" = "value"
 	// Two conditions with logical operators:
 	//   - AND operator: age > 18 AND status = "active"
