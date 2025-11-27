@@ -132,10 +132,9 @@
               "description": "Mode for SSH host key verification. Use 'strict' to verify against known_hosts file, 'insecure' to skip verification, or leave empty for insecure (default)",
               "enum": [
                 "strict",
-                "insecure",
-                ""
+                "insecure"
               ],
-              "default": ""
+              "default": "insecure"
             },
             "known_hosts_file_path": {
               "type": "string",
@@ -186,10 +185,9 @@
               "description": "Mode for SSH host key verification. Use 'strict' to verify against known_hosts file, 'insecure' to skip verification, or leave empty for insecure (default)",
               "enum": [
                 "strict",
-                "insecure",
-                ""
+                "insecure"
               ],
-              "default": ""
+              "default": "insecure"
             },
             "known_hosts_file_path": {
               "type": "string",
