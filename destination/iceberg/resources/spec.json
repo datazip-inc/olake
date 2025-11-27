@@ -37,11 +37,6 @@
           "title": "AWS Region",
           "description": "Specify the AWS region where the S3 bucket is hosted"
         },
-        "iceberg_db": {
-          "type": "string",
-          "title": "Database",
-          "description": "Specifies the name of the database to be created in AWS Glue"
-        },
         "iceberg_s3_path": {
           "type": "string",
           "title": "S3 Path",
@@ -51,7 +46,6 @@
       "required": [
         "catalog_type",
         "aws_region",
-        "iceberg_db",
         "iceberg_s3_path"
       ],
       "dependencies": {
