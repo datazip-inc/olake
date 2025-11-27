@@ -66,6 +66,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 			expected: &Catalog{
 				Streams:         []*ConfiguredStream{},
 				SelectedStreams: make(map[string][]StreamMetadata),
+				DisabledStreams: make(map[string][]StreamMetadata),
 			},
 		},
 		// nil streams slice should return empty catalog
@@ -76,6 +77,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 			expected: &Catalog{
 				Streams:         []*ConfiguredStream{},
 				SelectedStreams: make(map[string][]StreamMetadata),
+				DisabledStreams: make(map[string][]StreamMetadata),
 			},
 		},
 		// single stream in postgres
@@ -109,6 +111,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						},
 					},
 				},
+				DisabledStreams: make(map[string][]StreamMetadata),
 			},
 		},
 		// single stream in mongodb, should return normalization as false
@@ -142,6 +145,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						},
 					},
 				},
+				DisabledStreams: make(map[string][]StreamMetadata),
 			},
 		},
 		// multiple streams tests
@@ -219,6 +223,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						},
 					},
 				},
+				DisabledStreams: make(map[string][]StreamMetadata),
 			},
 		},
 	}
@@ -240,6 +245,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 func TestCatalogMergeCatalogs(t *testing.T) {
 	testCases := []struct {
 		name       string
+		driver     string
 		oldCatalog *Catalog
 		newCatalog *Catalog
 		expected   *Catalog
@@ -247,6 +253,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		// when old catalog is nil, new catalog should be returned unchanged
 		{
 			name:       "nil old catalog returns new catalog unchanged",
+			driver:     "mysql",
 			oldCatalog: nil,
 			newCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -283,7 +290,8 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		},
 		// when merging single stream, old catalog metadata and selected stream data should be preserved
 		{
-			name: "single stream merge",
+			name:   "single stream merge",
+			driver: "mysql",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -349,11 +357,13 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
+				DisabledStreams: map[string][]StreamMetadata{},
 			},
 		},
 		// new stream gets added with its metadata, while existing stream's configuration and selected stream data are preserved
 		{
-			name: "new stream introduced",
+			name:   "new stream introduced",
+			driver: "mongodb",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -436,11 +446,17 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
+				DisabledStreams: map[string][]StreamMetadata{
+					"namespace2": {
+						{StreamName: "stream2", PartitionRegex: "", AppendMode: false, Normalization: false},
+					},
+				},
 			},
 		},
 		// Removed streams are excluded from the result, but remaining streams keep their original configuration
 		{
-			name: "old stream removed",
+			name:   "old stream removed",
+			driver: "mysql",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -516,11 +532,13 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
+				DisabledStreams: map[string][]StreamMetadata{},
 			},
 		},
 		// when destination database is updated, old catalog metadata should be preserved
 		{
-			name: "destination database updation",
+			name:   "destination database updation",
+			driver: "mysql",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -608,15 +626,21 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true},
 					},
 				},
+				DisabledStreams: map[string][]StreamMetadata{
+					"namespace2": {
+						{StreamName: "stream2", PartitionRegex: "", AppendMode: false, Normalization: true},
+					},
+				},
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog)
+			result := mergeCatalogs(tc.driver, tc.oldCatalog, tc.newCatalog)
 			assert.Equal(t, len(tc.expected.Streams), len(result.Streams), "Stream count should match")
 			assert.Equal(t, tc.expected.SelectedStreams, result.SelectedStreams, "SelectedStreams should match")
+			assert.Equal(t, tc.expected.DisabledStreams, result.DisabledStreams, "DisabledStreams should match")
 
 			for i, expectedStream := range tc.expected.Streams {
 				actualStream := result.Streams[i]
