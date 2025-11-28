@@ -218,6 +218,15 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
+
+	// for special geospatial type, mysql returns non-utf8 binary data
+	for _, geoType := range typeutils.GeospatialTypes {
+		if strings.Contains(strings.ToLower(columnType), geoType) {
+			// conversion to wkt from non-utf8 binary wkb
+			return typeutils.ReformatGeoType(value)
+		}
+	}
+
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
@@ -254,7 +263,7 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 		}
 
 		if strings.ToUpper(value) != expectedValue {
-			logger.Warnf(warnMessage)
+			logger.Warn(warnMessage)
 			return false, nil
 		}
 
