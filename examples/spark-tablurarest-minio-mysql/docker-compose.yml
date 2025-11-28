@@ -28,8 +28,8 @@ services:
     hostname: minio
     container_name: minio
     ports:
-      - 9090:9090  # server address
-      - 8443:9091  # console address
+      - 9090:9090  
+      - 8443:9091  
     volumes:
       - minio-data:/data
     environment:
@@ -155,8 +155,8 @@ services:
       dockerfile: Dockerfile
     container_name: olake-spark
     ports:
-      - "8088:8080"  # Spark UI
-      - "8888:8888"  # Jupyter Notebook
+      - "8088:8080"  
+      - "8888:8888" 
     volumes:
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
     environment:
