@@ -20,28 +20,16 @@ services:
       - olake-network
     depends_on:
       mc:
-        condition: service_completed_successfully 
-      postgresql:
-        condition: service_started
-
-  postgresql:
-    image: postgres:13
-    container_name: postgresql
-    environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-      POSTGRES_DB: postgres
-    networks:
-      - olake-network
+        condition: service_completed_successfully
     restart: unless-stopped
-    
+
   minio:
     image: minio/minio
     hostname: minio
     container_name: minio
     ports:
-      - 9090:9090
-      - 8443:9091
+      - 9090:9090  # server address
+      - 8443:9091  # console address
     volumes:
       - minio-data:/data
     environment:
@@ -125,9 +113,11 @@ services:
     entrypoint: >
       bash -c "
         set -e;
+
         export DEBIAN_FRONTEND=noninteractive;
         echo 'Updating package list and installing curl...';
         apt-get update -qq && apt-get install -y curl;
+
         echo 'Waiting for MySQL to be ready...';
         until mysqladmin ping -h primary_mysql -P 3306 -u root -ppassword --silent; do
           sleep 2;
@@ -159,33 +149,25 @@ services:
     networks:
       - olake-network
 
-  jupyter:
-    image: jupyter/pyspark-notebook:latest
-    container_name: jupyter-spark
+  spark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: olake-spark
+    ports:
+      - "8088:8080"  # Spark UI
+      - "8888:8888"  # Jupyter Notebook
+    volumes:
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
     environment:
-      - JUPYTER_ENABLE_LAB=yes
-      - JUPYTER_TOKEN=olake123
       - AWS_ACCESS_KEY_ID=minio
       - AWS_SECRET_ACCESS_KEY=minio123
       - AWS_REGION=us-east-1
-      - SPARK_HOME=/usr/local/spark
-      - HADOOP_CONF_DIR=/opt/spark/conf
-      - SPARK_CONF_DIR=/opt/spark/conf
-      - PYSPARK_SUBMIT_ARGS=--master local[*] pyspark-shell
-    ports:
-      - "8888:8888"
-      - "4040:4040"
-    volumes:
-      - ./notebooks:/home/jovyan/work
-      - ./conf:/opt/spark/conf:ro
-      - ./scripts:/opt/scripts:ro
     networks:
       - olake-network
     depends_on:
       - rest
       - minio
-    entrypoint: ["/bin/bash", "/opt/scripts/init-spark.sh"]
-    command: ["start-notebook.py", "--config=/opt/spark/conf/jupyter_notebook_config.py"]
     restart: unless-stopped
 
 volumes:
