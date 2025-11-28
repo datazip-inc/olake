@@ -1,6 +1,6 @@
 # OLake Demo: Spark + Tabular REST + MinIO + MySQL
 
-This example demonstrates an end-to-end data lakehouse pipeline using Apache Spark as the query engine:
+This example demonstrates an end-to-end data pipeline to Apache Iceberg using Apache Spark as the query engine:
 
 **MySQL** → **OLake** → **Iceberg (Tabular REST) on MinIO** → **Spark**
 
@@ -29,17 +29,18 @@ curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-c
 
 ### 2. Start the Demo Stack
 
+Navigate to this example directory
 ```bash
-# Navigate to this example directory
-cd examples/spark-tabularest-minio-mysql
-
-# Start services
+cd examples/spark-tablurarest-minio-mysql
+```
+Start the services
+```
 docker compose up -d
 ```
 
 ### 3. Accessing Services
 
-1. **Log in** to the Olake UI at [http://localhost:8000](http://localhost:8000) with credentials `admin`/`password`.
+1. **Verify OLake** is running at [http://localhost:8000](http://localhost:8000) with credentials `admin`/`password`.
 
 2. **Verify Source Data:**
    - Access the MySQL CLI:
@@ -54,35 +55,38 @@ docker compose up -d
 
 3. **Create and Configure a Job:**
    Create a Job to define and run the data pipeline:
-   * On the main page, click on the **"Create your first Job"** button. Set job name and replication frequency.
+   * On the main page, click on the **"Create your first Job"** button. Set job name and frequency.
 
    * **Set up the Source:**
        * **Connector:** `MySQL`
-       * **Version:** chose the latest available version
+       * **OLake Version:** chose the latest available version
        * **Name of your source:** `olake_mysql`
-       * **Host:** `host.docker.internal`
-       * **Port:** `3306`
+       * **MySQL Host:** `host.docker.internal`
        * **Database:** `weather`
        * **Username:** `root`
        * **Password:** `password`
+       * **Port:** `3306`
        * **SSH Config:** `No Tunnel`
        * **Update Method:** `Standalone`
+   
+   Let the Retry Count be `3` by default, and Skip TLS Verification as `True`
 
    * **Set up the Destination:**
        * **Connector:** `Apache Iceberg`
-       * **Catalog:** `REST catalog`
+       * **OLake Version:** chose the latest available version
        * **Name of your destination:** `olake_iceberg`
-       * **Version:** chose the latest available version
-       * **Iceberg REST Catalog URI:** `http://host.docker.internal:8181`
-       * **Iceberg S3 Path:** `s3://warehouse/weather/`
-       * **Database:** `weather`
+       * **Catalog Type:** `REST`
+       * **REST Catalog URI:** `http://host.docker.internal:8181`
+       * **S3 Path:** `s3://warehouse/weather/`
        * **S3 Endpoint (for Iceberg data files written by Olake workers):** `http://host.docker.internal:9090`
-       * **AWS Region:** `us-east-1`
        * **S3 Access Key:** `minio`
        * **S3 Secret Key:** `minio123`
+       * **AWS Region:** `us-east-1`
+
+   Let the other fields be at their default values.
 
    * **Select Streams to sync:**
-       * Make sure that the weather table has been selected for the sync.
+       * Make sure that the `weather` table has been selected for the sync.
        * Click on the weather table and make sure that the Normalisation is set to `true` using the toggle button.
 
    * **Save and Run the Job:**
@@ -195,10 +199,12 @@ curl http://localhost:8181/v1/namespaces/{job_name}_weather/tables
 
 ## Cleanup
 
+Stop this example
 ```bash
-# Stop this example
 docker compose down
+```
 
-# Stop base Olake stack
+Stop OLake
+```bash
 curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - down
 ```
