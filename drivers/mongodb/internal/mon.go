@@ -2,8 +2,10 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"net"
 	"sync"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -30,6 +33,22 @@ type Mongo struct {
 	cdcCursor     sync.Map
 	state         *types.State        // reference to globally present state
 	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
+	sshDialer     *MongoSSHDialer
+}
+
+type MongoSSHDialer struct {
+	sshClient *ssh.Client
+}
+
+func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.sshClient == nil {
+		return nil, fmt.Errorf("SSH client is not initialized")
+	}
+	conn, err := d.sshClient.Dial("tcp", address)
+	if err != nil {
+		return nil, err
+	}
+	return utils.ConnWithCustomDeadlineSupport(conn)
 }
 
 // config reference; must be pointer
@@ -47,9 +66,23 @@ func (m *Mongo) CDCSupported() bool {
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
+
+	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		sshClient, err := m.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
+		m.sshDialer = &MongoSSHDialer{sshClient: sshClient}
+	}
+
 	opts := options.Client()
+
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
+	if m.sshDialer != nil {
+		opts.SetDialer(m.sshDialer)
+	}
 	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
 	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
@@ -76,7 +109,26 @@ func (m *Mongo) Setup(ctx context.Context) error {
 }
 
 func (m *Mongo) Close(ctx context.Context) error {
-	return m.client.Disconnect(ctx)
+	var errs []error
+
+	if m.client != nil {
+		if err := m.client.Disconnect(ctx); err != nil {
+			logger.Errorf("failed to disconnect from MongoDB: %s", err)
+			errs = append(errs, fmt.Errorf("mongo disconnect: %w", err))
+		}
+	}
+
+	if m.sshDialer != nil && m.sshDialer.sshClient != nil {
+		if err := m.sshDialer.sshClient.Close(); err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+			errs = append(errs, fmt.Errorf("ssh client close: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 func (m *Mongo) Type() string {
