@@ -376,26 +376,21 @@ func NormalizedEqual(strune1, strune2 string) bool {
 
 // Reformat makes all keys to lower case and replaces all special symbols with '_'
 func Reformat(key string) string {
-	key = strings.ToLower(key)
-	var result strings.Builder
-	for _, symbol := range key {
-		if IsLetterOrNumber(symbol) {
-			result.WriteByte(byte(symbol))
+	lengthOfKey := len(key)
+	reformattedString := make([]byte, lengthOfKey)
+
+	for i := 0; i < lengthOfKey; i++ {
+		b := key[i]
+		if (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') {
+			reformattedString[i] = b
+		} else if b >= 'A' && b <= 'Z' {
+			reformattedString[i] = b + 32
 		} else {
-			result.WriteRune('_')
+			reformattedString[i] = '_'
 		}
 	}
-	return result.String()
-}
 
-// IsLetterOrNumber returns true if input symbol is:
-//
-//	A - Z: 65-90
-//	a - z: 97-122
-func IsLetterOrNumber(symbol int32) bool {
-	return ('a' <= symbol && symbol <= 'z') ||
-		('A' <= symbol && symbol <= 'Z') ||
-		('0' <= symbol && symbol <= '9')
+	return string(reformattedString)
 }
 
 // GenerateDestinationDetails creates the default Iceberg database and table names.
