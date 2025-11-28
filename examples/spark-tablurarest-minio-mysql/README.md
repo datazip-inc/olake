@@ -66,10 +66,8 @@ docker compose up -d
        * **Username:** `root`
        * **Password:** `password`
        * **Port:** `3306`
-       * **SSH Config:** `No Tunnel`
-       * **Update Method:** `Standalone`
    
-   Let the Retry Count be `3` by default, and Skip TLS Verification as `True`
+   Let the other fields be at their default values.
 
    * **Set up the Destination:**
        * **Connector:** `Apache Iceberg`
@@ -86,12 +84,13 @@ docker compose up -d
    Let the other fields be at their default values.
 
    * **Select Streams to sync:**
-       * Make sure that the `weather` table has been selected for the sync.
-       * Click on the weather table and make sure that the Normalisation is set to `true` using the toggle button.
+       * Make sure that the `weather` table has been selected for the sync
+       * Choose any the Sync Mode, for the sake of this example, let it be `Full Refresh + CDC`
+       * Click on the weather table and make sure that the Normalisation is set to `true` using the toggle button
+       * Click on `Create Job` in the bottom right corner
 
-   * **Save and Run the Job:**
-       * Save the job configuration.
-       * Run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by clicking **Sync now**.
+   * **Start the Sync:**
+       * Under Active Jobs, Run the job manually from the UI by clicking **Sync now**.
 
 ### 4. Query Data with Spark
 
