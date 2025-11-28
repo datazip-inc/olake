@@ -265,7 +265,6 @@ func parseStringTimestamp(value string) (time.Time, error) {
 		}
 	}
 
-	logger.Warnf("Invalid datetime detected, failed to parse: %s. Converting to epoch start time (1970-01-01 00:00:00 UTC)", value)
 	return time.Unix(0, 0).UTC(), nil
 }
 
