@@ -46,18 +46,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return setter.Capture(func(rows *sql.Rows) error {
-		// Create a map to hold column names and values
-		record := make(types.Record)
-
-		// Scan the row into the map
-		err := jdbc.MapScan(rows, record, p.dataTypeConverter)
-		if err != nil {
-			return fmt.Errorf("failed to scan record data as map: %s", err)
-		}
-
-		return OnMessage(ctx, record)
-	})
+	return jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage)
 }
 
 func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
