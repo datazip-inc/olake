@@ -177,6 +177,187 @@ func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
 	return backfillStreams
 }
 
+// syncTestCase represents a test case for sync operations
+type syncTestCase struct {
+	name      string
+	operation string
+	useState  bool
+	opSymbol  string
+	expected  map[string]interface{}
+}
+
+// runSyncAndVerify executes a sync command and verifies the results in Iceberg
+func (cfg *IntegrationTest) runSyncAndVerify(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+	useState bool,
+	operation string,
+	opSymbol string,
+	schema map[string]interface{},
+) error {
+	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
+	cmd := syncCommand(*cfg.TestConfig, useState, "--destination-database-prefix", destDBPrefix)
+
+	// Execute operation before sync if needed
+	if useState && operation != "" {
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
+	}
+
+	// Run sync command
+	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	if err != nil || code != 0 {
+		return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
+	}
+
+	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
+
+	// Verify results in Iceberg
+	VerifyIcebergSync(
+		t,
+		testTable,
+		cfg.IcebergDB,
+		cfg.DataTypeSchema,
+		schema,
+		opSymbol,
+		cfg.PartitionRegex,
+		cfg.TestConfig.Driver,
+	)
+
+	return nil
+}
+
+// testIcebergFullLoadAndCDC tests Full load and CDC operations
+func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+) error {
+	t.Log("Starting Phase A: Full load + CDC tests")
+
+	testCases := []syncTestCase{
+		{
+			name:      "Full-Refresh",
+			operation: "",
+			useState:  false,
+			opSymbol:  "r",
+			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "CDC - insert",
+			operation: "insert",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "CDC - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdateData,
+		},
+		{
+			name:      "CDC - delete",
+			operation: "delete",
+			useState:  true,
+			opSymbol:  "d",
+			expected:  nil,
+		},
+	}
+
+	// Run each test case
+	for _, tc := range testCases {
+		t.Logf("Running test for: %s", tc.name)
+		if err := cfg.runSyncAndVerify(
+			ctx,
+			t,
+			c,
+			testTable,
+			tc.useState,
+			tc.operation,
+			tc.opSymbol,
+			tc.expected,
+		); err != nil {
+			return fmt.Errorf("%s test failed: %w", tc.name, err)
+		}
+	}
+
+	t.Log("Phase A: Full load + CDC tests completed successfully")
+	return nil
+}
+
+// testIcebergFullLoadAndIncremental tests Full load and Incremental operations
+func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+) error {
+	t.Log("Starting Phase B: Full load + Incremental tests")
+
+	// Reset table to isolate incremental scenario
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "drop", false)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "create", false)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "clean", false)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false)
+
+	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
+	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
+	code, out, err := utils.ExecCommand(ctx, c, incPatch)
+	if err != nil || code != 0 {
+		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
+	}
+
+	// Reset state so initial incremental behaves like a first full incremental load
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	code, out, err = utils.ExecCommand(ctx, c, resetState)
+	if err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
+	}
+
+	// Test cases for incremental sync
+	incrementalTestCases := []syncTestCase{
+		{
+			name:      "full load",
+			operation: "",
+			useState:  false,
+			opSymbol:  "r",
+			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "insert",
+			operation: "insert",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedData,
+		},
+	}
+
+	// Run each incremental test case
+	for _, tc := range incrementalTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := cfg.runSyncAndVerify(
+				ctx,
+				t,
+				c,
+				testTable,
+				tc.useState,
+				tc.operation,
+				tc.opSymbol,
+				tc.expected,
+			); err != nil {
+				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
+			}
+		})
+	}
+
+	t.Log("Phase B: Full load + Incremental tests completed successfully")
+	return nil
+}
+
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	ctx := context.Background()
 
@@ -299,116 +480,15 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
-							// 3. Phase A: Full load + CDC
-							testCases := []struct {
-								syncMode    string
-								operation   string
-								useState    bool
-								opSymbol    string
-								dummySchema map[string]interface{}
-							}{
-								{
-									syncMode:    "Full-Refresh",
-									operation:   "",
-									useState:    false,
-									opSymbol:    "r",
-									dummySchema: cfg.ExpectedData,
-								},
-								{
-									syncMode:    "CDC - insert",
-									operation:   "insert",
-									useState:    true,
-									opSymbol:    "c",
-									dummySchema: cfg.ExpectedData,
-								},
-								{
-									syncMode:    "CDC - update",
-									operation:   "update",
-									useState:    true,
-									opSymbol:    "u",
-									dummySchema: cfg.ExpectedUpdateData,
-								},
-								{
-									syncMode:    "CDC - delete",
-									operation:   "delete",
-									useState:    true,
-									opSymbol:    "d",
-									dummySchema: nil,
-								},
-							}
-							// Helper to run sync and verify
-							destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
-							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
-								cmd := syncCommand(*cfg.TestConfig, useState, "--destination-database-prefix", destDBPrefix)
-								if useState && operation != "" {
-									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, operation, false)
-								}
 
-								if code, out, err := utils.ExecCommand(ctx, c, cmd); err != nil || code != 0 {
-									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
-								}
-								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
-								return nil
+							// Phase A: Test Full load + CDC
+							if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
+								return err
 							}
 
-							// 3. Run Sync command and verify records in Iceberg
-							for _, test := range testCases {
-								t.Logf("Running test for: %s", test.syncMode)
-								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
-									return err
-								}
-							}
-
-							// 4. Phase B: Full load + Incremental (switch streams.json cdc -> incremental, set cursor_field = "id")
-							// Reset table to isolate incremental scenario
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
-
-							// Patch: sync_mode = incremental, cursor_field = "id"
-							incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable, "incremental", cfg.CursorField)
-							if code, out, err := utils.ExecCommand(ctx, c, incPatch); err != nil || code != 0 {
-								return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
-							}
-
-							// Reset state so initial incremental behaves like a first full incremental load
-							resetState := resetStateFileCommand(*cfg.TestConfig)
-							if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
-								return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
-							}
-
-							// Test cases for incremental sync
-							incrementalTestCases := []struct {
-								name       string
-								setupQuery string
-								useState   bool
-								opSymbol   string
-								expected   map[string]interface{}
-							}{
-								{
-									name:       "full load",
-									setupQuery: "",
-									useState:   false,
-									opSymbol:   "r",
-									expected:   cfg.ExpectedData,
-								},
-								{
-									name:       "insert",
-									setupQuery: "insert",
-									useState:   true,
-									opSymbol:   "u",
-									expected:   cfg.ExpectedData,
-								},
-							}
-
-							for _, tc := range incrementalTestCases {
-								t.Run(tc.name, func(t *testing.T) {
-									if err := runSync(c, tc.useState, tc.setupQuery, tc.opSymbol, tc.expected); err != nil {
-										t.Fatalf("Incremental test %s failed: %v", tc.name, err)
-									}
-								})
+							// Phase B: Test Full load + Incremental
+							if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
+								return err
 							}
 
 							// 5. Clean up
