@@ -15,6 +15,8 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/docker/docker/api/types/container"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	// load pq driver for SQL tests
 	_ "github.com/lib/pq"
@@ -31,13 +33,14 @@ const (
 )
 
 type IntegrationTest struct {
-	TestConfig         *TestConfig
-	ExpectedData       map[string]interface{}
-	ExpectedUpdateData map[string]interface{}
-	DataTypeSchema     map[string]string
-	Namespace          string
-	ExecuteQuery       func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
-	IcebergDB          string
+	TestConfig                       *TestConfig
+	ExpectedData                     map[string]interface{}
+	ExpectedUpdatedData              map[string]interface{}
+	DestinationDataTypeSchema        map[string]string
+	UpdatedDestinationDataTypeSchema map[string]string
+	Namespace                        string
+	ExecuteQuery                     func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+	DestinationDB                    string
 }
 
 type PerformanceTest struct {
@@ -56,16 +59,17 @@ type SyncSpeed struct {
 	Speed string `json:"Speed"`
 }
 type TestConfig struct {
-	Driver              string
-	HostRootPath        string
-	SourcePath          string
-	CatalogPath         string
-	DestinationPath     string
-	StatePath           string
-	StatsPath           string
-	HostTestDataPath    string
-	HostCatalogPath     string
-	HostTestCatalogPath string
+	Driver                 string
+	HostRootPath           string
+	SourcePath             string
+	CatalogPath            string
+	IcebergDestinationPath string
+	ParquetDestinationPath string
+	StatePath              string
+	StatsPath              string
+	HostTestDataPath       string
+	HostCatalogPath        string
+	HostTestCatalogPath    string
 }
 
 // this benchmark is for performance test which runs on a github runner
@@ -90,21 +94,30 @@ func GetTestConfig(driver string) *TestConfig {
 	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/%s"
 	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", "%s")
 	return &TestConfig{
-		Driver:              driver,
-		HostRootPath:        rootPath,
-		HostTestDataPath:    fmt.Sprintf(hostTestDataPath, driver, ""),
-		HostTestCatalogPath: fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
-		HostCatalogPath:     fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
-		SourcePath:          fmt.Sprintf(containerTestDataPath, driver, "source.json"),
-		CatalogPath:         fmt.Sprintf(containerTestDataPath, driver, "streams.json"),
-		DestinationPath:     fmt.Sprintf(containerTestDataPath, driver, "destination.json"),
-		StatePath:           fmt.Sprintf(containerTestDataPath, driver, "state.json"),
-		StatsPath:           fmt.Sprintf(containerTestDataPath, driver, "stats.json"),
+		Driver:                 driver,
+		HostRootPath:           rootPath,
+		HostTestDataPath:       fmt.Sprintf(hostTestDataPath, driver, ""),
+		HostTestCatalogPath:    fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
+		HostCatalogPath:        fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
+		SourcePath:             fmt.Sprintf(containerTestDataPath, driver, "source.json"),
+		CatalogPath:            fmt.Sprintf(containerTestDataPath, driver, "streams.json"),
+		IcebergDestinationPath: fmt.Sprintf(containerTestDataPath, driver, "iceberg_destination.json"),
+		ParquetDestinationPath: fmt.Sprintf(containerTestDataPath, driver, "parquet_destination.json"),
+		StatePath:              fmt.Sprintf(containerTestDataPath, driver, "state.json"),
+		StatsPath:              fmt.Sprintf(containerTestDataPath, driver, "stats.json"),
 	}
 }
 
-func syncCommand(config TestConfig, useState bool, flags ...string) string {
-	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s --destination %s", config.Driver, config.SourcePath, config.CatalogPath, config.DestinationPath)
+func syncCommand(config TestConfig, useState bool, destinationType string, flags ...string) string {
+	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s", config.Driver, config.SourcePath, config.CatalogPath)
+
+	switch destinationType {
+	case "iceberg":
+		baseCmd = fmt.Sprintf("%s --destination %s", baseCmd, config.IcebergDestinationPath)
+	case "parquet":
+		baseCmd = fmt.Sprintf("%s --destination %s", baseCmd, config.ParquetDestinationPath)
+	}
+
 	if useState {
 		baseCmd = fmt.Sprintf("%s --state %s", baseCmd, config.StatePath)
 	}
@@ -155,6 +168,52 @@ func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
 		backfillStreams = append(backfillStreams, strings.TrimSuffix(stream, "_cdc"))
 	}
 	return backfillStreams
+}
+
+// DeleteParquetFiles deletes only .parquet files directly in the table folder in MinIO
+func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
+	t.Helper()
+	bucketName := "warehouse"
+	parquetPath := fmt.Sprintf("%s/%s/", parquetDB, tableName)
+
+	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", bucketName, parquetPath)
+
+	minioClient, err := minio.New("localhost:9000", &minio.Options{
+		Creds:  credentials.NewStaticV4("admin", "password", ""),
+		Secure: false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create MinIO client: %w", err)
+	}
+
+	ctx := context.Background()
+
+	objectsCh := minioClient.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
+		Prefix:    parquetPath,
+		Recursive: false,
+	})
+
+	deletedCount := 0
+
+	for object := range objectsCh {
+		if object.Err != nil {
+			return fmt.Errorf("error listing objects: %w", object.Err)
+		}
+
+		if strings.HasSuffix(object.Key, ".parquet") {
+			fileName := strings.TrimPrefix(object.Key, parquetPath)
+			t.Logf("Deleting: %s", fileName)
+
+			err := minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to delete %s: %w", object.Key, err)
+			}
+			deletedCount++
+		}
+	}
+
+	t.Logf("--- Cleanup Complete: Deleted %d files ---", deletedCount)
+	return nil
 }
 
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
@@ -281,45 +340,109 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							t.Logf("Enabled normalization in %s", cfg.TestConfig.CatalogPath)
 
 							testCases := []struct {
-								syncMode    string
-								operation   string
-								useState    bool
-								opSymbol    string
-								dummySchema map[string]interface{}
+								syncMode        string
+								destinationType string
+								operation       string
+								useState        bool
+								opSymbol        string
+								dummySchema     map[string]interface{}
 							}{
+								// Iceberg test cases
 								{
-									syncMode:    "Full-Refresh",
-									operation:   "",
-									useState:    false,
-									opSymbol:    "r",
-									dummySchema: cfg.ExpectedData,
+									syncMode:        "Iceberg Full-Refresh",
+									destinationType: "iceberg",
+									operation:       "",
+									useState:        false,
+									opSymbol:        "r",
+									dummySchema:     cfg.ExpectedData,
 								},
 								{
-									syncMode:    "CDC - insert",
-									operation:   "insert",
-									useState:    true,
-									opSymbol:    "c",
-									dummySchema: cfg.ExpectedData,
+									syncMode:        "Iceberg CDC - insert",
+									destinationType: "iceberg",
+									operation:       "insert",
+									useState:        true,
+									opSymbol:        "c",
+									dummySchema:     cfg.ExpectedData,
 								},
 								{
-									syncMode:    "CDC - update",
-									operation:   "update",
-									useState:    true,
-									opSymbol:    "u",
-									dummySchema: cfg.ExpectedUpdateData,
+									syncMode:        "Iceberg - evolve schema",
+									destinationType: "iceberg",
+									operation:       "evolve-schema",
 								},
 								{
-									syncMode:    "CDC - delete",
-									operation:   "delete",
-									useState:    true,
-									opSymbol:    "d",
-									dummySchema: nil,
+									syncMode:        "Iceberg CDC - update",
+									destinationType: "iceberg",
+									operation:       "update",
+									useState:        true,
+									opSymbol:        "u",
+									dummySchema:     cfg.ExpectedUpdatedData,
+								},
+								{
+									syncMode:        "Iceberg CDC - delete",
+									destinationType: "iceberg",
+									operation:       "delete",
+									useState:        true,
+									opSymbol:        "d",
+									dummySchema:     nil,
+								},
+								// Reset database for parquet testcases
+								{
+									syncMode:  "Reset Database",
+									operation: "reset",
+								},
+								// Parquet test cases
+								{
+									syncMode:        "Parquet Full-Refresh",
+									destinationType: "parquet",
+									operation:       "",
+									useState:        false,
+									opSymbol:        "r",
+									dummySchema:     cfg.ExpectedData,
+								},
+								{
+									syncMode:        "Parquet CDC - insert",
+									destinationType: "parquet",
+									operation:       "insert",
+									useState:        true,
+									opSymbol:        "c",
+									dummySchema:     cfg.ExpectedData,
+								},
+								{
+									syncMode:        "Parquet cleanup",
+									destinationType: "parquet",
+									operation:       "cleanup-parquet-files",
+								},
+								{
+									syncMode:        "Parquet - evolve schema",
+									destinationType: "parquet",
+									operation:       "evolve-schema",
+								},
+								{
+									syncMode:        "Parquet CDC - update",
+									destinationType: "parquet",
+									operation:       "update",
+									useState:        true,
+									opSymbol:        "u",
+									dummySchema:     cfg.ExpectedUpdatedData,
+								},
+								{
+									syncMode:        "Parquet cleanup",
+									destinationType: "parquet",
+									operation:       "cleanup-parquet-files",
+								},
+								{
+									syncMode:        "Parquet CDC - delete",
+									destinationType: "parquet",
+									operation:       "delete",
+									useState:        true,
+									opSymbol:        "d",
+									dummySchema:     nil,
 								},
 							}
 
 							destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
-							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol string, schema map[string]interface{}) error {
-								cmd := syncCommand(*cfg.TestConfig, useState, "--destination-database-prefix", destDBPrefix)
+							runSync := func(c testcontainers.Container, useState bool, operation, opSymbol, destinationType string, schema map[string]interface{}) error {
+								cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 								if useState && operation != "" {
 									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, operation, false)
 								}
@@ -328,14 +451,52 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 								}
 								t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
-								VerifyIcebergSync(t, currentTestTable, cfg.IcebergDB, cfg.DataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+								switch destinationType {
+								case "iceberg":
+									{
+										if opSymbol == "u" {
+											VerifyIcebergSync(t, currentTestTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										} else {
+											VerifyIcebergSync(t, currentTestTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										}
+									}
+								case "parquet":
+									{
+										if opSymbol == "u" {
+											VerifyParquetSync(t, currentTestTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										} else {
+											VerifyParquetSync(t, currentTestTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+										}
+									}
+								}
 								return nil
 							}
 
-							// 3. Run Sync command and verify records in Iceberg
+							// 3. Run Sync command and verify records in Iceberg and Parquet
 							for _, test := range testCases {
+								if test.operation == "reset" {
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+									cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+									continue
+								}
+								// Delete old parquet files before schema evolution
+								if test.operation == "cleanup-parquet-files" {
+									if err := DeleteParquetFiles(t, cfg.DestinationDB, currentTestTable); err != nil {
+										return fmt.Errorf("failed to cleanup parquet files: %w", err)
+									}
+									continue
+								}
 								t.Logf("Running test for: %s", test.syncMode)
-								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.dummySchema); err != nil {
+
+								// Handle schema evolution operations
+								if strings.Contains(test.operation, "schema") {
+									if cfg.TestConfig.Driver != "mongodb" {
+										cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, test.operation, false)
+									}
+									continue
+								}
+								if err := runSync(c, test.useState, test.operation, test.opSymbol, test.destinationType, test.dummySchema); err != nil {
 									return err
 								}
 							}
@@ -460,13 +621,104 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 
 		expectedIceType, mapped := GlobalTypeMapping[dbType]
 		if !mapped {
-			t.Logf("No mapping defined for driver type %s (column %s), skipping check", dbType, col)
-			break
+			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
 		}
 		require.Equal(t, expectedIceType, iceType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
+}
+
+// VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
+	t.Helper()
+	ctx := context.Background()
+	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+	require.NoError(t, err, "Failed to connect to Spark Connect server")
+	defer func() {
+		if stopErr := spark.Stop(); stopErr != nil {
+			t.Errorf("Failed to stop Spark session: %v", stopErr)
+		}
+	}()
+
+	parquetPath := fmt.Sprintf("s3a://warehouse/%s/%s", parquetDB, tableName)
+	viewName := fmt.Sprintf("`%s_view_%d`", tableName, time.Now().UnixNano())
+
+	// create a temporary view for parquet files, allows to run describe query
+	createViewQuery := fmt.Sprintf(
+		"CREATE OR REPLACE TEMP VIEW %s AS SELECT * FROM parquet.`%s`",
+		viewName, parquetPath,
+	)
+	_, err = spark.Sql(ctx, createViewQuery)
+	require.NoError(t, err, "Failed to create temporary view for Parquet files")
+
+	defer func() {
+		dropViewQuery := fmt.Sprintf("DROP VIEW IF EXISTS %s", viewName)
+		t.Logf("Dropping temporary view: %s", dropViewQuery)
+		_, _ = spark.Sql(ctx, dropViewQuery)
+	}()
+
+	selectQuery := fmt.Sprintf(
+		"SELECT * FROM %s WHERE `_op_type` = '%s'",
+		viewName, opSymbol,
+	)
+	t.Logf("Executing Parquet query: %s", selectQuery)
+
+	df, err := spark.Sql(ctx, selectQuery)
+	require.NoError(t, err, "Failed to run select query on Parquet files")
+
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err, "Failed to collect rows from Parquet query")
+	require.NotEmpty(t, rows, "No rows returned for _op_type = '%s'", opSymbol)
+
+	if opSymbol == "d" {
+		deletedID := rows[0].Value("_olake_id")
+		require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
+		return
+	}
+
+	for rowIdx, row := range rows {
+		parquetMap := make(map[string]interface{}, len(schema)+1)
+		for _, col := range row.FieldNames() {
+			parquetMap[col] = row.Value(col)
+		}
+		for key, expected := range schema {
+			val, ok := parquetMap[key]
+			require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
+			require.Equal(t, expected, val,
+				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
+		}
+	}
+	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
+
+	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", viewName)
+	descDF, err := spark.Sql(ctx, describeQuery)
+	require.NoError(t, err, "Failed to describe Parquet view")
+
+	descRows, err := descDF.Collect(ctx)
+	require.NoError(t, err, "Failed to collect schema info from Parquet view")
+
+	parquetSchema := make(map[string]string)
+	for _, row := range descRows {
+		colName := row.Value("col_name").(string)
+		dataType := row.Value("data_type").(string)
+		if !strings.HasPrefix(colName, "#") {
+			parquetSchema[colName] = dataType
+		}
+	}
+
+	for col, dbType := range datatypeSchema {
+		pqType, found := parquetSchema[col]
+		require.True(t, found, "Column %s not found in Parquet schema", col)
+
+		expectedType, mapped := GlobalTypeMapping[dbType]
+		if !mapped {
+			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
+		}
+		require.Equal(t, expectedType, pqType,
+			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
+	}
+	t.Logf("Verified datatypes in Parquet after sync")
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
@@ -552,7 +804,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							t.Log("(backfill) sync started")
 							usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
-							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "--destination-database-prefix", destDBPrefix)
+							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "iceberg", "--destination-database-prefix", destDBPrefix)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
@@ -585,7 +837,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 
 								t.Log("(cdc) state creation started")
-								syncCmd := syncCommand(*cfg.TestConfig, false, "--destination-database-prefix", destDBPrefix)
+								syncCmd := syncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", destDBPrefix)
 								if code, output, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
@@ -596,7 +848,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) sync started")
-								syncCmd = syncCommand(*cfg.TestConfig, true, "--destination-database-prefix", destDBPrefix)
+								syncCmd = syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 								if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
 								}

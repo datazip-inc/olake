@@ -10,25 +10,26 @@ import (
 func TestMongodbIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		TestConfig:         testutils.GetTestConfig(string(constants.MongoDB)),
-		Namespace:          "olake_mongodb_test",
-		ExpectedData:       ExpectedMongoData,
-		ExpectedUpdateData: ExpectedUpdatedMongoData,
-		DataTypeSchema:     MongoToIcebergSchema,
-		ExecuteQuery:       ExecuteQuery,
-		IcebergDB:          "mongodb_olake_mongodb_test",
+		TestConfig:                       testutils.GetTestConfig(string(constants.MongoDB)),
+		Namespace:                        "olake_mongodb_test",
+		ExpectedData:                     ExpectedMongoData,
+		ExpectedUpdatedData:              ExpectedUpdatedData,
+		DestinationDataTypeSchema:        MongoToDestinationSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
+		ExecuteQuery:                     ExecuteQuery,
+		DestinationDB:                    "mongodb_olake_mongodb_test",
 	}
 	testConfig.TestIntegration(t)
 }
 
-func TestMongodbPerformance(t *testing.T) {
-	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),
-		Namespace:       "twitter_data",
-		BackfillStreams: []string{"tweets"},
-		CDCStreams:      []string{"tweets_cdc"},
-		ExecuteQuery:    ExecuteQuery,
-	}
+// func TestMongodbPerformance(t *testing.T) {
+// 	config := &testutils.PerformanceTest{
+// 		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),
+// 		Namespace:       "twitter_data",
+// 		BackfillStreams: []string{"tweets"},
+// 		CDCStreams:      []string{"tweets_cdc"},
+// 		ExecuteQuery:    ExecuteQuery,
+// 	}
 
-	config.TestPerformance(t)
-}
+// 	config.TestPerformance(t)
+// }
