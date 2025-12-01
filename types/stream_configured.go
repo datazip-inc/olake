@@ -85,35 +85,51 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
-	filter := s.StreamMetadata.Filter
+	filter := strings.TrimSpace(s.StreamMetadata.Filter)
 	if filter == "" {
 		return Filter{}, nil
 	}
-	// TODO: handle special characters in column name in filter
-	// example: a>b, a>=b, a<b, a<=b, a!=b, a=b, a="b", a=\"b\" and c>d, a="b" or c>d
-	var FilterRegex = regexp.MustCompile(`^(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+)\s*(?:(and|or)\s*(\w+)\s*(>=|<=|!=|>|<|=)\s*(\"[^\"]*\"|\d*\.?\d+|\w+))?\s*$`)
+	// FilterRegex supports the following filter patterns:
+	// Single condition:
+	//   - Normal columns: age > 18, status = \"active\", count != 0
+	//   - Special char columns (quoted): \"user-name\" = \"john\", \"email@domain\" = \"test@example.com\"
+	//   - Numeric values: price >= 99.99, discount <= 0.5, id = 123
+	//   - Quoted string values: name = \"John Doe\", city = \"New York\", a = \"val\"
+	//   - Mixed special chars: \"column.name\" > 10, \"data[0]\" = \"value\"
+	// Two conditions with logical operators:
+	//   - AND operator: age > 18 AND status = \"active\"
+	//   - OR operator: role != \"admin\" OR role = \"moderator\"
+	//   - Mixed types: \"user-id\" = 123 AND \"is-active\" = true
+	//   - Special chars both sides: \"first name\" = "John" AND \"last-name\" = \"Doe\"
+	//   - Case insensitive: age > 18 and status = active, price < 100 or discount > 0
+	// Supported operators: =, !=, <, >, <=, >=
+	// Value types: quoted strings, integers, floats (including negative), decimals, unquoted words
+	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
 		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
 	}
+
 	var conditions []Condition
 	conditions = append(conditions, Condition{
-		Column:   matches[1],
-		Operator: matches[2],
-		Value:    matches[3],
+		Column:   utils.ExtractColumnName(matches[1], matches[2]),
+		Operator: matches[3],
+		Value:    matches[4],
 	})
 
-	if matches[4] != "" {
+	// Check if there's a logical operator (and/or)
+	logicalOp := matches[5]
+	if logicalOp != "" {
 		conditions = append(conditions, Condition{
-			Column:   matches[5],
-			Operator: matches[6],
-			Value:    matches[7],
+			Column:   utils.ExtractColumnName(matches[6], matches[7]),
+			Operator: matches[8],
+			Value:    matches[9],
 		})
 	}
 
 	return Filter{
 		Conditions:      conditions,
-		LogicalOperator: matches[4],
+		LogicalOperator: logicalOp,
 	}, nil
 }
 
