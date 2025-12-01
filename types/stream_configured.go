@@ -111,10 +111,8 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	}
 
 	var conditions []Condition
-
-	Column := utils.ExtractColumnName(matches[1], matches[2])
 	conditions = append(conditions, Condition{
-		Column:   Column,
+		Column:   utils.ExtractColumnName(matches[1], matches[2]),
 		Operator: matches[3],
 		Value:    matches[4],
 	})
@@ -122,9 +120,8 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	// Check if there's a logical operator (and/or)
 	logicalOp := matches[5]
 	if logicalOp != "" {
-		Column := utils.ExtractColumnName(matches[6], matches[7])
 		conditions = append(conditions, Condition{
-			Column:   Column,
+			Column:   utils.ExtractColumnName(matches[6], matches[7]),
 			Operator: matches[8],
 			Value:    matches[9],
 		})
