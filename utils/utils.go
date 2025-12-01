@@ -445,7 +445,7 @@ func SplitAndTrim(s string) []string {
 //
 // Example usage:
 //
-//	// For filter: "user-name" = "John"
+//	// For filter: \"user-name\" = \"John\"
 //	// matches[1] = "user-name" (quoted column), matches[2] = "" (unquoted column)
 //	columnName := ExtractColumnName(matches[1], matches[2]) // Returns: "user-name"
 //

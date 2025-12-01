@@ -91,16 +91,16 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	}
 	// FilterRegex supports the following filter patterns:
 	// Single condition:
-	//   - Normal columns: age > 18, status = active, count != 0
-	//   - Special char columns (quoted): "user-name" = "john", "email@domain" = "test@example.com"
+	//   - Normal columns: age > 18, status = \"active\", count != 0
+	//   - Special char columns (quoted): \"user-name\" = \"john\", \"email@domain\" = \"test@example.com\"
 	//   - Numeric values: price >= 99.99, discount <= 0.5, id = 123
-	//   - Quoted string values: name = "John Doe", city = "New York", a = "val"
-	//   - Mixed special chars: "column.name" > 10, "data[0]" = "value"
+	//   - Quoted string values: name = \"John Doe\", city = \"New York\", a = \"val\"
+	//   - Mixed special chars: \"column.name\" > 10, \"data[0]\" = \"value\"
 	// Two conditions with logical operators:
-	//   - AND operator: age > 18 AND status = "active"
-	//   - OR operator: role = "admin" OR role = "moderator"
-	//   - Mixed types: "user-id" = 123 AND "is-active" = true
-	//   - Special chars both sides: "first-name" = "John" AND "last-name" = "Doe"
+	//   - AND operator: age > 18 AND status = \"active\"
+	//   - OR operator: role != \"admin\" OR role = \"moderator\"
+	//   - Mixed types: \"user-id\" = 123 AND \"is-active\" = true
+	//   - Special chars both sides: \"first name\" = "John" AND \"last-name\" = \"Doe\"
 	//   - Case insensitive: age > 18 and status = active, price < 100 or discount > 0
 	// Supported operators: =, !=, <, >, <=, >=
 	// Value types: quoted strings, integers, floats (including negative), decimals, unquoted words
