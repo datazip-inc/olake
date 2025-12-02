@@ -152,12 +152,18 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert primary cursor value: %s", err)
 		}
-		condition := buildMongoCondition(types.Condition{
-			Column:   primaryCursor,
-			Value:    fmt.Sprintf("%v", formattedPrimaryValue),
-			Operator: "<=",
-		})
-		conditions = append(conditions, condition)
+
+		// Include null values: (column <= value) OR (column IS NULL)
+		conditions = append(conditions, bson.D{{
+			Key: "$or", Value: bson.A{
+				buildMongoCondition(types.Condition{
+					Column:   primaryCursor,
+					Value:    fmt.Sprintf("%v", formattedPrimaryValue),
+					Operator: "<=",
+				}),
+				bson.D{{Key: primaryCursor, Value: nil}},
+			},
+		}})
 	}
 
 	if maxSecondaryCursorValue != nil && secondaryCursor != "" {
@@ -165,12 +171,17 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert secondary cursor value: %s", err)
 		}
-		condition := buildMongoCondition(types.Condition{
-			Column:   secondaryCursor,
-			Value:    fmt.Sprintf("%v", formattedSecondaryValue),
-			Operator: "<=",
-		})
-		conditions = append(conditions, condition)
+
+		conditions = append(conditions, bson.D{{
+			Key: "$or", Value: bson.A{
+				buildMongoCondition(types.Condition{
+					Column:   secondaryCursor,
+					Value:    fmt.Sprintf("%v", formattedSecondaryValue),
+					Operator: "<=",
+				}),
+				bson.D{{Key: secondaryCursor, Value: nil}},
+			},
+		}})
 	}
 
 	return conditions, nil
