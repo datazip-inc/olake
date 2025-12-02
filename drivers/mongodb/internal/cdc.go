@@ -176,7 +176,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	return OnMessage(ctx, change)
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool) error {
+func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
 	if noErr {
 		val, ok := m.cdcCursor.Load(stream.ID())
 		if ok {

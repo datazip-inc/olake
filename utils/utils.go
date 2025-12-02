@@ -424,3 +424,39 @@ func GenerateDestinationDetails(namespace, name string, sourceDatabase *string) 
 	// Final table name is always reformatted
 	return dbName, Reformat(name)
 }
+
+// splitAndTrim splits a comma-separated string and trims whitespace
+func SplitAndTrim(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// ExtractColumnName extracts a column name from regex capture groups.
+// It returns the first non-empty group from the provided groups.
+// This is used when parsing filter expressions where column names can be:
+//   - Quoted (for special characters): "user-name", "email@domain", "column.with.dots"
+//   - Unquoted (for normal identifiers): age, status, count
+//
+// Example usage:
+//
+//	// For filter: \"user-name\" = \"John\"
+//	// matches[1] = "user-name" (quoted column), matches[2] = "" (unquoted column)
+//	columnName := ExtractColumnName(matches[1], matches[2]) // Returns: "user-name"
+//
+//	// For filter: age > 18
+//	// matches[1] = "" (quoted column), matches[2] = "age" (unquoted column)
+//	columnName := ExtractColumnName(matches[1], matches[2]) // Returns: "age"
+func ExtractColumnName(groups ...string) string {
+	for _, group := range groups {
+		if group != "" {
+			return group
+		}
+	}
+	return ""
+}

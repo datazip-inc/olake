@@ -12,6 +12,7 @@ var uiSchemaMap = map[string]string{
 	"oracle":   OracleUISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
+	"kafka":    KafkaUISchema,
 }
 
 const MongoDBUISchema = `{
@@ -142,6 +143,31 @@ const OracleUISchema = `{
   }
 }`
 
+const KafkaUISchema = `{
+    "ui:grid": [
+      { "bootstrap_servers": 12, "consumer_group_id": 12 },
+      { "threads_equal_total_partitions": 12, "max_threads": 12 },
+      { "protocol": 12, "backoff_retry_count": 12 }
+    ],
+    "protocol": {
+      "ui:grid": [
+      { "sasl_mechanism": 12, "sasl_jaas_config": 12 }
+      ],
+      "sasl_jaas_config": {
+      "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "ui:options": {
+      "title": false
+      }
+    },
+    "threads_equal_total_partitions": {
+      "ui:widget": "boolean"
+    }
+}`
+
 const ParquetUISchema = `{
   "type": {
     "ui:widget": "hidden"
@@ -167,15 +193,15 @@ const IcebergUISchema = `{
       { "catalog_type": 12 },
       { "rest_catalog_url": 12, "hive_uri": 12 },
       { "jdbc_url": 12, "jdbc_username": 12, "jdbc_password": 12 },
-      { "iceberg_s3_path": 12, "iceberg_db": 12 },
-      { "hive_clients": 12, "s3_use_ssl": 12 },
-      { "hive_sasl_enabled": 12, "s3_path_style": 12 },
-      { "rest_auth_type": 12, "token": 12 },
-      { "oauth2_uri": 12, "credential": 12 },
-      { "no_identifier_fields": 12, "rest_signing_name": 12 },
-      { "rest_signing_region": 12, "rest_signing_v_4": 12, "scope": 12 },
-      { "s3_endpoint": 12, "aws_access_key": 12 },
-      { "aws_secret_key": 12, "aws_region": 12 }
+      { "iceberg_s3_path": 12, "hive_clients": 12 },
+      { "s3_use_ssl": 12, "hive_sasl_enabled": 12 },
+      { "s3_path_style": 12, "rest_auth_type": 12 },
+      { "token": 12, "oauth2_uri": 12 },
+      { "credential": 12, "no_identifier_fields": 12 },
+      { "rest_signing_name": 12, "rest_signing_region": 12 },
+      { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
+      { "aws_access_key": 12, "aws_secret_key": 12 },
+      { "aws_region": 12 }
     ],
     "no_identifier_fields": {
       "ui:widget": "boolean"

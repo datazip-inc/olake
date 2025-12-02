@@ -244,8 +244,7 @@ Example (Local Test Configuration (JDBC + Minio))
       "s3_use_ssl": false,
       "s3_path_style": true,
       "aws_access_key": "admin",
-      "aws_secret_key": "password",
-      "iceberg_db": "olake_iceberg"
+      "aws_secret_key": "password"
     }
   }
   ```
