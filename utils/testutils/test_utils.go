@@ -289,6 +289,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	return nil
 }
 
+// TODO: add incremntal test for string time, timestamp with timezone, datetime, float, int as cursor field
 // testIcebergFullLoadAndIncremental tests Full load and Incremental operations
 func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	ctx context.Context,
