@@ -27,6 +27,7 @@ var DateTimeFormats = []string{
 	"2006-01-02 15:04:05",
 	"2006-01-02 15:04:05 -07:00",
 	"2006-01-02 15:04:05-07:00",
+	"2006-01-02 15:04:05 -0700 MST",
 	"2006-01-02T15:04:05",
 	"2006-01-02T15:04:05.000000",
 	"2006-01-02T15:04:05.999999999Z07:00",
@@ -265,7 +266,6 @@ func parseStringTimestamp(value string) (time.Time, error) {
 		}
 	}
 
-	logger.Warnf("Invalid datetime detected, failed to parse: %s. Converting to epoch start time (1970-01-01 00:00:00 UTC)", value)
 	return time.Unix(0, 0).UTC(), nil
 }
 
@@ -536,4 +536,15 @@ func ReformatGeoType(v any) (any, error) {
 	default:
 		return fmt.Sprintf("%v", v), nil
 	}
+}
+
+// FormatCursorValue is used to make time format and object id format consistent to be saved in state
+func FormatCursorValue(cursorValue any) any {
+	if _, ok := cursorValue.(time.Time); ok {
+		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
+	}
+	if oid, ok := cursorValue.(primitive.ObjectID); ok {
+		return oid.Hex()
+	}
+	return cursorValue
 }
