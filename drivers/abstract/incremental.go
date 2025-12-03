@@ -139,6 +139,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 	return nil
 }
 
+// RefomratCursorValue to parse the cursor value to the correct type
 func ReformatCursorValue(cursorField string, cursorValue any, stream types.StreamInterface) (any, error) {
 	if cursorField == "" {
 		return cursorValue, nil
