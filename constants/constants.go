@@ -48,3 +48,6 @@ const (
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
 
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
+
+// CurrentStateVersion stores the version of the state file being used
+var CurrentStateVersion = 1

@@ -272,12 +272,11 @@ func parseStringTimestamp(value string, isTimestamp bool) (time.Time, error) {
 	}
 
 	// time unable to be parsed string will be returned as it state version >= 1 (backward compatibility)
-	if !isTimestamp && types.GetStateVersion() >= constants.StateVersion {
+	if !isTimestamp && constants.CurrentStateVersion >= constants.StateVersion {
 		// return the string with no error in case passed value was a stirng as
 		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
 
-	logger.Warnf("Invalid datetime detected, failed to parse: %s. Converting to epoch start time (1970-01-01 00:00:00 UTC)", value)
 	return time.Unix(0, 0).UTC(), nil
 }
 

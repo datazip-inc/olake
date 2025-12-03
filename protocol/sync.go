@@ -61,25 +61,22 @@ var syncCmd = &cobra.Command{
 
 		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
-		// default state
+		// Initialize state
 		state = &types.State{
 			Type:    types.StreamType,
-			Version: 0,
-		}
-		if statePath != "" {
-			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
-				if strings.Contains(err.Error(), "does not exist") {
-					state.Version = constants.StateVersion
-				} else {
-					return err
-				}
-			}
-		} else {
-			state.Version = constants.StateVersion
+			Version: constants.StateVersion, // Default to current version
 		}
 
+		// Load existing state if available, otherwise use empty state
+		if statePath != "" {
+			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
+				logger.Debugf("State file not available, starting with empty state: %v", err)
+				return err
+			}
+		}
+		constants.CurrentStateVersion = state.Version
+
 		state.RWMutex = &sync.RWMutex{}
-		types.SetStateVersion(int32(state.Version))
 		stateBytes, _ := state.MarshalJSON()
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
@@ -132,9 +129,9 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 		// Sync Telemetry tracking
-		telemetry.TrackSyncStarted(syncID, streams, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
+		telemetry.TrackSyncStarted(syncID, streams, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
-			telemetry.TrackSyncCompleted(err == nil, pool.GetStats().ReadCount.Load())
+			telemetry.TrackSyncCompleted(syncID, err == nil, pool.GetStats().ReadCount.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 			time.Sleep(5 * time.Second)
 		}()

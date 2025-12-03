@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -32,23 +31,21 @@ var clearCmd = &cobra.Command{
 			return err
 		}
 
-		// Initialize state - version will be set only for new state files
+		// Initialize state - clear command needs existing state for stream classification
 		state = &types.State{
 			Type:    types.StreamType,
-			Version: 0,
+			Version: constants.StateVersion,
 		}
+
+		// Load existing state if available, otherwise use empty state
 		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
-				if strings.Contains(err.Error(), "does not exist") {
-					state.Version = constants.StateVersion
-				} else {
-					return err
-				}
+				logger.Debugf("State file not available, starting with empty state: %v", err)
+				return err
 			}
-		} else {
-			state.Version = constants.StateVersion
 		}
-		types.SetStateVersion(int32(state.Version))
+		constants.CurrentStateVersion = constants.StateVersion
+		state.Version = constants.CurrentStateVersion
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
