@@ -18,18 +18,20 @@ func TestMongodbIntegration(t *testing.T) {
 		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "mongodb_olake_mongodb_test",
+		CursorField:                      "_id",
+		PartitionRegex:                   "/{_id,identity}",
 	}
 	testConfig.TestIntegration(t)
 }
 
-// func TestMongodbPerformance(t *testing.T) {
-// 	config := &testutils.PerformanceTest{
-// 		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),
-// 		Namespace:       "twitter_data",
-// 		BackfillStreams: []string{"tweets"},
-// 		CDCStreams:      []string{"tweets_cdc"},
-// 		ExecuteQuery:    ExecuteQuery,
-// 	}
+func TestMongodbPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),
+		Namespace:       "twitter_data",
+		BackfillStreams: []string{"tweets"},
+		CDCStreams:      []string{"tweets_cdc"},
+		ExecuteQuery:    ExecuteQuery,
+	}
 
-// 	config.TestPerformance(t)
-// }
+	config.TestPerformance(t)
+}

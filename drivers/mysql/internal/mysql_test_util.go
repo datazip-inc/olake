@@ -133,7 +133,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			WHERE id = 6`, integrationTestTable)
 
 	case "delete":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 6", integrationTestTable)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "setup_cdc":
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
