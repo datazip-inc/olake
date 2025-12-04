@@ -24,6 +24,12 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 		}
 		// set state chunks
 		a.state.SetChunks(stream.Self(), chunksSet)
+
+		// Persist remaining record count from pool stats to state for resume capability
+		// Note: The initial count has already been added to pool stats before logger started
+		if pool.GetStats().TotalRecordsToSync.Load() > 0 && a.state != nil {
+			a.state.SetRemainingRecordCount(stream.Self(), pool.GetStats().TotalRecordsToSync.Load())
+		}
 	}
 	chunks := chunksSet.Array()
 	if len(chunks) == 0 {
@@ -37,7 +43,8 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	sort.Slice(chunks, func(i, j int) bool {
 		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
-	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
+	logger.Infof("Processing backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
+
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
@@ -60,6 +67,12 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 			if err == nil {
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+
+				// Decrement remaining record count by committed records
+				committedCount := inserter.GetCommittedCount()
+				a.state.DecrementRemainingRecordCount(stream.Self(), committedCount)
+				logger.Infof("Stream %s: chunk completed with %d committed records", stream.ID(), committedCount)
+
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}

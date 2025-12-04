@@ -24,6 +24,8 @@ const (
 	MixedType StateType = "MIXED"
 	// constant key for chunks
 	ChunksKey = "chunks"
+	// number of remaining records to be synced in resumable sync
+	RemainingRecordsCount = "remaining_records_count"
 )
 
 type GlobalState struct {
@@ -252,6 +254,81 @@ func (s *State) RemoveChunk(stream *ConfiguredStream, chunk Chunk) int {
 		}
 	}
 	return -1
+}
+
+// GetRemainingRecordCount retrieves the remaining record count for a stream from state
+func (s *State) GetRemainingRecordCount(stream *ConfiguredStream) int64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		if count, loaded := s.Streams[index].State.Load(RemainingRecordsCount); loaded {
+			if countInt64, ok := count.(int64); ok {
+				return countInt64
+			}
+			if countFloat64, ok := count.(float64); ok {
+				return int64(countFloat64)
+			}
+		}
+	}
+	return 0
+}
+
+// SetRemainingRecordCount stores the remaining record count for a stream in state
+func (s *State) SetRemainingRecordCount(stream *ConfiguredStream, count int64) {
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Store(RemainingRecordsCount, count)
+		s.Streams[index].HoldsValue.Store(true)
+	} else {
+		newStream := s.initStreamState(stream)
+		newStream.State.Store(RemainingRecordsCount, count)
+		newStream.HoldsValue.Store(true)
+		s.Streams = append(s.Streams, newStream)
+	}
+	s.LogState()
+}
+
+// DecrementRemainingRecordCount decrements the remaining record count for a stream in state
+func (s *State) DecrementRemainingRecordCount(stream *ConfiguredStream, count int64) {
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		if remaining, loaded := s.Streams[index].State.Load(RemainingRecordsCount); loaded {
+			var currentRemaining int64
+
+			// Handle both int64 and float64 (when loaded from JSON)
+			if remainingInt64, ok := remaining.(int64); ok {
+				currentRemaining = remainingInt64
+			} else if remainingFloat64, ok := remaining.(float64); ok {
+				currentRemaining = int64(remainingFloat64)
+			} else {
+				// If neither type matches, skip decrement
+				s.LogState()
+				return
+			}
+
+			newRemaining := currentRemaining - count
+			if newRemaining < 0 {
+				newRemaining = 0
+			}
+			s.Streams[index].State.Store(RemainingRecordsCount, newRemaining)
+			s.Streams[index].HoldsValue.Store(true)
+		}
+	}
+	s.LogState()
 }
 
 func (s *State) MarshalJSON() ([]byte, error) {
