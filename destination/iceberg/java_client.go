@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -38,7 +39,7 @@ type serverInstance struct {
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
@@ -127,7 +128,7 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 
 // setup java client
 
-func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
+func newIcebergClient(config *Config, partitionInfo []internal.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
 	// validate configuration
 	err := config.Validate()
 	if err != nil {
@@ -239,7 +240,7 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 	return nil, fmt.Errorf("failed to start iceberg writer after %d attempts due to port binding conflicts", maxAttempts)
 }
 
-func (s *serverInstance) sendClientRequest(ctx context.Context, reqPayload *proto.IcebergPayload) (string, error) {
+func (s *serverInstance) SendClientRequest(ctx context.Context, reqPayload *proto.IcebergPayload) (string, error) {
 	resp, err := s.client.SendRecords(ctx, reqPayload)
 	if err != nil {
 		return "", fmt.Errorf("failed to send grpc request: %s", err)
@@ -247,12 +248,17 @@ func (s *serverInstance) sendClientRequest(ctx context.Context, reqPayload *prot
 	return resp.GetResult(), nil
 }
 
-func (s *serverInstance) sendArrowRequest(ctx context.Context, reqPayload *proto.ArrowPayload) (*proto.ArrowIngestResponse, error) {
+func (s *serverInstance) SendArrowRequest(ctx context.Context, reqPayload *proto.ArrowPayload) (*proto.ArrowIngestResponse, error) {
 	resp, err := s.arrowClient.IcebergAPI(ctx, reqPayload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send arrow grpc request: %w", err)
+		return nil, fmt.Errorf("failed to send arrow grpc request: %v", err)
 	}
+	
 	return resp, nil
+}
+
+func (s *serverInstance) ServerID() string {
+	return s.serverID
 }
 
 // closeIcebergClient closes the connection to the Iceberg server

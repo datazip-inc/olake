@@ -1,4 +1,4 @@
-package arrow
+package arrowwriter
 
 import (
 	"encoding/json"
@@ -7,10 +7,43 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
+)
+
+var (
+	// Apache Iceberg sets its default compression to 'zstd'
+	// https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L147
+	DefaultCompression = parquet.WithCompression(compress.Codecs.Zstd)
+
+	// Apache Iceberg default compression level is "null", and thus doesn't set any compression level config (https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L152)
+	// thus, falls back to the underlying Parquet-Java library's default which is compression level 3 (https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/codec/ZstandardCodec.java#L52)
+	DefaultCompressionLevel = parquet.WithCompressionLevel(3)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L130-L133
+	DefaultDataPageSize = parquet.WithDataPageSize(1 * 1024 * 1024)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L139-L142
+	DefaultDictionaryPageSizeLimit = parquet.WithDictionaryPageSizeLimit(2 * 1024 * 1024)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L612
+	DefaultDictionaryEncoding = parquet.WithDictionaryDefault(true)
+
+	// Apache Iceberg page row count limit: https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L137
+	DefaultBatchSize = parquet.WithBatchSize(int64(20000))
+
+	// Apache Iceberg relies on Parquet-Java: https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-column/src/main/java/org/apache/parquet/column/ParquetProperties.java#L67
+	DefaultStatsEnabled = parquet.WithStats(true)
+
+	// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L171
+	DefaultParquetVersion = parquet.WithVersion(parquet.V1_0)
+
+	// iceberg writes root name as "table" in parquet's meta
+	DefaultRootName = parquet.WithRootName("table")
 )
 
 func toArrowType(icebergType string) arrow.DataType {
@@ -85,8 +118,8 @@ func CreateDeNormFields(fieldIds map[string]int) []arrow.Field {
 		arrowType, nullable := getFieldType(fieldName)
 
 		fields = append(fields, arrow.Field{
-			Name: fieldName,
-			Type: arrowType,
+			Name:     fieldName,
+			Type:     arrowType,
 			Nullable: nullable,
 			Metadata: arrow.MetadataFrom(map[string]string{
 				"PARQUET:field_id": fmt.Sprintf("%d", fieldIds[fieldName]),
@@ -97,7 +130,20 @@ func CreateDeNormFields(fieldIds map[string]int) []arrow.Field {
 	return fields
 }
 
-func CreateDelArrowRec(records []types.RawRecord, fieldId int) (arrow.Record, error) {
+// In OLake, for equality deletes, we use OlakeID as the id
+// we create equality delete files for:
+// "d" : delete operation
+// "u" : update operation
+// "c" : insert operation
+func extractDeleteRecord(rec types.RawRecord) types.RawRecord {
+	if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
+		return types.RawRecord{OlakeID: rec.OlakeID}
+	}
+
+	return rec
+}
+
+func createDeleteArrowRec(records []types.RawRecord, fieldId int) (arrow.Record, error) {
 	// need to check the metadata requirement here as well
 	fields := make([]arrow.Field, 0, 1)
 	fields = append(fields, arrow.Field{
@@ -160,7 +206,7 @@ func CreateArrowRecord(records []types.RawRecord, fields []arrow.Field, normaliz
 				recordBuilder.Field(idx).AppendNull()
 			} else {
 				if err := AppendValueToBuilder(recordBuilder.Field(idx), val, field.Type, field.Name, normalization); err != nil {
-					return nil, fmt.Errorf("cannot identify value for the col %v", field.Name)
+					return nil, fmt.Errorf("cannot identify value for the col %v: %v", field.Name, err)
 				}
 			}
 		}
@@ -225,55 +271,4 @@ func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arro
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
 	return nil
-}
-
-// PartitionInfo represents an Iceberg partition column with its transform, preserving order.
-type PartitionInfo struct {
-	Field     string
-	Transform string
-}
-
-// In OLake, for equality deletes, we use OlakeID as the id
-// we create equality delete files for:
-// "d" : delete operation
-// "u" : update operation
-// "c" : insert operation
-func ExtractDeleteRecords(records []types.RawRecord) []types.RawRecord {
-	deletes := make([]types.RawRecord, 0, len(records))
-	for _, rec := range records {
-		if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
-			deletes = append(deletes, types.RawRecord{OlakeID: rec.OlakeID})
-		}
-	}
-
-	return deletes
-}
-
-// OLake's arrow writer writes the iceberg schema as a metadata in every parquet file
-func BuildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int, schemaId int) string {
-	fieldNames := make([]string, 0, len(schema))
-	for fieldName := range schema {
-		fieldNames = append(fieldNames, fieldName)
-	}
-
-	sort.Strings(fieldNames)
-
-	fieldsJSON := ""
-	for i, fieldName := range fieldNames {
-		icebergType := schema[fieldName]
-		fieldId := fieldIds[fieldName]
-
-		typeStr := fmt.Sprintf(`"%s"`, icebergType)
-
-		// OLakeID is a REQUIRED field, cannot be NULL
-		required := fieldName == constants.OlakeID
-
-		if i > 0 {
-			fieldsJSON += ","
-		}
-		fieldsJSON += fmt.Sprintf(`{"id":%d,"name":"%s","required":%t,"type":%s}`,
-			fieldId, fieldName, required, typeStr)
-	}
-
-	return fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[%s]}`, schemaId, fieldsJSON)
 }

@@ -65,7 +65,11 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
 
                               switch (fileType) {
                                    case "delete":
-                                        int fieldId = IcebergUtil.getFieldId(this.icebergTable, "_olake_id");
+                                        if (!fileMeta.hasEqualityFieldId()) {
+                                             throw new IllegalArgumentException(
+                                                       "Equality field ID is required for delete files");
+                                        }
+                                        int fieldId = fileMeta.getEqualityFieldId();
                                         icebergTableOperator.accumulateDeleteFiles(
                                                   threadId,
                                                   icebergTable,
@@ -102,20 +106,23 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                    String.format("Successfully registered data for thread %s", threadId));
                          break;
 
-                    case GET_FIELD_ID:
-                         String fieldName = metadata.getFieldName();
-                         if (fieldName == null || fieldName.isEmpty()) {
-                              throw new IllegalArgumentException("Field name is required for GET_FIELD_ID request");
-                         }
-                         int fieldId = IcebergUtil.getFieldId(this.icebergTable, fieldName);
-                         sendResponse(responseObserver, String.valueOf(fieldId));
-                         LOGGER.info("{} Field '{}' has ID: {}", requestId, fieldName, fieldId);
-                         break;
-
                     case GET_SCHEMA_ID:
                          int currentSchemaId = this.icebergTable.schema().schemaId();
                          sendResponse(responseObserver, String.valueOf(currentSchemaId));
                          LOGGER.info("{} Current schema ID: {}", requestId, currentSchemaId);
+                         break;
+
+                    case GET_ALL_FIELD_IDS:
+                         LOGGER.info("{} Received GET_ALL_FIELD_IDS request", requestId);
+                         java.util.Map<String, Integer> allFieldIds = IcebergUtil.getAllFieldIds(this.icebergTable);
+                         RecordIngest.ArrowIngestResponse batchResponse = RecordIngest.ArrowIngestResponse.newBuilder()
+                                   .setResult("Successfully retrieved all field IDs")
+                                   .setSuccess(true)
+                                   .putAllFieldIds(allFieldIds)
+                                   .build();
+                         responseObserver.onNext(batchResponse);
+                         responseObserver.onCompleted();
+                         LOGGER.info("{} Returned {} field IDs", requestId, allFieldIds.size());
                          break;
 
                     case UPLOAD_FILE:
@@ -125,41 +132,8 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          byte[] fileData = uploadReq.getFileData().toByteArray();
                          String fileType = uploadReq.getFileType();
                          String partitionKey = uploadReq.getPartitionKey();
-                         String filename = uploadReq.getFilename();
 
-                         LOGGER.info("{} Uploading {} file: {} (size: {} bytes, partition: {})",
-                                   requestId, fileType, filename, fileData.length, partitionKey);
-
-                         org.apache.iceberg.io.FileIO fileIO = this.icebergTable.io();
-                         org.apache.iceberg.io.LocationProvider locations = this.icebergTable.locationProvider();
-
-                         String icebergLocation;
-                         if (partitionKey != null && !partitionKey.isEmpty()) {
-                              String baseLocation = locations.newDataLocation(filename);
-                              int lastSlash = baseLocation.lastIndexOf('/');
-                              if (lastSlash > 0) {
-                                   String basePath = baseLocation.substring(0, lastSlash);
-                                   icebergLocation = basePath + "/" + partitionKey + "/" + filename;
-                              } else {
-                                   icebergLocation = partitionKey + "/" + filename;
-                              }
-                         } else {
-                              icebergLocation = locations.newDataLocation(filename);
-                         }
-
-                         org.apache.iceberg.io.OutputFile outputFile = fileIO.newOutputFile(icebergLocation);
-                         try (java.io.OutputStream out = outputFile.create()) {
-                              out.write(fileData);
-                              out.flush();
-                         }
-
-                         LOGGER.info("{} Successfully uploaded file to: {}", requestId, icebergLocation);
-                         sendResponse(responseObserver, icebergLocation);
-                         break;
-
-                    case GENERATE_FILENAME:
-                         LOGGER.debug("{} Received GENERATE_FILENAME request for thread: {}", requestId, threadId);
-
+                         // Generate filename using OutputFileFactory
                          if (this.outputFileFactory == null) {
                               org.apache.iceberg.FileFormat fileFormat = IcebergUtil
                                         .getTableFileFormat(this.icebergTable);
@@ -170,22 +144,38 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          org.apache.iceberg.encryption.EncryptedOutputFile encryptedFile = this.outputFileFactory
                                    .newOutputFile();
                          String fullPath = encryptedFile.encryptingOutputFile().location();
-
                          int lastSlashIndex = fullPath.lastIndexOf('/');
-                         String generatedFilename = lastSlashIndex >= 0
-                                   ? fullPath.substring(lastSlashIndex + 1)
+                         String generatedFilename = lastSlashIndex >= 0 ? fullPath.substring(lastSlashIndex + 1)
                                    : fullPath;
 
-                         LOGGER.info("{} Generated filename: {}", requestId, generatedFilename);
+                         LOGGER.info("{} Uploading {} file: {} (size: {} bytes, partition: {})",
+                                   requestId, fileType, generatedFilename, fileData.length, partitionKey);
 
-                         RecordIngest.ArrowIngestResponse filenameResponse = RecordIngest.ArrowIngestResponse
-                                   .newBuilder()
-                                   .setResult("success")
-                                   .setSuccess(true)
-                                   .setFilename(generatedFilename)
-                                   .build();
-                         responseObserver.onNext(filenameResponse);
-                         responseObserver.onCompleted();
+                         org.apache.iceberg.io.FileIO fileIO = this.icebergTable.io();
+                         org.apache.iceberg.io.LocationProvider locations = this.icebergTable.locationProvider();
+
+                         String icebergLocation;
+                         if (partitionKey != null && !partitionKey.isEmpty()) {
+                              String baseLocation = locations.newDataLocation(generatedFilename);
+                              int lastSlash = baseLocation.lastIndexOf('/');
+                              if (lastSlash > 0) {
+                                   String basePath = baseLocation.substring(0, lastSlash);
+                                   icebergLocation = basePath + "/" + partitionKey + "/" + generatedFilename;
+                              } else {
+                                   icebergLocation = partitionKey + "/" + generatedFilename;
+                              }
+                         } else {
+                              icebergLocation = locations.newDataLocation(generatedFilename);
+                         }
+
+                         org.apache.iceberg.io.OutputFile outputFile = fileIO.newOutputFile(icebergLocation);
+                         try (java.io.OutputStream out = outputFile.create()) {
+                              out.write(fileData);
+                              out.flush();
+                         }
+
+                         LOGGER.info("{} Successfully uploaded file to: {}", requestId, icebergLocation);
+                         sendResponse(responseObserver, icebergLocation);
                          break;
 
                     default:

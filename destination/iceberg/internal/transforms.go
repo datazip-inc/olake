@@ -1,4 +1,4 @@
-package arrow
+package internal
 
 import (
 	"encoding/binary"
@@ -181,8 +181,10 @@ func (t HourTransform) apply(val any, colType string) (string, error) {
 
 type VoidTransform struct{}
 
-func (t VoidTransform) canTransform(colType string) bool              { return true }
-func (t VoidTransform) apply(val any, colType string) (string, error) { return NULL_PARTITION_VALUE, nil }
+func (t VoidTransform) canTransform(colType string) bool { return true }
+func (t VoidTransform) apply(val any, colType string) (string, error) {
+	return NULL_PARTITION_VALUE, nil
+}
 
 func hashFunction[T ~int32 | ~int64](v any) uint32 {
 	var (
@@ -287,7 +289,7 @@ func (t TruncateTransform) apply(val any, colType string) (string, error) {
 	}
 }
 
-func constructColPath(tVal, field, transform string) string {
+func ConstructColPath(tVal, field, transform string) string {
 	if transform == "identity" {
 		return fmt.Sprintf("%s=%s", field, tVal)
 	}
@@ -310,7 +312,7 @@ func constructColPath(tVal, field, transform string) string {
 	}
 }
 
-func transformValue(val any, transform string, colType string) (any, error) {
+func TransformValue(val any, transform string, colType string) (any, error) {
 	var tf Transform
 
 	switch transform {

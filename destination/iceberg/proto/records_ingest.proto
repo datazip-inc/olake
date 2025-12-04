@@ -67,11 +67,10 @@ service ArrowIngestService {
 message ArrowPayload {
   enum PayloadType {
     REGISTER = 0;
-    GET_FIELD_ID = 1;
-    UPLOAD_FILE = 2;
-    GENERATE_FILENAME = 3;
-    COMMIT = 4;
-    GET_SCHEMA_ID = 5;
+    UPLOAD_FILE = 1;
+    COMMIT = 2;
+    GET_SCHEMA_ID = 3;
+    GET_ALL_FIELD_IDS = 4;
   }
 
   PayloadType type = 1;
@@ -80,22 +79,21 @@ message ArrowPayload {
     string file_type = 1;
     string file_path = 2;
     int64 record_count = 3;
+    optional int32 equality_field_id = 4;  // Only set for delete files
   }
 
   message FileUploadRequest {
     bytes file_data = 1;
     string file_type = 2;
     string partition_key = 3;
-    string filename = 4;
-    int32 equality_field_id = 5;
+    int32 equality_field_id = 4;
   }
 
   message Metadata {
     string dest_table_name = 1;
     string thread_id = 2;
     repeated FileMetadata file_metadata = 3;
-    optional string field_name = 4;
-    optional FileUploadRequest file_upload = 5;
+    optional FileUploadRequest file_upload = 4;
   }
 
   Metadata metadata = 2;
@@ -104,5 +102,5 @@ message ArrowPayload {
 message ArrowIngestResponse {
   string result = 1;
   bool success = 2;
-  optional string filename = 3;
+  map<string, int32> field_ids = 3;
 }

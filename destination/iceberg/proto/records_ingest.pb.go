@@ -83,30 +83,27 @@ type ArrowPayload_PayloadType int32
 
 const (
 	ArrowPayload_REGISTER          ArrowPayload_PayloadType = 0
-	ArrowPayload_GET_FIELD_ID      ArrowPayload_PayloadType = 1
-	ArrowPayload_UPLOAD_FILE       ArrowPayload_PayloadType = 2
-	ArrowPayload_GENERATE_FILENAME ArrowPayload_PayloadType = 3
-	ArrowPayload_COMMIT            ArrowPayload_PayloadType = 4
-	ArrowPayload_GET_SCHEMA_ID     ArrowPayload_PayloadType = 5
+	ArrowPayload_UPLOAD_FILE       ArrowPayload_PayloadType = 1
+	ArrowPayload_COMMIT            ArrowPayload_PayloadType = 2
+	ArrowPayload_GET_SCHEMA_ID     ArrowPayload_PayloadType = 3
+	ArrowPayload_GET_ALL_FIELD_IDS ArrowPayload_PayloadType = 4
 )
 
 // Enum value maps for ArrowPayload_PayloadType.
 var (
 	ArrowPayload_PayloadType_name = map[int32]string{
 		0: "REGISTER",
-		1: "GET_FIELD_ID",
-		2: "UPLOAD_FILE",
-		3: "GENERATE_FILENAME",
-		4: "COMMIT",
-		5: "GET_SCHEMA_ID",
+		1: "UPLOAD_FILE",
+		2: "COMMIT",
+		3: "GET_SCHEMA_ID",
+		4: "GET_ALL_FIELD_IDS",
 	}
 	ArrowPayload_PayloadType_value = map[string]int32{
 		"REGISTER":          0,
-		"GET_FIELD_ID":      1,
-		"UPLOAD_FILE":       2,
-		"GENERATE_FILENAME": 3,
-		"COMMIT":            4,
-		"GET_SCHEMA_ID":     5,
+		"UPLOAD_FILE":       1,
+		"COMMIT":            2,
+		"GET_SCHEMA_ID":     3,
+		"GET_ALL_FIELD_IDS": 4,
 	}
 )
 
@@ -305,7 +302,7 @@ type ArrowIngestResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Result        string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
 	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	Filename      *string                `protobuf:"bytes,3,opt,name=filename,proto3,oneof" json:"filename,omitempty"`
+	FieldIds      map[string]int32       `protobuf:"bytes,3,rep,name=field_ids,json=fieldIds,proto3" json:"field_ids,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -354,11 +351,11 @@ func (x *ArrowIngestResponse) GetSuccess() bool {
 	return false
 }
 
-func (x *ArrowIngestResponse) GetFilename() string {
-	if x != nil && x.Filename != nil {
-		return *x.Filename
+func (x *ArrowIngestResponse) GetFieldIds() map[string]int32 {
+	if x != nil {
+		return x.FieldIds
 	}
-	return ""
+	return nil
 }
 
 type IcebergPayload_Metadata struct {
@@ -702,12 +699,13 @@ func (*IcebergPayload_IceRecord_FieldValue_BytesValue) isIcebergPayload_IceRecor
 }
 
 type ArrowPayload_FileMetadata struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FileType      string                 `protobuf:"bytes,1,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`
-	FilePath      string                 `protobuf:"bytes,2,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
-	RecordCount   int64                  `protobuf:"varint,3,opt,name=record_count,json=recordCount,proto3" json:"record_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	FileType        string                 `protobuf:"bytes,1,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`
+	FilePath        string                 `protobuf:"bytes,2,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	RecordCount     int64                  `protobuf:"varint,3,opt,name=record_count,json=recordCount,proto3" json:"record_count,omitempty"`
+	EqualityFieldId *int32                 `protobuf:"varint,4,opt,name=equality_field_id,json=equalityFieldId,proto3,oneof" json:"equality_field_id,omitempty"` // Only set for delete files
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ArrowPayload_FileMetadata) Reset() {
@@ -761,13 +759,19 @@ func (x *ArrowPayload_FileMetadata) GetRecordCount() int64 {
 	return 0
 }
 
+func (x *ArrowPayload_FileMetadata) GetEqualityFieldId() int32 {
+	if x != nil && x.EqualityFieldId != nil {
+		return *x.EqualityFieldId
+	}
+	return 0
+}
+
 type ArrowPayload_FileUploadRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	FileData        []byte                 `protobuf:"bytes,1,opt,name=file_data,json=fileData,proto3" json:"file_data,omitempty"`
 	FileType        string                 `protobuf:"bytes,2,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`
 	PartitionKey    string                 `protobuf:"bytes,3,opt,name=partition_key,json=partitionKey,proto3" json:"partition_key,omitempty"`
-	Filename        string                 `protobuf:"bytes,4,opt,name=filename,proto3" json:"filename,omitempty"`
-	EqualityFieldId int32                  `protobuf:"varint,5,opt,name=equality_field_id,json=equalityFieldId,proto3" json:"equality_field_id,omitempty"`
+	EqualityFieldId int32                  `protobuf:"varint,4,opt,name=equality_field_id,json=equalityFieldId,proto3" json:"equality_field_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -823,13 +827,6 @@ func (x *ArrowPayload_FileUploadRequest) GetPartitionKey() string {
 	return ""
 }
 
-func (x *ArrowPayload_FileUploadRequest) GetFilename() string {
-	if x != nil {
-		return x.Filename
-	}
-	return ""
-}
-
 func (x *ArrowPayload_FileUploadRequest) GetEqualityFieldId() int32 {
 	if x != nil {
 		return x.EqualityFieldId
@@ -842,8 +839,7 @@ type ArrowPayload_Metadata struct {
 	DestTableName string                          `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
 	ThreadId      string                          `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
 	FileMetadata  []*ArrowPayload_FileMetadata    `protobuf:"bytes,3,rep,name=file_metadata,json=fileMetadata,proto3" json:"file_metadata,omitempty"`
-	FieldName     *string                         `protobuf:"bytes,4,opt,name=field_name,json=fieldName,proto3,oneof" json:"field_name,omitempty"`
-	FileUpload    *ArrowPayload_FileUploadRequest `protobuf:"bytes,5,opt,name=file_upload,json=fileUpload,proto3,oneof" json:"file_upload,omitempty"`
+	FileUpload    *ArrowPayload_FileUploadRequest `protobuf:"bytes,4,opt,name=file_upload,json=fileUpload,proto3,oneof" json:"file_upload,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -897,13 +893,6 @@ func (x *ArrowPayload_Metadata) GetFileMetadata() []*ArrowPayload_FileMetadata {
 		return x.FileMetadata
 	}
 	return nil
-}
-
-func (x *ArrowPayload_Metadata) GetFieldName() string {
-	if x != nil && x.FieldName != nil {
-		return *x.FieldName
-	}
-	return ""
 }
 
 func (x *ArrowPayload_Metadata) GetFileUpload() *ArrowPayload_FileUploadRequest {
@@ -960,43 +949,42 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x14REFRESH_TABLE_SCHEMA\x10\x05\"H\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\"\xaa\a\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\"\x91\a\n" +
 	"\fArrowPayload\x12L\n" +
 	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
-	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1ak\n" +
+	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xb2\x01\n" +
 	"\fFileMetadata\x12\x1b\n" +
 	"\tfile_type\x18\x01 \x01(\tR\bfileType\x12\x1b\n" +
 	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x12!\n" +
-	"\frecord_count\x18\x03 \x01(\x03R\vrecordCount\x1a\xba\x01\n" +
+	"\frecord_count\x18\x03 \x01(\x03R\vrecordCount\x12/\n" +
+	"\x11equality_field_id\x18\x04 \x01(\x05H\x00R\x0fequalityFieldId\x88\x01\x01B\x14\n" +
+	"\x12_equality_field_id\x1a\x9e\x01\n" +
 	"\x11FileUploadRequest\x12\x1b\n" +
 	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12\x1b\n" +
 	"\tfile_type\x18\x02 \x01(\tR\bfileType\x12#\n" +
-	"\rpartition_key\x18\x03 \x01(\tR\fpartitionKey\x12\x1a\n" +
-	"\bfilename\x18\x04 \x01(\tR\bfilename\x12*\n" +
-	"\x11equality_field_id\x18\x05 \x01(\x05R\x0fequalityFieldId\x1a\xd8\x02\n" +
+	"\rpartition_key\x18\x03 \x01(\tR\fpartitionKey\x12*\n" +
+	"\x11equality_field_id\x18\x04 \x01(\x05R\x0fequalityFieldId\x1a\xa5\x02\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12^\n" +
-	"\rfile_metadata\x18\x03 \x03(\v29.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadataR\ffileMetadata\x12\"\n" +
-	"\n" +
-	"field_name\x18\x04 \x01(\tH\x00R\tfieldName\x88\x01\x01\x12d\n" +
-	"\vfile_upload\x18\x05 \x01(\v2>.io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequestH\x01R\n" +
-	"fileUpload\x88\x01\x01B\r\n" +
-	"\v_field_nameB\x0e\n" +
-	"\f_file_upload\"t\n" +
+	"\rfile_metadata\x18\x03 \x03(\v29.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadataR\ffileMetadata\x12d\n" +
+	"\vfile_upload\x18\x04 \x01(\v2>.io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequestH\x00R\n" +
+	"fileUpload\x88\x01\x01B\x0e\n" +
+	"\f_file_upload\"b\n" +
 	"\vPayloadType\x12\f\n" +
-	"\bREGISTER\x10\x00\x12\x10\n" +
-	"\fGET_FIELD_ID\x10\x01\x12\x0f\n" +
-	"\vUPLOAD_FILE\x10\x02\x12\x15\n" +
-	"\x11GENERATE_FILENAME\x10\x03\x12\n" +
+	"\bREGISTER\x10\x00\x12\x0f\n" +
+	"\vUPLOAD_FILE\x10\x01\x12\n" +
 	"\n" +
-	"\x06COMMIT\x10\x04\x12\x11\n" +
-	"\rGET_SCHEMA_ID\x10\x05\"u\n" +
+	"\x06COMMIT\x10\x02\x12\x11\n" +
+	"\rGET_SCHEMA_ID\x10\x03\x12\x15\n" +
+	"\x11GET_ALL_FIELD_IDS\x10\x04\"\xe4\x01\n" +
 	"\x13ArrowIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x1f\n" +
-	"\bfilename\x18\x03 \x01(\tH\x00R\bfilename\x88\x01\x01B\v\n" +
-	"\t_filename2\x8a\x01\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12^\n" +
+	"\tfield_ids\x18\x03 \x03(\v2A.io.debezium.server.iceberg.rpc.ArrowIngestResponse.FieldIdsEntryR\bfieldIds\x1a;\n" +
+	"\rFieldIdsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x012\x8a\x01\n" +
 	"\x13RecordIngestService\x12s\n" +
 	"\vSendRecords\x12..io.debezium.server.iceberg.rpc.IcebergPayload\x1a4.io.debezium.server.iceberg.rpc.RecordIngestResponse2\x85\x01\n" +
 	"\x12ArrowIngestService\x12o\n" +
@@ -1016,7 +1004,7 @@ func file_records_ingest_proto_rawDescGZIP() []byte {
 }
 
 var file_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_records_ingest_proto_goTypes = []any{
 	(IcebergPayload_PayloadType)(0),             // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
 	(ArrowPayload_PayloadType)(0),               // 1: io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
@@ -1031,6 +1019,7 @@ var file_records_ingest_proto_goTypes = []any{
 	(*ArrowPayload_FileMetadata)(nil),           // 10: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
 	(*ArrowPayload_FileUploadRequest)(nil),      // 11: io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
 	(*ArrowPayload_Metadata)(nil),               // 12: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
+	nil,                                         // 13: io.debezium.server.iceberg.rpc.ArrowIngestResponse.FieldIdsEntry
 }
 var file_records_ingest_proto_depIdxs = []int32{
 	0,  // 0: io.debezium.server.iceberg.rpc.IcebergPayload.type:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
@@ -1038,19 +1027,20 @@ var file_records_ingest_proto_depIdxs = []int32{
 	8,  // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
 	1,  // 3: io.debezium.server.iceberg.rpc.ArrowPayload.type:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
 	12, // 4: io.debezium.server.iceberg.rpc.ArrowPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
-	7,  // 5: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	9,  // 6: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
-	10, // 7: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
-	11, // 8: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_upload:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
-	2,  // 9: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
-	4,  // 10: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.debezium.server.iceberg.rpc.ArrowPayload
-	3,  // 11: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
-	5,  // 12: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.debezium.server.iceberg.rpc.ArrowIngestResponse
-	11, // [11:13] is the sub-list for method output_type
-	9,  // [9:11] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	13, // 5: io.debezium.server.iceberg.rpc.ArrowIngestResponse.field_ids:type_name -> io.debezium.server.iceberg.rpc.ArrowIngestResponse.FieldIdsEntry
+	7,  // 6: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
+	9,  // 7: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
+	10, // 8: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
+	11, // 9: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_upload:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
+	2,  // 10: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
+	4,  // 11: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.debezium.server.iceberg.rpc.ArrowPayload
+	3,  // 12: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
+	5,  // 13: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.debezium.server.iceberg.rpc.ArrowIngestResponse
+	12, // [12:14] is the sub-list for method output_type
+	10, // [10:12] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_records_ingest_proto_init() }
@@ -1058,7 +1048,6 @@ func file_records_ingest_proto_init() {
 	if File_records_ingest_proto != nil {
 		return
 	}
-	file_records_ingest_proto_msgTypes[3].OneofWrappers = []any{}
 	file_records_ingest_proto_msgTypes[4].OneofWrappers = []any{}
 	file_records_ingest_proto_msgTypes[7].OneofWrappers = []any{
 		(*IcebergPayload_IceRecord_FieldValue_StringValue)(nil),
@@ -1069,6 +1058,7 @@ func file_records_ingest_proto_init() {
 		(*IcebergPayload_IceRecord_FieldValue_BoolValue)(nil),
 		(*IcebergPayload_IceRecord_FieldValue_BytesValue)(nil),
 	}
+	file_records_ingest_proto_msgTypes[8].OneofWrappers = []any{}
 	file_records_ingest_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1076,7 +1066,7 @@ func file_records_ingest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_records_ingest_proto_rawDesc), len(file_records_ingest_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

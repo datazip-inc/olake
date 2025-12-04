@@ -8,9 +8,11 @@
 
 package io.debezium.server.iceberg.tableoperator;
 
-import com.google.common.collect.ImmutableMap;
-import jakarta.enterprise.context.Dependent;
-import jakarta.inject.Inject;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -33,10 +35,10 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import com.google.common.collect.ImmutableMap;
+
+import jakarta.enterprise.context.Dependent;
+import jakarta.inject.Inject;
 /**
  * Wrapper to perform operations on iceberg tables
  *

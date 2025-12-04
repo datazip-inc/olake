@@ -6210,25 +6210,21 @@ public final class RecordIngest {
        */
       REGISTER(0),
       /**
-       * <code>GET_FIELD_ID = 1;</code>
+       * <code>UPLOAD_FILE = 1;</code>
        */
-      GET_FIELD_ID(1),
+      UPLOAD_FILE(1),
       /**
-       * <code>UPLOAD_FILE = 2;</code>
+       * <code>COMMIT = 2;</code>
        */
-      UPLOAD_FILE(2),
+      COMMIT(2),
       /**
-       * <code>GENERATE_FILENAME = 3;</code>
+       * <code>GET_SCHEMA_ID = 3;</code>
        */
-      GENERATE_FILENAME(3),
+      GET_SCHEMA_ID(3),
       /**
-       * <code>COMMIT = 4;</code>
+       * <code>GET_ALL_FIELD_IDS = 4;</code>
        */
-      COMMIT(4),
-      /**
-       * <code>GET_SCHEMA_ID = 5;</code>
-       */
-      GET_SCHEMA_ID(5),
+      GET_ALL_FIELD_IDS(4),
       UNRECOGNIZED(-1),
       ;
 
@@ -6237,25 +6233,21 @@ public final class RecordIngest {
        */
       public static final int REGISTER_VALUE = 0;
       /**
-       * <code>GET_FIELD_ID = 1;</code>
+       * <code>UPLOAD_FILE = 1;</code>
        */
-      public static final int GET_FIELD_ID_VALUE = 1;
+      public static final int UPLOAD_FILE_VALUE = 1;
       /**
-       * <code>UPLOAD_FILE = 2;</code>
+       * <code>COMMIT = 2;</code>
        */
-      public static final int UPLOAD_FILE_VALUE = 2;
+      public static final int COMMIT_VALUE = 2;
       /**
-       * <code>GENERATE_FILENAME = 3;</code>
+       * <code>GET_SCHEMA_ID = 3;</code>
        */
-      public static final int GENERATE_FILENAME_VALUE = 3;
+      public static final int GET_SCHEMA_ID_VALUE = 3;
       /**
-       * <code>COMMIT = 4;</code>
+       * <code>GET_ALL_FIELD_IDS = 4;</code>
        */
-      public static final int COMMIT_VALUE = 4;
-      /**
-       * <code>GET_SCHEMA_ID = 5;</code>
-       */
-      public static final int GET_SCHEMA_ID_VALUE = 5;
+      public static final int GET_ALL_FIELD_IDS_VALUE = 4;
 
 
       public final int getNumber() {
@@ -6283,11 +6275,10 @@ public final class RecordIngest {
       public static PayloadType forNumber(int value) {
         switch (value) {
           case 0: return REGISTER;
-          case 1: return GET_FIELD_ID;
-          case 2: return UPLOAD_FILE;
-          case 3: return GENERATE_FILENAME;
-          case 4: return COMMIT;
-          case 5: return GET_SCHEMA_ID;
+          case 1: return UPLOAD_FILE;
+          case 2: return COMMIT;
+          case 3: return GET_SCHEMA_ID;
+          case 4: return GET_ALL_FIELD_IDS;
           default: return null;
         }
       }
@@ -6377,6 +6368,25 @@ public final class RecordIngest {
        * @return The recordCount.
        */
       long getRecordCount();
+
+      /**
+       * <pre>
+       * Only set for delete files
+       * </pre>
+       *
+       * <code>optional int32 equality_field_id = 4;</code>
+       * @return Whether the equalityFieldId field is set.
+       */
+      boolean hasEqualityFieldId();
+      /**
+       * <pre>
+       * Only set for delete files
+       * </pre>
+       *
+       * <code>optional int32 equality_field_id = 4;</code>
+       * @return The equalityFieldId.
+       */
+      int getEqualityFieldId();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata}
@@ -6420,6 +6430,7 @@ public final class RecordIngest {
                 io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.class, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.Builder.class);
       }
 
+      private int bitField0_;
       public static final int FILE_TYPE_FIELD_NUMBER = 1;
       @SuppressWarnings("serial")
       private volatile java.lang.Object fileType_ = "";
@@ -6509,6 +6520,33 @@ public final class RecordIngest {
         return recordCount_;
       }
 
+      public static final int EQUALITY_FIELD_ID_FIELD_NUMBER = 4;
+      private int equalityFieldId_ = 0;
+      /**
+       * <pre>
+       * Only set for delete files
+       * </pre>
+       *
+       * <code>optional int32 equality_field_id = 4;</code>
+       * @return Whether the equalityFieldId field is set.
+       */
+      @java.lang.Override
+      public boolean hasEqualityFieldId() {
+        return ((bitField0_ & 0x00000001) != 0);
+      }
+      /**
+       * <pre>
+       * Only set for delete files
+       * </pre>
+       *
+       * <code>optional int32 equality_field_id = 4;</code>
+       * @return The equalityFieldId.
+       */
+      @java.lang.Override
+      public int getEqualityFieldId() {
+        return equalityFieldId_;
+      }
+
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -6532,6 +6570,9 @@ public final class RecordIngest {
         if (recordCount_ != 0L) {
           output.writeInt64(3, recordCount_);
         }
+        if (((bitField0_ & 0x00000001) != 0)) {
+          output.writeInt32(4, equalityFieldId_);
+        }
         getUnknownFields().writeTo(output);
       }
 
@@ -6550,6 +6591,10 @@ public final class RecordIngest {
         if (recordCount_ != 0L) {
           size += com.google.protobuf.CodedOutputStream
             .computeInt64Size(3, recordCount_);
+        }
+        if (((bitField0_ & 0x00000001) != 0)) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt32Size(4, equalityFieldId_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -6572,6 +6617,11 @@ public final class RecordIngest {
             .equals(other.getFilePath())) return false;
         if (getRecordCount()
             != other.getRecordCount()) return false;
+        if (hasEqualityFieldId() != other.hasEqualityFieldId()) return false;
+        if (hasEqualityFieldId()) {
+          if (getEqualityFieldId()
+              != other.getEqualityFieldId()) return false;
+        }
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -6590,6 +6640,10 @@ public final class RecordIngest {
         hash = (37 * hash) + RECORD_COUNT_FIELD_NUMBER;
         hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
             getRecordCount());
+        if (hasEqualityFieldId()) {
+          hash = (37 * hash) + EQUALITY_FIELD_ID_FIELD_NUMBER;
+          hash = (53 * hash) + getEqualityFieldId();
+        }
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -6722,6 +6776,7 @@ public final class RecordIngest {
           fileType_ = "";
           filePath_ = "";
           recordCount_ = 0L;
+          equalityFieldId_ = 0;
           return this;
         }
 
@@ -6764,6 +6819,12 @@ public final class RecordIngest {
           if (((from_bitField0_ & 0x00000004) != 0)) {
             result.recordCount_ = recordCount_;
           }
+          int to_bitField0_ = 0;
+          if (((from_bitField0_ & 0x00000008) != 0)) {
+            result.equalityFieldId_ = equalityFieldId_;
+            to_bitField0_ |= 0x00000001;
+          }
+          result.bitField0_ |= to_bitField0_;
         }
 
         @java.lang.Override
@@ -6823,6 +6884,9 @@ public final class RecordIngest {
           if (other.getRecordCount() != 0L) {
             setRecordCount(other.getRecordCount());
           }
+          if (other.hasEqualityFieldId()) {
+            setEqualityFieldId(other.getEqualityFieldId());
+          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -6864,6 +6928,11 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000004;
                   break;
                 } // case 24
+                case 32: {
+                  equalityFieldId_ = input.readInt32();
+                  bitField0_ |= 0x00000008;
+                  break;
+                } // case 32
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -7056,6 +7125,62 @@ public final class RecordIngest {
           onChanged();
           return this;
         }
+
+        private int equalityFieldId_ ;
+        /**
+         * <pre>
+         * Only set for delete files
+         * </pre>
+         *
+         * <code>optional int32 equality_field_id = 4;</code>
+         * @return Whether the equalityFieldId field is set.
+         */
+        @java.lang.Override
+        public boolean hasEqualityFieldId() {
+          return ((bitField0_ & 0x00000008) != 0);
+        }
+        /**
+         * <pre>
+         * Only set for delete files
+         * </pre>
+         *
+         * <code>optional int32 equality_field_id = 4;</code>
+         * @return The equalityFieldId.
+         */
+        @java.lang.Override
+        public int getEqualityFieldId() {
+          return equalityFieldId_;
+        }
+        /**
+         * <pre>
+         * Only set for delete files
+         * </pre>
+         *
+         * <code>optional int32 equality_field_id = 4;</code>
+         * @param value The equalityFieldId to set.
+         * @return This builder for chaining.
+         */
+        public Builder setEqualityFieldId(int value) {
+          
+          equalityFieldId_ = value;
+          bitField0_ |= 0x00000008;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Only set for delete files
+         * </pre>
+         *
+         * <code>optional int32 equality_field_id = 4;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearEqualityFieldId() {
+          bitField0_ = (bitField0_ & ~0x00000008);
+          equalityFieldId_ = 0;
+          onChanged();
+          return this;
+        }
         @java.lang.Override
         public final Builder setUnknownFields(
             final com.google.protobuf.UnknownFieldSet unknownFields) {
@@ -7155,19 +7280,7 @@ public final class RecordIngest {
           getPartitionKeyBytes();
 
       /**
-       * <code>string filename = 4;</code>
-       * @return The filename.
-       */
-      java.lang.String getFilename();
-      /**
-       * <code>string filename = 4;</code>
-       * @return The bytes for filename.
-       */
-      com.google.protobuf.ByteString
-          getFilenameBytes();
-
-      /**
-       * <code>int32 equality_field_id = 5;</code>
+       * <code>int32 equality_field_id = 4;</code>
        * @return The equalityFieldId.
        */
       int getEqualityFieldId();
@@ -7188,7 +7301,6 @@ public final class RecordIngest {
         fileData_ = com.google.protobuf.ByteString.EMPTY;
         fileType_ = "";
         partitionKey_ = "";
-        filename_ = "";
       }
 
       @java.lang.Override
@@ -7305,49 +7417,10 @@ public final class RecordIngest {
         }
       }
 
-      public static final int FILENAME_FIELD_NUMBER = 4;
-      @SuppressWarnings("serial")
-      private volatile java.lang.Object filename_ = "";
-      /**
-       * <code>string filename = 4;</code>
-       * @return The filename.
-       */
-      @java.lang.Override
-      public java.lang.String getFilename() {
-        java.lang.Object ref = filename_;
-        if (ref instanceof java.lang.String) {
-          return (java.lang.String) ref;
-        } else {
-          com.google.protobuf.ByteString bs = 
-              (com.google.protobuf.ByteString) ref;
-          java.lang.String s = bs.toStringUtf8();
-          filename_ = s;
-          return s;
-        }
-      }
-      /**
-       * <code>string filename = 4;</code>
-       * @return The bytes for filename.
-       */
-      @java.lang.Override
-      public com.google.protobuf.ByteString
-          getFilenameBytes() {
-        java.lang.Object ref = filename_;
-        if (ref instanceof java.lang.String) {
-          com.google.protobuf.ByteString b = 
-              com.google.protobuf.ByteString.copyFromUtf8(
-                  (java.lang.String) ref);
-          filename_ = b;
-          return b;
-        } else {
-          return (com.google.protobuf.ByteString) ref;
-        }
-      }
-
-      public static final int EQUALITY_FIELD_ID_FIELD_NUMBER = 5;
+      public static final int EQUALITY_FIELD_ID_FIELD_NUMBER = 4;
       private int equalityFieldId_ = 0;
       /**
-       * <code>int32 equality_field_id = 5;</code>
+       * <code>int32 equality_field_id = 4;</code>
        * @return The equalityFieldId.
        */
       @java.lang.Override
@@ -7378,11 +7451,8 @@ public final class RecordIngest {
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 3, partitionKey_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filename_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 4, filename_);
-        }
         if (equalityFieldId_ != 0) {
-          output.writeInt32(5, equalityFieldId_);
+          output.writeInt32(4, equalityFieldId_);
         }
         getUnknownFields().writeTo(output);
       }
@@ -7403,12 +7473,9 @@ public final class RecordIngest {
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, partitionKey_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filename_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(4, filename_);
-        }
         if (equalityFieldId_ != 0) {
           size += com.google.protobuf.CodedOutputStream
-            .computeInt32Size(5, equalityFieldId_);
+            .computeInt32Size(4, equalityFieldId_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -7431,8 +7498,6 @@ public final class RecordIngest {
             .equals(other.getFileType())) return false;
         if (!getPartitionKey()
             .equals(other.getPartitionKey())) return false;
-        if (!getFilename()
-            .equals(other.getFilename())) return false;
         if (getEqualityFieldId()
             != other.getEqualityFieldId()) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -7452,8 +7517,6 @@ public final class RecordIngest {
         hash = (53 * hash) + getFileType().hashCode();
         hash = (37 * hash) + PARTITION_KEY_FIELD_NUMBER;
         hash = (53 * hash) + getPartitionKey().hashCode();
-        hash = (37 * hash) + FILENAME_FIELD_NUMBER;
-        hash = (53 * hash) + getFilename().hashCode();
         hash = (37 * hash) + EQUALITY_FIELD_ID_FIELD_NUMBER;
         hash = (53 * hash) + getEqualityFieldId();
         hash = (29 * hash) + getUnknownFields().hashCode();
@@ -7588,7 +7651,6 @@ public final class RecordIngest {
           fileData_ = com.google.protobuf.ByteString.EMPTY;
           fileType_ = "";
           partitionKey_ = "";
-          filename_ = "";
           equalityFieldId_ = 0;
           return this;
         }
@@ -7633,9 +7695,6 @@ public final class RecordIngest {
             result.partitionKey_ = partitionKey_;
           }
           if (((from_bitField0_ & 0x00000008) != 0)) {
-            result.filename_ = filename_;
-          }
-          if (((from_bitField0_ & 0x00000010) != 0)) {
             result.equalityFieldId_ = equalityFieldId_;
           }
         }
@@ -7697,11 +7756,6 @@ public final class RecordIngest {
             bitField0_ |= 0x00000004;
             onChanged();
           }
-          if (!other.getFilename().isEmpty()) {
-            filename_ = other.filename_;
-            bitField0_ |= 0x00000008;
-            onChanged();
-          }
           if (other.getEqualityFieldId() != 0) {
             setEqualityFieldId(other.getEqualityFieldId());
           }
@@ -7746,16 +7800,11 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000004;
                   break;
                 } // case 26
-                case 34: {
-                  filename_ = input.readStringRequireUtf8();
+                case 32: {
+                  equalityFieldId_ = input.readInt32();
                   bitField0_ |= 0x00000008;
                   break;
-                } // case 34
-                case 40: {
-                  equalityFieldId_ = input.readInt32();
-                  bitField0_ |= 0x00000010;
-                  break;
-                } // case 40
+                } // case 32
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -7949,81 +7998,9 @@ public final class RecordIngest {
           return this;
         }
 
-        private java.lang.Object filename_ = "";
-        /**
-         * <code>string filename = 4;</code>
-         * @return The filename.
-         */
-        public java.lang.String getFilename() {
-          java.lang.Object ref = filename_;
-          if (!(ref instanceof java.lang.String)) {
-            com.google.protobuf.ByteString bs =
-                (com.google.protobuf.ByteString) ref;
-            java.lang.String s = bs.toStringUtf8();
-            filename_ = s;
-            return s;
-          } else {
-            return (java.lang.String) ref;
-          }
-        }
-        /**
-         * <code>string filename = 4;</code>
-         * @return The bytes for filename.
-         */
-        public com.google.protobuf.ByteString
-            getFilenameBytes() {
-          java.lang.Object ref = filename_;
-          if (ref instanceof String) {
-            com.google.protobuf.ByteString b = 
-                com.google.protobuf.ByteString.copyFromUtf8(
-                    (java.lang.String) ref);
-            filename_ = b;
-            return b;
-          } else {
-            return (com.google.protobuf.ByteString) ref;
-          }
-        }
-        /**
-         * <code>string filename = 4;</code>
-         * @param value The filename to set.
-         * @return This builder for chaining.
-         */
-        public Builder setFilename(
-            java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          filename_ = value;
-          bitField0_ |= 0x00000008;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string filename = 4;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearFilename() {
-          filename_ = getDefaultInstance().getFilename();
-          bitField0_ = (bitField0_ & ~0x00000008);
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string filename = 4;</code>
-         * @param value The bytes for filename to set.
-         * @return This builder for chaining.
-         */
-        public Builder setFilenameBytes(
-            com.google.protobuf.ByteString value) {
-          if (value == null) { throw new NullPointerException(); }
-          checkByteStringIsUtf8(value);
-          filename_ = value;
-          bitField0_ |= 0x00000008;
-          onChanged();
-          return this;
-        }
-
         private int equalityFieldId_ ;
         /**
-         * <code>int32 equality_field_id = 5;</code>
+         * <code>int32 equality_field_id = 4;</code>
          * @return The equalityFieldId.
          */
         @java.lang.Override
@@ -8031,23 +8008,23 @@ public final class RecordIngest {
           return equalityFieldId_;
         }
         /**
-         * <code>int32 equality_field_id = 5;</code>
+         * <code>int32 equality_field_id = 4;</code>
          * @param value The equalityFieldId to set.
          * @return This builder for chaining.
          */
         public Builder setEqualityFieldId(int value) {
           
           equalityFieldId_ = value;
-          bitField0_ |= 0x00000010;
+          bitField0_ |= 0x00000008;
           onChanged();
           return this;
         }
         /**
-         * <code>int32 equality_field_id = 5;</code>
+         * <code>int32 equality_field_id = 4;</code>
          * @return This builder for chaining.
          */
         public Builder clearEqualityFieldId() {
-          bitField0_ = (bitField0_ & ~0x00000010);
+          bitField0_ = (bitField0_ & ~0x00000008);
           equalityFieldId_ = 0;
           onChanged();
           return this;
@@ -8169,34 +8146,17 @@ public final class RecordIngest {
           int index);
 
       /**
-       * <code>optional string field_name = 4;</code>
-       * @return Whether the fieldName field is set.
-       */
-      boolean hasFieldName();
-      /**
-       * <code>optional string field_name = 4;</code>
-       * @return The fieldName.
-       */
-      java.lang.String getFieldName();
-      /**
-       * <code>optional string field_name = 4;</code>
-       * @return The bytes for fieldName.
-       */
-      com.google.protobuf.ByteString
-          getFieldNameBytes();
-
-      /**
-       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
        * @return Whether the fileUpload field is set.
        */
       boolean hasFileUpload();
       /**
-       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
        * @return The fileUpload.
        */
       io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest getFileUpload();
       /**
-       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
        */
       io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequestOrBuilder getFileUploadOrBuilder();
     }
@@ -8216,7 +8176,6 @@ public final class RecordIngest {
         destTableName_ = "";
         threadId_ = "";
         fileMetadata_ = java.util.Collections.emptyList();
-        fieldName_ = "";
       }
 
       @java.lang.Override
@@ -8364,65 +8323,18 @@ public final class RecordIngest {
         return fileMetadata_.get(index);
       }
 
-      public static final int FIELD_NAME_FIELD_NUMBER = 4;
-      @SuppressWarnings("serial")
-      private volatile java.lang.Object fieldName_ = "";
-      /**
-       * <code>optional string field_name = 4;</code>
-       * @return Whether the fieldName field is set.
-       */
-      @java.lang.Override
-      public boolean hasFieldName() {
-        return ((bitField0_ & 0x00000001) != 0);
-      }
-      /**
-       * <code>optional string field_name = 4;</code>
-       * @return The fieldName.
-       */
-      @java.lang.Override
-      public java.lang.String getFieldName() {
-        java.lang.Object ref = fieldName_;
-        if (ref instanceof java.lang.String) {
-          return (java.lang.String) ref;
-        } else {
-          com.google.protobuf.ByteString bs = 
-              (com.google.protobuf.ByteString) ref;
-          java.lang.String s = bs.toStringUtf8();
-          fieldName_ = s;
-          return s;
-        }
-      }
-      /**
-       * <code>optional string field_name = 4;</code>
-       * @return The bytes for fieldName.
-       */
-      @java.lang.Override
-      public com.google.protobuf.ByteString
-          getFieldNameBytes() {
-        java.lang.Object ref = fieldName_;
-        if (ref instanceof java.lang.String) {
-          com.google.protobuf.ByteString b = 
-              com.google.protobuf.ByteString.copyFromUtf8(
-                  (java.lang.String) ref);
-          fieldName_ = b;
-          return b;
-        } else {
-          return (com.google.protobuf.ByteString) ref;
-        }
-      }
-
-      public static final int FILE_UPLOAD_FIELD_NUMBER = 5;
+      public static final int FILE_UPLOAD_FIELD_NUMBER = 4;
       private io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest fileUpload_;
       /**
-       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
        * @return Whether the fileUpload field is set.
        */
       @java.lang.Override
       public boolean hasFileUpload() {
-        return ((bitField0_ & 0x00000002) != 0);
+        return ((bitField0_ & 0x00000001) != 0);
       }
       /**
-       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
        * @return The fileUpload.
        */
       @java.lang.Override
@@ -8430,7 +8342,7 @@ public final class RecordIngest {
         return fileUpload_ == null ? io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest.getDefaultInstance() : fileUpload_;
       }
       /**
-       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+       * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
        */
       @java.lang.Override
       public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequestOrBuilder getFileUploadOrBuilder() {
@@ -8461,10 +8373,7 @@ public final class RecordIngest {
           output.writeMessage(3, fileMetadata_.get(i));
         }
         if (((bitField0_ & 0x00000001) != 0)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 4, fieldName_);
-        }
-        if (((bitField0_ & 0x00000002) != 0)) {
-          output.writeMessage(5, getFileUpload());
+          output.writeMessage(4, getFileUpload());
         }
         getUnknownFields().writeTo(output);
       }
@@ -8486,11 +8395,8 @@ public final class RecordIngest {
             .computeMessageSize(3, fileMetadata_.get(i));
         }
         if (((bitField0_ & 0x00000001) != 0)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(4, fieldName_);
-        }
-        if (((bitField0_ & 0x00000002) != 0)) {
           size += com.google.protobuf.CodedOutputStream
-            .computeMessageSize(5, getFileUpload());
+            .computeMessageSize(4, getFileUpload());
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -8513,11 +8419,6 @@ public final class RecordIngest {
             .equals(other.getThreadId())) return false;
         if (!getFileMetadataList()
             .equals(other.getFileMetadataList())) return false;
-        if (hasFieldName() != other.hasFieldName()) return false;
-        if (hasFieldName()) {
-          if (!getFieldName()
-              .equals(other.getFieldName())) return false;
-        }
         if (hasFileUpload() != other.hasFileUpload()) return false;
         if (hasFileUpload()) {
           if (!getFileUpload()
@@ -8541,10 +8442,6 @@ public final class RecordIngest {
         if (getFileMetadataCount() > 0) {
           hash = (37 * hash) + FILE_METADATA_FIELD_NUMBER;
           hash = (53 * hash) + getFileMetadataList().hashCode();
-        }
-        if (hasFieldName()) {
-          hash = (37 * hash) + FIELD_NAME_FIELD_NUMBER;
-          hash = (53 * hash) + getFieldName().hashCode();
         }
         if (hasFileUpload()) {
           hash = (37 * hash) + FILE_UPLOAD_FIELD_NUMBER;
@@ -8695,7 +8592,6 @@ public final class RecordIngest {
             fileMetadataBuilder_.clear();
           }
           bitField0_ = (bitField0_ & ~0x00000004);
-          fieldName_ = "";
           fileUpload_ = null;
           if (fileUploadBuilder_ != null) {
             fileUploadBuilder_.dispose();
@@ -8755,14 +8651,10 @@ public final class RecordIngest {
           }
           int to_bitField0_ = 0;
           if (((from_bitField0_ & 0x00000008) != 0)) {
-            result.fieldName_ = fieldName_;
-            to_bitField0_ |= 0x00000001;
-          }
-          if (((from_bitField0_ & 0x00000010) != 0)) {
             result.fileUpload_ = fileUploadBuilder_ == null
                 ? fileUpload_
                 : fileUploadBuilder_.build();
-            to_bitField0_ |= 0x00000002;
+            to_bitField0_ |= 0x00000001;
           }
           result.bitField0_ |= to_bitField0_;
         }
@@ -8847,11 +8739,6 @@ public final class RecordIngest {
               }
             }
           }
-          if (other.hasFieldName()) {
-            fieldName_ = other.fieldName_;
-            bitField0_ |= 0x00000008;
-            onChanged();
-          }
           if (other.hasFileUpload()) {
             mergeFileUpload(other.getFileUpload());
           }
@@ -8905,17 +8792,12 @@ public final class RecordIngest {
                   break;
                 } // case 26
                 case 34: {
-                  fieldName_ = input.readStringRequireUtf8();
-                  bitField0_ |= 0x00000008;
-                  break;
-                } // case 34
-                case 42: {
                   input.readMessage(
                       getFileUploadFieldBuilder().getBuilder(),
                       extensionRegistry);
-                  bitField0_ |= 0x00000010;
+                  bitField0_ |= 0x00000008;
                   break;
-                } // case 42
+                } // case 34
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -9317,97 +9199,18 @@ public final class RecordIngest {
           return fileMetadataBuilder_;
         }
 
-        private java.lang.Object fieldName_ = "";
-        /**
-         * <code>optional string field_name = 4;</code>
-         * @return Whether the fieldName field is set.
-         */
-        public boolean hasFieldName() {
-          return ((bitField0_ & 0x00000008) != 0);
-        }
-        /**
-         * <code>optional string field_name = 4;</code>
-         * @return The fieldName.
-         */
-        public java.lang.String getFieldName() {
-          java.lang.Object ref = fieldName_;
-          if (!(ref instanceof java.lang.String)) {
-            com.google.protobuf.ByteString bs =
-                (com.google.protobuf.ByteString) ref;
-            java.lang.String s = bs.toStringUtf8();
-            fieldName_ = s;
-            return s;
-          } else {
-            return (java.lang.String) ref;
-          }
-        }
-        /**
-         * <code>optional string field_name = 4;</code>
-         * @return The bytes for fieldName.
-         */
-        public com.google.protobuf.ByteString
-            getFieldNameBytes() {
-          java.lang.Object ref = fieldName_;
-          if (ref instanceof String) {
-            com.google.protobuf.ByteString b = 
-                com.google.protobuf.ByteString.copyFromUtf8(
-                    (java.lang.String) ref);
-            fieldName_ = b;
-            return b;
-          } else {
-            return (com.google.protobuf.ByteString) ref;
-          }
-        }
-        /**
-         * <code>optional string field_name = 4;</code>
-         * @param value The fieldName to set.
-         * @return This builder for chaining.
-         */
-        public Builder setFieldName(
-            java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          fieldName_ = value;
-          bitField0_ |= 0x00000008;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>optional string field_name = 4;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearFieldName() {
-          fieldName_ = getDefaultInstance().getFieldName();
-          bitField0_ = (bitField0_ & ~0x00000008);
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>optional string field_name = 4;</code>
-         * @param value The bytes for fieldName to set.
-         * @return This builder for chaining.
-         */
-        public Builder setFieldNameBytes(
-            com.google.protobuf.ByteString value) {
-          if (value == null) { throw new NullPointerException(); }
-          checkByteStringIsUtf8(value);
-          fieldName_ = value;
-          bitField0_ |= 0x00000008;
-          onChanged();
-          return this;
-        }
-
         private io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest fileUpload_;
         private com.google.protobuf.SingleFieldBuilderV3<
             io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest.Builder, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequestOrBuilder> fileUploadBuilder_;
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          * @return Whether the fileUpload field is set.
          */
         public boolean hasFileUpload() {
-          return ((bitField0_ & 0x00000010) != 0);
+          return ((bitField0_ & 0x00000008) != 0);
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          * @return The fileUpload.
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest getFileUpload() {
@@ -9418,7 +9221,7 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          */
         public Builder setFileUpload(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest value) {
           if (fileUploadBuilder_ == null) {
@@ -9429,12 +9232,12 @@ public final class RecordIngest {
           } else {
             fileUploadBuilder_.setMessage(value);
           }
-          bitField0_ |= 0x00000010;
+          bitField0_ |= 0x00000008;
           onChanged();
           return this;
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          */
         public Builder setFileUpload(
             io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest.Builder builderForValue) {
@@ -9443,16 +9246,16 @@ public final class RecordIngest {
           } else {
             fileUploadBuilder_.setMessage(builderForValue.build());
           }
-          bitField0_ |= 0x00000010;
+          bitField0_ |= 0x00000008;
           onChanged();
           return this;
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          */
         public Builder mergeFileUpload(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest value) {
           if (fileUploadBuilder_ == null) {
-            if (((bitField0_ & 0x00000010) != 0) &&
+            if (((bitField0_ & 0x00000008) != 0) &&
               fileUpload_ != null &&
               fileUpload_ != io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest.getDefaultInstance()) {
               getFileUploadBuilder().mergeFrom(value);
@@ -9462,15 +9265,15 @@ public final class RecordIngest {
           } else {
             fileUploadBuilder_.mergeFrom(value);
           }
-          bitField0_ |= 0x00000010;
+          bitField0_ |= 0x00000008;
           onChanged();
           return this;
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          */
         public Builder clearFileUpload() {
-          bitField0_ = (bitField0_ & ~0x00000010);
+          bitField0_ = (bitField0_ & ~0x00000008);
           fileUpload_ = null;
           if (fileUploadBuilder_ != null) {
             fileUploadBuilder_.dispose();
@@ -9480,15 +9283,15 @@ public final class RecordIngest {
           return this;
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest.Builder getFileUploadBuilder() {
-          bitField0_ |= 0x00000010;
+          bitField0_ |= 0x00000008;
           onChanged();
           return getFileUploadFieldBuilder().getBuilder();
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          */
         public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequestOrBuilder getFileUploadOrBuilder() {
           if (fileUploadBuilder_ != null) {
@@ -9499,7 +9302,7 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 5;</code>
+         * <code>optional .io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest file_upload = 4;</code>
          */
         private com.google.protobuf.SingleFieldBuilderV3<
             io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest.Builder, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequestOrBuilder> 
@@ -10238,21 +10041,36 @@ public final class RecordIngest {
     boolean getSuccess();
 
     /**
-     * <code>optional string filename = 3;</code>
-     * @return Whether the filename field is set.
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
      */
-    boolean hasFilename();
+    int getFieldIdsCount();
     /**
-     * <code>optional string filename = 3;</code>
-     * @return The filename.
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
      */
-    java.lang.String getFilename();
+    boolean containsFieldIds(
+        java.lang.String key);
     /**
-     * <code>optional string filename = 3;</code>
-     * @return The bytes for filename.
+     * Use {@link #getFieldIdsMap()} instead.
      */
-    com.google.protobuf.ByteString
-        getFilenameBytes();
+    @java.lang.Deprecated
+    java.util.Map<java.lang.String, java.lang.Integer>
+    getFieldIds();
+    /**
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     */
+    java.util.Map<java.lang.String, java.lang.Integer>
+    getFieldIdsMap();
+    /**
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     */
+    int getFieldIdsOrDefault(
+        java.lang.String key,
+        int defaultValue);
+    /**
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     */
+    int getFieldIdsOrThrow(
+        java.lang.String key);
   }
   /**
    * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowIngestResponse}
@@ -10268,7 +10086,6 @@ public final class RecordIngest {
     }
     private ArrowIngestResponse() {
       result_ = "";
-      filename_ = "";
     }
 
     @java.lang.Override
@@ -10288,6 +10105,18 @@ public final class RecordIngest {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor;
     }
 
+    @SuppressWarnings({"rawtypes"})
+    @java.lang.Override
+    protected com.google.protobuf.MapField internalGetMapField(
+        int number) {
+      switch (number) {
+        case 3:
+          return internalGetFieldIds();
+        default:
+          throw new RuntimeException(
+              "Invalid map field number: " + number);
+      }
+    }
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
         internalGetFieldAccessorTable() {
@@ -10296,7 +10125,6 @@ public final class RecordIngest {
               io.debezium.server.iceberg.rpc.RecordIngest.ArrowIngestResponse.class, io.debezium.server.iceberg.rpc.RecordIngest.ArrowIngestResponse.Builder.class);
     }
 
-    private int bitField0_;
     public static final int RESULT_FIELD_NUMBER = 1;
     @SuppressWarnings("serial")
     private volatile java.lang.Object result_ = "";
@@ -10347,51 +10175,81 @@ public final class RecordIngest {
       return success_;
     }
 
-    public static final int FILENAME_FIELD_NUMBER = 3;
+    public static final int FIELD_IDS_FIELD_NUMBER = 3;
+    private static final class FieldIdsDefaultEntryHolder {
+      static final com.google.protobuf.MapEntry<
+          java.lang.String, java.lang.Integer> defaultEntry =
+              com.google.protobuf.MapEntry
+              .<java.lang.String, java.lang.Integer>newDefaultInstance(
+                  io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor, 
+                  com.google.protobuf.WireFormat.FieldType.STRING,
+                  "",
+                  com.google.protobuf.WireFormat.FieldType.INT32,
+                  0);
+    }
     @SuppressWarnings("serial")
-    private volatile java.lang.Object filename_ = "";
-    /**
-     * <code>optional string filename = 3;</code>
-     * @return Whether the filename field is set.
-     */
-    @java.lang.Override
-    public boolean hasFilename() {
-      return ((bitField0_ & 0x00000001) != 0);
+    private com.google.protobuf.MapField<
+        java.lang.String, java.lang.Integer> fieldIds_;
+    private com.google.protobuf.MapField<java.lang.String, java.lang.Integer>
+    internalGetFieldIds() {
+      if (fieldIds_ == null) {
+        return com.google.protobuf.MapField.emptyMapField(
+            FieldIdsDefaultEntryHolder.defaultEntry);
+      }
+      return fieldIds_;
+    }
+    public int getFieldIdsCount() {
+      return internalGetFieldIds().getMap().size();
     }
     /**
-     * <code>optional string filename = 3;</code>
-     * @return The filename.
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
      */
     @java.lang.Override
-    public java.lang.String getFilename() {
-      java.lang.Object ref = filename_;
-      if (ref instanceof java.lang.String) {
-        return (java.lang.String) ref;
-      } else {
-        com.google.protobuf.ByteString bs = 
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        filename_ = s;
-        return s;
-      }
+    public boolean containsFieldIds(
+        java.lang.String key) {
+      if (key == null) { throw new NullPointerException("map key"); }
+      return internalGetFieldIds().getMap().containsKey(key);
     }
     /**
-     * <code>optional string filename = 3;</code>
-     * @return The bytes for filename.
+     * Use {@link #getFieldIdsMap()} instead.
      */
     @java.lang.Override
-    public com.google.protobuf.ByteString
-        getFilenameBytes() {
-      java.lang.Object ref = filename_;
-      if (ref instanceof java.lang.String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        filename_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
+    @java.lang.Deprecated
+    public java.util.Map<java.lang.String, java.lang.Integer> getFieldIds() {
+      return getFieldIdsMap();
+    }
+    /**
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     */
+    @java.lang.Override
+    public java.util.Map<java.lang.String, java.lang.Integer> getFieldIdsMap() {
+      return internalGetFieldIds().getMap();
+    }
+    /**
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     */
+    @java.lang.Override
+    public int getFieldIdsOrDefault(
+        java.lang.String key,
+        int defaultValue) {
+      if (key == null) { throw new NullPointerException("map key"); }
+      java.util.Map<java.lang.String, java.lang.Integer> map =
+          internalGetFieldIds().getMap();
+      return map.containsKey(key) ? map.get(key) : defaultValue;
+    }
+    /**
+     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     */
+    @java.lang.Override
+    public int getFieldIdsOrThrow(
+        java.lang.String key) {
+      if (key == null) { throw new NullPointerException("map key"); }
+      java.util.Map<java.lang.String, java.lang.Integer> map =
+          internalGetFieldIds().getMap();
+      if (!map.containsKey(key)) {
+        throw new java.lang.IllegalArgumentException();
       }
+      return map.get(key);
     }
 
     private byte memoizedIsInitialized = -1;
@@ -10414,9 +10272,12 @@ public final class RecordIngest {
       if (success_ != false) {
         output.writeBool(2, success_);
       }
-      if (((bitField0_ & 0x00000001) != 0)) {
-        com.google.protobuf.GeneratedMessageV3.writeString(output, 3, filename_);
-      }
+      com.google.protobuf.GeneratedMessageV3
+        .serializeStringMapTo(
+          output,
+          internalGetFieldIds(),
+          FieldIdsDefaultEntryHolder.defaultEntry,
+          3);
       getUnknownFields().writeTo(output);
     }
 
@@ -10433,8 +10294,15 @@ public final class RecordIngest {
         size += com.google.protobuf.CodedOutputStream
           .computeBoolSize(2, success_);
       }
-      if (((bitField0_ & 0x00000001) != 0)) {
-        size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, filename_);
+      for (java.util.Map.Entry<java.lang.String, java.lang.Integer> entry
+           : internalGetFieldIds().getMap().entrySet()) {
+        com.google.protobuf.MapEntry<java.lang.String, java.lang.Integer>
+        fieldIds__ = FieldIdsDefaultEntryHolder.defaultEntry.newBuilderForType()
+            .setKey(entry.getKey())
+            .setValue(entry.getValue())
+            .build();
+        size += com.google.protobuf.CodedOutputStream
+            .computeMessageSize(3, fieldIds__);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -10455,11 +10323,8 @@ public final class RecordIngest {
           .equals(other.getResult())) return false;
       if (getSuccess()
           != other.getSuccess()) return false;
-      if (hasFilename() != other.hasFilename()) return false;
-      if (hasFilename()) {
-        if (!getFilename()
-            .equals(other.getFilename())) return false;
-      }
+      if (!internalGetFieldIds().equals(
+          other.internalGetFieldIds())) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -10476,9 +10341,9 @@ public final class RecordIngest {
       hash = (37 * hash) + SUCCESS_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
           getSuccess());
-      if (hasFilename()) {
-        hash = (37 * hash) + FILENAME_FIELD_NUMBER;
-        hash = (53 * hash) + getFilename().hashCode();
+      if (!internalGetFieldIds().getMap().isEmpty()) {
+        hash = (37 * hash) + FIELD_IDS_FIELD_NUMBER;
+        hash = (53 * hash) + internalGetFieldIds().hashCode();
       }
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
@@ -10587,6 +10452,28 @@ public final class RecordIngest {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor;
       }
 
+      @SuppressWarnings({"rawtypes"})
+      protected com.google.protobuf.MapField internalGetMapField(
+          int number) {
+        switch (number) {
+          case 3:
+            return internalGetFieldIds();
+          default:
+            throw new RuntimeException(
+                "Invalid map field number: " + number);
+        }
+      }
+      @SuppressWarnings({"rawtypes"})
+      protected com.google.protobuf.MapField internalGetMutableMapField(
+          int number) {
+        switch (number) {
+          case 3:
+            return internalGetMutableFieldIds();
+          default:
+            throw new RuntimeException(
+                "Invalid map field number: " + number);
+        }
+      }
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
           internalGetFieldAccessorTable() {
@@ -10611,7 +10498,7 @@ public final class RecordIngest {
         bitField0_ = 0;
         result_ = "";
         success_ = false;
-        filename_ = "";
+        internalGetMutableFieldIds().clear();
         return this;
       }
 
@@ -10651,12 +10538,10 @@ public final class RecordIngest {
         if (((from_bitField0_ & 0x00000002) != 0)) {
           result.success_ = success_;
         }
-        int to_bitField0_ = 0;
         if (((from_bitField0_ & 0x00000004) != 0)) {
-          result.filename_ = filename_;
-          to_bitField0_ |= 0x00000001;
+          result.fieldIds_ = internalGetFieldIds();
+          result.fieldIds_.makeImmutable();
         }
-        result.bitField0_ |= to_bitField0_;
       }
 
       @java.lang.Override
@@ -10711,11 +10596,9 @@ public final class RecordIngest {
         if (other.getSuccess() != false) {
           setSuccess(other.getSuccess());
         }
-        if (other.hasFilename()) {
-          filename_ = other.filename_;
-          bitField0_ |= 0x00000004;
-          onChanged();
-        }
+        internalGetMutableFieldIds().mergeFrom(
+            other.internalGetFieldIds());
+        bitField0_ |= 0x00000004;
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -10753,7 +10636,11 @@ public final class RecordIngest {
                 break;
               } // case 16
               case 26: {
-                filename_ = input.readStringRequireUtf8();
+                com.google.protobuf.MapEntry<java.lang.String, java.lang.Integer>
+                fieldIds__ = input.readMessage(
+                    FieldIdsDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
+                internalGetMutableFieldIds().getMutableMap().put(
+                    fieldIds__.getKey(), fieldIds__.getValue());
                 bitField0_ |= 0x00000004;
                 break;
               } // case 26
@@ -10878,82 +10765,128 @@ public final class RecordIngest {
         return this;
       }
 
-      private java.lang.Object filename_ = "";
-      /**
-       * <code>optional string filename = 3;</code>
-       * @return Whether the filename field is set.
-       */
-      public boolean hasFilename() {
-        return ((bitField0_ & 0x00000004) != 0);
-      }
-      /**
-       * <code>optional string filename = 3;</code>
-       * @return The filename.
-       */
-      public java.lang.String getFilename() {
-        java.lang.Object ref = filename_;
-        if (!(ref instanceof java.lang.String)) {
-          com.google.protobuf.ByteString bs =
-              (com.google.protobuf.ByteString) ref;
-          java.lang.String s = bs.toStringUtf8();
-          filename_ = s;
-          return s;
-        } else {
-          return (java.lang.String) ref;
+      private com.google.protobuf.MapField<
+          java.lang.String, java.lang.Integer> fieldIds_;
+      private com.google.protobuf.MapField<java.lang.String, java.lang.Integer>
+          internalGetFieldIds() {
+        if (fieldIds_ == null) {
+          return com.google.protobuf.MapField.emptyMapField(
+              FieldIdsDefaultEntryHolder.defaultEntry);
         }
+        return fieldIds_;
       }
-      /**
-       * <code>optional string filename = 3;</code>
-       * @return The bytes for filename.
-       */
-      public com.google.protobuf.ByteString
-          getFilenameBytes() {
-        java.lang.Object ref = filename_;
-        if (ref instanceof String) {
-          com.google.protobuf.ByteString b = 
-              com.google.protobuf.ByteString.copyFromUtf8(
-                  (java.lang.String) ref);
-          filename_ = b;
-          return b;
-        } else {
-          return (com.google.protobuf.ByteString) ref;
+      private com.google.protobuf.MapField<java.lang.String, java.lang.Integer>
+          internalGetMutableFieldIds() {
+        if (fieldIds_ == null) {
+          fieldIds_ = com.google.protobuf.MapField.newMapField(
+              FieldIdsDefaultEntryHolder.defaultEntry);
         }
-      }
-      /**
-       * <code>optional string filename = 3;</code>
-       * @param value The filename to set.
-       * @return This builder for chaining.
-       */
-      public Builder setFilename(
-          java.lang.String value) {
-        if (value == null) { throw new NullPointerException(); }
-        filename_ = value;
+        if (!fieldIds_.isMutable()) {
+          fieldIds_ = fieldIds_.copy();
+        }
         bitField0_ |= 0x00000004;
         onChanged();
-        return this;
+        return fieldIds_;
+      }
+      public int getFieldIdsCount() {
+        return internalGetFieldIds().getMap().size();
       }
       /**
-       * <code>optional string filename = 3;</code>
-       * @return This builder for chaining.
+       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
        */
-      public Builder clearFilename() {
-        filename_ = getDefaultInstance().getFilename();
+      @java.lang.Override
+      public boolean containsFieldIds(
+          java.lang.String key) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        return internalGetFieldIds().getMap().containsKey(key);
+      }
+      /**
+       * Use {@link #getFieldIdsMap()} instead.
+       */
+      @java.lang.Override
+      @java.lang.Deprecated
+      public java.util.Map<java.lang.String, java.lang.Integer> getFieldIds() {
+        return getFieldIdsMap();
+      }
+      /**
+       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       */
+      @java.lang.Override
+      public java.util.Map<java.lang.String, java.lang.Integer> getFieldIdsMap() {
+        return internalGetFieldIds().getMap();
+      }
+      /**
+       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       */
+      @java.lang.Override
+      public int getFieldIdsOrDefault(
+          java.lang.String key,
+          int defaultValue) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        java.util.Map<java.lang.String, java.lang.Integer> map =
+            internalGetFieldIds().getMap();
+        return map.containsKey(key) ? map.get(key) : defaultValue;
+      }
+      /**
+       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       */
+      @java.lang.Override
+      public int getFieldIdsOrThrow(
+          java.lang.String key) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        java.util.Map<java.lang.String, java.lang.Integer> map =
+            internalGetFieldIds().getMap();
+        if (!map.containsKey(key)) {
+          throw new java.lang.IllegalArgumentException();
+        }
+        return map.get(key);
+      }
+      public Builder clearFieldIds() {
         bitField0_ = (bitField0_ & ~0x00000004);
-        onChanged();
+        internalGetMutableFieldIds().getMutableMap()
+            .clear();
         return this;
       }
       /**
-       * <code>optional string filename = 3;</code>
-       * @param value The bytes for filename to set.
-       * @return This builder for chaining.
+       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
        */
-      public Builder setFilenameBytes(
-          com.google.protobuf.ByteString value) {
-        if (value == null) { throw new NullPointerException(); }
-        checkByteStringIsUtf8(value);
-        filename_ = value;
+      public Builder removeFieldIds(
+          java.lang.String key) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        internalGetMutableFieldIds().getMutableMap()
+            .remove(key);
+        return this;
+      }
+      /**
+       * Use alternate mutation accessors instead.
+       */
+      @java.lang.Deprecated
+      public java.util.Map<java.lang.String, java.lang.Integer>
+          getMutableFieldIds() {
         bitField0_ |= 0x00000004;
-        onChanged();
+        return internalGetMutableFieldIds().getMutableMap();
+      }
+      /**
+       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       */
+      public Builder putFieldIds(
+          java.lang.String key,
+          int value) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        
+        internalGetMutableFieldIds().getMutableMap()
+            .put(key, value);
+        bitField0_ |= 0x00000004;
+        return this;
+      }
+      /**
+       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       */
+      public Builder putAllFieldIds(
+          java.util.Map<java.lang.String, java.lang.Integer> values) {
+        internalGetMutableFieldIds().getMutableMap()
+            .putAll(values);
+        bitField0_ |= 0x00000004;
         return this;
       }
       @java.lang.Override
@@ -11075,6 +11008,11 @@ public final class RecordIngest {
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -11109,35 +11047,38 @@ public final class RecordIngest {
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
       "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\375\005\n\014ArrowPayload\022F\n\004type\030\001" +
+      "success\030\002 \001(\010\"\350\005\n\014ArrowPayload\022F\n\004type\030\001" +
       " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
       "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
       "25.io.debezium.server.iceberg.rpc.ArrowP" +
-      "ayload.Metadata\032J\n\014FileMetadata\022\021\n\tfile_" +
-      "type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_" +
-      "count\030\003 \001(\003\032}\n\021FileUploadRequest\022\021\n\tfile" +
-      "_data\030\001 \001(\014\022\021\n\tfile_type\030\002 \001(\t\022\025\n\rpartit" +
-      "ion_key\030\003 \001(\t\022\020\n\010filename\030\004 \001(\t\022\031\n\021equal" +
-      "ity_field_id\030\005 \001(\005\032\232\002\n\010Metadata\022\027\n\017dest_" +
-      "table_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rf" +
-      "ile_metadata\030\003 \003(\01329.io.debezium.server." +
-      "iceberg.rpc.ArrowPayload.FileMetadata\022\027\n" +
-      "\nfield_name\030\004 \001(\tH\000\210\001\001\022X\n\013file_upload\030\005 " +
-      "\001(\0132>.io.debezium.server.iceberg.rpc.Arr" +
-      "owPayload.FileUploadRequestH\001\210\001\001B\r\n\013_fie" +
-      "ld_nameB\016\n\014_file_upload\"t\n\013PayloadType\022\014" +
-      "\n\010REGISTER\020\000\022\020\n\014GET_FIELD_ID\020\001\022\017\n\013UPLOAD" +
-      "_FILE\020\002\022\025\n\021GENERATE_FILENAME\020\003\022\n\n\006COMMIT" +
-      "\020\004\022\021\n\rGET_SCHEMA_ID\020\005\"Z\n\023ArrowIngestResp" +
-      "onse\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\022\025\n" +
-      "\010filename\030\003 \001(\tH\000\210\001\001B\013\n\t_filename2\212\001\n\023Re" +
-      "cordIngestService\022s\n\013SendRecords\022..io.de" +
-      "bezium.server.iceberg.rpc.IcebergPayload" +
-      "\0324.io.debezium.server.iceberg.rpc.Record" +
-      "IngestResponse2\205\001\n\022ArrowIngestService\022o\n" +
-      "\nIcebergAPI\022,.io.debezium.server.iceberg" +
-      ".rpc.ArrowPayload\0323.io.debezium.server.i" +
-      "ceberg.rpc.ArrowIngestResponseb\006proto3"
+      "ayload.Metadata\032\200\001\n\014FileMetadata\022\021\n\tfile" +
+      "_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record" +
+      "_count\030\003 \001(\003\022\036\n\021equality_field_id\030\004 \001(\005H" +
+      "\000\210\001\001B\024\n\022_equality_field_id\032k\n\021FileUpload" +
+      "Request\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_type\030" +
+      "\002 \001(\t\022\025\n\rpartition_key\030\003 \001(\t\022\031\n\021equality" +
+      "_field_id\030\004 \001(\005\032\362\001\n\010Metadata\022\027\n\017dest_tab" +
+      "le_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile" +
+      "_metadata\030\003 \003(\01329.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileMetadata\022X\n\013fi" +
+      "le_upload\030\004 \001(\0132>.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileUploadRequestH" +
+      "\000\210\001\001B\016\n\014_file_upload\"b\n\013PayloadType\022\014\n\010R" +
+      "EGISTER\020\000\022\017\n\013UPLOAD_FILE\020\001\022\n\n\006COMMIT\020\002\022\021" +
+      "\n\rGET_SCHEMA_ID\020\003\022\025\n\021GET_ALL_FIELD_IDS\020\004" +
+      "\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030\001 \001(\t" +
+      "\022\017\n\007success\030\002 \001(\010\022T\n\tfield_ids\030\003 \003(\0132A.i" +
+      "o.debezium.server.iceberg.rpc.ArrowInges" +
+      "tResponse.FieldIdsEntry\032/\n\rFieldIdsEntry" +
+      "\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\0012\212\001\n\023Rec" +
+      "ordIngestService\022s\n\013SendRecords\022..io.deb" +
+      "ezium.server.iceberg.rpc.IcebergPayload\032" +
+      "4.io.debezium.server.iceberg.rpc.RecordI" +
+      "ngestResponse2\205\001\n\022ArrowIngestService\022o\n\n" +
+      "IcebergAPI\022,.io.debezium.server.iceberg." +
+      "rpc.ArrowPayload\0323.io.debezium.server.ic" +
+      "eberg.rpc.ArrowIngestResponseB\017Z\riceberg" +
+      "/protob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -11190,25 +11131,31 @@ public final class RecordIngest {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_descriptor,
-        new java.lang.String[] { "FileType", "FilePath", "RecordCount", });
+        new java.lang.String[] { "FileType", "FilePath", "RecordCount", "EqualityFieldId", "EqualityFieldId", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor,
-        new java.lang.String[] { "FileData", "FileType", "PartitionKey", "Filename", "EqualityFieldId", });
+        new java.lang.String[] { "FileData", "FileType", "PartitionKey", "EqualityFieldId", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(2);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "FileMetadata", "FieldName", "FileUpload", "FieldName", "FileUpload", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "FileMetadata", "FileUpload", "FileUpload", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor =
       getDescriptor().getMessageTypes().get(3);
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor,
-        new java.lang.String[] { "Result", "Success", "Filename", "Filename", });
+        new java.lang.String[] { "Result", "Success", "FieldIds", });
+    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor =
+      internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor.getNestedTypes().get(0);
+    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor,
+        new java.lang.String[] { "Key", "Value", });
   }
 
   // @@protoc_insertion_point(outer_class_scope)
