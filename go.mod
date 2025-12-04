@@ -1,7 +1,9 @@
 module github.com/datazip-inc/olake
 
-go 1.24.0
-
+		require (
+		cloud.google.com/go/bigquery v1.61.0
+		google.golang.org/api v0.203.0
+		)
 require (
 	github.com/apache/spark-connect-go/v35 v35.0.0-20250317154112-ffd832059443
 	github.com/aws/aws-sdk-go-v2/config v1.29.17
@@ -153,6 +155,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/bigquery v1.61.0
 	github.com/aws/aws-sdk-go v1.55.6
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -160,6 +163,7 @@ require (
 	github.com/oklog/ulid v1.3.1
 	github.com/spf13/pflag v1.0.6 // indirect
 	golang.org/x/sync v0.16.0
+	google.golang.org/api v0.203.0
 )
 
 replace (
