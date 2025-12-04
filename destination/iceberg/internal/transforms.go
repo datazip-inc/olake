@@ -12,29 +12,16 @@ import (
 	"github.com/twmb/murmur3"
 )
 
-const NULL_PARTITION_VALUE = "null"
+var (
+	NULL    = "null"
+	epochTM = time.Unix(0, 0).UTC()
+)
 
 // The current transforms logic is limited to the data types handled by OLake
 // As we start handling more data types, we will update the transformations logic here
 
-type Transform interface {
-	canTransform(colType string) bool
-	apply(val any, colType string) (string, error)
-}
-
-type IdentityTransform struct{}
-
-func (t IdentityTransform) canTransform(colType string) bool {
-	// OLake does not handles complex types right now, only primitive types, thus true
-	// Once we have complex types, we need to add a check here
-
-	return true
-}
-
-func (t IdentityTransform) apply(val any, colType string) (string, error) {
+func identityTransform(val any, colType string) (string, error) {
 	switch v := val.(type) {
-	case nil:
-		return NULL_PARTITION_VALUE, nil
 	case bool:
 		return strconv.FormatBool(v), nil
 	default:
@@ -52,138 +39,23 @@ func (t IdentityTransform) apply(val any, colType string) (string, error) {
 	}
 }
 
-var epochTM = time.Unix(0, 0).UTC()
-
-func canTransform(colType string) bool {
-	switch colType {
-	case "timestamptz":
-		return true
-	default:
-		return false
+func timeTransform(val any, transform string, colType string) (string, error) {
+	if colType != "timestamptz" {
+		return "", fmt.Errorf("cannot apply %v transform to a %v column", transform, colType)
 	}
-}
 
-type YearTransform struct{}
-
-func (t YearTransform) canTransform(colType string) bool {
-	return canTransform(colType)
-}
-
-func (t YearTransform) apply(val any, colType string) (string, error) {
-	switch colType {
-	case "timestamptz":
-		if val == nil {
-			return NULL_PARTITION_VALUE, nil
-		}
-
-		var years int32
-
-		switch v := val.(type) {
-		case time.Time:
-			// Iceberg year transform: years since epoch (year - 1970)
-			years = int32(v.UTC().Year() - epochTM.Year())
-		default:
-			return "", fmt.Errorf("cannot apply year transform for col: %v", colType)
-		}
-
-		return fmt.Sprintf("%v", years), nil
-	default:
-		return "", fmt.Errorf("cannot apply year transformation for col: %v", colType)
+	switch transform {
+	case "year":
+		return fmt.Sprintf("%v", int32(val.(time.Time).UTC().Year()-epochTM.Year())), nil
+	case "month":
+		return fmt.Sprintf("%v", int32((val.(time.Time).Year()-epochTM.Year())*12+(int(val.(time.Time).Month())-int(epochTM.Month())))), nil
+	case "day":
+		return fmt.Sprintf("%v", val.(time.Time).UTC().Truncate(24*time.Hour)), nil
+	case "hour":
+		return fmt.Sprintf("%v", int32(val.(time.Time).Unix()/3600)), nil
 	}
-}
 
-type MonthTransform struct{}
-
-func (t MonthTransform) canTransform(colType string) bool {
-	return canTransform(colType)
-}
-
-func (t MonthTransform) apply(val any, colType string) (string, error) {
-	switch colType {
-	case "timestamptz":
-		if val == nil {
-			return NULL_PARTITION_VALUE, nil
-		}
-
-		var months int32
-
-		switch v := val.(type) {
-		case time.Time:
-			// Iceberg month transform: months since epoch (1970-01)
-			months = int32((v.Year()-epochTM.Year())*12 + (int(v.Month()) - int(epochTM.Month())))
-		default:
-			return "", fmt.Errorf("cannot apply month transformation for col: %v", colType)
-		}
-
-		return fmt.Sprintf("%v", months), nil
-	default:
-		return "", fmt.Errorf("cannot apply month transformation for col: %v", colType)
-	}
-}
-
-type DayTransform struct{}
-
-func (t DayTransform) canTransform(colType string) bool {
-	return canTransform(colType)
-}
-
-func (t DayTransform) apply(val any, colType string) (string, error) {
-	switch colType {
-	case "timestamp", "timestamptz":
-		if val == nil {
-			return NULL_PARTITION_VALUE, nil
-		}
-
-		var tm time.Time
-
-		switch v := val.(type) {
-		case time.Time:
-			tm = v.UTC().Truncate(24 * time.Hour)
-		default:
-			return "", fmt.Errorf("cannot apply day transformation for col: %v", colType)
-		}
-
-		// Return ISO date format (YYYY-MM-DD) as expected by Iceberg's fromPartitionString
-		return tm.Format("2006-01-02"), nil
-	default:
-		return "", fmt.Errorf("cannot apply day transformation for col: %v", colType)
-	}
-}
-
-type HourTransform struct{}
-
-func (t HourTransform) canTransform(colType string) bool {
-	return canTransform(colType)
-}
-
-func (t HourTransform) apply(val any, colType string) (string, error) {
-	switch colType {
-	case "timestamptz":
-		if val == nil {
-			return NULL_PARTITION_VALUE, nil
-		}
-
-		var hours int32
-
-		switch v := val.(type) {
-		case time.Time:
-			// Iceberg hour transform: hours since epoch (1970-01-01 00:00:00 UTC)
-			hours = int32(v.Unix() / 3600)
-		default:
-			return "", fmt.Errorf("cannot apply hour transformation for col: %v", colType)
-		}
-
-		return fmt.Sprintf("%v", hours), nil
-	default:
-		return "", fmt.Errorf("cannot apply hour transformation for col: %v", colType)
-	}
-}
-
-type VoidTransform struct{}
-
-func (t VoidTransform) canTransform(colType string) bool { return true }
-func (t VoidTransform) apply(val any, colType string) (string, error) {
-	return NULL_PARTITION_VALUE, nil
+	return "", nil
 }
 
 func hashFunction[T ~int32 | ~int64](v any) uint32 {
@@ -198,24 +70,7 @@ func hashFunction[T ~int32 | ~int64](v any) uint32 {
 	return murmur3.Sum32(b)
 }
 
-type BucketTransform struct {
-	NumBuckets int
-}
-
-func (t BucketTransform) canTransform(colType string) bool {
-	switch colType {
-	case "int", "long", "timestamptz", "string":
-		return true
-	default:
-		return false
-	}
-}
-
-func (t BucketTransform) apply(val any, colType string) (string, error) {
-	if val == nil {
-		return NULL_PARTITION_VALUE, nil
-	}
-
+func bucketTransform(val any, num int, colType string) (string, error) {
 	var hash uint32
 
 	switch colType {
@@ -228,7 +83,6 @@ func (t BucketTransform) apply(val any, colType string) (string, error) {
 		default:
 			return "", fmt.Errorf("unsupported value type %T for colType %s", val, colType)
 		}
-
 	case "timestamptz":
 		tm, ok := val.(time.Time)
 		if !ok {
@@ -247,42 +101,24 @@ func (t BucketTransform) apply(val any, colType string) (string, error) {
 		return "", fmt.Errorf("cannot apply bucket transformation for colType %s", colType)
 	}
 
-	// Apache Iceberg's bucket algorithm: (hash & Integer.MAX_VALUE) % numBuckets
-	bucketValue := int32(hash&0x7FFFFFFF) % int32(t.NumBuckets)
+	bucketValue := int32(hash&0x7FFFFFFF) % int32(num)
 
 	return fmt.Sprintf("%v", bucketValue), nil
 }
 
-type TruncateTransform struct {
-	Width int
-}
-
-func (t TruncateTransform) canTransform(colType string) bool {
-	switch colType {
-	case "int", "long", "string":
-		return true
-	default:
-		return false
-	}
-}
-
-func (t TruncateTransform) apply(val any, colType string) (string, error) {
-	if val == nil {
-		return NULL_PARTITION_VALUE, nil
-	}
-
+func truncateTransform(val any, num int, colType string) (string, error) {
 	switch colType {
 	case "int":
 		v := val.(int32)
-		tval := v - (v % int32(t.Width))
+		tval := v - (v % int32(num))
 		return fmt.Sprintf("%v", tval), nil
 	case "long":
 		v := val.(int64)
-		tVal := v - (v % int64(t.Width))
+		tVal := v - (v % int64(num))
 		return fmt.Sprintf("%v", tVal), nil
 	case "string":
 		v := val.(string)
-		tVal := v[:min(len(v), t.Width)]
+		tVal := v[:min(len(v), num)]
 		return fmt.Sprintf("%v", tVal), nil
 	default:
 		return "", fmt.Errorf("cannot apply truncate transformation for col: %v", colType)
@@ -313,52 +149,43 @@ func ConstructColPath(tVal, field, transform string) string {
 }
 
 func TransformValue(val any, transform string, colType string) (any, error) {
-	var tf Transform
+	var value any
+	if val == nil {
+		return NULL, nil
+	}
 
-	switch transform {
-	case "identity":
-		tf = IdentityTransform{}
-	case "year":
-		tf = YearTransform{}
-	case "month":
-		tf = MonthTransform{}
-	case "day":
-		tf = DayTransform{}
-	case "hour":
-		tf = HourTransform{}
-	case "void":
-		tf = VoidTransform{}
-	default:
-		if strings.HasPrefix(transform, "bucket") {
-			num, err := strconv.Atoi(transform[7 : len(transform)-1])
-			if err != nil {
-				return nil, err
-			}
+	if strings.HasPrefix(transform, "bucket") {
+		num, err := strconv.Atoi(transform[7 : len(transform)-1])
+		if err != nil {
+			return nil, err
+		}
 
-			tf = BucketTransform{
-				NumBuckets: num,
-			}
-		} else if strings.HasPrefix(transform, "truncate") {
-			num, err := strconv.Atoi(transform[9 : len(transform)-1])
-			if err != nil {
-				return nil, err
-			}
+		value, err = bucketTransform(val, num, colType)
+		if err != nil {
+			return nil, err
+		}
+	} else if strings.HasPrefix(transform, "truncate") {
+		num, err := strconv.Atoi(transform[9 : len(transform)-1])
+		if err != nil {
+			return nil, err
+		}
 
-			tf = TruncateTransform{
-				Width: num,
-			}
-		} else {
-			return nil, fmt.Errorf("unknown partition transformation: %v", transform)
+		value, err = truncateTransform(val, num, colType)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		switch transform {
+		case "identity":
+			return identityTransform(val, colType)
+		case "year", "month", "day", "hour":
+			return timeTransform(val, transform, colType)
+		case "void":
+			return NULL, nil
+		default:
+			return nil, fmt.Errorf("unknown iceberg partition transformation: %v", transform)
 		}
 	}
 
-	if !tf.canTransform(colType) {
-		return nil, fmt.Errorf("cannot apply transformation %v for column type: %v", transform, colType)
-	}
-
-	v, err := tf.apply(val, colType)
-	if err != nil {
-		return nil, err
-	}
-	return v, nil
+	return value, nil
 }
