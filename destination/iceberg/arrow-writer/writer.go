@@ -61,12 +61,12 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		server:        server,
 	}
 
-	schemaId, err := writer.getSchemaID(ctx)
+	schemaID, err := writer.getschemaID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	writer.schemaId = schemaId
+	writer.schemaID = schemaID
 	if err := writer.initializeFields(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize fields: %w", err)
 	}
@@ -128,7 +128,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 	}
 
 	for pKey, record := range deletes {
-		record, err := createDeleteArrowRec(record, w.fieldIds[constants.OlakeID])
+		record, err := createDeleteArrowRec(record, w.fieldIDs[constants.OlakeID])
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %v", err)
 		}
@@ -181,8 +181,8 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 			FilePath:    fileMeta.FilePath,
 			RecordCount: fileMeta.RecordCount,
 		}
-		if fileMeta.EqualityFieldId != nil {
-			protoMeta.EqualityFieldId = fileMeta.EqualityFieldId
+		if fileMeta.EqualityFieldID != nil {
+			protoMeta.EqualityFieldId = fileMeta.EqualityFieldID
 		}
 		fileMetadata = append(fileMetadata, protoMeta)
 	}
@@ -240,7 +240,7 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 			FileType:        fileType,
 			FileData:        fileData,
 			PartitionKey:    partitionKey,
-			EqualityFieldId: w.fieldIds[constants.OlakeID],
+			EqualityFieldID: w.fieldIDs[constants.OlakeID],
 			RecordCount:     writer.currentRowCount,
 		}
 
@@ -257,20 +257,20 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 }
 
 func (w *ArrowWriter) initializeFields(ctx context.Context) error {
-	fieldIds, err := w.getAllFieldIds(ctx)
+	fieldIDs, err := w.getAllfieldIDs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get all field IDs: %w", err)
 	}
 
-	w.fieldIds = fieldIds
+	w.fieldIDs = fieldIDs
 
 	if w.stream.NormalizationEnabled() {
-		w.fields = CreateNormFields(w.schema, w.fieldIds)
+		w.fields = CreateNormFields(w.schema, w.fieldIDs)
 	} else {
-		w.fields = CreateDeNormFields(w.fieldIds)
+		w.fields = CreateDeNormFields(w.fieldIDs)
 	}
 
-	w.icebergSchemaJSON = buildIcebergSchemaJSON(w.schema, w.fieldIds, w.schemaId)
+	w.icebergSchemaJSON = buildIcebergSchemaJSON(w.schema, w.fieldIDs, w.schemaID)
 
 	return nil
 }
@@ -325,12 +325,12 @@ func (w *ArrowWriter) createWriter(ctx context.Context, schema arrow.Schema, fil
 	}
 
 	if fileType == "delete" {
-		icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, w.schemaId, w.fieldIds[constants.OlakeID], constants.OlakeID)
+		icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, w.schemaID, w.fieldIDs[constants.OlakeID], constants.OlakeID)
 
         if err = writer.AppendKeyValueMetadata("delete-type", "equality"); err != nil {
 			return nil, fmt.Errorf("failed to append key value metadata, delete-type equality: %v", err) 
 		}
-		if err = writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", w.fieldIds[constants.OlakeID])); err != nil {
+		if err = writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", w.fieldIDs[constants.OlakeID])); err != nil {
 			return nil, fmt.Errorf("failed to append key value metadata, delete-field-ids: %v", err)
 		}
 		if err = writer.AppendKeyValueMetadata("iceberg.schema", icebergSchemaJSON); err != nil {
@@ -346,7 +346,7 @@ func (w *ArrowWriter) createWriter(ctx context.Context, schema arrow.Schema, fil
 	}, nil
 }
 
-func buildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int, schemaId int) string {
+func buildIcebergSchemaJSON(schema map[string]string, fieldIDs map[string]int, schemaID int) string {
 	fieldNames := make([]string, 0, len(schema))
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
@@ -357,7 +357,7 @@ func buildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int, s
 	fieldsJSON := ""
 	for i, fieldName := range fieldNames {
 		icebergType := schema[fieldName]
-		fieldId := fieldIds[fieldName]
+		fieldId := fieldIDs[fieldName]
 
 		typeStr := fmt.Sprintf(`"%s"`, icebergType)
 
@@ -371,11 +371,11 @@ func buildIcebergSchemaJSON(schema map[string]string, fieldIds map[string]int, s
 			fieldId, fieldName, required, typeStr)
 	}
 
-	return fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[%s]}`, schemaId, fieldsJSON)
+	return fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[%s]}`, schemaID, fieldsJSON)
 }
 
 func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData) error {
-	filePath, err := w.uploadParquetFile(ctx, uploadData.FileData, uploadData.FileType, uploadData.PartitionKey, uploadData.EqualityFieldId)
+	filePath, err := w.uploadParquetFile(ctx, uploadData.FileData, uploadData.FileType, uploadData.PartitionKey, uploadData.EqualityFieldID)
 	if err != nil {
 		return fmt.Errorf("failed to upload %s file: %w", uploadData.FileType, err)
 	}
@@ -386,8 +386,8 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 		RecordCount: uploadData.RecordCount,
 	}
 	if uploadData.FileType == "delete" {
-		equalityFieldId := int32(uploadData.EqualityFieldId)
-		fileMeta.EqualityFieldId = &equalityFieldId
+		EqualityFieldID := int32(uploadData.EqualityFieldID)
+		fileMeta.EqualityFieldID = &EqualityFieldID
 	}
 	w.createdFilePaths = append(w.createdFilePaths, fileMeta)
 
@@ -395,7 +395,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 }
 
 // equality field id is only required for delete files
-func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fileType, partitionKey string, equalityFieldId int) (string, error) {
+func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fileType, partitionKey string, EqualityFieldID int) (string, error) {
 	request := proto.ArrowPayload{
 		Type: proto.ArrowPayload_UPLOAD_FILE,
 		Metadata: &proto.ArrowPayload_Metadata{
@@ -405,7 +405,7 @@ func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fi
 				FileData:        fileData,
 				FileType:        fileType,
 				PartitionKey:    partitionKey,
-				EqualityFieldId: int32(equalityFieldId),
+				EqualityFieldId: int32(EqualityFieldID),
 			},
 		},
 	}
@@ -418,7 +418,7 @@ func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fi
 	return response.GetResult(), nil
 }
 
-func (w *ArrowWriter) getAllFieldIds(ctx context.Context) (map[string]int, error) {
+func (w *ArrowWriter) getAllfieldIDs(ctx context.Context) (map[string]int, error) {
 	request := proto.ArrowPayload{
 		Type: proto.ArrowPayload_GET_ALL_FIELD_IDS,
 		Metadata: &proto.ArrowPayload_Metadata{
@@ -432,15 +432,15 @@ func (w *ArrowWriter) getAllFieldIds(ctx context.Context) (map[string]int, error
 		return nil, fmt.Errorf("failed to get all field IDs: %w", err)
 	}
 
-	fieldIds := make(map[string]int)
-	for fieldName, fieldId := range response.GetFieldIds() {
-		fieldIds[fieldName] = int(fieldId)
+	fieldIDs := make(map[string]int)
+	for fieldName, fieldId := range response.GetFieldIDs() {
+		fieldIDs[fieldName] = int(fieldId)
 	}
 
-	return fieldIds, nil
+	return fieldIDs, nil
 }
 
-func (w *ArrowWriter) getSchemaId(ctx context.Context) (int, error) {
+func (w *ArrowWriter) getschemaID(ctx context.Context) (int, error) {
 	request := proto.ArrowPayload{
 		Type: proto.ArrowPayload_GET_SCHEMA_ID,
 		Metadata: &proto.ArrowPayload_Metadata{
@@ -454,10 +454,10 @@ func (w *ArrowWriter) getSchemaId(ctx context.Context) (int, error) {
 		return -1, fmt.Errorf("failed to get schema ID: %w", err)
 	}
 
-	schemaId, err := strconv.Atoi(response.GetResult())
+	schemaID, err := strconv.Atoi(response.GetResult())
 	if err != nil {
 		return -1, fmt.Errorf("failed to parse schema ID from response '%s': %w", response.GetResult(), err)
 	}
 
-	return schemaId, nil
+	return schemaID, nil
 }

@@ -84,7 +84,7 @@ func CreateNormFields(schema map[string]string, fieldIDs map[string]int) []arrow
 			Type:     arrowType,
 			Nullable: nullable,
 			Metadata: arrow.MetadataFrom(map[string]string{
-				"PARQUET:field_id": fmt.Sprintf("%d", fieldIds[fieldName]),
+				"PARQUET:field_id": fmt.Sprintf("%d", fieldIDs[fieldName]),
 			}),
 		})
 	}
@@ -106,14 +106,14 @@ func CreateDeNormFields(fieldIDs map[string]int) []arrow.Field {
 		}
 	}
 
-	fieldnames := make([]string, 0, len(fieldIds))
-	for fieldName := range fieldIds {
+	fieldnames := make([]string, 0, len(fieldIDs))
+	for fieldName := range fieldIDs {
 		fieldnames = append(fieldnames, fieldName)
 	}
 
 	sort.Strings(fieldnames)
 
-	fields := make([]arrow.Field, 0, len(fieldIds))
+	fields := make([]arrow.Field, 0, len(fieldIDs))
 	for _, fieldName := range fieldnames {
 		arrowType, nullable := getFieldType(fieldName)
 
@@ -122,7 +122,7 @@ func CreateDeNormFields(fieldIDs map[string]int) []arrow.Field {
 			Type:     arrowType,
 			Nullable: nullable,
 			Metadata: arrow.MetadataFrom(map[string]string{
-				"PARQUET:field_id": fmt.Sprintf("%d", fieldIds[fieldName]),
+				"PARQUET:field_id": fmt.Sprintf("%d", fieldIDs[fieldName]),
 			}),
 		})
 	}
@@ -151,7 +151,7 @@ func createDeleteArrowRec(records []types.RawRecord, fieldID int) (arrow.Record,
 		Type:     arrow.BinaryTypes.String,
 		Nullable: false,
 		Metadata: arrow.MetadataFrom(map[string]string{
-			"PARQUET:field_id": fmt.Sprintf("%d", fieldId),
+			"PARQUET:field_id": fmt.Sprintf("%d", fieldID),
 		}),
 	})
 

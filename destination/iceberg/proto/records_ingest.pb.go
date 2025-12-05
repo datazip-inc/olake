@@ -351,7 +351,7 @@ func (x *ArrowIngestResponse) GetSuccess() bool {
 	return false
 }
 
-func (x *ArrowIngestResponse) GetFieldIds() map[string]int32 {
+func (x *ArrowIngestResponse) GetFieldIDs() map[string]int32 {
 	if x != nil {
 		return x.FieldIds
 	}
