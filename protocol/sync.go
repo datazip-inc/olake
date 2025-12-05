@@ -61,15 +61,20 @@ var syncCmd = &cobra.Command{
 
 		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
-		// default state
+		// Initialize state
 		state = &types.State{
-			Type: types.StreamType,
+			Type:    types.StreamType,
+			Version: constants.StateVersion, // Default to current version
 		}
+
+		// Load existing state if available, otherwise use empty state
 		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
+				logger.Debugf("State file not available, starting with empty state: %v", err)
 				return err
 			}
 		}
+		constants.CurrentStateVersion = state.Version
 
 		state.RWMutex = &sync.RWMutex{}
 		stateBytes, _ := state.MarshalJSON()
