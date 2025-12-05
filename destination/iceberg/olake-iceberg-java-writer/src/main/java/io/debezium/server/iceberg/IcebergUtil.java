@@ -291,4 +291,15 @@ public class IcebergUtil {
     }
   }
 
+  public static Map<String, Integer> getAllFieldIds(Table icebergTable) {
+    Schema schema = icebergTable.schema();
+    Map<String, Integer> fieldIdMap = new HashMap<>();
+
+    for (org.apache.iceberg.types.Types.NestedField field : schema.columns()) {
+      fieldIdMap.put(field.name(), field.fieldId());
+    }
+
+    return fieldIdMap;
+  }
+
 }

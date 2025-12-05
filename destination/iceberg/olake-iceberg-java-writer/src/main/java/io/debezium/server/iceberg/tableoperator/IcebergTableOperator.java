@@ -13,14 +13,22 @@ import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.Metrics;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.parquet.ParquetUtil;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -220,4 +228,252 @@ public class IcebergTableOperator {
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
     }
   }
+
+  
+     /**
+      * Accumulates data files for a specific thread WITHOUT committing
+      * Files are added to the dataFiles list and will be committed later via
+      * commitThread()
+      *
+      * @param threadId  The thread ID to accumulate files for
+      * @param table     The iceberg table
+      * @param filePaths The data file paths to accumulate
+      * @throws RuntimeException if accumulating the data file fails
+      */
+     public void accumulateDataFiles(String threadId, Table table, List<String> filePaths) {
+          if (table == null) {
+               LOGGER.warn("No table found for thread: {}", threadId);
+               return;
+          }
+
+          try {
+               FileIO fileIO = table.io();
+               MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+
+               for (String filePath : filePaths) {
+                    try {
+                         InputFile inputFile = fileIO.newInputFile(filePath);
+                         Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
+
+                         // Extract partition path from file path to scope data file to partition
+                         String partitionPath = extractPartitionPath(table, filePath);
+
+                         DataFiles.Builder dataFileBuilder = DataFiles.builder(table.spec())
+                                   .withPath(filePath)
+                                   .withFormat(FileFormat.PARQUET)
+                                   .withFileSizeInBytes(inputFile.getLength())
+                                   .withMetrics(metrics);
+
+                         if (partitionPath != null && !partitionPath.isEmpty()) {
+                              // Convert partition path to PartitionData to handle null values properly
+                              // This allows "col=null" in paths instead of "col=__HIVE_DEFAULT_PARTITION__"
+                              dataFileBuilder.withPartitionValues(parsePartitionValues(partitionPath));
+                              LOGGER.debug("Thread {}: data file scoped to partition: {}", threadId, partitionPath);
+                         } else {
+                              LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
+                         }
+
+                         DataFile dataFile = dataFileBuilder.build();
+                         dataFiles.add(dataFile);
+                         LOGGER.debug("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
+                                   dataFiles.size());
+                    } catch (Exception e) {
+                         LOGGER.error("Thread {}: failed to accumulate file {}: {}", threadId, filePath, e.getMessage(),
+                                   e);
+                         throw e;
+                    }
+               }
+
+               LOGGER.info("Thread {}: accumulated {} data files (total: {})", threadId, filePaths.size(),
+                         dataFiles.size());
+          } catch (Exception e) {
+               String errorMsg = String.format("Thread %s: failed to accumulate data files: %s", threadId,
+                         e.getMessage());
+               LOGGER.error(errorMsg, e);
+               throw new RuntimeException(e);
+          }
+     }
+
+     /**
+      * Accumulates delete files for a specific thread WITHOUT committing
+      * Files are added to the deleteFiles list and will be committed later via
+      * commitThread()
+      *
+      * @param threadId        The thread ID to accumulate files for
+      * @param table           The iceberg table
+      * @param filePaths       The delete file paths to accumulate
+      * @param equalityFieldId The field ID for equality deletes (e.g., _olake_id
+      *                        field)
+      * @param recordCount     The number of records in the delete file
+      * @throws RuntimeException if accumulating the delete file fails
+      */
+     public void accumulateDeleteFiles(String threadId, Table table, List<String> filePaths, int equalityFieldId,
+               long recordCount) {
+          if (table == null) {
+               LOGGER.warn("No table found for thread: {}", threadId);
+               return;
+          }
+
+          try {
+               FileIO fileIO = table.io();
+
+               for (String filePath : filePaths) {
+                    try {
+                         InputFile inputFile = fileIO.newInputFile(filePath);
+                         long fileSize = inputFile.getLength();
+
+                         // Extract partition path from file path to scope delete file to partition
+                         String partitionPath = extractPartitionPath(table, filePath);
+
+                         FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
+                                   .ofEqualityDeletes(equalityFieldId)
+                                   .withPath(filePath)
+                                   .withFormat(FileFormat.PARQUET)
+                                   .withFileSizeInBytes(fileSize)
+                                   .withRecordCount(recordCount);
+
+                         if (partitionPath != null && !partitionPath.isEmpty()) {
+                              // Convert partition path to PartitionData to handle null values properly
+                              // This allows "col=null" in paths instead of "col=__HIVE_DEFAULT_PARTITION__"
+                              org.apache.iceberg.PartitionData partitionData = createPartitionData(table.spec(),
+                                        partitionPath);
+                              deleteFileBuilder.withPartition(partitionData);
+                              LOGGER.debug("Thread {}: delete file scoped to partition: {}", threadId, partitionPath);
+                         } else {
+                              LOGGER.debug("Thread {}: delete file created as global (unpartitioned)", threadId);
+                         }
+
+                         DeleteFile deleteFile = deleteFileBuilder.build();
+                         deleteFiles.add(deleteFile);
+                         LOGGER.debug("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
+                                   threadId, filePath, equalityFieldId, deleteFiles.size());
+                    } catch (Exception e) {
+                         LOGGER.error("Thread {}: failed to accumulate delete file {}: {}", threadId, filePath,
+                                   e.getMessage(), e);
+                         throw e;
+                    }
+               }
+
+               LOGGER.info("Thread {}: accumulated {} delete files (total: {})", threadId, filePaths.size(),
+                         deleteFiles.size());
+          } catch (Exception e) {
+               String errorMsg = String.format("Thread %s: failed to accumulate delete files: %s", threadId,
+                         e.getMessage());
+               LOGGER.error(errorMsg, e);
+               throw new RuntimeException(e);
+          }
+     }
+
+     /**
+      * Extract partition path from the full file path
+      * This assumes the file path contains partition directories in the format:
+      * key=value/
+      *
+      * @param table    The iceberg table
+      * @param filePath The full file path
+      * @return The partition path (e.g., "year=2024/month=01") or empty string if
+      *         unpartitioned
+      */
+     private String extractPartitionPath(Table table, String filePath) {
+          if (table.spec().isUnpartitioned()) {
+               return "";
+          }
+
+          try {
+               String tableLocation = table.location();
+               if (filePath.startsWith(tableLocation)) {
+                    String relativePath = filePath.substring(tableLocation.length());
+                    if (relativePath.startsWith("/")) {
+                         relativePath = relativePath.substring(1);
+                    }
+
+                    // Skip the 'data/' directory prefix if present
+                    if (relativePath.startsWith("data/")) {
+                         relativePath = relativePath.substring(5); // Remove "data/"
+                    }
+
+                    // Get the directory part (everything before the last /)
+                    int lastSlash = relativePath.lastIndexOf('/');
+                    if (lastSlash > 0) {
+                         String partitionPath = relativePath.substring(0, lastSlash);
+                         return partitionPath;
+                    }
+               }
+          } catch (Exception e) {
+               LOGGER.warn("Failed to extract partition path from {}: {}", filePath, e.getMessage());
+          }
+
+          return "";
+     }
+
+     /**
+      * Parses a partition path like "col1=value1/col2=null/col3=value3" into a list
+      * of partition values.
+      * Converts the string "null" to actual null values for proper Iceberg handling.
+      * This allows Arrow writer to use "col=null" in directory paths instead of
+      * "col=__HIVE_DEFAULT_PARTITION__"
+      *
+      * @param partitionPath The partition path string (e.g.,
+      *                      "year=2024/month=01/day=null")
+      * @return List of partition values where "null" strings are converted to actual
+      *         nulls
+      */
+     private List<String> parsePartitionValues(String partitionPath) {
+          List<String> values = new ArrayList<>();
+
+          if (partitionPath == null || partitionPath.isEmpty()) {
+               return values;
+          }
+
+          // Split by / to get individual partition fields
+          String[] parts = partitionPath.split("/");
+          for (String part : parts) {
+               // Each part is like "col=value"
+               int equalsIndex = part.indexOf('=');
+               if (equalsIndex > 0 && equalsIndex < part.length() - 1) {
+                    String value = part.substring(equalsIndex + 1);
+                    // Convert string "null" to actual null for Iceberg
+                    // This is the key fix: Arrow writer creates "col=null/" directories
+                    // but Iceberg needs actual null values, not the string "null"
+                    values.add("null".equals(value) ? null : value);
+               }
+          }
+
+          return values;
+     }
+
+     /**
+      * Creates a PartitionData object from a partition path, converting "null"
+      * strings to actual null values.
+      * This allows Arrow writer to use "col=null" in directory paths.
+      *
+      * @param spec          The partition spec
+      * @param partitionPath The partition path string (e.g.,
+      *                      "col1=value1/col2=null")
+      * @return PartitionData with properly typed values
+      */
+     private org.apache.iceberg.PartitionData createPartitionData(org.apache.iceberg.PartitionSpec spec,
+               String partitionPath) {
+          org.apache.iceberg.PartitionData partitionData = new org.apache.iceberg.PartitionData(spec.partitionType());
+
+          if (partitionPath == null || partitionPath.isEmpty()) {
+               return partitionData;
+          }
+
+          List<String> values = parsePartitionValues(partitionPath);
+
+          // Set each value in the PartitionData
+          for (int i = 0; i < values.size() && i < spec.fields().size(); i++) {
+               String stringValue = values.get(i);
+               org.apache.iceberg.types.Type fieldType = partitionData.getType(i);
+
+               // Convert string value to proper type, handling nulls
+               Object typedValue = stringValue == null ? null
+                         : org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
+
+               partitionData.set(i, typedValue);
+          }
+
+          return partitionData;
+     }
 }

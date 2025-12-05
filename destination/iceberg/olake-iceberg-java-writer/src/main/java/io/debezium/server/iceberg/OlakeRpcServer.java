@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.debezium.serde.DebeziumSerdes;
+import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -108,6 +109,7 @@ public class OlakeRpcServer {
         keyDeserializer = keySerde.deserializer();
 
         OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms);
+        OlakeArrowIngester oai = new OlakeArrowIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog);
 
         // Build the server to listen on port 50051
         int port = 50051; // Default port
@@ -123,6 +125,7 @@ public class OlakeRpcServer {
         
         Server server = ServerBuilder.forPort(port)
                 .addService(ori)
+                .addService(oai)
                 .maxInboundMessageSize(maxMessageSize)
                 .build()
                 .start();
