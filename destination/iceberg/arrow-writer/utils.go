@@ -7,9 +7,9 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
-	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet"
+	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -65,7 +65,7 @@ func toArrowType(icebergType string) arrow.DataType {
 	}
 }
 
-func CreateNormFields(schema map[string]string, fieldIds map[string]int) []arrow.Field {
+func CreateNormFields(schema map[string]string, fieldIDs map[string]int) []arrow.Field {
 	fieldNames := make([]string, 0, len(schema))
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
@@ -92,7 +92,7 @@ func CreateNormFields(schema map[string]string, fieldIds map[string]int) []arrow
 	return fields
 }
 
-func CreateDeNormFields(fieldIds map[string]int) []arrow.Field {
+func CreateDeNormFields(fieldIDs map[string]int) []arrow.Field {
 	getFieldType := func(name string) (arrow.DataType, bool) {
 		switch name {
 		case constants.OlakeID, constants.OpType:
@@ -143,7 +143,7 @@ func extractDeleteRecord(rec types.RawRecord) types.RawRecord {
 	return rec
 }
 
-func createDeleteArrowRec(records []types.RawRecord, fieldId int) (arrow.Record, error) {
+func createDeleteArrowRec(records []types.RawRecord, fieldID int) (arrow.Record, error) {
 	// need to check the metadata requirement here as well
 	fields := make([]arrow.Field, 0, 1)
 	fields = append(fields, arrow.Field{
@@ -205,7 +205,7 @@ func CreateArrowRecord(records []types.RawRecord, fields []arrow.Field, normaliz
 			if val == nil {
 				recordBuilder.Field(idx).AppendNull()
 			} else {
-				if err := AppendValueToBuilder(recordBuilder.Field(idx), val, field.Type, field.Name, normalization); err != nil {
+				if err := AppendValueToBuilder(recordBuilder.Field(idx), val, field.Name, normalization); err != nil {
 					return nil, fmt.Errorf("cannot identify value for the col %v: %v", field.Name, err)
 				}
 			}
@@ -217,7 +217,7 @@ func CreateArrowRecord(records []types.RawRecord, fields []arrow.Field, normaliz
 	return arrowRecord, nil
 }
 
-func AppendValueToBuilder(builder array.Builder, val interface{}, fieldType arrow.DataType, fieldName string, normalization bool) error {
+func AppendValueToBuilder(builder array.Builder, val interface{}, fieldName string, normalization bool) error {
 	switch builder := builder.(type) {
 	case *array.BooleanBuilder:
 		if boolVal, err := typeutils.ReformatBool(val); err == nil {

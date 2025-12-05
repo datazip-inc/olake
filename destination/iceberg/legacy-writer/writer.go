@@ -143,7 +143,7 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId: w.server.ServerID(),
+			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
 		},
 	}
@@ -154,6 +154,6 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	}
 
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, res)
-	
+
 	return nil
 }

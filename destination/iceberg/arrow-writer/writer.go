@@ -22,9 +22,9 @@ import (
 type ArrowWriter struct {
 	icebergSchemaJSON string
 	fields            []arrow.Field
-	fieldIds          map[string]int
+	fieldIDs          map[string]int
 	partitionInfo     []internal.PartitionInfo
-	schemaId          int
+	schemaID          int
 	schema            map[string]string
 	stream            types.StreamInterface
 	server            internal.ArrowServerClient
@@ -42,14 +42,14 @@ type FileMetdata struct {
 	FileType        string
 	FilePath        string
 	RecordCount     int64
-	EqualityFieldId *int32 // Only set for delete files
+	EqualityFieldID *int32 // Only set for delete files
 }
 
 type FileUploadData struct {
 	FileType        string
 	FileData        []byte
 	PartitionKey    string
-	EqualityFieldId int
+	EqualityFieldID int
 	RecordCount     int64
 }
 
@@ -61,7 +61,7 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		server:        server,
 	}
 
-	schemaId, err := writer.getSchemaId(ctx)
+	schemaId, err := writer.getSchemaID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -327,9 +327,15 @@ func (w *ArrowWriter) createWriter(ctx context.Context, schema arrow.Schema, fil
 	if fileType == "delete" {
 		icebergSchemaJSON := fmt.Sprintf(`{"type":"struct","schema-id":%d,"fields":[{"id":%d,"name":"%s","required":true,"type":"string"}]}`, w.schemaId, w.fieldIds[constants.OlakeID], constants.OlakeID)
 
-		writer.AppendKeyValueMetadata("delete-type", "equality")
-		writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", w.fieldIds[constants.OlakeID]))
-		writer.AppendKeyValueMetadata("iceberg.schema", icebergSchemaJSON)
+        if err = writer.AppendKeyValueMetadata("delete-type", "equality"); err != nil {
+			return nil, fmt.Errorf("failed to append key value metadata, delete-type equality: %v", err) 
+		}
+		if err = writer.AppendKeyValueMetadata("delete-field-ids", fmt.Sprintf("%d", w.fieldIds[constants.OlakeID])); err != nil {
+			return nil, fmt.Errorf("failed to append key value metadata, delete-field-ids: %v", err)
+		}
+		if err = writer.AppendKeyValueMetadata("iceberg.schema", icebergSchemaJSON); err != nil {
+			return nil, fmt.Errorf("failed to append iceberg schema json: %v", err)
+		}
 	} else if fileType == "data" {
 		writer.AppendKeyValueMetadata("iceberg.schema", w.icebergSchemaJSON)
 	}
