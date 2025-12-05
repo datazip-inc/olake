@@ -133,7 +133,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			return fmt.Errorf("failed to create arrow record: %v", err)
 		}
 
-		writer, err := w.getOrCreateWriter(ctx, pKey, *record.Schema(), "delete")
+		writer, err := w.getOrCreateWriter(pKey, *record.Schema(), "delete")
 		if err != nil {
 			record.Release()
 			return fmt.Errorf("failed to get or create writer for delete: %w", err)
@@ -152,7 +152,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			return fmt.Errorf("failed to create arrow record: %v", err)
 		}
 
-		writer, err := w.getOrCreateWriter(ctx, pKey, *record.Schema(), "data")
+		writer, err := w.getOrCreateWriter(pKey, *record.Schema(), "data")
 		if err != nil {
 			record.Release()
 			return fmt.Errorf("failed to get or create writer for data: %w", err)
@@ -275,7 +275,7 @@ func (w *ArrowWriter) initializeFields(ctx context.Context) error {
 	return nil
 }
 
-func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, partitionKey string, schema arrow.Schema, fileType string) (*RollingWriter, error) {
+func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema, fileType string) (*RollingWriter, error) {
 	// differentiating data and delete file writers, "data:pk" : *writer, "delete:pk" : *writer
 	key := fileType + ":" + partitionKey
 

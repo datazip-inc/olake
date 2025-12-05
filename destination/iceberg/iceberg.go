@@ -29,7 +29,7 @@ type Iceberg struct {
 	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
 	server        *serverInstance          // Java server instance
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
-	writer        IcebergWriter            // writer instance
+	writer        Writer                   // writer instance
 
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
@@ -45,7 +45,7 @@ func (i *Iceberg) Spec() any {
 	return Config{}
 }
 
-func (i *Iceberg) NewWriter(ctx context.Context) (IcebergWriter, error) {
+func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	if i.config.UseArrowWrites {
 		writer, err := arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server)
 		if err != nil {
@@ -319,7 +319,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 					}
 				}
 			}
-			
+
 			return false, nil
 		}
 
