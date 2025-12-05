@@ -121,7 +121,7 @@ func (w *ArrowWriter) extract(records []types.RawRecord) (map[string][]types.Raw
 	return data, deletes, nil
 }
 
-func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
+func (w *ArrowWriter) Write(_ context.Context, records []types.RawRecord) error {
 	data, deletes, err := w.extract(records)
 	if err != nil {
 		return fmt.Errorf("failed to partition data: %v", err)
