@@ -23,17 +23,17 @@ import (
 )
 
 type Iceberg struct {
-    options       *destination.Options
-    config        *Config
-    stream        types.StreamInterface
-    partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
-    server        *serverInstance          // Java server instance
-    schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
-    writer        IcebergWriter            // writer instance
+	options       *destination.Options
+	config        *Config
+	stream        types.StreamInterface
+	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
+	server        *serverInstance          // Java server instance
+	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
+	writer        IcebergWriter            // writer instance
 
-    // Why Schema On Thread Level?
-    // Schema on thread level is identical to the writer instance available in the Java server.
-    // It defines when to complete the Java writer and when schema evolution is required.
+	// Why Schema On Thread Level?
+	// Schema on thread level is identical to the writer instance available in the Java server.
+	// It defines when to complete the Java writer and when schema evolution is required.
 }
 
 func (i *Iceberg) GetConfigRef() destination.Config {
@@ -47,7 +47,7 @@ func (i *Iceberg) Spec() any {
 
 func (i *Iceberg) NewWriter(ctx context.Context) (IcebergWriter, error) {
 	if i.config.UseArrowWrites {
-		writer, err := arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server);
+		writer, err := arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server)
 		if err != nil {
 			return nil, err
 		}

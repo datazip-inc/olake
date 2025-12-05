@@ -253,7 +253,7 @@ func (s *serverInstance) SendArrowRequest(ctx context.Context, reqPayload *proto
 	if err != nil {
 		return nil, fmt.Errorf("failed to send arrow grpc request: %v", err)
 	}
-	
+
 	return resp, nil
 }
 
