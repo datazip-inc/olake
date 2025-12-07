@@ -59,7 +59,7 @@ func (c *Config) URI() string {
 		case utils.SSLModeDisable:
 			cfg.TLSConfig = "false"
 		case utils.SSLModeRequire:
-			cfg.TLSConfig = "true"
+			cfg.TLSConfig = "skip-verify"
 		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
 			tlsConfig, err := c.buildTLSConfig()
 			if err != nil {
@@ -100,7 +100,25 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 	}
 
 	if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA {
+		// verify-ca: Verify the server's CA certificate but not the hostname
 		tlsConfig.InsecureSkipVerify = true
+		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return fmt.Errorf("no server certificate provided")
+			}
+			cert, err := x509.ParseCertificate(rawCerts[0])
+			if err != nil {
+				return fmt.Errorf("failed to parse server certificate: %w", err)
+			}
+
+			opts := x509.VerifyOptions{
+				Roots: rootCertPool,
+			}
+			if _, err := cert.Verify(opts); err != nil {
+				return fmt.Errorf("failed to verify server certificate against CA: %w", err)
+			}
+			return nil
+		}
 	}
 
 	if c.SSLConfiguration.ClientCert != "" && c.SSLConfiguration.ClientKey != "" {

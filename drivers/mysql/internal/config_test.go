@@ -69,9 +69,8 @@ func TestConfig_URI_WithSSLRequired(t *testing.T) {
 
 	uri := config.URI()
 
-	// Check that TLS is enabled
-	if !strings.Contains(uri, "tls=true") {
-		t.Errorf("Expected tls=true in URI, got: %s", uri)
+	if !strings.Contains(uri, "tls=skip-verify") {
+		t.Errorf("Expected tls=skip-verify in URI, got: %s", uri)
 	}
 }
 
@@ -163,8 +162,8 @@ func TestConfig_URI_CombinedParams(t *testing.T) {
 	if !strings.Contains(uri, "charset=utf8mb4") {
 		t.Errorf("Expected charset parameter in URI")
 	}
-	if !strings.Contains(uri, "tls=true") {
-		t.Errorf("Expected TLS enabled in URI")
+	if !strings.Contains(uri, "tls=skip-verify") {
+		t.Errorf("Expected TLS enabled with skip-verify in URI")
 	}
 	if !strings.Contains(uri, "mysql.example.com:3306") {
 		t.Errorf("Expected correct host and port in URI")
