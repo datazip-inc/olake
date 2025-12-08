@@ -464,6 +464,14 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	}
 
 	i.schema = copySchema(schemaAfterEvolution)
+
+	// The writer holds a copy of the schema, so it needs to be recreated to pick up schema changes
+	writer, err := i.NewWriter(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to recreate writer after schema evolution: %v", err)
+	}
+	i.writer = writer
+
 	return schemaAfterEvolution, nil
 }
 

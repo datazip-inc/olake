@@ -107,13 +107,14 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          break;
 
                     case GET_SCHEMA_ID:
+                         this.icebergTable.refresh();
                          int currentSchemaId = this.icebergTable.schema().schemaId();
                          sendResponse(responseObserver, String.valueOf(currentSchemaId));
                          LOGGER.info("{} Current schema ID: {}", requestId, currentSchemaId);
                          break;
 
                     case GET_ALL_FIELD_IDS:
-                         LOGGER.info("{} Received GET_ALL_FIELD_IDS request", requestId);
+                         this.icebergTable.refresh();
                          java.util.Map<String, Integer> allFieldIds = IcebergUtil.getAllFieldIds(this.icebergTable);
                          RecordIngest.ArrowIngestResponse batchResponse = RecordIngest.ArrowIngestResponse.newBuilder()
                                    .setResult("Successfully retrieved all field IDs")
