@@ -21,6 +21,7 @@ func TestPostgresIntegration(t *testing.T) {
 		DestinationDB:                    "postgres_postgres_public",
 		CursorField:                      "col_bigserial",
 		PartitionRegex:                   "/{col_bigserial,identity}",
+		SkipCDC:                          false,
 	}
 	testConfig.TestIntegration(t)
 }

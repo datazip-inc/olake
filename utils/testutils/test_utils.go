@@ -43,6 +43,7 @@ type IntegrationTest struct {
 	DestinationDB                    string
 	CursorField                      string
 	PartitionRegex                   string
+	SkipCDC                          bool
 }
 
 type PerformanceTest struct {
@@ -492,14 +493,14 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:      "full load",
+			name:      "Full-Refresh",
 			operation: "",
 			useState:  false,
 			opSymbol:  "r",
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "insert",
+			name:      "Incremental-insert",
 			operation: "insert",
 			useState:  true,
 			opSymbol:  "u",
@@ -560,14 +561,14 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:      "full load",
+			name:      "Full-Refresh",
 			operation: "",
 			useState:  false,
 			opSymbol:  "r",
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "insert",
+			name:      "Incremental-insert",
 			operation: "insert",
 			useState:  true,
 			opSymbol:  "u",
@@ -726,17 +727,19 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
-							t.Run("Phase A: Iceberg Full load + CDC", func(t *testing.T) {
-								if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Phase A failed: %v", err)
-								}
-							})
+							if !cfg.SkipCDC {
+								t.Run("Phase A: Iceberg Full load + CDC", func(t *testing.T) {
+									if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
+										t.Fatalf("Phase A failed: %v", err)
+									}
+								})
 
-							t.Run("Phase B: Parquet Full load + CDC", func(t *testing.T) {
-								if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Phase B failed: %v", err)
-								}
-							})
+								t.Run("Phase B: Parquet Full load + CDC", func(t *testing.T) {
+									if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
+										t.Fatalf("Phase B failed: %v", err)
+									}
+								})
+							}
 
 							t.Run("Phase C: Iceberg Full load + Incremental", func(t *testing.T) {
 								if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {

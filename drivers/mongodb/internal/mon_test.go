@@ -20,6 +20,7 @@ func TestMongodbIntegration(t *testing.T) {
 		DestinationDB:                    "mongodb_olake_mongodb_test",
 		CursorField:                      "_id",
 		PartitionRegex:                   "/{_id,identity}",
+		SkipCDC:                          false,
 	}
 	testConfig.TestIntegration(t)
 }
