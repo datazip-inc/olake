@@ -44,15 +44,17 @@ func timeTransform(val any, transform string, colType string) (string, error) {
 		return "", fmt.Errorf("cannot apply %v transform to a %v column", transform, colType)
 	}
 
+	t := val.(time.Time).UTC()
+
 	switch transform {
 	case "year":
-		return fmt.Sprintf("%v", int32(val.(time.Time).UTC().Year()-epochTM.Year())), nil
+		return fmt.Sprintf("%d", t.Year()), nil
 	case "month":
-		return fmt.Sprintf("%v", int32((val.(time.Time).Year()-epochTM.Year())*12+(int(val.(time.Time).Month())-int(epochTM.Month())))), nil
+		return t.Format("2006-01"), nil
 	case "day":
-		return fmt.Sprintf("%v", val.(time.Time).UTC().Truncate(24*time.Hour)), nil
+		return t.Format("2006-01-02"), nil
 	case "hour":
-		return fmt.Sprintf("%v", int32(val.(time.Time).Unix()/3600)), nil
+		return t.Format("2006-01-02-15"), nil
 	}
 
 	return "", nil

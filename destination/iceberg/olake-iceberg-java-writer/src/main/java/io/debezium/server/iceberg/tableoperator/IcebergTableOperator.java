@@ -8,9 +8,11 @@
 
 package io.debezium.server.iceberg.tableoperator;
 
-import com.google.common.collect.ImmutableMap;
-import jakarta.enterprise.context.Dependent;
-import jakarta.inject.Inject;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -19,6 +21,8 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetricsConfig;
+import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -33,10 +37,10 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import com.google.common.collect.ImmutableMap;
+
+import jakarta.enterprise.context.Dependent;
+import jakarta.inject.Inject;
 /**
  * Wrapper to perform operations on iceberg tables
  *
@@ -230,17 +234,7 @@ public class IcebergTableOperator {
   }
 
   
-     /**
-      * Accumulates data files for a specific thread WITHOUT committing
-      * Files are added to the dataFiles list and will be committed later via
-      * commitThread()
-      *
-      * @param threadId  The thread ID to accumulate files for
-      * @param table     The iceberg table
-      * @param filePaths The data file paths to accumulate
-      * @throws RuntimeException if accumulating the data file fails
-      */
-     public void accumulateDataFiles(String threadId, Table table, List<String> filePaths) {
+   public void accumulateDataFiles(String threadId, Table table, List<String> filePaths) {
           if (table == null) {
                LOGGER.warn("No table found for thread: {}", threadId);
                return;
@@ -265,9 +259,9 @@ public class IcebergTableOperator {
                                    .withMetrics(metrics);
 
                          if (partitionPath != null && !partitionPath.isEmpty()) {
-                              // Convert partition path to PartitionData to handle null values properly
-                              // This allows "col=null" in paths instead of "col=__HIVE_DEFAULT_PARTITION__"
-                              dataFileBuilder.withPartitionValues(parsePartitionValues(partitionPath));
+                              org.apache.iceberg.PartitionData partitionData = createPartitionData(table.spec(),
+                              partitionPath);
+                              dataFileBuilder.withPartition(partitionData);
                               LOGGER.debug("Thread {}: data file scoped to partition: {}", threadId, partitionPath);
                          } else {
                               LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
@@ -294,20 +288,7 @@ public class IcebergTableOperator {
           }
      }
 
-     /**
-      * Accumulates delete files for a specific thread WITHOUT committing
-      * Files are added to the deleteFiles list and will be committed later via
-      * commitThread()
-      *
-      * @param threadId        The thread ID to accumulate files for
-      * @param table           The iceberg table
-      * @param filePaths       The delete file paths to accumulate
-      * @param equalityFieldId The field ID for equality deletes (e.g., _olake_id
-      *                        field)
-      * @param recordCount     The number of records in the delete file
-      * @throws RuntimeException if accumulating the delete file fails
-      */
-     public void accumulateDeleteFiles(String threadId, Table table, List<String> filePaths, int equalityFieldId,
+    public void accumulateDeleteFiles(String threadId, Table table, List<String> filePaths, int equalityFieldId,
                long recordCount) {
           if (table == null) {
                LOGGER.warn("No table found for thread: {}", threadId);
@@ -364,17 +345,7 @@ public class IcebergTableOperator {
           }
      }
 
-     /**
-      * Extract partition path from the full file path
-      * This assumes the file path contains partition directories in the format:
-      * key=value/
-      *
-      * @param table    The iceberg table
-      * @param filePath The full file path
-      * @return The partition path (e.g., "year=2024/month=01") or empty string if
-      *         unpartitioned
-      */
-     private String extractPartitionPath(Table table, String filePath) {
+    private String extractPartitionPath(Table table, String filePath) {
           if (table.spec().isUnpartitioned()) {
                return "";
           }
@@ -406,19 +377,7 @@ public class IcebergTableOperator {
           return "";
      }
 
-     /**
-      * Parses a partition path like "col1=value1/col2=null/col3=value3" into a list
-      * of partition values.
-      * Converts the string "null" to actual null values for proper Iceberg handling.
-      * This allows Arrow writer to use "col=null" in directory paths instead of
-      * "col=__HIVE_DEFAULT_PARTITION__"
-      *
-      * @param partitionPath The partition path string (e.g.,
-      *                      "year=2024/month=01/day=null")
-      * @return List of partition values where "null" strings are converted to actual
-      *         nulls
-      */
-     private List<String> parsePartitionValues(String partitionPath) {
+    private List<String> parsePartitionValues(String partitionPath) {
           List<String> values = new ArrayList<>();
 
           if (partitionPath == null || partitionPath.isEmpty()) {
@@ -442,19 +401,8 @@ public class IcebergTableOperator {
           return values;
      }
 
-     /**
-      * Creates a PartitionData object from a partition path, converting "null"
-      * strings to actual null values.
-      * This allows Arrow writer to use "col=null" in directory paths.
-      *
-      * @param spec          The partition spec
-      * @param partitionPath The partition path string (e.g.,
-      *                      "col1=value1/col2=null")
-      * @return PartitionData with properly typed values
-      */
-     private org.apache.iceberg.PartitionData createPartitionData(org.apache.iceberg.PartitionSpec spec,
-               String partitionPath) {
-          org.apache.iceberg.PartitionData partitionData = new org.apache.iceberg.PartitionData(spec.partitionType());
+     private org.apache.iceberg.PartitionData createPartitionData(org.apache.iceberg.PartitionSpec spec, String partitionPath) {
+          PartitionData partitionData = new org.apache.iceberg.PartitionData(spec.partitionType());
 
           if (partitionPath == null || partitionPath.isEmpty()) {
                return partitionData;
@@ -468,12 +416,56 @@ public class IcebergTableOperator {
                org.apache.iceberg.types.Type fieldType = partitionData.getType(i);
 
                // Convert string value to proper type, handling nulls
-               Object typedValue = stringValue == null ? null
-                         : org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
-
+               Object typedValue = stringValue == null ? null : convertPartitionValue(fieldType, stringValue, spec.fields().get(i));
                partitionData.set(i, typedValue);
           }
 
           return partitionData;
+     }
+
+     private Object convertPartitionValue(org.apache.iceberg.types.Type fieldType, String stringValue, PartitionField partitionField) {
+          String transformName = partitionField.transform().toString().toLowerCase();
+
+          try {
+               return org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
+          } catch (NumberFormatException e) {
+
+               try {
+                    if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
+                         // Year format: "2025" -> return as-is (already an integer)
+                         return Integer.parseInt(stringValue);
+                    } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
+                         // Month format: "2025-12" -> convert to months since epoch
+                         String[] parts = stringValue.split("-");
+                         int year = Integer.parseInt(parts[0]);
+                         int month = Integer.parseInt(parts[1]);
+                         int monthsSinceEpoch = (year - 1970) * 12 + (month - 1);
+                         return monthsSinceEpoch;
+                    } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                         // Day format: "2025-12-08" -> convert to days since epoch
+                         java.time.LocalDate date = java.time.LocalDate.parse(stringValue);
+                         java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
+                         return (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
+                    } else if (transformName.contains("hour") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
+                         // Hour format: "2025-12-08-02" -> convert to hours since epoch
+                         String[] parts = stringValue.split("-");
+                         java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
+                                   Integer.parseInt(parts[0]), // year
+                                   Integer.parseInt(parts[1]), // month
+                                   Integer.parseInt(parts[2]), // day
+                                   Integer.parseInt(parts[3]), // hour
+                                   0 // minute
+                         );
+                         java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
+                         return (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
+                    }
+               } catch (Exception parseError) {
+                    LOGGER.warn("Failed to parse human-readable date format '{}': {}", stringValue,
+                              parseError.getMessage());
+               }
+
+               throw new RuntimeException(
+                         "Cannot parse partition value '" + stringValue + "' for transform " + transformName, e);
+          }
      }
 }
