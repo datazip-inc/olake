@@ -194,7 +194,7 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 }
 
 var OracleToDestinationSchema = map[string]string{
-	"id":                   "bigint", // identity column
+	"id":                   "double", // identity column
 	"col_bigint":           "bigint",
 	"col_char":             "string",
 	"col_character":        "string",
@@ -214,7 +214,7 @@ var OracleToDestinationSchema = map[string]string{
 }
 
 var UpdatedOracleToDestinationSchema = map[string]string{
-	"id":                   "bigint",
+	"id":                   "double",
 	"col_bigint":           "bigint",
 	"col_char":             "string",
 	"col_character":        "string",
