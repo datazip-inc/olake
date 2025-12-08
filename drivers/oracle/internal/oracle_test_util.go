@@ -22,13 +22,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		utils.UnmarshalFile("./testdata/source.json", &config, false)
 		connStr = config.connectionString()
 	} else {
-		connStr = "oracle://system:secret1234@localhost:1521/orcl"
+		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"
 	}
 
-	db, err := sqlx.Open("oracle", connStr)
+	db, err := sqlx.ConnectContext(ctx, "oracle", connStr)
 	require.NoError(t, err, "failed to connect to oracle")
 	defer func() {
-		require.NoError(t, db.Close(), "failed to close oracle connection")
+		require.NoError(t, db.Close())
 	}()
 
 	// integration test uses only one stream for testing
