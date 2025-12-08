@@ -1,5 +1,5 @@
 {
-    "host": "localhost",
+    "host": "host.docker.internal",
     "port": 1521,
     "username": "MYUSER",
     "password": "secret1234",
