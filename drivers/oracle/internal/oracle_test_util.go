@@ -88,7 +88,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			) VALUES (
 				123456789012345, 'c', 'char_val',
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
-				123.456789, 123.45, 123, 123, 12345,
+				123.456789, 123.5, 123, 123, 12345,
 				'sample text', 'sample nclob',
 				TIMESTAMP '2023-01-01 12:00:00',
 				TIMESTAMP '2023-01-01 12:00:00+00:00'
@@ -104,7 +104,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_date = TO_DATE('2024-07-01', 'YYYY-MM-DD'),
 				col_decimal = 543.21,
 				col_double_precision = 987.654321,
-				col_float = 543.21,
+				col_float = 543.5,
 				col_int = 321,
 				col_smallint = 321,
 				col_integer = 54321,
@@ -146,7 +146,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		) VALUES (
 			123456789012345, 'c', 'char_val',
 			'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
-			123.456789, 123.45, 123, 123, 12345,
+			123.456789, 123.5, 123, 123, 12345,
 			'sample text', 'sample nclob',
 			TIMESTAMP '2023-01-01 12:00:00',
 			TIMESTAMP '2023-01-01 12:00:00+00:00'
@@ -165,7 +165,7 @@ var ExpectedOracleData = map[string]interface{}{
 	"col_date":             arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":          float64(123.45),
 	"col_double_precision": 123.456789,
-	"col_float":            float32(123.45),
+	"col_float":            float32(123.5),
 	"col_int":              int32(123),
 	"col_smallint":         int32(123),
 	"col_integer":          int64(12345),
@@ -183,8 +183,8 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_date":             arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":          float64(543.21),
 	"col_double_precision": 987.654321,
-	"col_float":            float64(543.21), // Evolved to BINARY_DOUBLE which maps to Float64? Or explicitly Float64
-	"col_int":              int64(321),      // Evolved to NUMBER(19,0) which maps to Int64
+	"col_float":            float64(543.5), // Evolved to BINARY_DOUBLE which maps to Float64? Or explicitly Float64
+	"col_int":              int64(321),     // Evolved to NUMBER(19,0) which maps to Int64
 	"col_smallint":         int32(321),
 	"col_integer":          int64(54321),
 	"col_clob":             "updated text",
