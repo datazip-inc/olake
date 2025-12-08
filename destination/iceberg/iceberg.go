@@ -152,10 +152,6 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		return nil
 	}
 
-	// Send commit request for this thread using a special message format
-	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
-	defer cancel()
-
 	return i.writer.Close(ctx)
 }
 

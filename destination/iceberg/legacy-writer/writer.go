@@ -148,6 +148,10 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 		},
 	}
 
+	// Send commit request with timeout
+	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
+	defer cancel()
+
 	res, err := w.server.SendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send commit message: %s", err)

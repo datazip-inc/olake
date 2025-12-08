@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/memory"
@@ -196,7 +197,11 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 		},
 	}
 
-	_, err = w.server.SendArrowRequest(ctx, registerRequest)
+	// Send register request with timeout
+	registerCtx, registerCancel := context.WithTimeout(ctx, 3600*time.Second)
+	defer registerCancel()
+
+	_, err = w.server.SendArrowRequest(registerCtx, registerRequest)
 	if err != nil {
 		return fmt.Errorf("failed to register arrow files: %s", err)
 	}
@@ -209,7 +214,11 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 		},
 	}
 
-	_, err = w.server.SendArrowRequest(ctx, commitRequest)
+	// Send commit request with timeout
+	commitCtx, commitCancel := context.WithTimeout(ctx, 3600*time.Second)
+	defer commitCancel()
+
+	_, err = w.server.SendArrowRequest(commitCtx, commitRequest)
 	if err != nil {
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
@@ -411,7 +420,11 @@ func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fi
 		},
 	}
 
-	response, err := w.server.SendArrowRequest(ctx, &request)
+	// Send upload request with timeout
+	uploadCtx, uploadCancel := context.WithTimeout(ctx, 3600*time.Second)
+	defer uploadCancel()
+
+	response, err := w.server.SendArrowRequest(uploadCtx, &request)
 	if err != nil {
 		return "", fmt.Errorf("failed to upload %s file via Iceberg FileIO: %v", fileType, err)
 	}
@@ -428,7 +441,11 @@ func (w *ArrowWriter) getAllfieldIDs(ctx context.Context) (map[string]int32, err
 		},
 	}
 
-	response, err := w.server.SendArrowRequest(ctx, &request)
+	// Send request with timeout
+	fieldsCtx, fieldsCancel := context.WithTimeout(ctx, 3600*time.Second)
+	defer fieldsCancel()
+
+	response, err := w.server.SendArrowRequest(fieldsCtx, &request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all field IDs: %w", err)
 	}
@@ -450,7 +467,11 @@ func (w *ArrowWriter) getschemaID(ctx context.Context) (int, error) {
 		},
 	}
 
-	response, err := w.server.SendArrowRequest(ctx, &request)
+	// Send request with timeout
+	schemaCtx, schemaCancel := context.WithTimeout(ctx, 3600*time.Second)
+	defer schemaCancel()
+
+	response, err := w.server.SendArrowRequest(schemaCtx, &request)
 	if err != nil {
 		return -1, fmt.Errorf("failed to get schema ID: %w", err)
 	}
