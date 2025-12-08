@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -728,7 +729,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
-							if !cfg.SkipCDC {
+							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
 								t.Run("Phase A: Iceberg Full load + CDC", func(t *testing.T) {
 									if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
 										t.Fatalf("Phase A failed: %v", err)

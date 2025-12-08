@@ -20,7 +20,6 @@ func TestMySQLIntegration(t *testing.T) {
 		DestinationDB:                    "mysql_olake_mysql_test",
 		CursorField:                      "id",
 		PartitionRegex:                   "/{id,identity}",
-		SkipCDC:                          false,
 	}
 	testConfig.TestIntegration(t)
 }

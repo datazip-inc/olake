@@ -20,7 +20,6 @@ func TestOracleIntegration(t *testing.T) {
 		DestinationDB:                    "oracle_myuser",
 		CursorField:                      "ID",
 		PartitionRegex:                   "/{id, identity}",
-		SkipCDC:                          true,
 	}
 	testConfig.TestIntegration(t)
 }
