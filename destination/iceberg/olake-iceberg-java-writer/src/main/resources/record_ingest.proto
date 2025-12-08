@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package io.debezium.server.iceberg.rpc;
 
-option go_package = "iceberg/proto";
-
 service RecordIngestService {
   rpc SendRecords(IcebergPayload) returns (RecordIngestResponse);
 }
