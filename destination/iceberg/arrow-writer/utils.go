@@ -65,7 +65,7 @@ func toArrowType(icebergType string) arrow.DataType {
 	}
 }
 
-func CreateNormFields(schema map[string]string, fieldIDs map[string]int) []arrow.Field {
+func CreateNormFields(schema map[string]string, fieldIDs map[string]int32) []arrow.Field {
 	fieldNames := make([]string, 0, len(schema))
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
@@ -92,7 +92,7 @@ func CreateNormFields(schema map[string]string, fieldIDs map[string]int) []arrow
 	return fields
 }
 
-func CreateDeNormFields(fieldIDs map[string]int) []arrow.Field {
+func CreateDeNormFields(fieldIDs map[string]int32) []arrow.Field {
 	getFieldType := func(name string) (arrow.DataType, bool) {
 		switch name {
 		case constants.OlakeID, constants.OpType:
@@ -143,7 +143,7 @@ func extractDeleteRecord(rec types.RawRecord) types.RawRecord {
 	return rec
 }
 
-func createDeleteArrowRec(records []types.RawRecord, fieldID int) (arrow.Record, error) {
+func createDeleteArrowRec(records []types.RawRecord, fieldID int32) (arrow.Record, error) {
 	// need to check the metadata requirement here as well
 	fields := make([]arrow.Field, 0, 1)
 	fields = append(fields, arrow.Field{

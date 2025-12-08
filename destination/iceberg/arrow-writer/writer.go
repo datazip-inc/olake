@@ -22,7 +22,7 @@ import (
 type ArrowWriter struct {
 	icebergSchemaJSON string
 	fields            []arrow.Field
-	fieldIDs          map[string]int
+	fieldIDs          map[string]int32
 	partitionInfo     []internal.PartitionInfo
 	schemaID          int
 	schema            map[string]string
@@ -49,7 +49,7 @@ type FileUploadData struct {
 	FileType        string
 	FileData        []byte
 	PartitionKey    string
-	EqualityFieldID int
+	EqualityFieldID int32
 	RecordCount     int64
 }
 
@@ -240,7 +240,7 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 			FileType:        fileType,
 			FileData:        fileData,
 			PartitionKey:    partitionKey,
-			EqualityFieldID: w.fieldIDs[constants.OlakeID],
+			EqualityFieldID: int32(w.fieldIDs[constants.OlakeID]),
 			RecordCount:     writer.currentRowCount,
 		}
 
@@ -348,7 +348,7 @@ func (w *ArrowWriter) createWriter(schema arrow.Schema, fileType string) (*Rolli
 	}, nil
 }
 
-func buildIcebergSchemaJSON(schema map[string]string, fieldIDs map[string]int, schemaID int) string {
+func buildIcebergSchemaJSON(schema map[string]string, fieldIDs map[string]int32, schemaID int) string {
 	fieldNames := make([]string, 0, len(schema))
 	for fieldName := range schema {
 		fieldNames = append(fieldNames, fieldName)
@@ -388,8 +388,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 		RecordCount: uploadData.RecordCount,
 	}
 	if uploadData.FileType == "delete" {
-		EqualityFieldID := int32(uploadData.EqualityFieldID)
-		fileMeta.EqualityFieldID = &EqualityFieldID
+		fileMeta.EqualityFieldID = &uploadData.EqualityFieldID
 	}
 	w.createdFilePaths = append(w.createdFilePaths, fileMeta)
 
@@ -397,7 +396,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 }
 
 // equality field id is only required for delete files
-func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fileType, partitionKey string, EqualityFieldID int) (string, error) {
+func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fileType, partitionKey string, EqualityFieldID int32) (string, error) {
 	request := proto.ArrowPayload{
 		Type: proto.ArrowPayload_UPLOAD_FILE,
 		Metadata: &proto.ArrowPayload_Metadata{
@@ -407,7 +406,7 @@ func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fi
 				FileData:        fileData,
 				FileType:        fileType,
 				PartitionKey:    partitionKey,
-				EqualityFieldId: int32(EqualityFieldID),
+				EqualityFieldId: EqualityFieldID,
 			},
 		},
 	}
@@ -420,7 +419,7 @@ func (w *ArrowWriter) uploadParquetFile(ctx context.Context, fileData []byte, fi
 	return response.GetResult(), nil
 }
 
-func (w *ArrowWriter) getAllfieldIDs(ctx context.Context) (map[string]int, error) {
+func (w *ArrowWriter) getAllfieldIDs(ctx context.Context) (map[string]int32, error) {
 	request := proto.ArrowPayload{
 		Type: proto.ArrowPayload_GET_ALL_FIELD_IDS,
 		Metadata: &proto.ArrowPayload_Metadata{
@@ -434,9 +433,9 @@ func (w *ArrowWriter) getAllfieldIDs(ctx context.Context) (map[string]int, error
 		return nil, fmt.Errorf("failed to get all field IDs: %w", err)
 	}
 
-	fieldIDs := make(map[string]int)
+	fieldIDs := make(map[string]int32)
 	for fieldName, fieldID := range response.GetFieldIDs() {
-		fieldIDs[fieldName] = int(fieldID)
+		fieldIDs[fieldName] = fieldID
 	}
 
 	return fieldIDs, nil

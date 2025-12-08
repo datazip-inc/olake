@@ -12,10 +12,8 @@ import (
 	"github.com/twmb/murmur3"
 )
 
-var (
-	NULL    = "null"
-	epochTM = time.Unix(0, 0).UTC()
-)
+var NULL = "null"
+
 
 // The current transforms logic is limited to the data types handled by OLake
 // As we start handling more data types, we will update the transformations logic here
@@ -103,7 +101,8 @@ func bucketTransform(val any, num int, colType string) (string, error) {
 		return "", fmt.Errorf("cannot apply bucket transformation for colType %s", colType)
 	}
 
-	bucketValue := int32(hash&0x7FFFFFFF) % int32(num)
+	maskedHash := hash & 0x7FFFFFFF
+	bucketValue := int(maskedHash) % num
 
 	return fmt.Sprintf("%v", bucketValue), nil
 }
@@ -112,7 +111,11 @@ func truncateTransform(val any, num int, colType string) (string, error) {
 	switch colType {
 	case "int":
 		v := val.(int32)
-		tval := v - (v % int32(num))
+		if num > 0x7FFFFFFF || num < 0 {
+			return "", fmt.Errorf("truncate value %d out of int32 range for int column", num)
+		}
+		numInt32 := int32(num)
+		tval := v - (v % numInt32)
 		return fmt.Sprintf("%v", tval), nil
 	case "long":
 		v := val.(int64)
