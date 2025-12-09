@@ -519,9 +519,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// drop iceberg table before sync
-			dropIcebergTable(t, testTable, cfg.DestinationDB)
-
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
