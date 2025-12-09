@@ -431,13 +431,6 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	// Run each test case
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// schema evolution
-			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" {
-					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
-				}
-			}
-
 			// Delete parquet files before next operation to avoid error due to schema changes
 			if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
@@ -519,13 +512,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// schema evolution
-			if tc.operation == "update" {
-				if slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
-					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
-				}
-			}
-
 			// drop iceberg table before sync
 			dropIcebergTable(t, testTable, cfg.DestinationDB)
 
