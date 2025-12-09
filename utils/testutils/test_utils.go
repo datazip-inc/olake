@@ -526,6 +526,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				}
 			}
 
+			// drop iceberg table before sync
+			dropIcebergTable(t, testTable, cfg.DestinationDB)
+
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
