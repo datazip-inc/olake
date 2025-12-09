@@ -120,7 +120,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_float BINARY_DOUBLE)`, integrationTestTable)
+		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_decimal NUMBER(20, 2))`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -182,7 +182,7 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_date":             arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":          float64(543.21),
 	"col_double_precision": 987.654321,
-	"col_float":            float64(543.5),
+	"col_float":            float32(543.5),
 	"col_int":              int64(321),
 	"col_smallint":         nil,
 	"col_integer":          int64(54321),
@@ -225,7 +225,7 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_date":             "timestamp",
 	"col_decimal":          "double",
 	"col_double_precision": "double",
-	"col_float":            "double",
+	"col_float":            "float",
 	"col_int":              "bigint",
 	"col_smallint":         "int",
 	"col_integer":          "bigint",
