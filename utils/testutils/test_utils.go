@@ -502,10 +502,10 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		},
 		{
 			name:      "Incremental",
-			operation: "update",
+			operation: utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), "update", "insert").(string),
 			useState:  true,
 			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			expected:  utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), cfg.ExpectedUpdatedData, cfg.ExpectedData).(map[string]interface{}),
 		},
 	}
 
@@ -570,10 +570,10 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 		},
 		{
 			name:      "Incremental",
-			operation: "update",
+			operation: utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), "update", "insert").(string),
 			useState:  true,
 			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			expected:  utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), cfg.ExpectedUpdatedData, cfg.ExpectedData).(map[string]interface{}),
 		},
 	}
 
