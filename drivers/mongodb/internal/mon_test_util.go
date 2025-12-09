@@ -93,6 +93,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 			"id_double":         float64(123.456),
 			"id_bool":           true,
+			"id_id":             int32(6),
 			"created_timestamp": primitive.Timestamp{T: uint32(1754905992), I: 1},
 			"id_nil":            nil,
 			"id_regex":          primitive.Regex{Pattern: "test.*", Options: "i"},
@@ -113,6 +114,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				"id_timestamp":      time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC),
 				"id_double":         float64(202.456),
 				"id_bool":           false,
+				"id_id":             nil,
 				"created_timestamp": primitive.Timestamp{T: uint32(1754905699), I: 1},
 				"id_nil":            nil,
 				"id_regex":          primitive.Regex{Pattern: "updated.*", Options: "i"},
@@ -184,6 +186,7 @@ func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collect
 	for i := 1; i <= 5; i++ {
 		doc := bson.M{
 			"id":                i,
+			"id_id":             i,
 			"id_bigint":         int64(123456789012345),
 			"id_int":            int32(100),
 			"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),

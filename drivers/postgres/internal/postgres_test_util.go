@@ -45,6 +45,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				col_bigint BIGINT,
+				col_id INT,
 				col_bigserial BIGSERIAL PRIMARY KEY,
 				col_bool BOOLEAN,
 				col_char CHAR(1),
@@ -88,7 +89,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "insert":
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
-				col_bigint, col_bool, col_char, col_character,
+				col_id, col_bigint, col_bool, col_char, col_character,
 				col_character_varying, col_date, col_decimal,
 				col_double_precision, col_float4, col_int, col_int2,
 				col_integer, col_interval, col_json, col_jsonb,
@@ -96,7 +97,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
 				col_point, col_polygon, col_circle
 			) VALUES (
-				123456789012345, TRUE, 'c', 'char_val',
+				6, 123456789012345, TRUE, 'c', 'char_val',
 				'varchar_val', '2023-01-01', 123.45,
 				123.456789, 123.45, 123, 123, 12345,
 				'1 hour', '{"key": "value"}', '{"key": "value"}',
@@ -122,6 +123,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_double_precision = 987.654321,
 				col_float4 = 543.21,
 				col_int = 321,
+				col_id = NULL,
 				col_int2 = 321,
 				col_integer = 54321,
 				col_interval = '2 hours',
@@ -193,7 +195,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
-			col_bigint, col_bigserial, col_bool, col_char, col_character,
+			col_id, col_bigint, col_bigserial, col_bool, col_char, col_character,
 			col_character_varying, col_date, col_decimal,
 			col_double_precision, col_float4, col_int, col_int2, col_integer,
 			col_interval, col_json, col_jsonb, col_name, col_numeric,
@@ -201,7 +203,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_uuid, col_varbit, col_xml,
 			col_point, col_polygon, col_circle
 		) VALUES (
-			123456789012345, DEFAULT, TRUE, 'c', 'char_val',
+			%d, 123456789012345, DEFAULT, TRUE, 'c', 'char_val',
 			'varchar_val', '2023-01-01', 123.45,
 			123.456789, 123.45, 123, 123, 12345, '1 hour', '{"key": "value"}',
 			'{"key": "value"}', 'test_name', 123.45, 123.45,
@@ -212,7 +214,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'(10.5,20.5)'::point,
 			'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
 			'<(5,5),3.5>'::circle
-		)`, tableName)
+		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")

@@ -48,6 +48,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 				id_bigint BIGINT,
 				id_int INT,
+				id_id INT,
 				id_int_unsigned INT UNSIGNED,
 				id_integer INT,
 				id_integer_unsigned INT UNSIGNED,
@@ -90,7 +91,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "insert":
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
-			id, id_bigint,
+			id_id, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
 			id_tinyint, id_tinyint_unsigned, price_decimal, price_double,
@@ -100,7 +101,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			created_timestamp, is_active,
 			long_varchar, name_bool
 		) VALUES (
-			6, 123456789012345,
+			6, 6, 123456789012345,
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
@@ -115,6 +116,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
+				id_id = NULL,
 				id_bigint = 987654321098765,
 				id_int = 200, id_int_unsigned = 201,
 				id_integer = 202, id_integer_unsigned = 203,
@@ -178,7 +180,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
-			id, id_bigint,
+			id_id, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
 			id_tinyint, id_tinyint_unsigned, price_decimal, price_double,
@@ -187,7 +189,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool
 		) VALUES (
-			%d, 123456789012345,
+			%d, %d, 123456789012345,
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
@@ -196,7 +198,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1
-		)`, tableName, i)
+		)`, tableName, i, i)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
