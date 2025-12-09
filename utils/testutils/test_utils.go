@@ -501,11 +501,11 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "Incremental-insert",
-			operation: "insert",
+			name:      "Incremental",
+			operation: "update",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  cfg.ExpectedData,
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
@@ -569,11 +569,11 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "Incremental-insert",
-			operation: "insert",
+			name:      "Incremental",
+			operation: "update",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  cfg.ExpectedData,
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
