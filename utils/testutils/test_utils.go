@@ -501,17 +501,31 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "Incremental",
-			operation: utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), "update", "insert").(string),
+			name:      "Incremental - insert",
+			operation: "insert",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), cfg.ExpectedUpdatedData, cfg.ExpectedData).(map[string]interface{}),
+			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "Incremental - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
 	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// schema evolution
+			if tc.operation == "update" {
+				if slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+				}
+			}
+
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
@@ -569,17 +583,31 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "Incremental",
-			operation: utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), "update", "insert").(string),
+			name:      "Incremental - insert",
+			operation: "insert",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)), cfg.ExpectedUpdatedData, cfg.ExpectedData).(map[string]interface{}),
+			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "Incremental - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
 	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// schema evolution
+			if tc.operation == "update" {
+				if slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+				}
+			}
+
 			// Delete parquet files before next operation to avoid error due to schema changes
 			if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
