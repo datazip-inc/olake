@@ -221,8 +221,8 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_date":             "timestamp",
 	"col_decimal":          "double",
 	"col_double_precision": "double",
-	"col_float":            "double", // Evolved
-	"col_int":              "bigint", // Evolved
+	"col_float":            "float",
+	"col_int":              "int",
 	"col_smallint":         "int",
 	"col_integer":          "bigint",
 	"col_clob":             "string",
