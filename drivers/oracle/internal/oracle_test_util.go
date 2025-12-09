@@ -88,10 +88,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "update":
 		query = fmt.Sprintf(`
-			UPDATE %s SET
-				col_id = NULL,
-				col_smallint = 321,
-			WHERE id = 1`, integrationTestTable)
+        UPDATE %s SET
+            col_id = NULL,
+            col_smallint = 321
+        WHERE id = 1`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
