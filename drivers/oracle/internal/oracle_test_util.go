@@ -60,15 +60,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			)`, integrationTestTable)
 
 	case "drop":
-		query = fmt.Sprintf(`
-			BEGIN
-				EXECUTE IMMEDIATE 'DROP TABLE %s';
-			EXCEPTION
-				WHEN OTHERS THEN
-					IF SQLCODE != -942 THEN
-						RAISE;
-					END IF;
-			END;`, integrationTestTable)
+		query = fmt.Sprintf(`DROP TABLE IF EXISTS %s;`, integrationTestTable)
 
 	case "clean":
 		query = fmt.Sprintf("TRUNCATE TABLE %s", integrationTestTable)
@@ -97,7 +89,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
-				col_id = NULL,
 				col_bigint = 123456789012340,
 				col_char = 'd',
 				col_character = 'updated__',
@@ -107,6 +98,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_double_precision = 987.654321,
 				col_float = 543.5,
 				col_int = 321,
+				col_id = NULL,
+				col_smallint = 321,
 				col_integer = 54321,
 				col_clob = 'updated text',
 				col_nclob = 'updated nclob',
@@ -119,7 +112,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_decimal NUMBER(20, 2))`, integrationTestTable)
+		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_decimal NUMBER(20,2))`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -140,7 +133,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_double_precision, col_float, col_int, col_smallint,
 			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
 		) VALUES (
-			%d, 123456789012345, 'c', 'char_val',
+			%d,123456789012345, 'c', 'char_val',
 			'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 			123.456789, 123.5, 123, 123, 12345,
 			'sample text', 'sample nclob',
@@ -174,6 +167,7 @@ var ExpectedOracleData = map[string]interface{}{
 }
 
 var ExpectedUpdatedOracleData = map[string]interface{}{
+	"col_id":               nil,
 	"col_bigint":           int64(123456789012340),
 	"col_char":             "d",
 	"col_character":        "updated__ ",
@@ -183,6 +177,7 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_double_precision": 987.654321,
 	"col_float":            float32(543.5),
 	"col_int":              int64(321),
+	"col_smallint":         int32(321),
 	"col_integer":          int64(54321),
 	"col_clob":             "updated text",
 	"col_nclob":            "updated nclob",
@@ -193,7 +188,6 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 
 var OracleToDestinationSchema = map[string]string{
 	"id":                   "double",
-	"col_id":               "bigint",
 	"col_bigint":           "bigint",
 	"col_char":             "string",
 	"col_character":        "string",
@@ -215,7 +209,6 @@ var OracleToDestinationSchema = map[string]string{
 
 var UpdatedOracleToDestinationSchema = map[string]string{
 	"id":                   "double",
-	"col_id":               "bigint",
 	"col_bigint":           "bigint",
 	"col_char":             "string",
 	"col_character":        "string",
