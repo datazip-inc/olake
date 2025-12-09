@@ -45,7 +45,6 @@ type IntegrationTest struct {
 	DestinationDB                    string
 	CursorField                      string
 	PartitionRegex                   string
-	SkipCDC                          bool
 }
 
 type PerformanceTest struct {

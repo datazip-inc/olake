@@ -55,6 +55,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_blob BLOB,
 				col_timestamp TIMESTAMP,
 				col_timestamptz TIMESTAMP WITH TIME ZONE
+				col_timestampltz TIMESTAMP WITH LOCAL TIME ZONE
 			)`, integrationTestTable)
 
 	case "drop":
@@ -81,14 +82,15 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz
+				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
 			) VALUES (
 				123456789012345, 'c', 'char_val',
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 				123.456789, 123.5, 123, 123, 12345,
 				'sample text', 'sample nclob',
 				TIMESTAMP '2023-01-01 12:00:00',
-				TIMESTAMP '2023-01-01 12:00:00+00:00'
+				TIMESTAMP '2023-01-01 12:00:00+00:00',
+				TIMESTAMP '2023-01-01 12:00:00+05:30'
 			)`, integrationTestTable)
 
 	case "update":
@@ -109,13 +111,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_nclob = 'updated nclob',
 				col_timestamp = TIMESTAMP '2024-07-01 15:30:00',
 				col_timestamptz = TIMESTAMP '2024-07-01 15:30:00+00:00'
+				col_timestampltz = TIMESTAMP '2024-07-01 15:30:00-04:00'
 			WHERE id = 1`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		// Oracle supports altering columns
 		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_float BINARY_DOUBLE)`, integrationTestTable)
 
 	default:
@@ -135,7 +137,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_bigint, col_char, col_character,
 			col_varchar2, col_date, col_decimal,
 			col_double_precision, col_float, col_int, col_smallint,
-			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz
+			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
 		) VALUES (
 			123456789012345, 'c', 'char_val',
 			'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
@@ -143,6 +145,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'sample text', 'sample nclob',
 			TIMESTAMP '2023-01-01 12:00:00',
 			TIMESTAMP '2023-01-01 12:00:00+00:00'
+			TIMESTAMP '2023-01-01 12:00:00+05:30'
 		)`, tableName)
 
 		_, err := db.ExecContext(ctx, query)
@@ -166,6 +169,7 @@ var ExpectedOracleData = map[string]interface{}{
 	"col_nclob":            "sample nclob",
 	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 }
 
 var ExpectedUpdatedOracleData = map[string]interface{}{
@@ -184,6 +188,7 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_nclob":            "updated nclob",
 	"col_timestamp":        arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestamptz":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestampltz":     arrow.Timestamp(time.Date(2024, 7, 1, 19, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 }
 
 var OracleToDestinationSchema = map[string]string{
@@ -204,6 +209,7 @@ var OracleToDestinationSchema = map[string]string{
 	"col_blob":             "string",
 	"col_timestamp":        "timestamp",
 	"col_timestamptz":      "timestamp",
+	"col_timestampltz":     "timestamp",
 }
 
 var UpdatedOracleToDestinationSchema = map[string]string{
@@ -224,4 +230,5 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_blob":             "string",
 	"col_timestamp":        "timestamp",
 	"col_timestamptz":      "timestamp",
+	"col_timestampltz":     "timestamp",
 }

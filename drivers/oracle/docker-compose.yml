@@ -6,7 +6,6 @@ services:
     container_name: oracle-23c
     ports:
       - "1521:1521"
-      - "5500:5500"
     environment:
       ORACLE_PASSWORD: secret1234
       ORACLE_DATABASE: orcl
