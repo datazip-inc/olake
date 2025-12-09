@@ -54,7 +54,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_nclob NCLOB,
 				col_blob BLOB,
 				col_timestamp TIMESTAMP,
-				col_timestamptz TIMESTAMP WITH TIME ZONE
+				col_timestamptz TIMESTAMP WITH TIME ZONE,
 				col_timestampltz TIMESTAMP WITH LOCAL TIME ZONE
 			)`, integrationTestTable)
 
@@ -110,7 +110,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_clob = 'updated text',
 				col_nclob = 'updated nclob',
 				col_timestamp = TIMESTAMP '2024-07-01 15:30:00',
-				col_timestamptz = TIMESTAMP '2024-07-01 15:30:00+00:00'
+				col_timestamptz = TIMESTAMP '2024-07-01 15:30:00+00:00',
 				col_timestampltz = TIMESTAMP '2024-07-01 15:30:00-04:00'
 			WHERE id = 1`, integrationTestTable)
 
@@ -144,7 +144,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			123.456789, 123.5, 123, 123, 12345,
 			'sample text', 'sample nclob',
 			TIMESTAMP '2023-01-01 12:00:00',
-			TIMESTAMP '2023-01-01 12:00:00+00:00'
+			TIMESTAMP '2023-01-01 12:00:00+00:00',
 			TIMESTAMP '2023-01-01 12:00:00+05:30'
 		)`, tableName)
 
