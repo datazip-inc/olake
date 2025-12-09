@@ -18,7 +18,7 @@ func TestOracleIntegration(t *testing.T) {
 		UpdatedDestinationDataTypeSchema: UpdatedOracleToDestinationSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "oracle_myuser",
-		CursorField:                      "COL_SMALLINT:COL_INT",
+		CursorField:                      "COL_ID:ID",
 		PartitionRegex:                   "/{id, identity}",
 	}
 	testConfig.TestIntegration(t)
