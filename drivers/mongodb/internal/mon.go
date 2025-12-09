@@ -28,7 +28,8 @@ type Mongo struct {
 	client        *mongo.Client
 	CDCSupport    bool // indicates if the MongoDB instance supports Change Streams
 	cdcCursor     sync.Map
-	state         *types.State        // reference to globally present state
+	state         *types.State // reference to globally present state
+	streams       []types.StreamInterface
 	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
 }
 

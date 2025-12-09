@@ -65,11 +65,11 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *MySQL) StreamChanges(ctx context.Context, _ int, OnMessage abstract.CDCMsgFn) error {
 	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
 }
 
-func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
+func (m *MySQL) PostCDC(ctx context.Context, _ int, noErr bool) error {
 	if noErr {
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
@@ -77,7 +77,6 @@ func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 				Position: m.BinlogConn.CurrentPos,
 			},
 		})
-		// TODO: Research about acknowledgment of binlogs in mysql
 	}
 	m.BinlogConn.Cleanup()
 	return nil

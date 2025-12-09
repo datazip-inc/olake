@@ -221,7 +221,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return nil
 }
 
-func (i *Iceberg) Close(ctx context.Context, closeOnError bool) error {
+func (i *Iceberg) Close(ctx context.Context) error {
 	// skip flushing on error
 	defer func() {
 		if i.server == nil {
@@ -232,10 +232,6 @@ func (i *Iceberg) Close(ctx context.Context, closeOnError bool) error {
 			logger.Errorf("Thread[%s]: error closing Iceberg client: %s", i.options.ThreadID, err)
 		}
 	}()
-
-	if closeOnError {
-		return nil
-	}
 
 	if i.stream == nil {
 		// for check connection no commit will happen
@@ -280,7 +276,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// to close client properly
 	i.server = server
 	defer func() {
-		i.Close(ctx, false)
+		i.Close(ctx)
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
@@ -636,7 +632,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 	// to close client properly
 	i.server = server
 	defer func() {
-		i.Close(ctx, false)
+		i.Close(ctx)
 	}()
 
 	logger.Infof("Starting Clear Iceberg destination for %d selected streams", len(dropStreams))

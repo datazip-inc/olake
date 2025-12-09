@@ -148,15 +148,15 @@ func (g *CxGroup) Block() error {
 	return g.executor.Wait()
 }
 
-func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx context.Context, one T) error) {
-	for _, one := range array {
+func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx context.Context, index int, one T) error) {
+	for idx, one := range array {
 		select {
 		case <-group.ctx.Done():
 			break
 		default:
 			// schedule an execution
 			group.Add(func(ctx context.Context) error {
-				return execute(ctx, one)
+				return execute(ctx, idx, one)
 			})
 		}
 	}

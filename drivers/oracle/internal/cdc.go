@@ -9,18 +9,18 @@ import (
 
 // CDC is not supported yet
 
-// PostCDC is called after CDC operation completes
-func (o *Oracle) PostCDC(ctx context.Context, stream types.StreamInterface, success bool, _ string) error {
-	return nil
-}
-
 // PreCDC is called before CDC operation starts
 func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	return nil
 }
 
 // StreamChanges streams CDC changes for a given stream
-func (o *Oracle) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.CDCMsgFn) error {
+func (o *Oracle) StreamChanges(_ context.Context, _ int, _ abstract.CDCMsgFn) error {
+	return nil
+}
+
+// PostCDC is called after CDC operation completes
+func (o *Oracle) PostCDC(ctx context.Context, _ int, success bool) error {
 	return nil
 }
 

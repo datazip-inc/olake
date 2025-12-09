@@ -52,6 +52,10 @@ func (k *Kafka) Type() string {
 }
 
 func (k *Kafka) MaxConnections() int {
+	// return number of readers if available else default
+	if k.readerManager != nil && k.readerManager.GetReaderCount() > 0 {
+		return k.readerManager.GetReaderCount()
+	}
 	return k.config.MaxThreads
 }
 
@@ -203,7 +207,7 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
-func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
 	if len(observedPartitions) == 0 {
 		// Ensure we have all assigned partitions tracked
@@ -225,9 +229,9 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, c
 
 // getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
 // assigned to the reader identified by readerID. We match on the per-reader ClientID.
-func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string) ([]types.PartitionKey, error) {
-	clientID, ok := k.readerManager.GetReaderClientID(readerID)
-	if !ok || clientID == "" {
+func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int) ([]types.PartitionKey, error) {
+	readerID, clientID := k.readerManager.GetReaderIDAndClientID(readerIndex)
+	if clientID == "" {
 		return nil, fmt.Errorf("clientID not found for reader %s", readerID)
 	}
 
@@ -268,9 +272,4 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 	}
 
 	return assigned, nil
-}
-
-// GetReaderTasks returns the list of reader IDs to run
-func (k *Kafka) GetReaderIDs() []string {
-	return k.readerManager.GetReaderIDs()
 }

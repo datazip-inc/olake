@@ -6,7 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -37,14 +36,15 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 	sort.Slice(chunks, func(i, j int) bool {
 		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
+
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
-	// TODO: create writer instance again on retry
-	chunkProcessor := func(gCtx context.Context, chunk types.Chunk) (err error) {
+
+	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
 		// create backfill context, so that main context not affected if backfill retries
 		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
 		defer backfillCtxCancel()
 
-		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+		threadID := generateThreadID(stream.ID())
 		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
@@ -52,58 +52,28 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 
-		defer func() {
-			// wait for chunk completion
-			if writerErr := inserter.Close(backfillCtx, err != nil); writerErr != nil {
-				err = fmt.Errorf("failed to insert chunk min[%s] and max[%s] of stream %s, insert func error: %s, thread error: %s", chunk.Min, chunk.Max, stream.ID(), err, writerErr)
-			}
-
-			// check for panics before saving state
-			if r := recover(); r != nil {
-				err = fmt.Errorf("panic recovered in backfill: %v, prev error: %s", r, err)
-			}
-
-			if err == nil {
-				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
-				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
-				if chunksLeft == 0 && backfilledStreams != nil {
-					backfilledStreams <- stream.ID()
+		defer a.handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, "backfill",
+			fmt.Sprintf("failed to insert chunk min[%s] and max[%s] of stream %s", chunk.Min, chunk.Max, stream.ID()),
+			func(ctx context.Context, success bool) error {
+				if success {
+					logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
+					chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+					if chunksLeft == 0 && backfilledStreams != nil {
+						backfilledStreams <- stream.ID()
+					}
 				}
-			} else {
-				err = fmt.Errorf("thread[%s]: %s", threadID, err)
-			}
-		}()
-
-		return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
-			if attempt > 0 {
-				// close prev writer
-				_ = inserter.Close(backfillCtx, true)
-
-				// cancel previous backfill context
-				backfillCtxCancel()
-
-				// create new backfill context
-				backfillCtx, backfillCtxCancel = context.WithCancel(gCtx)
-				threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
-
-				// re-initialize inserter with backfillCtx for consistency
-				inserter, err = pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
-				if err != nil {
-					return fmt.Errorf("failed to create new writer thread: %s", err)
-				}
+				return nil
+			})()
+		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
+			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
+			// persist cdc timestamp for cdc full load
+			var cdcTimestamp *time.Time
+			if stream.GetSyncMode() == types.CDC {
+				t := time.Unix(0, 0)
+				cdcTimestamp = &t
 			}
 
-			return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
-				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-				// persist cdc timestamp for cdc full load
-				var cdcTimestamp *time.Time
-				if stream.GetSyncMode() == types.CDC {
-					t := time.Unix(0, 0)
-					cdcTimestamp = &t
-				}
-
-				return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
-			})
+			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
 		})
 	}
 	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)

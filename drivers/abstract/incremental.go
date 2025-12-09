@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -56,85 +55,51 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 	}
 
 	// Wait for all backfill processes to complete
-	backfilledStreams := make([]string, 0, len(streams))
-	for len(backfilledStreams) < len(streams) {
-		select {
-		case <-mainCtx.Done():
-			// if main context stuck in error
-			return mainCtx.Err()
-		case <-a.GlobalConnGroup.Ctx().Done():
-			// if global conn group stuck in error
-			return nil
-		case streamID, ok := <-backfillWaitChannel:
-			if !ok {
-				return fmt.Errorf("backfill channel closed unexpectedly")
+	err = a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
+		a.GlobalConnGroup.Add(func(gCtx context.Context) (err error) {
+			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
+			stream := streams[index]
+			primaryCursor, secondaryCursor := stream.Cursor()
+			// TODO: make inremental state consistent save it as string and typecast while reading
+			// get cursor column from state and typecast it to cursor column type for comparisons
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
+			if err != nil {
+				return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 			}
-			backfilledStreams = append(backfilledStreams, streamID)
-			a.GlobalConnGroup.Add(func(gCtx context.Context) (err error) {
-				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				stream := streams[index]
-				primaryCursor, secondaryCursor := stream.Cursor()
-				// TODO: make inremental state consistent save it as string and typecast while reading
-				// get cursor column from state and typecast it to cursor column type for comparisons
-				maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-				if err != nil {
-					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
-				}
 
-				// create incremental context, so that main context not affected if incremental retries
-				incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
-				defer incrementalCtxCancel()
+			// create incremental context, so that main context not affected if incremental retries
+			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
+			defer incrementalCtxCancel()
 
-				threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-				inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
-				if err != nil {
-					return fmt.Errorf("failed to create new writer thread: %s", err)
-				}
+			threadID := generateThreadID(stream.ID())
+			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+			if err != nil {
+				return fmt.Errorf("failed to create new writer thread: %s", err)
+			}
 
-				logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
+			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
 
-				defer func() {
-					if threadErr := inserter.Close(incrementalCtx, err != nil); threadErr != nil {
-						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
-					}
-
-					// check for panics before saving state
-					if r := recover(); r != nil {
-						err = fmt.Errorf("panic recovered in incremental sync: %v, prev error: %s", r, err)
-					}
-
-					// set state (no comparison)
-					if err == nil {
+			defer a.handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, "incremental sync",
+				fmt.Sprintf("failed to insert incremental record of stream %s", streamID),
+				func(ctx context.Context, success bool) error {
+					if success {
+						// Save cursor state on success
 						a.state.SetCursor(stream.Self(), primaryCursor, a.formatTimestampToUTC(maxPrimaryCursorValue))
 						a.state.SetCursor(stream.Self(), secondaryCursor, a.formatTimestampToUTC(maxSecondaryCursorValue))
-					} else {
-						err = fmt.Errorf("thread[%s]: %s", threadID, err)
 					}
-				}()
+					return nil
+				})()
 
-				return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
-					if attempt > 0 {
-						// close prev writer
-						_ = inserter.Close(incrementalCtx, true)
-
-						// create new incremental context
-						incrementalCtx, incrementalCtxCancel = context.WithCancel(gCtx)
-						threadID = utils.Ternary(attempt == 1, fmt.Sprintf("%s-retry-attempt", threadID), threadID).(string)
-
-						// re-initialize inserter
-						inserter, err = pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
-						if err != nil {
-							return fmt.Errorf("failed to create new writer thread: %s", err)
-						}
-					}
-
-					return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
-						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
-						return inserter.Push(ctx, types.CreateRawRecord(utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...), record, "u", nil))
-					})
-				})
+			// No retry logic here - retry happens at Read level
+			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
+				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
+				return inserter.Push(ctx, types.CreateRawRecord(utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...), record, "u", nil))
 			})
-		}
+		})
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to process incremental streams: %s", err)
 	}
 	return nil
 }

@@ -305,13 +305,8 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context, closeOnError bool) error {
-	select {
-	case <-ctx.Done():
-		return p.closePqFiles(ctx.Err() != nil)
-	default:
-		return p.closePqFiles(closeOnError)
-	}
+func (p *Parquet) Close(ctx context.Context) error {
+	return p.closePqFiles(ctx.Err() != nil)
 }
 
 // validate schema change & evolution and removes null records

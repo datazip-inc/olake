@@ -36,12 +36,6 @@ type DriverInterface interface {
 	// specific to cdc
 	CDCSupported() bool
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
-	StreamChanges(ctx context.Context, stream types.StreamInterface, processFn CDCMsgFn) error
-	PostCDC(ctx context.Context, stream types.StreamInterface, success bool, readerID string) error // to save state
-}
-
-type KafkaInterface interface {
-	DriverInterface
-	GetReaderIDs() []string
-	PartitionStreamChanges(ctx context.Context, readerID string, processFn CDCMsgFn) error
+	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
+	PostCDC(ctx context.Context, identifier int, success bool) error // to save state
 }

@@ -82,12 +82,12 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
+func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
 	return p.replicator.StreamChanges(ctx, p.client, callback)
 }
 
-func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool, _ string) error {
+func (p *Postgres) PostCDC(ctx context.Context, _ int, noErr bool) error {
 	defer waljs.Cleanup(ctx, p.replicator.Socket())
 	if noErr {
 		socket := p.replicator.Socket()

@@ -30,6 +30,7 @@ type MySQL struct {
 	CDCSupport bool // indicates if the MySQL instance supports CDC
 	cdcConfig  CDC
 	BinlogConn *binlog.Connection
+	streams    []types.StreamInterface
 	state      *types.State // reference to globally present state
 }
 

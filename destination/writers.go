@@ -257,10 +257,10 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context, closeOnError bool) error {
+func (wt *WriterThread) Close(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
-		err := wt.writer.Close(ctx, closeOnError)
+		err := wt.writer.Close(ctx)
 		if err != nil {
 			return fmt.Errorf("%s: %s", constants.DestError, err)
 		}
@@ -279,7 +279,7 @@ func (wt *WriterThread) Close(ctx context.Context, closeOnError bool) error {
 		wt.streamArtifact.mu.Lock()
 		defer wt.streamArtifact.mu.Unlock()
 
-		err := wt.writer.Close(ctx, closeOnError)
+		err := wt.writer.Close(ctx)
 		if err != nil {
 			return fmt.Errorf("%s: %s", constants.DestError, err)
 		}
