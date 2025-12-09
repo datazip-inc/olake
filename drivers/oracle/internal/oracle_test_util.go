@@ -199,7 +199,7 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_decimal":          "double",
 	"col_double_precision": "double",
 	"col_float":            "float",
-	"col_int":              "bigint",
+	"col_int":              "int",
 	"col_smallint":         "int",
 	"col_integer":          "bigint",
 	"col_clob":             "string",
