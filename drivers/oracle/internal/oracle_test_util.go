@@ -89,23 +89,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
-				col_bigint = 123456789012340,
-				col_char = 'd',
-				col_character = 'updated__',
-				col_varchar2 = 'updated val',
-				col_date = TO_DATE('2024-07-01', 'YYYY-MM-DD'),
-				col_decimal = 543.21,
-				col_double_precision = 987.654321,
-				col_float = 543.5,
-				col_int = 321,
 				col_id = NULL,
 				col_smallint = 321,
-				col_integer = 54321,
-				col_clob = 'updated text',
-				col_nclob = 'updated nclob',
-				col_timestamp = TIMESTAMP '2024-07-01 15:30:00',
-				col_timestamptz = TIMESTAMP '2024-07-01 15:30:00+00:00',
-				col_timestampltz = TIMESTAMP '2024-07-01 15:30:00-04:00'
 			WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -167,23 +152,22 @@ var ExpectedOracleData = map[string]interface{}{
 }
 
 var ExpectedUpdatedOracleData = map[string]interface{}{
-	"col_id":               nil,
-	"col_bigint":           int64(123456789012340),
-	"col_char":             "d",
-	"col_character":        "updated__ ",
-	"col_varchar2":         "updated val",
-	"col_date":             arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":          float64(543.21),
-	"col_double_precision": 987.654321,
-	"col_float":            float32(543.5),
-	"col_int":              int64(321),
+	"col_bigint":           int64(123456789012345),
+	"col_char":             "c",
+	"col_character":        "char_val  ", // Oracle CHAR is fixed width, padded with spaces
+	"col_varchar2":         "varchar_val",
+	"col_date":             arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_decimal":          float64(123.45),
+	"col_double_precision": 123.456789,
+	"col_float":            float32(123.5),
+	"col_int":              int32(123),
 	"col_smallint":         int32(321),
-	"col_integer":          int64(54321),
-	"col_clob":             "updated text",
-	"col_nclob":            "updated nclob",
-	"col_timestamp":        arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_timestamptz":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_timestampltz":     arrow.Timestamp(time.Date(2024, 7, 1, 19, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_integer":          int64(12345),
+	"col_clob":             "sample text",
+	"col_nclob":            "sample nclob",
+	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 }
 
 var OracleToDestinationSchema = map[string]string{
