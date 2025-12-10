@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	targetDataFileSize = int64(512 * 1024 * 1024) // 512 MB
-	targetDeleteFileSize = int64(64 * 1024 * 1024) // 64 MB
+	targetDataFileSize   = int64(512 * 1024 * 1024) // 512 MB
+	targetDeleteFileSize = int64(64 * 1024 * 1024)  // 64 MB
 )
 
 var (

@@ -22,7 +22,6 @@ import (
 //   - Truncate: int, long, string
 //   - Year, Month, Day, Hour: timestamptz
 
-
 const NULL = "null"
 
 var transformPattern = regexp.MustCompile(`^([a-zA-Z]+)(?:\[(\d+)\])?$`)
@@ -48,9 +47,10 @@ func parseTransform(transform string) (base string, arg int, err error) {
 	return base, arg, nil
 }
 
-func hashUint64(u uint64) uint32 {
+func hashInt[T ~int32 | ~int64 | ~int](v T) uint32 {
 	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], u)
+	binary.LittleEndian.PutUint64(buf[:], uint64(v))
+
 	return murmur3.Sum32(buf[:])
 }
 
@@ -63,8 +63,6 @@ func identityTransform(val any, colType string) (string, error) {
 	case "boolean":
 		return strconv.FormatBool(val.(bool)), nil
 	case "timestamptz":
-		// Format as ISO-8601 with timezone offset to match Iceberg's format
-		// This will be URL-encoded later: 2025-12-09T09:30:00+00:00 -> 2025-12-09T09%3A30%3A00%2B00%3A00
 		t := val.(time.Time).UTC()
 		return t.Format("2006-01-02T15:04:05-07:00"), nil
 	default:
@@ -102,32 +100,17 @@ func bucketTransform(val any, num int, colType string) (string, error) {
 	var h uint32
 	switch colType {
 	case "int":
-		switch v := val.(type) {
-		case int32:
-			h = hashUint64(uint64(int64(v)))
-		// do we need to handle int64
-		case int64:
-			h = hashUint64(uint64(v))
-		case int:
-			h = hashUint64(uint64(v))
-		default:
-			return "", fmt.Errorf("expected integer for colType %q, got %T", colType, val)
-		}
+		v, _ := val.(int32)
+		h = hashInt(v)
 	case "long":
-		switch v := val.(type) {
-		case int64:
-			h = hashUint64(uint64(v))
-		case int:
-			h = hashUint64(uint64(v))
-		default:
-			return "", fmt.Errorf("expected int64 for colType %q, got %T", colType, val)
-		}
+		v, _ := val.(int64)
+		h = hashInt(v)
 	case "timestamptz":
 		tm, ok := val.(time.Time)
 		if !ok {
 			return "", fmt.Errorf("expected time.Time for colType %q, got %T", colType, val)
 		}
-		h = hashUint64(uint64(tm.UnixMicro()))
+		h = hashInt(tm.UnixMicro())
 	case "string":
 		str, ok := val.(string)
 		if !ok {
@@ -150,23 +133,20 @@ func truncateTransform(val any, n int, colType string) (string, error) {
 
 	switch colType {
 	case "int":
-		v, ok := val.(int32)
-		if !ok {
-			return "", fmt.Errorf("expected int32 for colType %q, got %T", colType, val)
+		v, _ := val.(int32)
+		if n > int(^int32(0)) {
+			return "", fmt.Errorf("truncate width %d exceeds int32 range", n)
 		}
 		n32 := int32(n)
-		// Use Iceberg's formula for proper negative number handling
-		trunc := v - (((v%n32)+n32)%n32)
+		// Using Iceberg's formula for proper negative number handling
+		trunc := v - (((v % n32) + n32) % n32)
 
 		return fmt.Sprintf("%d", trunc), nil
 	case "long":
-		v, ok := val.(int64)
-		if !ok {
-			return "", fmt.Errorf("expected int64 for colType %q, got %T", colType, val)
-		}
+		v, _ := val.(int64)
 		n64 := int64(n)
-		// Use Iceberg's formula for proper negative number handling
-		trunc := v - (((v%n64)+n64)%n64)
+		// Using Iceberg's formula for proper negative number handling
+		trunc := v - (((v % n64) + n64) % n64)
 
 		return fmt.Sprintf("%d", trunc), nil
 	case "string":
@@ -180,6 +160,7 @@ func truncateTransform(val any, n int, colType string) (string, error) {
 		if len(runes) <= n {
 			return v, nil
 		}
+
 		return string(runes[:n]), nil
 	default:
 		return "", fmt.Errorf("unsupported colType %q for truncate transform", colType)
@@ -189,7 +170,6 @@ func truncateTransform(val any, n int, colType string) (string, error) {
 func ConstructColPath(valueStr, field, transform string) string {
 	base, _, _ := parseTransform(transform)
 
-	// URL-encode both field name and value to match Iceberg's partition path format
 	encodedField := url.QueryEscape(field)
 	encodedValue := url.QueryEscape(valueStr)
 

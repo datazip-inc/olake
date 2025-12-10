@@ -190,7 +190,7 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 	targetFileSize := targetDataFileSize
 	if fileType == "delete" {
 		targetFileSize = targetDeleteFileSize
-	} 
+	}
 
 	if writer.currentCompressedSize >= targetFileSize {
 		if err := writer.currentWriter.Close(); err != nil {
