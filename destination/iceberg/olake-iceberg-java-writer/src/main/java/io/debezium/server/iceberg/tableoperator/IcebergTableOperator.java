@@ -391,9 +391,12 @@ public class IcebergTableOperator {
                int equalsIndex = part.indexOf('=');
                if (equalsIndex > 0 && equalsIndex < part.length() - 1) {
                     String value = part.substring(equalsIndex + 1);
-                    // Convert string "null" to actual null for Iceberg
-                    // This is the key fix: Arrow writer creates "col=null/" directories
-                    // but Iceberg needs actual null values, not the string "null"
+                    try {
+                         value = java.net.URLDecoder.decode(value, "UTF-8");
+                    } catch (java.io.UnsupportedEncodingException e) {
+                         LOGGER.warn("Failed to URL-decode partition value: {}", value);
+                    }
+
                     values.add("null".equals(value) ? null : value);
                }
           }
@@ -428,10 +431,16 @@ public class IcebergTableOperator {
 
           try {
                return org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
-          } catch (NumberFormatException e) {
+          } catch (NumberFormatException | UnsupportedOperationException e) {
 
                try {
-                    if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
+                    if (transformName.equals("identity")
+                              && fieldType.typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP) {
+
+                         java.time.OffsetDateTime offsetDateTime = java.time.OffsetDateTime.parse(stringValue);
+                         java.time.Instant instant = offsetDateTime.toInstant();
+                         return instant.toEpochMilli() * 1000; // Convert milliseconds to microseconds
+                    } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
                          // Year format: "2025" -> return as-is (already an integer)
                          return Integer.parseInt(stringValue);
                     } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {

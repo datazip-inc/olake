@@ -34,16 +34,17 @@ type ArrowWriter struct {
 }
 
 type RollingWriter struct {
-	currentWriter   *pqarrow.FileWriter
-	currentBuffer   *bytes.Buffer
-	currentRowCount int64
+	currentWriter         *pqarrow.FileWriter
+	currentBuffer         *bytes.Buffer
+	currentRowCount       int64
+	currentCompressedSize int64
 }
 
 type FileMetdata struct {
 	FileType        string
 	FilePath        string
 	RecordCount     int64
-	EqualityFieldID *int32 // Only set for delete files
+	EqualityFieldID *int32 // Only setting for equality delete files
 }
 
 type FileUploadData struct {
@@ -122,7 +123,7 @@ func (w *ArrowWriter) extract(records []types.RawRecord) (map[string][]types.Raw
 	return data, deletes, nil
 }
 
-func (w *ArrowWriter) Write(_ context.Context, records []types.RawRecord) error {
+func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
 	data, deletes, err := w.extract(records)
 	if err != nil {
 		return fmt.Errorf("failed to partition data: %v", err)
@@ -145,10 +146,16 @@ func (w *ArrowWriter) Write(_ context.Context, records []types.RawRecord) error 
 		}
 		writer.currentRowCount += record.NumRows()
 		record.Release()
+
+		if shouldFlush, err := w.checkAndFlush(ctx, writer, pKey, "delete"); err != nil {
+			return err
+		} else if shouldFlush {
+			w.writers.Delete("delete:" + pKey)
+		}
 	}
 
 	for pKey, record := range data {
-		record, err := CreateArrowRecord(record, w.fields, w.stream.NormalizationEnabled())
+		record, err := CreateArrowRec(record, w.fields, w.stream.NormalizationEnabled())
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %v", err)
 		}
@@ -164,9 +171,51 @@ func (w *ArrowWriter) Write(_ context.Context, records []types.RawRecord) error 
 		}
 		writer.currentRowCount += record.NumRows()
 		record.Release()
+
+		if shouldFlush, err := w.checkAndFlush(ctx, writer, pKey, "data"); err != nil {
+			return err
+		} else if shouldFlush {
+			w.writers.Delete("data:" + pKey)
+		}
 	}
 
 	return nil
+}
+
+func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, partitionKey string, fileType string) (bool, error) {
+	// current size: all previously flushed row groups (in buffer) + current in-progress row group (buffered in memory)
+	sizeSoFar := int64(writer.currentBuffer.Len()) + writer.currentWriter.RowGroupTotalBytesWritten()
+	writer.currentCompressedSize = sizeSoFar
+
+	targetFileSize := targetDataFileSize
+	if fileType == "delete" {
+		targetFileSize = targetDeleteFileSize
+	} 
+
+	if writer.currentCompressedSize >= targetFileSize {
+		if err := writer.currentWriter.Close(); err != nil {
+			return false, fmt.Errorf("failed to close writer during flush: %w", err)
+		}
+
+		fileData := make([]byte, writer.currentBuffer.Len())
+		copy(fileData, writer.currentBuffer.Bytes())
+
+		uploadData := &FileUploadData{
+			FileType:        fileType,
+			FileData:        fileData,
+			PartitionKey:    partitionKey,
+			EqualityFieldID: int32(w.fieldIDs[constants.OlakeID]),
+			RecordCount:     writer.currentRowCount,
+		}
+
+		if err := w.uploadFile(ctx, uploadData); err != nil {
+			return false, fmt.Errorf("failed to upload parquet during flush: %w", err)
+		}
+
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (w *ArrowWriter) Close(ctx context.Context) error {
@@ -352,8 +401,10 @@ func (w *ArrowWriter) createWriter(schema arrow.Schema, fileType string) (*Rolli
 	}
 
 	return &RollingWriter{
-		currentWriter: writer,
-		currentBuffer: currentBuffer,
+		currentWriter:         writer,
+		currentBuffer:         currentBuffer,
+		currentRowCount:       0,
+		currentCompressedSize: 0,
 	}, nil
 }
 

@@ -2,195 +2,234 @@ package internal
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/twmb/murmur3"
 )
 
-var NULL = "null"
+// The current transform logic is limited to the data types handled by OLake.
+// As OLake starts supporting more data types, we will update the transformations logic here.
+//
+// Supported Transforms:
+//   - Identity, Void: 		All data types
+//   - Bucket: 			int, long, string, timestamptz
+//   - Truncate: int, long, string
+//   - Year, Month, Day, Hour: timestamptz
 
 
-// The current transforms logic is limited to the data types handled by OLake
-// As we start handling more data types, we will update the transformations logic here
+const NULL = "null"
+
+var transformPattern = regexp.MustCompile(`^([a-zA-Z]+)(?:\[(\d+)\])?$`)
+
+func parseTransform(transform string) (base string, arg int, err error) {
+	if transform == "" {
+		return "", -1, errors.New("empty transform")
+	}
+
+	m := transformPattern.FindStringSubmatch(transform)
+	if m == nil {
+		return "", -1, errors.New("invalid transform")
+	}
+
+	base = strings.ToLower(m[1])
+	if m[2] != "" {
+		arg, err = strconv.Atoi(m[2])
+		if err != nil {
+			return "", -1, fmt.Errorf("invalid numeric argument in transform %v: %v", transform, err)
+		}
+	}
+
+	return base, arg, nil
+}
+
+func hashUint64(u uint64) uint32 {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], u)
+	return murmur3.Sum32(buf[:])
+}
+
+func hashString(s string) uint32 {
+	return murmur3.Sum32([]byte(s))
+}
 
 func identityTransform(val any, colType string) (string, error) {
-	switch v := val.(type) {
-	case bool:
-		return strconv.FormatBool(v), nil
+	switch colType {
+	case "boolean":
+		return strconv.FormatBool(val.(bool)), nil
+	case "timestamptz":
+		// Format as ISO-8601 with timezone offset to match Iceberg's format
+		// This will be URL-encoded later: 2025-12-09T09:30:00+00:00 -> 2025-12-09T09%3A30%3A00%2B00%3A00
+		t := val.(time.Time).UTC()
+		return t.Format("2006-01-02T15:04:05-07:00"), nil
 	default:
-		switch colType {
-		case "timestamptz":
-			switch t := val.(type) {
-			case time.Time:
-				return t.Format("2006-01-02T15:04:05.999999"), nil
-			default:
-				return "", fmt.Errorf("cannot apply identity transform for col: %v", colType)
-			}
-		}
-
-		return fmt.Sprintf("%v", v), nil
+		return fmt.Sprintf("%v", val), nil
 	}
 }
 
-func timeTransform(val any, transform string, colType string) (string, error) {
+func timeTransform(val any, unit string, colType string) (string, error) {
 	if colType != "timestamptz" {
-		return "", fmt.Errorf("cannot apply %v transform to a %v column", transform, colType)
+		return "", fmt.Errorf("unsupported time transform %q", unit)
 	}
 
-	t := val.(time.Time).UTC()
+	v, _ := val.(time.Time)
+	v = v.UTC()
 
-	switch transform {
+	switch unit {
 	case "year":
-		return fmt.Sprintf("%d", t.Year()), nil
+		return strconv.Itoa(v.Year()), nil
 	case "month":
-		return t.Format("2006-01"), nil
+		return v.Format("2006-01"), nil
 	case "day":
-		return t.Format("2006-01-02"), nil
+		return v.Format("2006-01-02"), nil
 	case "hour":
-		return t.Format("2006-01-02-15"), nil
+		return v.Format("2006-01-02-15"), nil
+	default:
+		return "", fmt.Errorf("unsupported time transform %q", unit)
 	}
-
-	return "", nil
-}
-
-func hashFunction[T ~int32 | ~int64](v any) uint32 {
-	var (
-		val = uint64(v.(T))
-		buf [8]byte
-		b   = buf[:]
-	)
-
-	binary.LittleEndian.PutUint64(b, val)
-
-	return murmur3.Sum32(b)
 }
 
 func bucketTransform(val any, num int, colType string) (string, error) {
-	var hash uint32
+	if num <= 0 {
+		return "", fmt.Errorf("invalid number of buckets: %d (must be > 0)", num)
+	}
 
+	var h uint32
 	switch colType {
-	case "int", "long":
+	case "int":
 		switch v := val.(type) {
 		case int32:
-			hash = hashFunction[int64](int64(v))
+			h = hashUint64(uint64(int64(v)))
+		// do we need to handle int64
 		case int64:
-			hash = hashFunction[int64](v)
+			h = hashUint64(uint64(v))
+		case int:
+			h = hashUint64(uint64(v))
 		default:
-			return "", fmt.Errorf("unsupported value type %T for colType %s", val, colType)
+			return "", fmt.Errorf("expected integer for colType %q, got %T", colType, val)
+		}
+	case "long":
+		switch v := val.(type) {
+		case int64:
+			h = hashUint64(uint64(v))
+		case int:
+			h = hashUint64(uint64(v))
+		default:
+			return "", fmt.Errorf("expected int64 for colType %q, got %T", colType, val)
 		}
 	case "timestamptz":
 		tm, ok := val.(time.Time)
 		if !ok {
-			return "", fmt.Errorf("expected time.Time for colType %s, got %T", colType, val)
+			return "", fmt.Errorf("expected time.Time for colType %q, got %T", colType, val)
 		}
-		hash = hashFunction[int64](tm.UnixMicro())
-
+		h = hashUint64(uint64(tm.UnixMicro()))
 	case "string":
 		str, ok := val.(string)
 		if !ok {
-			return "", fmt.Errorf("expected string for colType %s, got %T", colType, val)
+			return "", fmt.Errorf("expected string for colType %q, got %T", colType, val)
 		}
-		hash = murmur3.Sum32(unsafe.Slice(unsafe.StringData(str), len(str)))
-
+		h = hashString(str)
 	default:
-		return "", fmt.Errorf("cannot apply bucket transformation for colType %s", colType)
+		return "", fmt.Errorf("unsupported colType %q for bucket transform", colType)
 	}
 
-	maskedHash := hash & 0x7FFFFFFF
-	bucketValue := int(maskedHash) % num
-
-	return fmt.Sprintf("%v", bucketValue), nil
+	masked := int(h & 0x7FFFFFFF)
+	bucket := masked % num
+	return strconv.Itoa(bucket), nil
 }
 
-func truncateTransform(val any, num int, colType string) (string, error) {
+func truncateTransform(val any, n int, colType string) (string, error) {
+	if n <= 0 {
+		return "", fmt.Errorf("invalid truncate width: %d (must be > 0)", n)
+	}
+
 	switch colType {
 	case "int":
-		v := val.(int32)
-		if num > 0x7FFFFFFF || num < 0 {
-			return "", fmt.Errorf("truncate value %d out of int32 range for int column", num)
+		v, ok := val.(int32)
+		if !ok {
+			return "", fmt.Errorf("expected int32 for colType %q, got %T", colType, val)
 		}
-		numInt32 := int32(num)
-		tval := v - (v % numInt32)
-		return fmt.Sprintf("%v", tval), nil
+		n32 := int32(n)
+		// Use Iceberg's formula for proper negative number handling
+		trunc := v - (((v%n32)+n32)%n32)
+
+		return fmt.Sprintf("%d", trunc), nil
 	case "long":
-		v := val.(int64)
-		tVal := v - (v % int64(num))
-		return fmt.Sprintf("%v", tVal), nil
+		v, ok := val.(int64)
+		if !ok {
+			return "", fmt.Errorf("expected int64 for colType %q, got %T", colType, val)
+		}
+		n64 := int64(n)
+		// Use Iceberg's formula for proper negative number handling
+		trunc := v - (((v%n64)+n64)%n64)
+
+		return fmt.Sprintf("%d", trunc), nil
 	case "string":
-		v := val.(string)
-		tVal := v[:min(len(v), num)]
-		return fmt.Sprintf("%v", tVal), nil
+		v, ok := val.(string)
+		if !ok {
+			return "", fmt.Errorf("expected string for colType %q, got %T", colType, val)
+		}
+
+		// Truncate by unicode code points, not bytes
+		runes := []rune(v)
+		if len(runes) <= n {
+			return v, nil
+		}
+		return string(runes[:n]), nil
 	default:
-		return "", fmt.Errorf("cannot apply truncate transformation for col: %v", colType)
+		return "", fmt.Errorf("unsupported colType %q for truncate transform", colType)
 	}
 }
 
-func ConstructColPath(tVal, field, transform string) string {
-	if transform == "identity" {
-		return fmt.Sprintf("%s=%s", field, tVal)
-	}
+func ConstructColPath(valueStr, field, transform string) string {
+	base, _, _ := parseTransform(transform)
 
-	re := regexp.MustCompile(`^([a-zA-Z]+)(\[\d+\])?$`)
-	matches := re.FindStringSubmatch(transform)
-	if len(matches) == 0 {
-		return fmt.Sprintf("%s_%s=%s", field, transform, tVal)
-	}
+	// URL-encode both field name and value to match Iceberg's partition path format
+	encodedField := url.QueryEscape(field)
+	encodedValue := url.QueryEscape(valueStr)
 
-	base := strings.ToLower(matches[1])
+	if base == "identity" {
+		return fmt.Sprintf("%s=%s", encodedField, encodedValue)
+	}
 
 	switch base {
 	case "bucket":
-		return fmt.Sprintf("%s_bucket=%s", field, tVal)
+		return fmt.Sprintf("%s_bucket=%s", encodedField, encodedValue)
 	case "truncate":
-		return fmt.Sprintf("%s_trunc=%s", field, tVal)
+		return fmt.Sprintf("%s_trunc=%s", encodedField, encodedValue)
 	default:
-		return fmt.Sprintf("%s_%s=%s", field, base, tVal)
+		return fmt.Sprintf("%s_%s=%s", encodedField, base, encodedValue)
 	}
 }
 
 func TransformValue(val any, transform string, colType string) (any, error) {
-	var value any
+	transform = strings.TrimSpace(strings.ToLower(transform))
 	if val == nil {
 		return NULL, nil
 	}
 
-	if strings.HasPrefix(transform, "bucket") {
-		num, err := strconv.Atoi(transform[7 : len(transform)-1])
-		if err != nil {
-			return nil, err
-		}
-
-		value, err = bucketTransform(val, num, colType)
-		if err != nil {
-			return nil, err
-		}
-	} else if strings.HasPrefix(transform, "truncate") {
-		num, err := strconv.Atoi(transform[9 : len(transform)-1])
-		if err != nil {
-			return nil, err
-		}
-
-		value, err = truncateTransform(val, num, colType)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		switch transform {
-		case "identity":
-			return identityTransform(val, colType)
-		case "year", "month", "day", "hour":
-			return timeTransform(val, transform, colType)
-		case "void":
-			return NULL, nil
-		default:
-			return nil, fmt.Errorf("unknown iceberg partition transformation: %v", transform)
-		}
+	base, arg, err := parseTransform(transform)
+	if err != nil {
+		return nil, err
 	}
 
-	return value, nil
+	switch base {
+	case "identity":
+		return identityTransform(val, colType)
+	case "void":
+		return NULL, nil
+	case "year", "month", "day", "hour":
+		return timeTransform(val, base, colType)
+	case "bucket":
+		return bucketTransform(val, arg, colType)
+	case "truncate":
+		return truncateTransform(val, arg, colType)
+	default:
+		return nil, fmt.Errorf("unknown partition transform %q", transform)
+	}
 }

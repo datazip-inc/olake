@@ -15,6 +15,11 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
+const (
+	targetDataFileSize = int64(512 * 1024 * 1024) // 512 MB
+	targetDeleteFileSize = int64(64 * 1024 * 1024) // 64 MB
+)
+
 var (
 	// Apache Iceberg sets its default compression to 'zstd'
 	// https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L147
@@ -170,7 +175,7 @@ func createDeleteArrowRec(records []types.RawRecord, fieldID int32) (arrow.Recor
 	return arrRec, nil
 }
 
-func CreateArrowRecord(records []types.RawRecord, fields []arrow.Field, normalization bool) (arrow.Record, error) {
+func CreateArrowRec(records []types.RawRecord, fields []arrow.Field, normalization bool) (arrow.Record, error) {
 	if len(records) == 0 {
 		return nil, fmt.Errorf("no records provided")
 	}
