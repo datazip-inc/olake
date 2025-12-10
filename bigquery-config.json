@@ -1,0 +1,18 @@
+{
+  "source": {
+    "type": "bigquery",
+    "config": {
+      "project_id": "your-project-id",
+      "dataset_id": "test_dataset",
+      "table_id": "test_table"
+    }
+  },
+  "destination": {
+    "type": "iceberg",
+    "config": {
+      "warehouse": "s3://test-warehouse",
+      "database": "test_db",
+      "table": "test_table"
+    }
+  }
+}
