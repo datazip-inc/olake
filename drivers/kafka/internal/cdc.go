@@ -50,64 +50,66 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
-func (k *Kafka) PostCDC(ctx context.Context, readerID int, noErr bool) error {
-	if !noErr {
-		return nil
-	}
-
-	// Get accumulated messages for this reader
-	lastMessagesMeta, hasMessages := k.checkpointMessage.Load(readerID)
-	if !hasMessages {
-		logger.Infof("reader %s has no accumulated offsets to commit", readerID)
-		return nil
-	}
-
-	// Type assert and validate messages
-	lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]kafka.Message)
-	if !isValid || len(lastMessages) == 0 {
-		logger.Infof("reader %s has no accumulated offsets to commit", readerID)
-		return nil
-	}
-
-	// Prepare messages for commit and track affected streams
-	messages := make([]kafka.Message, 0, len(lastMessages))
-	syncedStreams := make(map[string]types.StreamInterface)
-
-	for partitionKey, message := range lastMessages {
-		messages = append(messages, message)
-
-		// Resolve stream for this partition
-		partitionID := fmt.Sprintf("%s:%d", partitionKey.Topic, partitionKey.Partition)
-		if partitionMeta, exists := k.readerManager.GetPartitionIndex(partitionID); exists && partitionMeta.Stream != nil {
-			syncedStreams[partitionMeta.Stream.ID()] = partitionMeta.Stream
-		}
-	}
-
-	// Commit messages if any exist
-	if len(messages) > 0 {
-		reader := k.readerManager.GetReader(readerID)
-		if reader == nil {
-			return fmt.Errorf("reader %s not found for commit", readerID)
+func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		readerID, _ := k.readerManager.GetReaderIDAndClientID(readerIdx)
+		// Get accumulated messages for this reader
+		lastMessagesMeta, hasMessages := k.checkpointMessage.Load(readerIdx)
+		if !hasMessages {
+			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
+			return nil
 		}
 
-		if err := reader.CommitMessages(ctx, messages...); err != nil {
-			return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
+		// Type assert and validate messages
+		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]kafka.Message)
+		if !isValid || len(lastMessages) == 0 {
+			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
+			return nil
 		}
 
-		logger.Infof("committed %d partitions for reader %s", len(messages), readerID)
+		// Prepare messages for commit and track affected streams
+		messages := make([]kafka.Message, 0, len(lastMessages))
+		syncedStreams := make(map[string]types.StreamInterface)
+
+		for partitionKey, message := range lastMessages {
+			messages = append(messages, message)
+
+			// Resolve stream for this partition
+			partitionID := fmt.Sprintf("%s:%d", partitionKey.Topic, partitionKey.Partition)
+			if partitionMeta, exists := k.readerManager.GetPartitionIndex(partitionID); exists && partitionMeta.Stream != nil {
+				syncedStreams[partitionMeta.Stream.ID()] = partitionMeta.Stream
+			}
+		}
+
+		// Commit messages if any exist
+		if len(messages) > 0 {
+			reader := k.readerManager.GetReader(readerIdx)
+			if reader == nil {
+				return fmt.Errorf("reader %s not found for commit", readerID)
+			}
+
+			if err := reader.CommitMessages(ctx, messages...); err != nil {
+				return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
+			}
+
+			logger.Infof("committed %d partitions for reader %s", len(messages), readerID)
+		}
+
+		// Update global state with consumer group ID and affected streams
+		streamIDs := make([]string, 0, len(syncedStreams))
+		for streamID := range syncedStreams {
+			streamIDs = append(streamIDs, streamID)
+		}
+
+		k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
+		logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
+
+		k.checkpointMessage.Delete(readerID)
+		return nil
 	}
-
-	// Update global state with consumer group ID and affected streams
-	streamIDs := make([]string, 0, len(syncedStreams))
-	for streamID := range syncedStreams {
-		streamIDs = append(streamIDs, streamID)
-	}
-
-	k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
-	logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
-
-	k.checkpointMessage.Delete(readerID)
-	return nil
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstract.CDCMsgFn) error {

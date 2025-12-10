@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 
 	//nolint:gosec,G115
 	"crypto/md5"
@@ -445,10 +446,8 @@ func RetryOnBackoff(attempts int, sleep time.Duration, f func(attempt int) error
 		}
 
 		// check if error is non retryable
-		for _, nonRetryableError := range constants.NonRetryableErrors {
-			if strings.Contains(err.Error(), nonRetryableError) {
-				return err
-			}
+		if errors.Is(err, constants.NonRetryableError) || strings.Contains(err.Error(), "context canceled") {
+			return err
 		}
 
 		if attempts > 1 && cur != attempts-1 {

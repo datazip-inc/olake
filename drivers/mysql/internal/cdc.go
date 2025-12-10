@@ -69,15 +69,18 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, OnMessage abstract.CDC
 	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
 }
 
-func (m *MySQL) PostCDC(ctx context.Context, _ int, noErr bool) error {
-	if noErr {
+func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
+	defer m.BinlogConn.Cleanup()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
 			State: binlog.Binlog{
 				Position: m.BinlogConn.CurrentPos,
 			},
 		})
+		return nil
 	}
-	m.BinlogConn.Cleanup()
-	return nil
 }

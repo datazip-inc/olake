@@ -67,6 +67,10 @@ func (k *Kafka) CDCSupported() bool {
 	return true
 }
 
+func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
+	return false, true, false // parallel change streams supported
+}
+
 func (k *Kafka) SetupState(state *types.State) {
 	k.state = state
 }
@@ -124,7 +128,6 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("producing schema for topic [%s]", streamName)
 	stream := types.NewStream(streamName, "topics", nil).WithSyncMode(types.STRICTCDC)
-	stream.SyncMode = types.STRICTCDC
 	schema := types.NewTypeSchema()
 	schema.AddTypes(Message, types.String)       // message payload
 	schema.AddTypes(Key, types.String)           // Kafka message key
@@ -133,6 +136,8 @@ func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stre
 	schema.AddTypes(KafkaTimestamp, types.Int64) // Message timestamp
 	stream.WithSchema(schema)
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
+
+	stream.WithSyncMode(types.STRICTCDC)
 	return stream, nil
 }
 

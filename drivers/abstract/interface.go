@@ -35,7 +35,8 @@ type DriverInterface interface {
 	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
+	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
-	PostCDC(ctx context.Context, identifier int, success bool) error // to save state
+	PostCDC(ctx context.Context, identifier int) error // to save state
 }

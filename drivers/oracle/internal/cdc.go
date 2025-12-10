@@ -20,13 +20,17 @@ func (o *Oracle) StreamChanges(_ context.Context, _ int, _ abstract.CDCMsgFn) er
 }
 
 // PostCDC is called after CDC operation completes
-func (o *Oracle) PostCDC(ctx context.Context, _ int, success bool) error {
+func (o *Oracle) PostCDC(ctx context.Context, _ int) error {
 	return nil
 }
 
 // CDCSupported returns whether CDC is supported
 func (o *Oracle) CDCSupported() bool {
 	return o.CDCSupport // CDC is not supported yet
+}
+
+func (o *Oracle) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, false
 }
 
 // SetupState sets the state for the driver

@@ -190,12 +190,13 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context closed")
+		return ctx.Err()
 	case <-wt.group.Ctx().Done():
 		// if group context is done, return the group err
 		err := wt.group.Block()
 		if err != nil {
-			return fmt.Errorf("%s: %s", constants.DestError, err)
+			// retry error as there can be rate limits on s3
+			return fmt.Errorf("failed to write records: %s", err)
 		}
 		return nil
 	default:
@@ -262,7 +263,7 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 	case <-ctx.Done():
 		err := wt.writer.Close(ctx)
 		if err != nil {
-			return fmt.Errorf("%s: %s", constants.DestError, err)
+			return fmt.Errorf("%w: %s", constants.NonRetryableError, err)
 		}
 		return nil
 	default:
@@ -281,7 +282,7 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 
 		err := wt.writer.Close(ctx)
 		if err != nil {
-			return fmt.Errorf("%s: %s", constants.DestError, err)
+			return fmt.Errorf("%w: %s", constants.NonRetryableError, err)
 		}
 		return nil
 	}

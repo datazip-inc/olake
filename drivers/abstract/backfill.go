@@ -52,15 +52,12 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 
-		defer a.handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, "backfill",
-			fmt.Sprintf("failed to insert chunk min[%s] and max[%s] of stream %s", chunk.Min, chunk.Max, stream.ID()),
-			func(ctx context.Context, success bool) error {
-				if success {
-					logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
-					chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
-					if chunksLeft == 0 && backfilledStreams != nil {
-						backfilledStreams <- stream.ID()
-					}
+		defer a.handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
+			func(ctx context.Context) error {
+				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
+				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+				if chunksLeft == 0 && backfilledStreams != nil {
+					backfilledStreams <- stream.ID()
 				}
 				return nil
 			})()

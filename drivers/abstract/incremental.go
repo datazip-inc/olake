@@ -79,14 +79,11 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
 
-			defer a.handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, "incremental sync",
-				fmt.Sprintf("failed to insert incremental record of stream %s", streamID),
-				func(ctx context.Context, success bool) error {
-					if success {
-						// Save cursor state on success
-						a.state.SetCursor(stream.Self(), primaryCursor, a.formatTimestampToUTC(maxPrimaryCursorValue))
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.formatTimestampToUTC(maxSecondaryCursorValue))
-					}
+			defer a.handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID,
+				func(ctx context.Context) error {
+					// Save cursor state on success
+					a.state.SetCursor(stream.Self(), primaryCursor, a.formatTimestampToUTC(maxPrimaryCursorValue))
+					a.state.SetCursor(stream.Self(), secondaryCursor, a.formatTimestampToUTC(maxSecondaryCursorValue))
 					return nil
 				})()
 

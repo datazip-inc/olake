@@ -160,6 +160,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		stream.WithPrimaryKey(columnName)
 	}
 
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	return stream, pkRows.Err()
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
@@ -75,7 +76,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
 			// suggesting to proceed with clear destination
 			if parsed != socket.ConfirmedFlushLSN {
-				return fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
+				return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.NonRetryableError, parsed, socket.ConfirmedFlushLSN)
 			}
 		}
 	}
@@ -87,14 +88,16 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.C
 	return p.replicator.StreamChanges(ctx, p.client, callback)
 }
 
-func (p *Postgres) PostCDC(ctx context.Context, _ int, noErr bool) error {
+func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	defer waljs.Cleanup(ctx, p.replicator.Socket())
-	if noErr {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 		socket := p.replicator.Socket()
 		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
 		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
-	return nil
 }
 
 func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string) (bool, error) {

@@ -177,16 +177,19 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	return OnMessage(ctx, change)
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, streamIndex int, noErr bool) error {
-	if noErr {
+func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
 		if ok {
 			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
 		} else {
 			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
 		}
+		return nil
 	}
-	return nil
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {

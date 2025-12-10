@@ -87,22 +87,22 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		if convStream.SupportedSyncModes.Len() == 0 {
-			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		}
-		convStream.SyncMode = utils.Ternary(convStream.SyncMode == "", types.FULLREFRESH, convStream.SyncMode).(types.SyncMode)
 
 		// add default columns
 		for column, typ := range DefaultColumns {
+			if column == constants.CdcTimestamp && !a.driver.CDCSupported() {
+				continue
+			}
 			convStream.UpsertField(column, typ, true)
 		}
 
-		if a.driver.CDCSupported() && a.driver.Type() != string(constants.Kafka) {
-			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
+		// priority to default sync mode (cdc -> incremental -> strict_cdc)
+		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() {
 			convStream.SyncMode = types.CDC
-		} else {
-			// remove cdc column as it is not supported
-			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
+		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
+			convStream.SyncMode = types.INCREMENTAL
+		} else if convStream.SupportedSyncModes.Exists(types.STRICTCDC) {
+			convStream.SyncMode = types.STRICTCDC
 		}
 
 		finalStreams = append(finalStreams, convStream)
@@ -153,12 +153,12 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
+	a.GlobalCtxGroup = utils.NewCGroup(ctx)
+
 	return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
 		if attempt > 0 {
 			logger.Infof("Retrying Read operation (attempt %d)", attempt)
 		}
-
-		a.GlobalCtxGroup = utils.NewCGroup(ctx)
 
 		// run cdc sync
 		if len(cdcStreams) > 0 {
@@ -205,58 +205,18 @@ func generateThreadID(streamID string) string {
 }
 
 // handleWriterCleanup is a helper that creates a defer function for common writer cleanup operations
-// It handles writer close, panic recovery, and calls the provided postProcess function
+// It handles writer close (single or multiple), panic recovery, and calls the provided postProcess function
 // The err parameter should be a pointer to the error variable that will be returned from the function
 // The cancel parameter is used to cancel the context when an error occurs, so other threads can detect the failure
-func (a *AbstractDriver) handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer *destination.WriterThread, threadID, panicMessage, closeMessage string, postProcess func(ctx context.Context, success bool) error) func() {
-	return func() {
-		if writer == nil || cancel == nil {
-			*err = fmt.Errorf("%s: writer or cancel is nil, prev error: %w", constants.DestError, *err)
-			return
-		}
-		// Cancel context if there's an error, so other threads using this context can detect the failure
-		if *err != nil {
-			cancel()
-		}
-
-		if threadErr := writer.Close(ctx); threadErr != nil {
-			if closeMessage != "" {
-				*err = fmt.Errorf("%s: %s, insert func error: %v", closeMessage, threadErr, *err)
-			} else {
-				*err = fmt.Errorf("failed to close writer: %s, prev error: %v", threadErr, *err)
-			}
-		}
-
-		// check for panics before post-processing
-		if r := recover(); r != nil {
-			if panicMessage != "" {
-				*err = fmt.Errorf("panic recovered in %s: %v, prev error: %v", panicMessage, r, *err)
-			} else {
-				*err = fmt.Errorf("panic recovered: %v, prev error: %v", r, *err)
-			}
-		}
-
-		if postProcess != nil {
-			postErr := postProcess(ctx, *err == nil)
-			if postErr != nil {
-				*err = fmt.Errorf("post process error: %s, prev error: %v", postErr, *err)
-			}
-		}
-
-		if *err != nil && threadID != "" {
-			*err = fmt.Errorf("thread[%s]: %s", threadID, *err)
-		}
-	}
-}
-
-// handleMultipleWritersCleanup is a helper that creates a defer function for cleaning up multiple writers
-// It handles closing all writers, panic recovery, context cancellation on error, and calls the provided postProcess function
-// The err parameter should be a pointer to the error variable that will be returned from the function
-// The cancel parameter is used to cancel the context when an error occurs, so other threads can detect the failure
-func (a *AbstractDriver) handleMultipleWritersCleanup(ctx context.Context, cancel context.CancelFunc, err *error, inserters interface{}, panicMessage string, postProcess func(ctx context.Context, success bool) error) func() {
+// The writer parameter can be either:
+//   - *destination.WriterThread for a single writer
+//   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
+//
+// The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
+func (a *AbstractDriver) handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer interface{}, threadID string, postProcess func(ctx context.Context) error) func() {
 	return func() {
 		if cancel == nil {
-			*err = fmt.Errorf("%s: cancel is nil, prev error: %w", constants.DestError, *err)
+			*err = fmt.Errorf("%w: cancel is nil, prev error: %w", constants.NonRetryableError, *err)
 			return
 		}
 		// Cancel context if there's an error, so other threads using this context can detect the failure
@@ -264,55 +224,42 @@ func (a *AbstractDriver) handleMultipleWritersCleanup(ctx context.Context, cance
 			cancel()
 		}
 
-		// Close all writers
+		// Close writer(s)
 		var closeErr error
-		switch writers := inserters.(type) {
-		case map[string]*destination.WriterThread:
-			for streamID, inserter := range writers {
-				if inserter != nil {
-					if threadErr := inserter.Close(ctx); threadErr != nil {
-						if closeErr == nil {
-							closeErr = fmt.Errorf("failed closing writer[%s]: %s", streamID, threadErr)
-						} else {
-							closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
-						}
-					}
-				}
+		switch w := writer.(type) {
+		case *destination.WriterThread:
+			if threadErr := w.Close(ctx); threadErr != nil {
+				closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 			}
-		case map[types.StreamInterface]*destination.WriterThread:
-			for stream, inserter := range writers {
+		case map[string]*destination.WriterThread:
+			// Multiple writers keyed by stream ID
+			for streamID, inserter := range w {
 				if inserter != nil {
 					if threadErr := inserter.Close(ctx); threadErr != nil {
-						if closeErr == nil {
-							closeErr = fmt.Errorf("failed closing writer for stream %s: %s", stream.ID(), threadErr)
-						} else {
-							closeErr = fmt.Errorf("%s; failed closing writer for stream %s: %s", closeErr, stream.ID(), threadErr)
-						}
+						closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
 					}
 				}
 			}
 		default:
-			closeErr = fmt.Errorf("unsupported inserters type")
+			closeErr = fmt.Errorf("unsupported writer type")
 		}
 
 		if closeErr != nil {
-			*err = fmt.Errorf("%s, prev error: %v", closeErr, *err)
+			*err = fmt.Errorf("%w: %s, prev error: %v", constants.NonRetryableError, closeErr, *err)
 		}
 
 		// check for panics before post-processing
 		if r := recover(); r != nil {
-			if panicMessage != "" {
-				*err = fmt.Errorf("panic recovered in %s: %v, prev error: %v", panicMessage, r, *err)
-			} else {
-				*err = fmt.Errorf("panic recovered: %v, prev error: %v", r, *err)
-			}
+			*err = fmt.Errorf("%w: panic recovered: %v, prev error: %v", constants.NonRetryableError, r, *err)
 		}
 
-		if postProcess != nil {
-			postErr := postProcess(ctx, *err == nil)
-			if postErr != nil {
-				*err = fmt.Errorf("post process error: %s, prev error: %v", postErr, *err)
-			}
+		postErr := postProcess(ctx)
+		if postErr != nil {
+			*err = fmt.Errorf("%w: post process error: %s, prev error: %v", constants.NonRetryableError, postErr, *err)
+		}
+
+		if *err != nil && threadID != "" {
+			*err = fmt.Errorf("%w: thread[%s]: %s", constants.NonRetryableError, threadID, *err)
 		}
 	}
 }

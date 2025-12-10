@@ -44,6 +44,10 @@ func (m *MySQL) CDCSupported() bool {
 	return m.CDCSupport
 }
 
+func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
+	return true, false, false
+}
+
 // GetConfigRef returns a reference to the configuration
 func (m *MySQL) GetConfigRef() abstract.Config {
 	m.config = &Config{}
@@ -212,6 +216,8 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL, types.CDC, types.STRICTCDC)
 	return stream, nil
 }
 
