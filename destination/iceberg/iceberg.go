@@ -238,24 +238,30 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		return nil
 	}
 
-	// Send commit request for this thread using a special message format
-	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
-	defer cancel()
+	select {
+	case <-ctx.Done():
+		// skip commit in case of context cancellation
+		return ctx.Err()
+	default:
+		// Send commit request for this thread using a special message format
+		ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
+		defer cancel()
 
-	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_COMMIT,
-		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      i.server.serverID,
-			DestTableName: i.stream.GetDestinationTable(),
-		},
-	}
-	res, err := i.server.sendClientRequest(ctx, request)
-	if err != nil {
-		return fmt.Errorf("failed to send commit message: %s", err)
-	}
+		request := &proto.IcebergPayload{
+			Type: proto.IcebergPayload_COMMIT,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId:      i.server.serverID,
+				DestTableName: i.stream.GetDestinationTable(),
+			},
+		}
+		res, err := i.server.sendClientRequest(ctx, request)
+		if err != nil {
+			return fmt.Errorf("failed to send commit message: %s", err)
+		}
 
-	logger.Debugf("Thread[%s]: Sent commit message: %s", i.options.ThreadID, res)
-	return nil
+		logger.Debugf("Thread[%s]: Sent commit message: %s", i.options.ThreadID, res)
+		return nil
+	}
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
