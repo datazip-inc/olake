@@ -9,7 +9,8 @@
     },
     "update_method": {
         "replication_slot": "olake_slot",
-        "initial_wait_time": 120
+        "initial_wait_time": 120,
+        "publication": "olake_publication"
     },
     "reader_batch_size": 1,
     "default_mode": "cdc",

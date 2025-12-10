@@ -42,6 +42,7 @@ var GlobalTypeMapping = map[string]string{
 	"boolean": "boolean",
 
 	// String Types
+	"string":            "string",
 	"char":              "string",
 	"varchar":           "string",
 	"tinytext":          "string",
