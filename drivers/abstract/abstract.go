@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type CDCChange struct {
@@ -57,6 +56,11 @@ func (a *AbstractDriver) Spec() any {
 
 func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
+}
+
+// TODO: discuss for moving max retry as flag (job level in ui)
+func (a *AbstractDriver) MaxRetries() int {
+	return a.driver.MaxRetries()
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
@@ -155,48 +159,42 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 
 	a.GlobalCtxGroup = utils.NewCGroup(ctx)
 
-	return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
-		if attempt > 0 {
-			logger.Infof("Retrying Read operation (attempt %d)", attempt)
-		}
-
-		// run cdc sync
-		if len(cdcStreams) > 0 {
-			if a.driver.CDCSupported() {
-				if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-					return fmt.Errorf("failed to run change stream: %s", err)
-				}
-			} else {
-				return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
+	// run cdc sync
+	if len(cdcStreams) > 0 {
+		if a.driver.CDCSupported() {
+			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+				return fmt.Errorf("failed to run change stream: %s", err)
 			}
+		} else {
+			return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
 		}
+	}
 
-		// run incremental sync
-		if len(incrementalStreams) > 0 {
-			if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
-				return fmt.Errorf("failed to run incremental sync: %s", err)
-			}
+	// run incremental sync
+	if len(incrementalStreams) > 0 {
+		if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
+			return fmt.Errorf("failed to run incremental sync: %s", err)
 		}
+	}
 
-		// handle standard streams (full refresh)
-		for _, stream := range backfillStreams {
-			stream := stream // capture for closure
-			a.GlobalCtxGroup.Add(func(ctx context.Context) error {
-				return a.Backfill(ctx, nil, pool, stream)
-			})
-		}
+	// handle standard streams (full refresh)
+	for _, stream := range backfillStreams {
+		stream := stream // capture for closure
+		a.GlobalCtxGroup.Add(func(ctx context.Context) error {
+			return a.Backfill(ctx, nil, pool, stream)
+		})
+	}
 
-		// wait for all threads to finish
-		if err := a.GlobalCtxGroup.Block(); err != nil {
-			return fmt.Errorf("error occurred while waiting for context groups: %s", err)
-		}
+	// wait for all threads to finish
+	if err := a.GlobalCtxGroup.Block(); err != nil {
+		return fmt.Errorf("error occurred while waiting for context groups: %s", err)
+	}
 
-		// wait for all threads to finish
-		if err := a.GlobalConnGroup.Block(); err != nil {
-			return fmt.Errorf("error occurred while waiting for connections: %s", err)
-		}
-		return nil
-	})
+	// wait for all threads to finish
+	if err := a.GlobalConnGroup.Block(); err != nil {
+		return fmt.Errorf("error occurred while waiting for connections: %s", err)
+	}
+	return nil
 }
 
 // generateThreadID creates a unique thread ID for a stream

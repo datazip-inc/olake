@@ -132,12 +132,17 @@ var syncCmd = &cobra.Command{
 		}()
 
 		// init group
-		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
+		err = utils.RetryOnBackoff(connector.MaxRetries(), constants.DefaultRetryTimeout, func(attempt int) error {
+			if attempt > 0 {
+				logger.Infof("Retrying Read operation (attempt %d)", attempt)
+			}
+			return connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
+		})
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
-		state.LogWithLock()
 
+		state.LogWithLock()
 		// TODO: record count also contain records which arrived in retry attempts, need to remove them
 		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
 		return nil
