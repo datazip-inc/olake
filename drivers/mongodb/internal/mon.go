@@ -35,9 +35,10 @@ type Mongo struct {
 	sshDialer     *MongoSSHDialer
 }
 
-// A custom dialer is used to connect to the MongoDB instance via SSH tunnel.
-// This is as per the documentation of MongoDB Go Driver:
-// https://pkg.go.dev/go.mongodb.org/mongo-driver@v1.17.3/mongo/options#ClientOptions.SetDialer
+// MongoSSHDialer implements a custom dialer for SSH tunnel connections.
+// The MongoDB Go driver doesn't support SSH tunneling natively, so we
+// implement the Dialer interface to route connections through SSH tunnels
+// for secure access to databases behind bastion hosts.
 type MongoSSHDialer struct {
 	sshClient *ssh.Client
 }
