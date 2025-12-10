@@ -10,19 +10,40 @@ import (
 
 func TestPostgresIntegration(t *testing.T) {
 	t.Parallel()
-	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Postgres)),
-		Namespace:                        "public",
-		ExpectedData:                     ExpectedPostgresData,
-		ExpectedUpdatedData:              ExpectedUpdatedData,
-		DestinationDataTypeSchema:        PostgresToDestinationSchema,
-		UpdatedDestinationDataTypeSchema: UpdatedPostgresToDestinationSchema,
-		ExecuteQuery:                     ExecuteQuery,
-		DestinationDB:                    "postgres_postgres_public",
-		CursorField:                      "col_bigserial",
-		PartitionRegex:                   "/{col_bigserial,identity}",
-	}
-	testConfig.TestIntegration(t)
+
+	t.Run("Normalized", func(t *testing.T) {
+		testConfig := &testutils.IntegrationTest{
+			TestConfig:                       testutils.GetTestConfig(string(constants.Postgres)),
+			Namespace:                        "public",
+			ExpectedData:                     ExpectedPostgresData,
+			ExpectedUpdatedData:              ExpectedUpdatedData,
+			DestinationDataTypeSchema:        PostgresToDestinationSchema,
+			UpdatedDestinationDataTypeSchema: UpdatedPostgresToDestinationSchema,
+			ExecuteQuery:                     ExecuteQuery,
+			DestinationDB:                    "postgres_postgres_public",
+			CursorField:                      "col_bigserial",
+			PartitionRegex:                   "/{col_bigserial,identity}",
+		}
+		testConfig.TestIntegration(t)
+	})
+
+	t.Run("Denormalized", func(t *testing.T) {
+		normalization := false
+		testConfig := &testutils.IntegrationTest{
+			TestConfig:                       testutils.GetTestConfig(string(constants.Postgres)),
+			Namespace:                        "public",
+			ExpectedData:                     ExpectedPostgresData,
+			ExpectedUpdatedData:              ExpectedUpdatedData,
+			DestinationDataTypeSchema:        PostgresToDestinationSchema,
+			UpdatedDestinationDataTypeSchema: UpdatedPostgresToDestinationSchema,
+			ExecuteQuery:                     ExecuteQuery,
+			DestinationDB:                    "postgres_denorm_test",
+			CursorField:                      "col_bigserial",
+			PartitionRegex:                   "/{col_bigserial,identity}",
+			Normalization:                    &normalization,
+		}
+		testConfig.TestIntegration(t)
+	})
 }
 
 func TestPostgresPerformance(t *testing.T) {
