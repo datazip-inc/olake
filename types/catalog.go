@@ -61,9 +61,23 @@ func CreateStreamMetadata(streamName, driver string) StreamMetadata {
 	}
 }
 
+// GetStreamDefaults returns default stream metadata based on driver type
+// This represents the default values for all streams within a driver
+func GetStreamDefaults(driver string) *StreamMetadata {
+	// Whether the source is a relational driver or not
+	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
+		return src == constants.DriverType(driver)
+	})
+
+	return &StreamMetadata{
+		AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+		Normalization: isRelational,
+	}
+}
+
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
-	DefaultStreams  map[string][]StreamMetadata `json:"default_streams,omitempty"`
+	StreamDefaults  *StreamMetadata             `json:"stream_defaults,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
@@ -71,10 +85,11 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
-		DefaultStreams:  make(map[string][]StreamMetadata),
 	}
 
-	// Loop through each stream and populate Streams, SelectedStreams and DefaultStreams
+	catalog.StreamDefaults = GetStreamDefaults(driver)
+
+	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
 		// Create ConfiguredStream and append to Streams
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
@@ -86,10 +101,6 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			catalog.SelectedStreams[stream.Namespace],
 			streamMetadata,
 		)
-		catalog.DefaultStreams[stream.Namespace] = append(
-			catalog.DefaultStreams[stream.Namespace],
-			streamMetadata,
-		)
 	}
 
 	return catalog
@@ -98,10 +109,14 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
 // 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
-// 3. DefaultStreams: Retain only streams present in both oldCatalog.DefaultStreams and newCatalog.Streams
+// 3. StreamDefaults: Preserve from old catalog if exists, otherwise set from driver
 // 4. Everything else: Keep as new catalog
 func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog == nil {
+		// Ensure newCatalog has StreamDefaults set
+		if newCatalog.StreamDefaults == nil {
+			newCatalog.StreamDefaults = GetStreamDefaults(driver)
+		}
 		return newCatalog
 	}
 
@@ -115,29 +130,12 @@ func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
 
 	newStreams := createStreamMap(newCatalog)
 
-	// default_streams should contain all streams that were initially available
-	// backward compatibility: build default_streams if old catalog doesn't have it
-	if oldCatalog.DefaultStreams == nil {
-		oldCatalog.DefaultStreams = make(map[string][]StreamMetadata)
-		for _, configuredStream := range oldCatalog.Streams {
-			namespace := configuredStream.Stream.Namespace
-			oldCatalog.DefaultStreams[namespace] = append(
-				oldCatalog.DefaultStreams[namespace],
-				CreateStreamMetadata(configuredStream.Stream.Name, driver),
-			)
-		}
-	}
-
-	// merge default streams: retain only streams that still exist in new catalog
-	newCatalog.DefaultStreams = make(map[string][]StreamMetadata)
-	for namespace, metadataList := range oldCatalog.DefaultStreams {
-		_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
-			_, exists := newStreams[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]
-			if exists {
-				newCatalog.DefaultStreams[namespace] = append(newCatalog.DefaultStreams[namespace], metadata)
-			}
-			return nil
-		})
+	// Preserve stream_defaults from old catalog if it exists
+	// Otherwise, set it based on driver (backward compatibility)
+	if oldCatalog.StreamDefaults != nil {
+		newCatalog.StreamDefaults = oldCatalog.StreamDefaults
+	} else {
+		newCatalog.StreamDefaults = GetStreamDefaults(driver)
 	}
 
 	// merge selected streams
@@ -170,14 +168,7 @@ func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
 			return nil
 		}
 
-		// add new stream to default_streams and streams
 		// NOTE: new streams are not added to selected_streams, user needs to manually enable them
-		namespace := newStream.Stream.Namespace
-		newCatalog.DefaultStreams[namespace] = append(
-			newCatalog.DefaultStreams[namespace],
-			CreateStreamMetadata(newStream.Stream.Name, driver),
-		)
-
 		// manipulate destination db in new streams according to old streams
 
 		// prefix == "" means old stream when db normalization feature not introduced
