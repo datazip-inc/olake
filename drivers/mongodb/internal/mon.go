@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -36,6 +35,9 @@ type Mongo struct {
 	sshDialer     *MongoSSHDialer
 }
 
+// A custom dialer is used to connect to the MongoDB instance via SSH tunnel.
+// This is as per the documentation of MongoDB Go Driver:
+// https://pkg.go.dev/go.mongodb.org/mongo-driver@v1.17.3/mongo/options#ClientOptions.SetDialer
 type MongoSSHDialer struct {
 	sshClient *ssh.Client
 }
@@ -109,25 +111,18 @@ func (m *Mongo) Setup(ctx context.Context) error {
 }
 
 func (m *Mongo) Close(ctx context.Context) error {
-	var errs []error
-
 	if m.client != nil {
 		if err := m.client.Disconnect(ctx); err != nil {
 			logger.Errorf("failed to disconnect from MongoDB: %s", err)
-			errs = append(errs, fmt.Errorf("mongo disconnect: %w", err))
 		}
 	}
 
 	if m.sshDialer != nil && m.sshDialer.sshClient != nil {
 		if err := m.sshDialer.sshClient.Close(); err != nil {
 			logger.Errorf("failed to close SSH client: %s", err)
-			errs = append(errs, fmt.Errorf("ssh client close: %w", err))
 		}
 	}
 
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
 	return nil
 }
 

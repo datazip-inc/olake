@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -101,24 +100,16 @@ func (o *Oracle) Spec() any {
 
 // Close closes the database connection
 func (o *Oracle) Close() error {
-	var errs []error
-
 	if o.client != nil {
 		if err := o.client.Close(); err != nil {
 			logger.Errorf("failed to close database connection with Oracle: %s", err)
-			errs = append(errs, fmt.Errorf("oracle client close: %w", err))
 		}
 	}
 
 	if o.sshClient != nil {
 		if err := o.sshClient.Close(); err != nil {
 			logger.Errorf("failed to close SSH client: %s", err)
-			errs = append(errs, fmt.Errorf("ssh client close: %w", err))
 		}
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
 	}
 
 	return nil
