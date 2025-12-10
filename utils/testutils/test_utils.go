@@ -147,6 +147,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
+		s = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
@@ -167,6 +168,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
+	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(
@@ -477,7 +479,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, strings.ToUpper(testTable), "incremental", cfg.CursorField)
+	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
 	code, out, err := utils.ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
@@ -563,7 +565,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, strings.ToUpper(testTable), "incremental", cfg.CursorField)
+	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
 	code, out, err := utils.ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
