@@ -31,7 +31,6 @@ const (
 	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
 	SyncTimeout         = 10 * time.Minute
 	BenchmarkThreshold  = 0.9
-	OracleTestTable     = "ORACLE_TEST_TABLE_OLAKE"
 )
 
 type IntegrationTest struct {
@@ -291,17 +290,17 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, strings.ToLower(testTable), cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
 			} else {
-				VerifyIcebergSync(t, strings.ToLower(testTable), cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
 			}
 		}
 	case "parquet":
 		{
 			if evolvedSchema {
-				VerifyParquetSync(t, strings.ToLower(testTable), cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
 			} else {
-				VerifyParquetSync(t, strings.ToLower(testTable), cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
 			}
 		}
 	}
@@ -316,7 +315,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase A: Full load + CDC tests")
+	t.Log("Starting Full load + CDC tests")
 
 	testCases := []syncTestCase{
 		{
@@ -375,7 +374,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		})
 	}
 
-	t.Log("Phase A: Full load + CDC tests completed successfully")
+	t.Log("Full load + CDC tests completed successfully")
 
 	// Drop the Iceberg table after all tests are finished
 	dropIcebergTable(t, testTable, cfg.DestinationDB)
@@ -391,7 +390,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase B: Parquet Full load + CDC tests")
+	t.Log("Starting Parquet Full load + CDC tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
@@ -459,7 +458,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		})
 	}
 
-	t.Log("Phase B: Parquet Full load + CDC tests completed successfully")
+	t.Log("Parquet Full load + CDC tests completed successfully")
 	return nil
 }
 
@@ -471,14 +470,14 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase C: Full load + Incremental tests")
+	t.Log("Starting Full load + Incremental tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
+	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, strings.ToUpper(testTable), "incremental", cfg.CursorField)
 	code, out, err := utils.ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
@@ -528,6 +527,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 
 			// drop iceberg table before sync
 			dropIcebergTable(t, testTable, cfg.DestinationDB)
+			t.Logf("Dropped Iceberg table: %s", testTable)
 
 			if err := cfg.runSyncAndVerify(
 				ctx,
@@ -545,7 +545,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		})
 	}
 
-	t.Log("Phase C: Full load + Incremental tests completed successfully")
+	t.Log("Full load + Incremental tests completed successfully")
 	return nil
 }
 
@@ -556,14 +556,14 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase D: Parquet Full load + Incremental tests")
+	t.Log("Starting Parquet Full load + Incremental tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
+	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, strings.ToUpper(testTable), "incremental", cfg.CursorField)
 	code, out, err := utils.ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
@@ -632,7 +632,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 		})
 	}
 
-	t.Log("Phase D: Parquet Full load + Incremental tests completed successfully")
+	t.Log("Parquet Full load + Incremental tests completed successfully")
 	return nil
 }
 
@@ -641,7 +641,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
-	currentTestTable := utils.Ternary(cfg.TestConfig.Driver == string(constants.Oracle), OracleTestTable, fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)).(string)
+	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
