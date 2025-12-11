@@ -402,28 +402,33 @@ func MySQLTableColumnsQuery() string {
 
 // MySQLVersion returns the version of the MySQL server
 // It returns the major and minor version of the MySQL server
-func MySQLVersion(ctx context.Context, client *sqlx.DB) (int, int, error) {
+func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error) {
 	var version string
 	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get MySQL version: %s", err)
+		return "", 0, 0, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
 
 	parts := strings.Split(version, ".")
 	if len(parts) < 2 {
-		return 0, 0, fmt.Errorf("invalid version format")
+		return "", 0, 0, fmt.Errorf("invalid version format")
 	}
 	majorVersion, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return 0, 0, fmt.Errorf("invalid major version: %s", err)
+		return "", 0, 0, fmt.Errorf("invalid major version: %s", err)
 	}
 
 	minorVersion, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return 0, 0, fmt.Errorf("invalid minor version: %s", err)
+		return "", 0, 0, fmt.Errorf("invalid minor version: %s", err)
 	}
 
-	return majorVersion, minorVersion, nil
+	mysqlFlavor := "MySQL"
+	if strings.Contains(strings.ToUpper(version), "MARIADB") {
+		mysqlFlavor = "MariaDB"
+	}
+
+	return mysqlFlavor, majorVersion, minorVersion, nil
 }
 
 func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) error) error {
