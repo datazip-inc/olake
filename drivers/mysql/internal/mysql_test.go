@@ -10,15 +10,16 @@ import (
 func TestMySQLIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		TestConfig:         testutils.GetTestConfig(string(constants.MySQL)),
-		Namespace:          "olake_mysql_test",
-		ExpectedData:       ExpectedMySQLData,
-		ExpectedUpdateData: ExpectedUpdatedMySQLData,
-		DataTypeSchema:     MySQLToIcebergSchema,
-		ExecuteQuery:       ExecuteQuery,
-		IcebergDB:          "mysql_olake_mysql_test",
-		CursorField:        "id",
-		PartitionRegex:     "/{id,identity}",
+		TestConfig:                       testutils.GetTestConfig(string(constants.MySQL)),
+		Namespace:                        "olake_mysql_test",
+		ExpectedData:                     ExpectedMySQLData,
+		ExpectedUpdatedData:              ExpectedUpdatedData,
+		DestinationDataTypeSchema:        MySQLToDestinationSchema,
+		UpdatedDestinationDataTypeSchema: EvolvedMySQLToDestinationSchema,
+		ExecuteQuery:                     ExecuteQuery,
+		DestinationDB:                    "mysql_olake_mysql_test",
+		CursorField:                      "id",
+		PartitionRegex:                   "/{id,identity}",
 	}
 	testConfig.TestIntegration(t)
 }
