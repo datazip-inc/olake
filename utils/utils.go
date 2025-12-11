@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 
 	//nolint:gosec,G115
 	"crypto/md5"
@@ -437,6 +438,28 @@ func SplitAndTrim(s string) []string {
 	return result
 }
 
+// RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
+func RetryOnBackoff(attempts int, sleep time.Duration, f func(attempt int) error) (err error) {
+	for cur := range attempts {
+		if err = f(cur); err == nil {
+			return nil
+		}
+
+		// check if error is non retryable
+		if errors.Is(err, constants.NonRetryableError) || strings.Contains(err.Error(), "context canceled") {
+			return err
+		}
+
+		if attempts > 1 && cur != attempts-1 {
+			logger.Infof("retry attempt[%d], retrying after %.2f seconds due to err: %s", cur+1, sleep.Seconds(), err)
+			time.Sleep(sleep)
+			sleep = sleep * 2
+		}
+	}
+
+	return err
+}
+
 // ExtractColumnName extracts a column name from regex capture groups.
 // It returns the first non-empty group from the provided groups.
 // This is used when parsing filter expressions where column names can be:
@@ -445,12 +468,14 @@ func SplitAndTrim(s string) []string {
 //
 // Example usage:
 //
-//	// For filter: \"user-name\" = \"John\"
-//	// matches[1] = "user-name" (quoted column), matches[2] = "" (unquoted column)
+// For filter: \"user-name\" = \"John\"
+// matches[1] = "user-name" (quoted column), matches[2] = "" (unquoted column)
+//
 //	columnName := ExtractColumnName(matches[1], matches[2]) // Returns: "user-name"
 //
-//	// For filter: age > 18
-//	// matches[1] = "" (quoted column), matches[2] = "age" (unquoted column)
+// For filter: age > 18
+// matches[1] = "" (quoted column), matches[2] = "age" (unquoted column)
+//
 //	columnName := ExtractColumnName(matches[1], matches[2]) // Returns: "age"
 func ExtractColumnName(groups ...string) string {
 	for _, group := range groups {

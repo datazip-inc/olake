@@ -235,7 +235,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) closePqFiles() error {
+func (p *Parquet) closePqFiles(closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -266,6 +266,12 @@ func (p *Parquet) closePqFiles() error {
 		}
 
 		logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, filePath)
+
+		// close after closing writers
+		if closeOnError {
+			removeLocalFile(filePath, "closing parquet files due to retry attempt")
+			continue
+		}
 
 		if p.s3Client != nil {
 			// Open file for S3 upload
@@ -302,8 +308,8 @@ func (p *Parquet) closePqFiles() error {
 	return nil
 }
 
-func (p *Parquet) Close(_ context.Context) error {
-	return p.closePqFiles()
+func (p *Parquet) Close(ctx context.Context) error {
+	return p.closePqFiles(ctx.Err() != nil)
 }
 
 // validate schema change & evolution and removes null records
@@ -383,7 +389,7 @@ func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 
 	// TODO: can we implement something https://github.com/parquet-go/parquet-go?tab=readme-ov-file#evolving-parquet-schemas-parquetconvert
 	// close prev files as change detected (new files will be created with new schema)
-	return p.schema.Clone(), p.closePqFiles()
+	return p.schema.Clone(), p.closePqFiles(false)
 }
 
 // Type returns the type of the writer.

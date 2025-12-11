@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -189,10 +190,15 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context closed")
+		return ctx.Err()
 	case <-wt.group.Ctx().Done():
 		// if group context is done, return the group err
-		return wt.group.Block()
+		err := wt.group.Block()
+		if err != nil {
+			// retry error as there can be rate limits on s3
+			return fmt.Errorf("failed to write records: %s", err)
+		}
+		return nil
 	default:
 		wt.stats.ReadCount.Add(1)
 		wt.buffer = append(wt.buffer, record)
@@ -255,7 +261,11 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 func (wt *WriterThread) Close(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context closed")
+		err := wt.writer.Close(ctx)
+		if err != nil {
+			return fmt.Errorf("%w: %s", constants.NonRetryableError, err)
+		}
+		return nil
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
 
@@ -270,7 +280,11 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 		wt.streamArtifact.mu.Lock()
 		defer wt.streamArtifact.mu.Unlock()
 
-		return wt.writer.Close(ctx)
+		err := wt.writer.Close(ctx)
+		if err != nil {
+			return fmt.Errorf("%w: %s", constants.NonRetryableError, err)
+		}
+		return nil
 	}
 }
 
