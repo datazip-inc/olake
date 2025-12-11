@@ -1,0 +1,8 @@
+{
+  "streams": [
+    {
+      "name": "chunk_test",
+      "sync_mode": "full_refresh"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "bucket_name": "source-data",
+  "region": "us-east-1",
+  "path_prefix": "csv",
+  "access_key_id": "admin",
+  "secret_access_key": "password",
+  "endpoint": "http://localhost:9000",
+  "file_format": "csv",
+  "compression": "gzip",
+  "has_header": true,
+  "delimiter": ",",
+  "stream_grouping_enabled": true,
+  "stream_grouping_level": 1,
+  "max_threads": 5,
+  "batch_size": 10000,
+  "retry_count": 3
+}
+
