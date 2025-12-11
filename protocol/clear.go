@@ -34,18 +34,15 @@ var clearCmd = &cobra.Command{
 		// Initialize state - clear command needs existing state for stream classification
 		state = &types.State{
 			Type:    types.StreamType,
-			Version: constants.StateVersion,
+			Version: constants.LatestStateVersion, // Default to 0 if state file doesn't have version
 		}
-
-		// Load existing state if available, otherwise use empty state
 		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
-				logger.Debugf("State file not available, starting with empty state: %v", err)
 				return err
 			}
 		}
-		constants.CurrentStateVersion = constants.StateVersion
-		state.Version = constants.CurrentStateVersion
+		state.Version = constants.LatestStateVersion
+		constants.LoadedStateVersion = state.Version
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {

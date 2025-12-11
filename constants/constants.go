@@ -32,7 +32,7 @@ const (
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
 	EffectiveParquetSize = int64(256) * 1024 * 1024 * int64(8)
-	StateVersion         = 1 // version of state file to be used for backward compatibility
+	LatestStateVersion   = 1 // version of state file to be used for backward compatibility
 )
 
 type DriverType string
@@ -49,5 +49,5 @@ var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
 
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 
-// CurrentStateVersion stores the version of the state file being used
-var CurrentStateVersion = 1
+// LoadedStateVersion stores the version of the state file being used
+var LoadedStateVersion = 1

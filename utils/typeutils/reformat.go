@@ -150,7 +150,7 @@ func ReformatBool(v interface{}) (bool, error) {
 	return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 }
 
-// reformat date
+// reformat date expects value and isTimestamp boolean which is used in parseStringTimestamp function
 func ReformatDate(v interface{}, isTimestamp bool) (time.Time, error) {
 	parsed, err := func() (time.Time, error) {
 		switch v := v.(type) {
@@ -230,6 +230,9 @@ func ReformatDate(v interface{}, isTimestamp bool) (time.Time, error) {
 	return parsed, nil
 }
 
+// parseStringTimestamp expects value and isTimestamp boolean
+// if this is a timestamp and unable to parse into correct format it will return epoch start time
+// if its a string and unable to parse into correct time format it will be returned as string
 func parseStringTimestamp(value string, isTimestamp bool) (time.Time, error) {
 	// Check if the string starts with a date pattern (YYYY-MM-DD)
 	startsWithDatePattern := func(value string) bool {
@@ -273,8 +276,7 @@ func parseStringTimestamp(value string, isTimestamp bool) (time.Time, error) {
 	}
 
 	// time unable to be parsed string will be returned as it state version >= 1 (backward compatibility)
-	if !isTimestamp && constants.CurrentStateVersion >= constants.StateVersion {
-		// return the string with no error in case passed value was a stirng as
+	if !isTimestamp && constants.LoadedStateVersion >= constants.LatestStateVersion {
 		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
 
