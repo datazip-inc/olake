@@ -91,3 +91,28 @@ func ParsePrivateKey(pemText, passphrase string) (ssh.Signer, error) {
 	}
 	return nil, err
 }
+
+// NoDeadlineConn is a net.Conn that ignores deadlines
+// The package crypto/ssh does not support deadlines, and some DB drivers(for GoLang) like that of MongoDB and Oracle internally call these deadline methods. So we wrap the connection in this custom connection that has those methods.
+type NoDeadlineConn struct {
+	net.Conn
+}
+
+func (c *NoDeadlineConn) SetDeadline(_ time.Time) error {
+	return nil // Ignore deadline setting
+}
+
+func (c *NoDeadlineConn) SetReadDeadline(_ time.Time) error {
+	return nil // Ignore read deadline setting
+}
+
+func (c *NoDeadlineConn) SetWriteDeadline(_ time.Time) error {
+	return nil // Ignore write deadline setting
+}
+
+func ConnWithCustomDeadlineSupport(conn net.Conn) (net.Conn, error) {
+	if conn == nil {
+		return nil, fmt.Errorf("connection is nil")
+	}
+	return &NoDeadlineConn{Conn: conn}, nil
+}
