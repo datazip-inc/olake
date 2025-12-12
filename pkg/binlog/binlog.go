@@ -156,12 +156,12 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	switch mysqlFlavor {
 	case "MySQL":
 		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
-			return mysql.Position{}, fmt.Errorf("failed to scan binlog position: %s", err)
+			return mysql.Position{}, fmt.Errorf("failed to scan MySQL binlog position: %s", err)
 		}
 	case "MariaDB":
 		// MariaDB returns 4 columns: File, Position, Binlog_Do_DB, Binlog_Ignore_DB
 		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB); err != nil {
-			return mysql.Position{}, fmt.Errorf("failed to scan binlog position: %s", err)
+			return mysql.Position{}, fmt.Errorf("failed to scan MariaDB binlog position: %s", err)
 		}
 	default:
 		return mysql.Position{}, fmt.Errorf("unsupported database flavor: %s", mysqlFlavor)

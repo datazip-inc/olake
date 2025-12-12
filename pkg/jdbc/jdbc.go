@@ -401,7 +401,7 @@ func MySQLTableColumnsQuery() string {
 }
 
 // MySQLVersion returns the version of the MySQL server
-// It returns the major and minor version of the MySQL server
+// It returns the flavor, major and minor version of the MySQL server
 func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error) {
 	var version string
 	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
