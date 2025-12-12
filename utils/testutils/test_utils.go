@@ -168,6 +168,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
+	// in case of Oracle, the stream names are in uppercase in stream.json
 	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
@@ -317,7 +318,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Full load + CDC tests")
+	t.Log("Starting Iceberg Full load + CDC tests")
 
 	testCases := []syncTestCase{
 		{
@@ -376,7 +377,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		})
 	}
 
-	t.Log("Full load + CDC tests completed successfully")
+	t.Log("Iceberg Full load + CDC tests completed successfully")
 
 	// Drop the Iceberg table after all tests are finished
 	dropIcebergTable(t, testTable, cfg.DestinationDB)
@@ -472,7 +473,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Full load + Incremental tests")
+	t.Log("Starting Iceberg Full load + Incremental tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
@@ -547,7 +548,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		})
 	}
 
-	t.Log("Full load + Incremental tests completed successfully")
+	t.Log("Iceberg Full load + Incremental tests completed successfully")
 	return nil
 }
 

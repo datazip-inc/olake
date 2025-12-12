@@ -48,7 +48,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 				id_bigint BIGINT,
 				id_int INT,
-				id_id INT,
+				id_cursor INT,
 				id_int_unsigned INT UNSIGNED,
 				id_integer INT,
 				id_integer_unsigned INT UNSIGNED,
@@ -91,7 +91,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "insert":
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
-			id_id, id, id_bigint,
+			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
 			id_tinyint, id_tinyint_unsigned, price_decimal, price_double,
@@ -116,7 +116,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
-				id_id = NULL,
+				id_cursor = NULL,
 				id_bigint = 987654321098765,
 				id_int = 200, id_int_unsigned = 201,
 				id_integer = 202, id_integer_unsigned = 203,
@@ -180,7 +180,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
-			id_id, id, id_bigint,
+			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
 			id_tinyint, id_tinyint_unsigned, price_decimal, price_double,

@@ -45,7 +45,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				col_bigint BIGINT,
-				col_id INT,
+				col_cursor INT,
 				col_bigserial BIGSERIAL PRIMARY KEY,
 				col_bool BOOLEAN,
 				col_char CHAR(1),
@@ -89,7 +89,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "insert":
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
-				col_id, col_bigint, col_bool, col_char, col_character,
+				col_cursor, col_bigint, col_bool, col_char, col_character,
 				col_character_varying, col_date, col_decimal,
 				col_double_precision, col_float4, col_int, col_int2,
 				col_integer, col_interval, col_json, col_jsonb,
@@ -123,7 +123,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_double_precision = 987.654321,
 				col_float4 = 543.21,
 				col_int = 321,
-				col_id = NULL,
+				col_cursor = NULL,
 				col_int2 = 321,
 				col_integer = 54321,
 				col_interval = '2 hours',
@@ -195,7 +195,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
-			col_id, col_bigint, col_bigserial, col_bool, col_char, col_character,
+			col_cursor, col_bigint, col_bigserial, col_bool, col_char, col_character,
 			col_character_varying, col_date, col_decimal,
 			col_double_precision, col_float4, col_int, col_int2, col_integer,
 			col_interval, col_json, col_jsonb, col_name, col_numeric,
