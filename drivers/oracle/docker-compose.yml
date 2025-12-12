@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  oracle-db:
+    image: gvenzl/oracle-free:23-slim
+    container_name: oracle-23c
+    ports:
+      - "1521:1521"
+    environment:
+      ORACLE_PASSWORD: secret1234
+      ORACLE_DATABASE: orcl
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+
+volumes:
+  oracle-data:
