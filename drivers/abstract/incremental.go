@@ -3,7 +3,6 @@ package abstract
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -36,12 +35,12 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
-			a.state.SetCursor(stream.Self(), primaryCursor, a.formatTimestampToUTC(maxPrimaryCursorValue))
+			a.state.SetCursor(stream.Self(), primaryCursor, typeutils.FormatCursorValue(maxPrimaryCursorValue))
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
 			if secondaryCursor != "" {
-				a.state.SetCursor(stream.Self(), secondaryCursor, a.formatTimestampToUTC(maxSecondaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.FormatCursorValue(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
 					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
 				}
@@ -55,7 +54,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 	}
 
 	// Wait for all backfill processes to complete
-	err = a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
+	return a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
 		a.GlobalConnGroup.Add(func(gCtx context.Context) (err error) {
 			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 			stream := streams[index]
@@ -81,9 +80,12 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			defer a.handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID,
 				func(ctx context.Context) error {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					// Save cursor state on success
-					a.state.SetCursor(stream.Self(), primaryCursor, a.formatTimestampToUTC(maxPrimaryCursorValue))
-					a.state.SetCursor(stream.Self(), secondaryCursor, a.formatTimestampToUTC(maxSecondaryCursorValue))
+					a.state.SetCursor(stream.Self(), primaryCursor, typeutils.FormatCursorValue(maxPrimaryCursorValue))
+					a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.FormatCursorValue(maxSecondaryCursorValue))
 					return nil
 				})()
 
@@ -95,10 +97,6 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 		})
 		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("failed to process incremental streams: %s", err)
-	}
-	return nil
 }
 
 // RefomratCursorValue to parse the cursor value to the correct type
@@ -140,12 +138,4 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 		secondaryCursorValue = utils.Ternary(typeutils.Compare(secondaryCursorValue, maxSecondaryCursorValue) == 1, secondaryCursorValue, maxSecondaryCursorValue)
 	}
 	return primaryCursorValue, secondaryCursorValue
-}
-
-// formatTimestampToUTC is used to make time format consistent in state (Removing timezone info)
-func (a *AbstractDriver) formatTimestampToUTC(cursorValue any) any {
-	if _, ok := cursorValue.(time.Time); ok {
-		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
-	}
-	return cursorValue
 }

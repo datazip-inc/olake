@@ -54,11 +54,15 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 		defer a.handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
 			func(ctx context.Context) error {
-				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+
 				chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
+				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				return nil
 			})()
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {

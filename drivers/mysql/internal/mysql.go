@@ -217,7 +217,11 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
 
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL, types.CDC, types.STRICTCDC)
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, nil
 }
 

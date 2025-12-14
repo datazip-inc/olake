@@ -221,7 +221,7 @@ func generateThreadID(streamID string) string {
 func (a *AbstractDriver) handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer interface{}, threadID string, postProcess func(ctx context.Context) error) func() {
 	return func() {
 		if cancel == nil {
-			*err = fmt.Errorf("%w: cancel is nil, prev error: %w", constants.NonRetryableError, *err)
+			*err = fmt.Errorf("%w: cancel is nil, prev error: %w", constants.ErrNonRetryable, *err)
 			return
 		}
 		// Cancel context if there's an error, so other threads using this context can detect the failure
@@ -250,21 +250,21 @@ func (a *AbstractDriver) handleWriterCleanup(ctx context.Context, cancel context
 		}
 
 		if closeErr != nil {
-			*err = fmt.Errorf("%w: %s, prev error: %v", constants.NonRetryableError, closeErr, *err)
+			*err = fmt.Errorf("%w: %s, prev error: %v", constants.ErrNonRetryable, closeErr, *err)
 		}
 
 		// check for panics before post-processing
 		if r := recover(); r != nil {
-			*err = fmt.Errorf("%w: panic recovered: %v, prev error: %v", constants.NonRetryableError, r, *err)
+			*err = fmt.Errorf("%w: panic recovered: %v, prev error: %v", constants.ErrNonRetryable, r, *err)
 		}
 
 		postErr := postProcess(ctx)
 		if postErr != nil {
-			*err = fmt.Errorf("%w: post process error: %s, prev error: %v", constants.NonRetryableError, postErr, *err)
+			*err = fmt.Errorf("%w: post process error: %s, prev error: %v", constants.ErrNonRetryable, postErr, *err)
 		}
 
 		if *err != nil && threadID != "" {
-			*err = fmt.Errorf("%w: thread[%s]: %s", constants.NonRetryableError, threadID, *err)
+			*err = fmt.Errorf("%w: thread[%s]: %s", constants.ErrNonRetryable, threadID, *err)
 		}
 	}
 }

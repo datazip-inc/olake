@@ -76,7 +76,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
 			// suggesting to proceed with clear destination
 			if parsed != socket.ConfirmedFlushLSN {
-				return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.NonRetryableError, parsed, socket.ConfirmedFlushLSN)
+				return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, socket.ConfirmedFlushLSN)
 			}
 		}
 	}

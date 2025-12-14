@@ -43,4 +43,5 @@ const (
 )
 
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
-var NonRetryableError = fmt.Errorf("failed with non retryable error")
+var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
+var SkipCDCDrivers = []DriverType{Oracle}

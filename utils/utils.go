@@ -446,7 +446,7 @@ func RetryOnBackoff(attempts int, sleep time.Duration, f func(attempt int) error
 		}
 
 		// check if error is non retryable
-		if errors.Is(err, constants.NonRetryableError) || strings.Contains(err.Error(), "context canceled") {
+		if errors.Is(err, constants.ErrNonRetryable) || strings.Contains(err.Error(), "context canceled") {
 			return err
 		}
 

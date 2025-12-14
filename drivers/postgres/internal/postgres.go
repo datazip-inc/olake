@@ -229,7 +229,11 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 			stream.WithPrimaryKey(column.Name)
 		}
 
-		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL, types.CDC, types.STRICTCDC)
+		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		if p.CDCSupported() {
+			stream.WithSyncMode(types.CDC, types.STRICTCDC)
+		}
+
 		return stream, nil
 	}
 

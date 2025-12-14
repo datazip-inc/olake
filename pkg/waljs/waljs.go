@@ -65,7 +65,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 			return nil
 		default:
 			if !messageReceived && w.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > w.socket.initialWaitTime {
-				return fmt.Errorf("%w, try increasing it or do full load", constants.NonRetryableError)
+				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrNonRetryable)
 			}
 
 			if w.socket.ClientXLogPos >= w.socket.CurrentWalPosition {

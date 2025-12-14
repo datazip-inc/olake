@@ -192,7 +192,11 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return true
 	})
 
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL, types.CDC, types.STRICTCDC)
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, err
 }
 
