@@ -25,7 +25,6 @@ type SSHConfig struct {
 const (
 	StrictHostKeyVerification   = "strict"
 	InsecureHostKeyVerification = "insecure"
-	EmptyHostKeyVerification    = ""
 )
 
 func (c *SSHConfig) Validate() error {
@@ -51,6 +50,10 @@ func (c *SSHConfig) Validate() error {
 		}
 	}
 
+	if c.HostKeyVerificationMode == "" {
+		c.HostKeyVerificationMode = InsecureHostKeyVerification
+	}
+
 	return nil
 }
 
@@ -74,8 +77,6 @@ func (c *SSHConfig) getHostKeyCallback() (ssh.HostKeyCallback, error) {
 	}
 
 	switch c.HostKeyVerificationMode {
-	case EmptyHostKeyVerification:
-		return insecureStrategy()
 	case InsecureHostKeyVerification:
 		return insecureStrategy()
 	case StrictHostKeyVerification:
