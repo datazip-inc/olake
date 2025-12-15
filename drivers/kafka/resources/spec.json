@@ -75,12 +75,80 @@
                             "title": "SASL JAAS Config",
                             "description": "JAAS configuration string (e.g., org.apache.kafka.common.security.plain.PlainLoginModule required username=\"user\" password=\"pass\";)",
                             "minLength": 1
+                        },
+                        "ssl": {
+                            "type": "object",
+                            "title": "SSL Configuration",
+                            "description": "SSL/TLS certificate configuration (optional for AWS MSK)",
+                            "properties": {
+                                "ca_cert_path": {
+                                    "type": "string",
+                                    "title": "CA Certificate Path",
+                                    "description": "Path to CA certificate file"
+                                },
+                                "client_cert_path": {
+                                    "type": "string",
+                                    "title": "Client Certificate Path",
+                                    "description": "Path to client certificate file for mTLS authentication"
+                                },
+                                "client_key_path": {
+                                    "type": "string",
+                                    "title": "Client Key Path",
+                                    "description": "Path to client private key file for mTLS authentication"
+                                },
+                                "skip_verify": {
+                                    "type": "boolean",
+                                    "title": "Skip SSL Verification",
+                                    "description": "Skip server certificate verification (not recommended for production)",
+                                    "default": false
+                                }
+                            }
                         }
                     },
                     "required": [
                         "security_protocol",
                         "sasl_mechanism",
                         "sasl_jaas_config"
+                    ]
+                },
+                {
+                    "title": "SSL",
+                    "type": "object",
+                    "properties": {
+                        "security_protocol": {
+                            "const": "SSL"
+                        },
+                        "ssl": {
+                            "type": "object",
+                            "title": "SSL Configuration",
+                            "description": "SSL/TLS certificate configuration (all fields optional for AWS MSK)",
+                            "properties": {
+                                "ca_cert_path": {
+                                    "type": "string",
+                                    "title": "CA Certificate Path",
+                                    "description": "Path to CA certificate file"
+                                },
+                                "client_cert_path": {
+                                    "type": "string",
+                                    "title": "Client Certificate Path",
+                                    "description": "Path to client certificate file for mTLS authentication"
+                                },
+                                "client_key_path": {
+                                    "type": "string",
+                                    "title": "Client Key Path",
+                                    "description": "Path to client private key file for mTLS authentication"
+                                },
+                                "skip_verify": {
+                                    "type": "boolean",
+                                    "title": "Skip SSL Verification",
+                                    "description": "Skip server certificate verification (not recommended for production)",
+                                    "default": false
+                                }
+                            }
+                        }
+                    },
+                    "required": [
+                        "security_protocol"
                     ]
                 }
             ]
