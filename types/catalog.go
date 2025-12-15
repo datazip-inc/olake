@@ -39,11 +39,21 @@ type StatusRow struct {
 
 type StreamMetadata struct {
 	ChunkColumn    string `json:"chunk_column,omitempty"`
+	PartitionRegex string `json:"partition_regex,omitempty"`
+	StreamName     string `json:"stream_name,omitempty"`
+	AppendMode     bool   `json:"append_mode,omitempty"`
+	Normalization  bool   `json:"normalization,omitempty"`
+	Filter         string `json:"filter,omitempty"`
+}
+
+// For stream_defaults – no omitempty
+type DefaultStreamMetadata struct {
+	ChunkColumn    string `json:"chunk_column"`
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode"`
 	Normalization  bool   `json:"normalization"`
-	Filter         string `json:"filter,omitempty"`
+	Filter         string `json:"filter"`
 }
 
 // createStreamMetadata creates StreamMetadata with proper defaults based on driver type
@@ -63,13 +73,13 @@ func CreateStreamMetadata(streamName, driver string) StreamMetadata {
 
 // GetStreamDefaults returns default stream metadata based on driver type
 // This represents the default values for all streams within a driver
-func GetStreamDefaults(driver string) *StreamMetadata {
+func GetStreamDefaults(driver string) *DefaultStreamMetadata {
 	// Whether the source is a relational driver or not
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
 	})
 
-	return &StreamMetadata{
+	return &DefaultStreamMetadata{
 		AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
 		Normalization: isRelational,
 	}
@@ -77,7 +87,7 @@ func GetStreamDefaults(driver string) *StreamMetadata {
 
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
-	StreamDefaults  *StreamMetadata             `json:"stream_defaults,omitempty"`
+	StreamDefaults  *DefaultStreamMetadata      `json:"stream_defaults,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
