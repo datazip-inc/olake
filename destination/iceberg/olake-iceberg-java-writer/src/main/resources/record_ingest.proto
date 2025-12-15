@@ -15,7 +15,7 @@ message IcebergPayload {
     GET_OR_CREATE_TABLE = 4;
     REFRESH_TABLE_SCHEMA = 5;
   }
-
+  
   PayloadType type = 1;
 
   message Metadata {
@@ -44,7 +44,7 @@ message IcebergPayload {
         bytes bytes_value = 7;
       }
     }
-
+    
     repeated FieldValue fields = 1;
     string record_type = 2;  // "u", "c", "r"
   }
