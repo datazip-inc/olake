@@ -1,9 +1,10 @@
-package internal
+package arrowwriter
 
 import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -134,7 +135,7 @@ func truncateTransform(val any, n int, colType string) (string, error) {
 	switch colType {
 	case "int":
 		v, _ := val.(int32)
-		if n > int(^int32(0)) {
+		if n > math.MaxInt32 {
 			return "", fmt.Errorf("truncate width %d exceeds int32 range", n)
 		}
 		n32 := int32(n)

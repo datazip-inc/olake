@@ -233,8 +233,8 @@ public class IcebergTableOperator {
     }
   }
 
-  
-   public void accumulateDataFiles(String threadId, Table table, List<String> filePaths) {
+     public void accumulateDataFiles(String threadId, Table table, List<String> filePaths,
+               List<String> partitionValues) {
           if (table == null) {
                LOGGER.warn("No table found for thread: {}", threadId);
                return;
@@ -249,20 +249,19 @@ public class IcebergTableOperator {
                          InputFile inputFile = fileIO.newInputFile(filePath);
                          Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
 
-                         // Extract partition path from file path to scope data file to partition
-                         String partitionPath = extractPartitionPath(table, filePath);
-
                          DataFiles.Builder dataFileBuilder = DataFiles.builder(table.spec())
                                    .withPath(filePath)
                                    .withFormat(FileFormat.PARQUET)
                                    .withFileSizeInBytes(inputFile.getLength())
                                    .withMetrics(metrics);
 
-                         if (partitionPath != null && !partitionPath.isEmpty()) {
-                              org.apache.iceberg.PartitionData partitionData = createPartitionData(table.spec(),
-                              partitionPath);
+                         if (partitionValues != null && !partitionValues.isEmpty()) {
+                              org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
+                                        table.spec(),
+                                        partitionValues);
                               dataFileBuilder.withPartition(partitionData);
-                              LOGGER.debug("Thread {}: data file scoped to partition: {}", threadId, partitionPath);
+                              LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId,
+                                        partitionValues.size());
                          } else {
                               LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
                          }
@@ -288,8 +287,8 @@ public class IcebergTableOperator {
           }
      }
 
-    public void accumulateDeleteFiles(String threadId, Table table, List<String> filePaths, int equalityFieldId,
-               long recordCount) {
+     public void accumulateDeleteFiles(String threadId, Table table, List<String> filePaths, int equalityFieldId,
+               long recordCount, List<String> partitionValues) {
           if (table == null) {
                LOGGER.warn("No table found for thread: {}", threadId);
                return;
@@ -303,9 +302,6 @@ public class IcebergTableOperator {
                          InputFile inputFile = fileIO.newInputFile(filePath);
                          long fileSize = inputFile.getLength();
 
-                         // Extract partition path from file path to scope delete file to partition
-                         String partitionPath = extractPartitionPath(table, filePath);
-
                          FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
                                    .ofEqualityDeletes(equalityFieldId)
                                    .withPath(filePath)
@@ -313,13 +309,13 @@ public class IcebergTableOperator {
                                    .withFileSizeInBytes(fileSize)
                                    .withRecordCount(recordCount);
 
-                         if (partitionPath != null && !partitionPath.isEmpty()) {
-                              // Convert partition path to PartitionData to handle null values properly
-                              // This allows "col=null" in paths instead of "col=__HIVE_DEFAULT_PARTITION__"
-                              org.apache.iceberg.PartitionData partitionData = createPartitionData(table.spec(),
-                                        partitionPath);
+                         if (partitionValues != null && !partitionValues.isEmpty()) {
+                              org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
+                                        table.spec(),
+                                        partitionValues);
                               deleteFileBuilder.withPartition(partitionData);
-                              LOGGER.debug("Thread {}: delete file scoped to partition: {}", threadId, partitionPath);
+                              LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
+                                        partitionValues.size());
                          } else {
                               LOGGER.debug("Thread {}: delete file created as global (unpartitioned)", threadId);
                          }
@@ -345,136 +341,74 @@ public class IcebergTableOperator {
           }
      }
 
-    private String extractPartitionPath(Table table, String filePath) {
-          if (table.spec().isUnpartitioned()) {
-               return "";
-          }
-
-          try {
-               String tableLocation = table.location();
-               if (filePath.startsWith(tableLocation)) {
-                    String relativePath = filePath.substring(tableLocation.length());
-                    if (relativePath.startsWith("/")) {
-                         relativePath = relativePath.substring(1);
-                    }
-
-                    // Skip the 'data/' directory prefix if present
-                    if (relativePath.startsWith("data/")) {
-                         relativePath = relativePath.substring(5); // Remove "data/"
-                    }
-
-                    // Get the directory part (everything before the last /)
-                    int lastSlash = relativePath.lastIndexOf('/');
-                    if (lastSlash > 0) {
-                         String partitionPath = relativePath.substring(0, lastSlash);
-                         return partitionPath;
-                    }
-               }
-          } catch (Exception e) {
-               LOGGER.warn("Failed to extract partition path from {}: {}", filePath, e.getMessage());
-          }
-
-          return "";
-     }
-
-    private List<String> parsePartitionValues(String partitionPath) {
-          List<String> values = new ArrayList<>();
-
-          if (partitionPath == null || partitionPath.isEmpty()) {
-               return values;
-          }
-
-          // Split by / to get individual partition fields
-          String[] parts = partitionPath.split("/");
-          for (String part : parts) {
-               // Each part is like "col=value"
-               int equalsIndex = part.indexOf('=');
-               if (equalsIndex > 0 && equalsIndex < part.length() - 1) {
-                    String value = part.substring(equalsIndex + 1);
-                    try {
-                         value = java.net.URLDecoder.decode(value, "UTF-8");
-                    } catch (java.io.UnsupportedEncodingException e) {
-                         LOGGER.warn("Failed to URL-decode partition value: {}", value);
-                    }
-
-                    values.add("null".equals(value) ? null : value);
-               }
-          }
-
-          return values;
-     }
-
-     private org.apache.iceberg.PartitionData createPartitionData(org.apache.iceberg.PartitionSpec spec, String partitionPath) {
+     private org.apache.iceberg.PartitionData createPartitionDataFromValues(org.apache.iceberg.PartitionSpec spec,
+               List<String> partitionValues) {
           PartitionData partitionData = new org.apache.iceberg.PartitionData(spec.partitionType());
-
-          if (partitionPath == null || partitionPath.isEmpty()) {
+          if (partitionValues == null || partitionValues.isEmpty()) {
                return partitionData;
           }
 
-          List<String> values = parsePartitionValues(partitionPath);
-
           // Set each value in the PartitionData
-          for (int i = 0; i < values.size() && i < spec.fields().size(); i++) {
-               String stringValue = values.get(i);
+          for (int i = 0; i < partitionValues.size() && i < spec.fields().size(); i++) {
+               String stringValue = partitionValues.get(i);
                org.apache.iceberg.types.Type fieldType = partitionData.getType(i);
+               PartitionField partitionField = spec.fields().get(i);
+               String transformName = partitionField.transform().toString().toLowerCase();
 
                // Convert string value to proper type, handling nulls
-               Object typedValue = stringValue == null ? null : convertPartitionValue(fieldType, stringValue, spec.fields().get(i));
+               Object typedValue = null;
+               if (stringValue != null && !"null".equals(stringValue)) {
+                    try {
+                         typedValue = org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
+                    } catch (NumberFormatException | UnsupportedOperationException e) {
+                         try {
+                              if (transformName.equals("identity")
+                                        && fieldType.typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP) {
+                                   java.time.OffsetDateTime offsetDateTime = java.time.OffsetDateTime
+                                             .parse(stringValue);
+                                   java.time.Instant instant = offsetDateTime.toInstant();
+                                   typedValue = instant.toEpochMilli() * 1000;
+                              } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
+                                   typedValue = Integer.parseInt(stringValue);
+                              } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
+                                   String[] parts = stringValue.split("-");
+                                   int year = Integer.parseInt(parts[0]);
+                                   int month = Integer.parseInt(parts[1]);
+                                   typedValue = (year - 1970) * 12 + (month - 1);
+                              } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                                   java.time.LocalDate date = java.time.LocalDate.parse(stringValue);
+                                   java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
+                                   typedValue = (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
+                              } else if (transformName.contains("hour")
+                                        && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
+                                   String[] parts = stringValue.split("-");
+                                   java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
+                                             Integer.parseInt(parts[0]),
+                                             Integer.parseInt(parts[1]),
+                                             Integer.parseInt(parts[2]),
+                                             Integer.parseInt(parts[3]),
+                                             0);
+                                   java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
+                                   typedValue = (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
+                              } else {
+                                   throw new RuntimeException(
+                                             "Cannot parse partition value '" + stringValue + "' for transform "
+                                                       + transformName,
+                                             e);
+                              }
+                         } catch (Exception parseError) {
+                              LOGGER.warn("Failed to parse partition value '{}': {}", stringValue,
+                                        parseError.getMessage());
+                              throw new RuntimeException(
+                                        "Cannot parse partition value '" + stringValue + "' for transform "
+                                                  + transformName,
+                                        parseError);
+                         }
+                    }
+               }
                partitionData.set(i, typedValue);
           }
 
           return partitionData;
-     }
-
-     private Object convertPartitionValue(org.apache.iceberg.types.Type fieldType, String stringValue, PartitionField partitionField) {
-          String transformName = partitionField.transform().toString().toLowerCase();
-
-          try {
-               return org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
-          } catch (NumberFormatException | UnsupportedOperationException e) {
-
-               try {
-                    if (transformName.equals("identity")
-                              && fieldType.typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP) {
-
-                         java.time.OffsetDateTime offsetDateTime = java.time.OffsetDateTime.parse(stringValue);
-                         java.time.Instant instant = offsetDateTime.toInstant();
-                         return instant.toEpochMilli() * 1000; // Convert milliseconds to microseconds
-                    } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
-                         // Year format: "2025" -> return as-is (already an integer)
-                         return Integer.parseInt(stringValue);
-                    } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
-                         // Month format: "2025-12" -> convert to months since epoch
-                         String[] parts = stringValue.split("-");
-                         int year = Integer.parseInt(parts[0]);
-                         int month = Integer.parseInt(parts[1]);
-                         int monthsSinceEpoch = (year - 1970) * 12 + (month - 1);
-                         return monthsSinceEpoch;
-                    } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                         // Day format: "2025-12-08" -> convert to days since epoch
-                         java.time.LocalDate date = java.time.LocalDate.parse(stringValue);
-                         java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
-                         return (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
-                    } else if (transformName.contains("hour") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
-                         // Hour format: "2025-12-08-02" -> convert to hours since epoch
-                         String[] parts = stringValue.split("-");
-                         java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
-                                   Integer.parseInt(parts[0]), // year
-                                   Integer.parseInt(parts[1]), // month
-                                   Integer.parseInt(parts[2]), // day
-                                   Integer.parseInt(parts[3]), // hour
-                                   0 // minute
-                         );
-                         java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
-                         return (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
-                    }
-               } catch (Exception parseError) {
-                    LOGGER.warn("Failed to parse human-readable date format '{}': {}", stringValue,
-                              parseError.getMessage());
-               }
-
-               throw new RuntimeException(
-                         "Cannot parse partition value '" + stringValue + "' for transform " + transformName, e);
-          }
      }
 }

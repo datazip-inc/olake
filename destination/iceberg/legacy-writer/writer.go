@@ -2,9 +2,11 @@ package legacywriter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
@@ -17,10 +19,10 @@ type LegacyWriter struct {
 	options *destination.Options
 	schema  map[string]string
 	stream  types.StreamInterface
-	server  internal.LegacyServerClient
+	server  internal.ServerClient
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.LegacyServerClient) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
 	return &LegacyWriter{
 		options: options,
 		schema:  schema,
@@ -46,7 +48,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 
 		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 		if !w.stream.NormalizationEnabled() {
-			protoCols, err := internal.RawDataColumnBuffer(record, protoSchema)
+			protoCols, err := RawDataColumnBuffer(record, protoSchema)
 			if err != nil {
 				return fmt.Errorf("failed to create raw data column buffer: %s", err)
 			}
@@ -129,7 +131,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	defer cancel()
 
 	// Send the batch to the server
-	res, err := w.server.SendClientRequest(reqCtx, request)
+	res, _, err := w.server.SendClientRequest(reqCtx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send batch: %s", err)
 	}
@@ -152,7 +154,7 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 
-	res, err := w.server.SendClientRequest(ctx, request)
+	res, _, err := w.server.SendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send commit message: %s", err)
 	}
@@ -160,4 +162,32 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, res)
 
 	return nil
+}
+
+func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
+	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
+	protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
+
+	dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OlakeID}}
+	dataMap[constants.OpType] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OperationType}}
+	dataMap[constants.OlakeTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().UnixMilli()}}
+	if record.CdcTimestamp != nil {
+		dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
+	}
+
+	bytesData, err := json.Marshal(record.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data in normalization: %s", err)
+	}
+	dataMap[constants.StringifiedData] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: string(bytesData)}}
+
+	for _, field := range protoSchema {
+		value, ok := dataMap[field.Key]
+		if !ok {
+			protoColumnsValue = append(protoColumnsValue, nil)
+			continue
+		}
+		protoColumnsValue = append(protoColumnsValue, value)
+	}
+	return protoColumnsValue, nil
 }

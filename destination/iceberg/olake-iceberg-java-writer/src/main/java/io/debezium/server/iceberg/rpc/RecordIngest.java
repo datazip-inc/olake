@@ -6206,48 +6206,32 @@ public final class RecordIngest {
     public enum PayloadType
         implements com.google.protobuf.ProtocolMessageEnum {
       /**
-       * <code>REGISTER = 0;</code>
+       * <code>UPLOAD_FILE = 0;</code>
        */
-      REGISTER(0),
+      UPLOAD_FILE(0),
       /**
-       * <code>UPLOAD_FILE = 1;</code>
+       * <code>REGISTER = 1;</code>
        */
-      UPLOAD_FILE(1),
+      REGISTER(1),
       /**
-       * <code>COMMIT = 2;</code>
+       * <code>JSONSCHEMA = 2;</code>
        */
-      COMMIT(2),
-      /**
-       * <code>GET_SCHEMA_ID = 3;</code>
-       */
-      GET_SCHEMA_ID(3),
-      /**
-       * <code>GET_ALL_FIELD_IDS = 4;</code>
-       */
-      GET_ALL_FIELD_IDS(4),
+      JSONSCHEMA(2),
       UNRECOGNIZED(-1),
       ;
 
       /**
-       * <code>REGISTER = 0;</code>
+       * <code>UPLOAD_FILE = 0;</code>
        */
-      public static final int REGISTER_VALUE = 0;
+      public static final int UPLOAD_FILE_VALUE = 0;
       /**
-       * <code>UPLOAD_FILE = 1;</code>
+       * <code>REGISTER = 1;</code>
        */
-      public static final int UPLOAD_FILE_VALUE = 1;
+      public static final int REGISTER_VALUE = 1;
       /**
-       * <code>COMMIT = 2;</code>
+       * <code>JSONSCHEMA = 2;</code>
        */
-      public static final int COMMIT_VALUE = 2;
-      /**
-       * <code>GET_SCHEMA_ID = 3;</code>
-       */
-      public static final int GET_SCHEMA_ID_VALUE = 3;
-      /**
-       * <code>GET_ALL_FIELD_IDS = 4;</code>
-       */
-      public static final int GET_ALL_FIELD_IDS_VALUE = 4;
+      public static final int JSONSCHEMA_VALUE = 2;
 
 
       public final int getNumber() {
@@ -6274,11 +6258,9 @@ public final class RecordIngest {
        */
       public static PayloadType forNumber(int value) {
         switch (value) {
-          case 0: return REGISTER;
-          case 1: return UPLOAD_FILE;
-          case 2: return COMMIT;
-          case 3: return GET_SCHEMA_ID;
-          case 4: return GET_ALL_FIELD_IDS;
+          case 0: return UPLOAD_FILE;
+          case 1: return REGISTER;
+          case 2: return JSONSCHEMA;
           default: return null;
         }
       }
@@ -6370,23 +6352,29 @@ public final class RecordIngest {
       long getRecordCount();
 
       /**
-       * <pre>
-       * Only set for delete files
-       * </pre>
-       *
-       * <code>optional int32 equality_field_id = 4;</code>
-       * @return Whether the equalityFieldId field is set.
+       * <code>repeated string partition_values = 5;</code>
+       * @return A list containing the partitionValues.
        */
-      boolean hasEqualityFieldId();
+      java.util.List<java.lang.String>
+          getPartitionValuesList();
       /**
-       * <pre>
-       * Only set for delete files
-       * </pre>
-       *
-       * <code>optional int32 equality_field_id = 4;</code>
-       * @return The equalityFieldId.
+       * <code>repeated string partition_values = 5;</code>
+       * @return The count of partitionValues.
        */
-      int getEqualityFieldId();
+      int getPartitionValuesCount();
+      /**
+       * <code>repeated string partition_values = 5;</code>
+       * @param index The index of the element to return.
+       * @return The partitionValues at the given index.
+       */
+      java.lang.String getPartitionValues(int index);
+      /**
+       * <code>repeated string partition_values = 5;</code>
+       * @param index The index of the value to return.
+       * @return The bytes of the partitionValues at the given index.
+       */
+      com.google.protobuf.ByteString
+          getPartitionValuesBytes(int index);
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata}
@@ -6403,6 +6391,7 @@ public final class RecordIngest {
       private FileMetadata() {
         fileType_ = "";
         filePath_ = "";
+        partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
       }
 
       @java.lang.Override
@@ -6430,7 +6419,6 @@ public final class RecordIngest {
                 io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.class, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.Builder.class);
       }
 
-      private int bitField0_;
       public static final int FILE_TYPE_FIELD_NUMBER = 1;
       @SuppressWarnings("serial")
       private volatile java.lang.Object fileType_ = "";
@@ -6520,31 +6508,40 @@ public final class RecordIngest {
         return recordCount_;
       }
 
-      public static final int EQUALITY_FIELD_ID_FIELD_NUMBER = 4;
-      private int equalityFieldId_ = 0;
+      public static final int PARTITION_VALUES_FIELD_NUMBER = 5;
+      @SuppressWarnings("serial")
+      private com.google.protobuf.LazyStringList partitionValues_;
       /**
-       * <pre>
-       * Only set for delete files
-       * </pre>
-       *
-       * <code>optional int32 equality_field_id = 4;</code>
-       * @return Whether the equalityFieldId field is set.
+       * <code>repeated string partition_values = 5;</code>
+       * @return A list containing the partitionValues.
        */
-      @java.lang.Override
-      public boolean hasEqualityFieldId() {
-        return ((bitField0_ & 0x00000001) != 0);
+      public com.google.protobuf.ProtocolStringList
+          getPartitionValuesList() {
+        return partitionValues_;
       }
       /**
-       * <pre>
-       * Only set for delete files
-       * </pre>
-       *
-       * <code>optional int32 equality_field_id = 4;</code>
-       * @return The equalityFieldId.
+       * <code>repeated string partition_values = 5;</code>
+       * @return The count of partitionValues.
        */
-      @java.lang.Override
-      public int getEqualityFieldId() {
-        return equalityFieldId_;
+      public int getPartitionValuesCount() {
+        return partitionValues_.size();
+      }
+      /**
+       * <code>repeated string partition_values = 5;</code>
+       * @param index The index of the element to return.
+       * @return The partitionValues at the given index.
+       */
+      public java.lang.String getPartitionValues(int index) {
+        return partitionValues_.get(index);
+      }
+      /**
+       * <code>repeated string partition_values = 5;</code>
+       * @param index The index of the value to return.
+       * @return The bytes of the partitionValues at the given index.
+       */
+      public com.google.protobuf.ByteString
+          getPartitionValuesBytes(int index) {
+        return partitionValues_.getByteString(index);
       }
 
       private byte memoizedIsInitialized = -1;
@@ -6570,8 +6567,8 @@ public final class RecordIngest {
         if (recordCount_ != 0L) {
           output.writeInt64(3, recordCount_);
         }
-        if (((bitField0_ & 0x00000001) != 0)) {
-          output.writeInt32(4, equalityFieldId_);
+        for (int i = 0; i < partitionValues_.size(); i++) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 5, partitionValues_.getRaw(i));
         }
         getUnknownFields().writeTo(output);
       }
@@ -6592,9 +6589,13 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeInt64Size(3, recordCount_);
         }
-        if (((bitField0_ & 0x00000001) != 0)) {
-          size += com.google.protobuf.CodedOutputStream
-            .computeInt32Size(4, equalityFieldId_);
+        {
+          int dataSize = 0;
+          for (int i = 0; i < partitionValues_.size(); i++) {
+            dataSize += computeStringSizeNoTag(partitionValues_.getRaw(i));
+          }
+          size += dataSize;
+          size += 1 * getPartitionValuesList().size();
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -6617,11 +6618,8 @@ public final class RecordIngest {
             .equals(other.getFilePath())) return false;
         if (getRecordCount()
             != other.getRecordCount()) return false;
-        if (hasEqualityFieldId() != other.hasEqualityFieldId()) return false;
-        if (hasEqualityFieldId()) {
-          if (getEqualityFieldId()
-              != other.getEqualityFieldId()) return false;
-        }
+        if (!getPartitionValuesList()
+            .equals(other.getPartitionValuesList())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -6640,9 +6638,9 @@ public final class RecordIngest {
         hash = (37 * hash) + RECORD_COUNT_FIELD_NUMBER;
         hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
             getRecordCount());
-        if (hasEqualityFieldId()) {
-          hash = (37 * hash) + EQUALITY_FIELD_ID_FIELD_NUMBER;
-          hash = (53 * hash) + getEqualityFieldId();
+        if (getPartitionValuesCount() > 0) {
+          hash = (37 * hash) + PARTITION_VALUES_FIELD_NUMBER;
+          hash = (53 * hash) + getPartitionValuesList().hashCode();
         }
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
@@ -6776,7 +6774,8 @@ public final class RecordIngest {
           fileType_ = "";
           filePath_ = "";
           recordCount_ = 0L;
-          equalityFieldId_ = 0;
+          partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+          bitField0_ = (bitField0_ & ~0x00000008);
           return this;
         }
 
@@ -6803,9 +6802,18 @@ public final class RecordIngest {
         @java.lang.Override
         public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata buildPartial() {
           io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata result = new io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata(this);
+          buildPartialRepeatedFields(result);
           if (bitField0_ != 0) { buildPartial0(result); }
           onBuilt();
           return result;
+        }
+
+        private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata result) {
+          if (((bitField0_ & 0x00000008) != 0)) {
+            partitionValues_ = partitionValues_.getUnmodifiableView();
+            bitField0_ = (bitField0_ & ~0x00000008);
+          }
+          result.partitionValues_ = partitionValues_;
         }
 
         private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata result) {
@@ -6819,12 +6827,6 @@ public final class RecordIngest {
           if (((from_bitField0_ & 0x00000004) != 0)) {
             result.recordCount_ = recordCount_;
           }
-          int to_bitField0_ = 0;
-          if (((from_bitField0_ & 0x00000008) != 0)) {
-            result.equalityFieldId_ = equalityFieldId_;
-            to_bitField0_ |= 0x00000001;
-          }
-          result.bitField0_ |= to_bitField0_;
         }
 
         @java.lang.Override
@@ -6884,8 +6886,15 @@ public final class RecordIngest {
           if (other.getRecordCount() != 0L) {
             setRecordCount(other.getRecordCount());
           }
-          if (other.hasEqualityFieldId()) {
-            setEqualityFieldId(other.getEqualityFieldId());
+          if (!other.partitionValues_.isEmpty()) {
+            if (partitionValues_.isEmpty()) {
+              partitionValues_ = other.partitionValues_;
+              bitField0_ = (bitField0_ & ~0x00000008);
+            } else {
+              ensurePartitionValuesIsMutable();
+              partitionValues_.addAll(other.partitionValues_);
+            }
+            onChanged();
           }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
@@ -6928,11 +6937,12 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000004;
                   break;
                 } // case 24
-                case 32: {
-                  equalityFieldId_ = input.readInt32();
-                  bitField0_ |= 0x00000008;
+                case 42: {
+                  java.lang.String s = input.readStringRequireUtf8();
+                  ensurePartitionValuesIsMutable();
+                  partitionValues_.add(s);
                   break;
-                } // case 32
+                } // case 42
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -7126,58 +7136,106 @@ public final class RecordIngest {
           return this;
         }
 
-        private int equalityFieldId_ ;
-        /**
-         * <pre>
-         * Only set for delete files
-         * </pre>
-         *
-         * <code>optional int32 equality_field_id = 4;</code>
-         * @return Whether the equalityFieldId field is set.
-         */
-        @java.lang.Override
-        public boolean hasEqualityFieldId() {
-          return ((bitField0_ & 0x00000008) != 0);
+        private com.google.protobuf.LazyStringList partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+        private void ensurePartitionValuesIsMutable() {
+          if (!((bitField0_ & 0x00000008) != 0)) {
+            partitionValues_ = new com.google.protobuf.LazyStringArrayList(partitionValues_);
+            bitField0_ |= 0x00000008;
+           }
         }
         /**
-         * <pre>
-         * Only set for delete files
-         * </pre>
-         *
-         * <code>optional int32 equality_field_id = 4;</code>
-         * @return The equalityFieldId.
+         * <code>repeated string partition_values = 5;</code>
+         * @return A list containing the partitionValues.
          */
-        @java.lang.Override
-        public int getEqualityFieldId() {
-          return equalityFieldId_;
+        public com.google.protobuf.ProtocolStringList
+            getPartitionValuesList() {
+          return partitionValues_.getUnmodifiableView();
         }
         /**
-         * <pre>
-         * Only set for delete files
-         * </pre>
-         *
-         * <code>optional int32 equality_field_id = 4;</code>
-         * @param value The equalityFieldId to set.
+         * <code>repeated string partition_values = 5;</code>
+         * @return The count of partitionValues.
+         */
+        public int getPartitionValuesCount() {
+          return partitionValues_.size();
+        }
+        /**
+         * <code>repeated string partition_values = 5;</code>
+         * @param index The index of the element to return.
+         * @return The partitionValues at the given index.
+         */
+        public java.lang.String getPartitionValues(int index) {
+          return partitionValues_.get(index);
+        }
+        /**
+         * <code>repeated string partition_values = 5;</code>
+         * @param index The index of the value to return.
+         * @return The bytes of the partitionValues at the given index.
+         */
+        public com.google.protobuf.ByteString
+            getPartitionValuesBytes(int index) {
+          return partitionValues_.getByteString(index);
+        }
+        /**
+         * <code>repeated string partition_values = 5;</code>
+         * @param index The index to set the value at.
+         * @param value The partitionValues to set.
          * @return This builder for chaining.
          */
-        public Builder setEqualityFieldId(int value) {
-          
-          equalityFieldId_ = value;
-          bitField0_ |= 0x00000008;
+        public Builder setPartitionValues(
+            int index, java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          ensurePartitionValuesIsMutable();
+          partitionValues_.set(index, value);
           onChanged();
           return this;
         }
         /**
-         * <pre>
-         * Only set for delete files
-         * </pre>
-         *
-         * <code>optional int32 equality_field_id = 4;</code>
+         * <code>repeated string partition_values = 5;</code>
+         * @param value The partitionValues to add.
          * @return This builder for chaining.
          */
-        public Builder clearEqualityFieldId() {
+        public Builder addPartitionValues(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          ensurePartitionValuesIsMutable();
+          partitionValues_.add(value);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>repeated string partition_values = 5;</code>
+         * @param values The partitionValues to add.
+         * @return This builder for chaining.
+         */
+        public Builder addAllPartitionValues(
+            java.lang.Iterable<java.lang.String> values) {
+          ensurePartitionValuesIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, partitionValues_);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>repeated string partition_values = 5;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearPartitionValues() {
+          partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
           bitField0_ = (bitField0_ & ~0x00000008);
-          equalityFieldId_ = 0;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>repeated string partition_values = 5;</code>
+         * @param value The bytes of the partitionValues to add.
+         * @return This builder for chaining.
+         */
+        public Builder addPartitionValuesBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          ensurePartitionValuesIsMutable();
+          partitionValues_.add(value);
           onChanged();
           return this;
         }
@@ -7278,12 +7336,6 @@ public final class RecordIngest {
        */
       com.google.protobuf.ByteString
           getPartitionKeyBytes();
-
-      /**
-       * <code>int32 equality_field_id = 4;</code>
-       * @return The equalityFieldId.
-       */
-      int getEqualityFieldId();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest}
@@ -7417,17 +7469,6 @@ public final class RecordIngest {
         }
       }
 
-      public static final int EQUALITY_FIELD_ID_FIELD_NUMBER = 4;
-      private int equalityFieldId_ = 0;
-      /**
-       * <code>int32 equality_field_id = 4;</code>
-       * @return The equalityFieldId.
-       */
-      @java.lang.Override
-      public int getEqualityFieldId() {
-        return equalityFieldId_;
-      }
-
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -7451,9 +7492,6 @@ public final class RecordIngest {
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 3, partitionKey_);
         }
-        if (equalityFieldId_ != 0) {
-          output.writeInt32(4, equalityFieldId_);
-        }
         getUnknownFields().writeTo(output);
       }
 
@@ -7472,10 +7510,6 @@ public final class RecordIngest {
         }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, partitionKey_);
-        }
-        if (equalityFieldId_ != 0) {
-          size += com.google.protobuf.CodedOutputStream
-            .computeInt32Size(4, equalityFieldId_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -7498,8 +7532,6 @@ public final class RecordIngest {
             .equals(other.getFileType())) return false;
         if (!getPartitionKey()
             .equals(other.getPartitionKey())) return false;
-        if (getEqualityFieldId()
-            != other.getEqualityFieldId()) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -7517,8 +7549,6 @@ public final class RecordIngest {
         hash = (53 * hash) + getFileType().hashCode();
         hash = (37 * hash) + PARTITION_KEY_FIELD_NUMBER;
         hash = (53 * hash) + getPartitionKey().hashCode();
-        hash = (37 * hash) + EQUALITY_FIELD_ID_FIELD_NUMBER;
-        hash = (53 * hash) + getEqualityFieldId();
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -7651,7 +7681,6 @@ public final class RecordIngest {
           fileData_ = com.google.protobuf.ByteString.EMPTY;
           fileType_ = "";
           partitionKey_ = "";
-          equalityFieldId_ = 0;
           return this;
         }
 
@@ -7693,9 +7722,6 @@ public final class RecordIngest {
           }
           if (((from_bitField0_ & 0x00000004) != 0)) {
             result.partitionKey_ = partitionKey_;
-          }
-          if (((from_bitField0_ & 0x00000008) != 0)) {
-            result.equalityFieldId_ = equalityFieldId_;
           }
         }
 
@@ -7756,9 +7782,6 @@ public final class RecordIngest {
             bitField0_ |= 0x00000004;
             onChanged();
           }
-          if (other.getEqualityFieldId() != 0) {
-            setEqualityFieldId(other.getEqualityFieldId());
-          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -7800,11 +7823,6 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000004;
                   break;
                 } // case 26
-                case 32: {
-                  equalityFieldId_ = input.readInt32();
-                  bitField0_ |= 0x00000008;
-                  break;
-                } // case 32
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -7994,38 +8012,6 @@ public final class RecordIngest {
           checkByteStringIsUtf8(value);
           partitionKey_ = value;
           bitField0_ |= 0x00000004;
-          onChanged();
-          return this;
-        }
-
-        private int equalityFieldId_ ;
-        /**
-         * <code>int32 equality_field_id = 4;</code>
-         * @return The equalityFieldId.
-         */
-        @java.lang.Override
-        public int getEqualityFieldId() {
-          return equalityFieldId_;
-        }
-        /**
-         * <code>int32 equality_field_id = 4;</code>
-         * @param value The equalityFieldId to set.
-         * @return This builder for chaining.
-         */
-        public Builder setEqualityFieldId(int value) {
-          
-          equalityFieldId_ = value;
-          bitField0_ |= 0x00000008;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>int32 equality_field_id = 4;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearEqualityFieldId() {
-          bitField0_ = (bitField0_ & ~0x00000008);
-          equalityFieldId_ = 0;
           onChanged();
           return this;
         }
@@ -9439,7 +9425,7 @@ public final class RecordIngest {
     @java.lang.Override
     public void writeTo(com.google.protobuf.CodedOutputStream output)
                         throws java.io.IOException {
-      if (type_ != io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.PayloadType.REGISTER.getNumber()) {
+      if (type_ != io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.PayloadType.UPLOAD_FILE.getNumber()) {
         output.writeEnum(1, type_);
       }
       if (metadata_ != null) {
@@ -9454,7 +9440,7 @@ public final class RecordIngest {
       if (size != -1) return size;
 
       size = 0;
-      if (type_ != io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.PayloadType.REGISTER.getNumber()) {
+      if (type_ != io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.PayloadType.UPLOAD_FILE.getNumber()) {
         size += com.google.protobuf.CodedOutputStream
           .computeEnumSize(1, type_);
       }
@@ -10041,35 +10027,37 @@ public final class RecordIngest {
     boolean getSuccess();
 
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
-    int getFieldIdsCount();
+    int getIcebergSchemasCount();
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
-    boolean containsFieldIds(
+    boolean containsIcebergSchemas(
         java.lang.String key);
     /**
-     * Use {@link #getFieldIdsMap()} instead.
+     * Use {@link #getIcebergSchemasMap()} instead.
      */
     @java.lang.Deprecated
-    java.util.Map<java.lang.String, java.lang.Integer>
-    getFieldIds();
+    java.util.Map<java.lang.String, java.lang.String>
+    getIcebergSchemas();
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
-    java.util.Map<java.lang.String, java.lang.Integer>
-    getFieldIdsMap();
+    java.util.Map<java.lang.String, java.lang.String>
+    getIcebergSchemasMap();
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
-    int getFieldIdsOrDefault(
+    /* nullable */
+java.lang.String getIcebergSchemasOrDefault(
         java.lang.String key,
-        int defaultValue);
+        /* nullable */
+java.lang.String defaultValue);
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
-    int getFieldIdsOrThrow(
+    java.lang.String getIcebergSchemasOrThrow(
         java.lang.String key);
   }
   /**
@@ -10111,7 +10099,7 @@ public final class RecordIngest {
         int number) {
       switch (number) {
         case 3:
-          return internalGetFieldIds();
+          return internalGetIcebergSchemas();
         default:
           throw new RuntimeException(
               "Invalid map field number: " + number);
@@ -10175,77 +10163,79 @@ public final class RecordIngest {
       return success_;
     }
 
-    public static final int FIELD_IDS_FIELD_NUMBER = 3;
-    private static final class FieldIdsDefaultEntryHolder {
+    public static final int ICEBERGSCHEMAS_FIELD_NUMBER = 3;
+    private static final class IcebergSchemasDefaultEntryHolder {
       static final com.google.protobuf.MapEntry<
-          java.lang.String, java.lang.Integer> defaultEntry =
+          java.lang.String, java.lang.String> defaultEntry =
               com.google.protobuf.MapEntry
-              .<java.lang.String, java.lang.Integer>newDefaultInstance(
-                  io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor, 
+              .<java.lang.String, java.lang.String>newDefaultInstance(
+                  io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_descriptor, 
                   com.google.protobuf.WireFormat.FieldType.STRING,
                   "",
-                  com.google.protobuf.WireFormat.FieldType.INT32,
-                  0);
+                  com.google.protobuf.WireFormat.FieldType.STRING,
+                  "");
     }
     @SuppressWarnings("serial")
     private com.google.protobuf.MapField<
-        java.lang.String, java.lang.Integer> fieldIds_;
-    private com.google.protobuf.MapField<java.lang.String, java.lang.Integer>
-    internalGetFieldIds() {
-      if (fieldIds_ == null) {
+        java.lang.String, java.lang.String> icebergSchemas_;
+    private com.google.protobuf.MapField<java.lang.String, java.lang.String>
+    internalGetIcebergSchemas() {
+      if (icebergSchemas_ == null) {
         return com.google.protobuf.MapField.emptyMapField(
-            FieldIdsDefaultEntryHolder.defaultEntry);
+            IcebergSchemasDefaultEntryHolder.defaultEntry);
       }
-      return fieldIds_;
+      return icebergSchemas_;
     }
-    public int getFieldIdsCount() {
-      return internalGetFieldIds().getMap().size();
+    public int getIcebergSchemasCount() {
+      return internalGetIcebergSchemas().getMap().size();
     }
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
     @java.lang.Override
-    public boolean containsFieldIds(
+    public boolean containsIcebergSchemas(
         java.lang.String key) {
       if (key == null) { throw new NullPointerException("map key"); }
-      return internalGetFieldIds().getMap().containsKey(key);
+      return internalGetIcebergSchemas().getMap().containsKey(key);
     }
     /**
-     * Use {@link #getFieldIdsMap()} instead.
+     * Use {@link #getIcebergSchemasMap()} instead.
      */
     @java.lang.Override
     @java.lang.Deprecated
-    public java.util.Map<java.lang.String, java.lang.Integer> getFieldIds() {
-      return getFieldIdsMap();
+    public java.util.Map<java.lang.String, java.lang.String> getIcebergSchemas() {
+      return getIcebergSchemasMap();
     }
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
     @java.lang.Override
-    public java.util.Map<java.lang.String, java.lang.Integer> getFieldIdsMap() {
-      return internalGetFieldIds().getMap();
+    public java.util.Map<java.lang.String, java.lang.String> getIcebergSchemasMap() {
+      return internalGetIcebergSchemas().getMap();
     }
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
     @java.lang.Override
-    public int getFieldIdsOrDefault(
+    public /* nullable */
+java.lang.String getIcebergSchemasOrDefault(
         java.lang.String key,
-        int defaultValue) {
+        /* nullable */
+java.lang.String defaultValue) {
       if (key == null) { throw new NullPointerException("map key"); }
-      java.util.Map<java.lang.String, java.lang.Integer> map =
-          internalGetFieldIds().getMap();
+      java.util.Map<java.lang.String, java.lang.String> map =
+          internalGetIcebergSchemas().getMap();
       return map.containsKey(key) ? map.get(key) : defaultValue;
     }
     /**
-     * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
      */
     @java.lang.Override
-    public int getFieldIdsOrThrow(
+    public java.lang.String getIcebergSchemasOrThrow(
         java.lang.String key) {
       if (key == null) { throw new NullPointerException("map key"); }
-      java.util.Map<java.lang.String, java.lang.Integer> map =
-          internalGetFieldIds().getMap();
+      java.util.Map<java.lang.String, java.lang.String> map =
+          internalGetIcebergSchemas().getMap();
       if (!map.containsKey(key)) {
         throw new java.lang.IllegalArgumentException();
       }
@@ -10275,8 +10265,8 @@ public final class RecordIngest {
       com.google.protobuf.GeneratedMessageV3
         .serializeStringMapTo(
           output,
-          internalGetFieldIds(),
-          FieldIdsDefaultEntryHolder.defaultEntry,
+          internalGetIcebergSchemas(),
+          IcebergSchemasDefaultEntryHolder.defaultEntry,
           3);
       getUnknownFields().writeTo(output);
     }
@@ -10294,15 +10284,15 @@ public final class RecordIngest {
         size += com.google.protobuf.CodedOutputStream
           .computeBoolSize(2, success_);
       }
-      for (java.util.Map.Entry<java.lang.String, java.lang.Integer> entry
-           : internalGetFieldIds().getMap().entrySet()) {
-        com.google.protobuf.MapEntry<java.lang.String, java.lang.Integer>
-        fieldIds__ = FieldIdsDefaultEntryHolder.defaultEntry.newBuilderForType()
+      for (java.util.Map.Entry<java.lang.String, java.lang.String> entry
+           : internalGetIcebergSchemas().getMap().entrySet()) {
+        com.google.protobuf.MapEntry<java.lang.String, java.lang.String>
+        icebergSchemas__ = IcebergSchemasDefaultEntryHolder.defaultEntry.newBuilderForType()
             .setKey(entry.getKey())
             .setValue(entry.getValue())
             .build();
         size += com.google.protobuf.CodedOutputStream
-            .computeMessageSize(3, fieldIds__);
+            .computeMessageSize(3, icebergSchemas__);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -10323,8 +10313,8 @@ public final class RecordIngest {
           .equals(other.getResult())) return false;
       if (getSuccess()
           != other.getSuccess()) return false;
-      if (!internalGetFieldIds().equals(
-          other.internalGetFieldIds())) return false;
+      if (!internalGetIcebergSchemas().equals(
+          other.internalGetIcebergSchemas())) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -10341,9 +10331,9 @@ public final class RecordIngest {
       hash = (37 * hash) + SUCCESS_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
           getSuccess());
-      if (!internalGetFieldIds().getMap().isEmpty()) {
-        hash = (37 * hash) + FIELD_IDS_FIELD_NUMBER;
-        hash = (53 * hash) + internalGetFieldIds().hashCode();
+      if (!internalGetIcebergSchemas().getMap().isEmpty()) {
+        hash = (37 * hash) + ICEBERGSCHEMAS_FIELD_NUMBER;
+        hash = (53 * hash) + internalGetIcebergSchemas().hashCode();
       }
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
@@ -10457,7 +10447,7 @@ public final class RecordIngest {
           int number) {
         switch (number) {
           case 3:
-            return internalGetFieldIds();
+            return internalGetIcebergSchemas();
           default:
             throw new RuntimeException(
                 "Invalid map field number: " + number);
@@ -10468,7 +10458,7 @@ public final class RecordIngest {
           int number) {
         switch (number) {
           case 3:
-            return internalGetMutableFieldIds();
+            return internalGetMutableIcebergSchemas();
           default:
             throw new RuntimeException(
                 "Invalid map field number: " + number);
@@ -10498,7 +10488,7 @@ public final class RecordIngest {
         bitField0_ = 0;
         result_ = "";
         success_ = false;
-        internalGetMutableFieldIds().clear();
+        internalGetMutableIcebergSchemas().clear();
         return this;
       }
 
@@ -10539,8 +10529,8 @@ public final class RecordIngest {
           result.success_ = success_;
         }
         if (((from_bitField0_ & 0x00000004) != 0)) {
-          result.fieldIds_ = internalGetFieldIds();
-          result.fieldIds_.makeImmutable();
+          result.icebergSchemas_ = internalGetIcebergSchemas();
+          result.icebergSchemas_.makeImmutable();
         }
       }
 
@@ -10596,8 +10586,8 @@ public final class RecordIngest {
         if (other.getSuccess() != false) {
           setSuccess(other.getSuccess());
         }
-        internalGetMutableFieldIds().mergeFrom(
-            other.internalGetFieldIds());
+        internalGetMutableIcebergSchemas().mergeFrom(
+            other.internalGetIcebergSchemas());
         bitField0_ |= 0x00000004;
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
@@ -10636,11 +10626,11 @@ public final class RecordIngest {
                 break;
               } // case 16
               case 26: {
-                com.google.protobuf.MapEntry<java.lang.String, java.lang.Integer>
-                fieldIds__ = input.readMessage(
-                    FieldIdsDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
-                internalGetMutableFieldIds().getMutableMap().put(
-                    fieldIds__.getKey(), fieldIds__.getValue());
+                com.google.protobuf.MapEntry<java.lang.String, java.lang.String>
+                icebergSchemas__ = input.readMessage(
+                    IcebergSchemasDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
+                internalGetMutableIcebergSchemas().getMutableMap().put(
+                    icebergSchemas__.getKey(), icebergSchemas__.getValue());
                 bitField0_ |= 0x00000004;
                 break;
               } // case 26
@@ -10766,94 +10756,96 @@ public final class RecordIngest {
       }
 
       private com.google.protobuf.MapField<
-          java.lang.String, java.lang.Integer> fieldIds_;
-      private com.google.protobuf.MapField<java.lang.String, java.lang.Integer>
-          internalGetFieldIds() {
-        if (fieldIds_ == null) {
+          java.lang.String, java.lang.String> icebergSchemas_;
+      private com.google.protobuf.MapField<java.lang.String, java.lang.String>
+          internalGetIcebergSchemas() {
+        if (icebergSchemas_ == null) {
           return com.google.protobuf.MapField.emptyMapField(
-              FieldIdsDefaultEntryHolder.defaultEntry);
+              IcebergSchemasDefaultEntryHolder.defaultEntry);
         }
-        return fieldIds_;
+        return icebergSchemas_;
       }
-      private com.google.protobuf.MapField<java.lang.String, java.lang.Integer>
-          internalGetMutableFieldIds() {
-        if (fieldIds_ == null) {
-          fieldIds_ = com.google.protobuf.MapField.newMapField(
-              FieldIdsDefaultEntryHolder.defaultEntry);
+      private com.google.protobuf.MapField<java.lang.String, java.lang.String>
+          internalGetMutableIcebergSchemas() {
+        if (icebergSchemas_ == null) {
+          icebergSchemas_ = com.google.protobuf.MapField.newMapField(
+              IcebergSchemasDefaultEntryHolder.defaultEntry);
         }
-        if (!fieldIds_.isMutable()) {
-          fieldIds_ = fieldIds_.copy();
+        if (!icebergSchemas_.isMutable()) {
+          icebergSchemas_ = icebergSchemas_.copy();
         }
         bitField0_ |= 0x00000004;
         onChanged();
-        return fieldIds_;
+        return icebergSchemas_;
       }
-      public int getFieldIdsCount() {
-        return internalGetFieldIds().getMap().size();
+      public int getIcebergSchemasCount() {
+        return internalGetIcebergSchemas().getMap().size();
       }
       /**
-       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
        */
       @java.lang.Override
-      public boolean containsFieldIds(
+      public boolean containsIcebergSchemas(
           java.lang.String key) {
         if (key == null) { throw new NullPointerException("map key"); }
-        return internalGetFieldIds().getMap().containsKey(key);
+        return internalGetIcebergSchemas().getMap().containsKey(key);
       }
       /**
-       * Use {@link #getFieldIdsMap()} instead.
+       * Use {@link #getIcebergSchemasMap()} instead.
        */
       @java.lang.Override
       @java.lang.Deprecated
-      public java.util.Map<java.lang.String, java.lang.Integer> getFieldIds() {
-        return getFieldIdsMap();
+      public java.util.Map<java.lang.String, java.lang.String> getIcebergSchemas() {
+        return getIcebergSchemasMap();
       }
       /**
-       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
        */
       @java.lang.Override
-      public java.util.Map<java.lang.String, java.lang.Integer> getFieldIdsMap() {
-        return internalGetFieldIds().getMap();
+      public java.util.Map<java.lang.String, java.lang.String> getIcebergSchemasMap() {
+        return internalGetIcebergSchemas().getMap();
       }
       /**
-       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
        */
       @java.lang.Override
-      public int getFieldIdsOrDefault(
+      public /* nullable */
+java.lang.String getIcebergSchemasOrDefault(
           java.lang.String key,
-          int defaultValue) {
+          /* nullable */
+java.lang.String defaultValue) {
         if (key == null) { throw new NullPointerException("map key"); }
-        java.util.Map<java.lang.String, java.lang.Integer> map =
-            internalGetFieldIds().getMap();
+        java.util.Map<java.lang.String, java.lang.String> map =
+            internalGetIcebergSchemas().getMap();
         return map.containsKey(key) ? map.get(key) : defaultValue;
       }
       /**
-       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
        */
       @java.lang.Override
-      public int getFieldIdsOrThrow(
+      public java.lang.String getIcebergSchemasOrThrow(
           java.lang.String key) {
         if (key == null) { throw new NullPointerException("map key"); }
-        java.util.Map<java.lang.String, java.lang.Integer> map =
-            internalGetFieldIds().getMap();
+        java.util.Map<java.lang.String, java.lang.String> map =
+            internalGetIcebergSchemas().getMap();
         if (!map.containsKey(key)) {
           throw new java.lang.IllegalArgumentException();
         }
         return map.get(key);
       }
-      public Builder clearFieldIds() {
+      public Builder clearIcebergSchemas() {
         bitField0_ = (bitField0_ & ~0x00000004);
-        internalGetMutableFieldIds().getMutableMap()
+        internalGetMutableIcebergSchemas().getMutableMap()
             .clear();
         return this;
       }
       /**
-       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
        */
-      public Builder removeFieldIds(
+      public Builder removeIcebergSchemas(
           java.lang.String key) {
         if (key == null) { throw new NullPointerException("map key"); }
-        internalGetMutableFieldIds().getMutableMap()
+        internalGetMutableIcebergSchemas().getMutableMap()
             .remove(key);
         return this;
       }
@@ -10861,30 +10853,30 @@ public final class RecordIngest {
        * Use alternate mutation accessors instead.
        */
       @java.lang.Deprecated
-      public java.util.Map<java.lang.String, java.lang.Integer>
-          getMutableFieldIds() {
+      public java.util.Map<java.lang.String, java.lang.String>
+          getMutableIcebergSchemas() {
         bitField0_ |= 0x00000004;
-        return internalGetMutableFieldIds().getMutableMap();
+        return internalGetMutableIcebergSchemas().getMutableMap();
       }
       /**
-       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
        */
-      public Builder putFieldIds(
+      public Builder putIcebergSchemas(
           java.lang.String key,
-          int value) {
+          java.lang.String value) {
         if (key == null) { throw new NullPointerException("map key"); }
-        
-        internalGetMutableFieldIds().getMutableMap()
+        if (value == null) { throw new NullPointerException("map value"); }
+        internalGetMutableIcebergSchemas().getMutableMap()
             .put(key, value);
         bitField0_ |= 0x00000004;
         return this;
       }
       /**
-       * <code>map&lt;string, int32&gt; field_ids = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
        */
-      public Builder putAllFieldIds(
-          java.util.Map<java.lang.String, java.lang.Integer> values) {
-        internalGetMutableFieldIds().getMutableMap()
+      public Builder putAllIcebergSchemas(
+          java.util.Map<java.lang.String, java.lang.String> values) {
+        internalGetMutableIcebergSchemas().getMutableMap()
             .putAll(values);
         bitField0_ |= 0x00000004;
         return this;
@@ -11009,10 +11001,10 @@ public final class RecordIngest {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor;
+    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-      internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_fieldAccessorTable;
+      internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -11047,38 +11039,35 @@ public final class RecordIngest {
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
       "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\350\005\n\014ArrowPayload\022F\n\004type\030\001" +
+      "success\030\002 \001(\010\"\212\005\n\014ArrowPayload\022F\n\004type\030\001" +
       " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
       "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
       "25.io.debezium.server.iceberg.rpc.ArrowP" +
-      "ayload.Metadata\032\200\001\n\014FileMetadata\022\021\n\tfile" +
-      "_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record" +
-      "_count\030\003 \001(\003\022\036\n\021equality_field_id\030\004 \001(\005H" +
-      "\000\210\001\001B\024\n\022_equality_field_id\032k\n\021FileUpload" +
-      "Request\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_type\030" +
-      "\002 \001(\t\022\025\n\rpartition_key\030\003 \001(\t\022\031\n\021equality" +
-      "_field_id\030\004 \001(\005\032\362\001\n\010Metadata\022\027\n\017dest_tab" +
-      "le_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile" +
-      "_metadata\030\003 \003(\01329.io.debezium.server.ice" +
-      "berg.rpc.ArrowPayload.FileMetadata\022X\n\013fi" +
-      "le_upload\030\004 \001(\0132>.io.debezium.server.ice" +
-      "berg.rpc.ArrowPayload.FileUploadRequestH" +
-      "\000\210\001\001B\016\n\014_file_upload\"b\n\013PayloadType\022\014\n\010R" +
-      "EGISTER\020\000\022\017\n\013UPLOAD_FILE\020\001\022\n\n\006COMMIT\020\002\022\021" +
-      "\n\rGET_SCHEMA_ID\020\003\022\025\n\021GET_ALL_FIELD_IDS\020\004" +
-      "\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030\001 \001(\t" +
-      "\022\017\n\007success\030\002 \001(\010\022T\n\tfield_ids\030\003 \003(\0132A.i" +
-      "o.debezium.server.iceberg.rpc.ArrowInges" +
-      "tResponse.FieldIdsEntry\032/\n\rFieldIdsEntry" +
-      "\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\0012\212\001\n\023Rec" +
-      "ordIngestService\022s\n\013SendRecords\022..io.deb" +
-      "ezium.server.iceberg.rpc.IcebergPayload\032" +
-      "4.io.debezium.server.iceberg.rpc.RecordI" +
-      "ngestResponse2\205\001\n\022ArrowIngestService\022o\n\n" +
-      "IcebergAPI\022,.io.debezium.server.iceberg." +
-      "rpc.ArrowPayload\0323.io.debezium.server.ic" +
-      "eberg.rpc.ArrowIngestResponseB\017Z\riceberg" +
-      "/protob\006proto3"
+      "ayload.Metadata\032d\n\014FileMetadata\022\021\n\tfile_" +
+      "type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_" +
+      "count\030\003 \001(\003\022\030\n\020partition_values\030\005 \003(\t\032P\n" +
+      "\021FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n" +
+      "\tfile_type\030\002 \001(\t\022\025\n\rpartition_key\030\003 \001(\t\032" +
+      "\362\001\n\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n" +
+      "\tthread_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\0132" +
+      "9.io.debezium.server.iceberg.rpc.ArrowPa" +
+      "yload.FileMetadata\022X\n\013file_upload\030\004 \001(\0132" +
+      ">.io.debezium.server.iceberg.rpc.ArrowPa" +
+      "yload.FileUploadRequestH\000\210\001\001B\016\n\014_file_up" +
+      "load\"<\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\014\n\010" +
+      "REGISTER\020\001\022\016\n\nJSONSCHEMA\020\002\"\316\001\n\023ArrowInge" +
+      "stResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 " +
+      "\001(\010\022_\n\016icebergSchemas\030\003 \003(\0132G.io.debeziu" +
+      "m.server.iceberg.rpc.ArrowIngestResponse" +
+      ".IcebergSchemasEntry\0325\n\023IcebergSchemasEn" +
+      "try\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n\023" +
+      "RecordIngestService\022s\n\013SendRecords\022..io." +
+      "debezium.server.iceberg.rpc.IcebergPaylo" +
+      "ad\0324.io.debezium.server.iceberg.rpc.Reco" +
+      "rdIngestResponse2\205\001\n\022ArrowIngestService\022" +
+      "o\n\nIcebergAPI\022,.io.debezium.server.icebe" +
+      "rg.rpc.ArrowPayload\0323.io.debezium.server" +
+      ".iceberg.rpc.ArrowIngestResponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -11131,13 +11120,13 @@ public final class RecordIngest {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_descriptor,
-        new java.lang.String[] { "FileType", "FilePath", "RecordCount", "EqualityFieldId", "EqualityFieldId", });
+        new java.lang.String[] { "FileType", "FilePath", "RecordCount", "PartitionValues", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor,
-        new java.lang.String[] { "FileData", "FileType", "PartitionKey", "EqualityFieldId", });
+        new java.lang.String[] { "FileData", "FileType", "PartitionKey", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(2);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new
@@ -11149,12 +11138,12 @@ public final class RecordIngest {
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor,
-        new java.lang.String[] { "Result", "Success", "FieldIds", });
-    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor =
+        new java.lang.String[] { "Result", "Success", "IcebergSchemas", });
+    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor.getNestedTypes().get(0);
-    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_fieldAccessorTable = new
+    internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-        internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_FieldIdsEntry_descriptor,
+        internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
   }
 

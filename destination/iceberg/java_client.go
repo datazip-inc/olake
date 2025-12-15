@@ -39,7 +39,10 @@ type serverInstance struct {
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo, port int, upsert bool, destinationDatabase string, check bool) ([]byte, error) {
+	// Using legacy writer java server for Check()
+	arrowWriterEnabled := utils.Ternary(check, false, config.UseArrowWrites).(bool)
+
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
@@ -51,6 +54,7 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 		"upsert":                   strconv.FormatBool(upsert),
 		"upsert-keep-deletes":      "true",
 		"write.format.default":     "parquet",
+		"arrow-writer-enabled":     strconv.FormatBool(arrowWriterEnabled),
 	}
 
 	// Add partition fields as an array to preserve order
@@ -166,7 +170,7 @@ func newIcebergClient(config *Config, partitionInfo []internal.PartitionInfo, th
 		}
 
 		// Build server configuration with selected port
-		configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
+		configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase, check)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create server config: %s", err)
 		}
@@ -240,21 +244,25 @@ func newIcebergClient(config *Config, partitionInfo []internal.PartitionInfo, th
 	return nil, fmt.Errorf("failed to start iceberg writer after %d attempts due to port binding conflicts", maxAttempts)
 }
 
-func (s *serverInstance) SendClientRequest(ctx context.Context, reqPayload *proto.IcebergPayload) (string, error) {
-	resp, err := s.client.SendRecords(ctx, reqPayload)
-	if err != nil {
-		return "", fmt.Errorf("failed to send grpc request: %s", err)
-	}
-	return resp.GetResult(), nil
-}
+func (s *serverInstance) SendClientRequest(ctx context.Context, payload interface{}) (string, map[string]string, error) {
+	switch p := payload.(type) {
+	case *proto.IcebergPayload:
+		resp, err := s.client.SendRecords(ctx, p)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to send grpc request: %w", err)
+		}
+		return resp.GetResult(), nil, nil
 
-func (s *serverInstance) SendArrowRequest(ctx context.Context, reqPayload *proto.ArrowPayload) (*proto.ArrowIngestResponse, error) {
-	resp, err := s.arrowClient.IcebergAPI(ctx, reqPayload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send arrow grpc request: %v", err)
-	}
+	case *proto.ArrowPayload:
+		resp, err := s.arrowClient.IcebergAPI(ctx, p)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to send arrow grpc request: %w", err)
+		}
+		return resp.GetResult(), resp.GetIcebergSchemas(), nil
 
-	return resp, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported payload type: %T", payload)
+	}
 }
 
 func (s *serverInstance) ServerID() string {
