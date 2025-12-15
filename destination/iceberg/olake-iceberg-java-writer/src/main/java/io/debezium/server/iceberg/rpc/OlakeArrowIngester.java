@@ -161,9 +161,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          String generatedFilename = lastSlashIndex >= 0 ? fullPath.substring(lastSlashIndex + 1)
                                    : fullPath;
 
-                         LOGGER.info("{} Uploading {} file: {} (size: {} bytes, partition: {})",
-                                   requestId, fileType, generatedFilename, fileData.length, partitionKey);
-
                          FileIO fileIO = this.icebergTable.io();
                          LocationProvider locations = this.icebergTable.locationProvider();
 

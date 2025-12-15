@@ -30,7 +30,7 @@ type ArrowWriter struct {
 	server           internal.ServerClient
 	fields           []arrow.Field
 	partitionInfo    []internal.PartitionInfo
-	createdFilePaths []FileMetadata
+	createdFilePaths []*proto.ArrowPayload_FileMetadata
 	writers          sync.Map
 	upsertMode       bool
 }
@@ -42,20 +42,11 @@ type RollingWriter struct {
 	partitionValues []string
 }
 
-type FileMetadata struct {
-	FileType        string
-	FilePath        string
-	RecordCount     int64
-	EqualityFieldID *int32 // Only setting for equality delete files
-	PartitionValues []string
-}
-
 type FileUploadData struct {
 	FileType        string
 	FileData        []byte
 	PartitionKey    string
 	PartitionValues []string
-	EqualityFieldID int32
 	RecordCount     int64
 }
 
@@ -215,9 +206,6 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 			return false, fmt.Errorf("failed to close writer during flush: %w", err)
 		}
 
-		fileData := make([]byte, writer.currentBuffer.Len())
-		copy(fileData, writer.currentBuffer.Bytes())
-
 		uploadData := &FileUploadData{
 			FileType:        fileType,
 			FileData:        writer.currentBuffer.Bytes(),
@@ -242,24 +230,12 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 		return fmt.Errorf("failed to close arrow writers: %v", err)
 	}
 
-	fileMetadata := make([]*proto.ArrowPayload_FileMetadata, 0, len(w.createdFilePaths))
-	for _, fileMeta := range w.createdFilePaths {
-		protoMeta := &proto.ArrowPayload_FileMetadata{
-			FileType:        fileMeta.FileType,
-			FilePath:        fileMeta.FilePath,
-			RecordCount:     fileMeta.RecordCount,
-			PartitionValues: fileMeta.PartitionValues,
-		}
-
-		fileMetadata = append(fileMetadata, protoMeta)
-	}
-
 	commitRequest := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_REGISTER,
 		Metadata: &proto.ArrowPayload_Metadata{
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
-			FileMetadata:  fileMetadata,
+			FileMetadata:  w.createdFilePaths,
 		},
 	}
 
@@ -444,16 +420,13 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 		return fmt.Errorf("failed to upload %s file via Iceberg FileIO: %v", uploadData.FileType, err)
 	}
 
-	fileMeta := FileMetadata{
+	fileMeta := &proto.ArrowPayload_FileMetadata{
 		FileType:        uploadData.FileType,
 		FilePath:        filePath,
 		RecordCount:     uploadData.RecordCount,
 		PartitionValues: uploadData.PartitionValues,
 	}
 
-	if uploadData.FileType == fileTypeDelete {
-		fileMeta.EqualityFieldID = &uploadData.EqualityFieldID
-	}
 	w.createdFilePaths = append(w.createdFilePaths, fileMeta)
 
 	return nil
