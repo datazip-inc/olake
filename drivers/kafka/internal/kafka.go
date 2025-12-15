@@ -3,12 +3,15 @@ package driver
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
-	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -149,6 +152,15 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 	switch k.config.Protocol.SecurityProtocol {
 	case "PLAINTEXT":
 		// No additional configuration needed
+
+	case "SSL":
+		// Pure TLS without SASL authentication
+		tlsConfig, err := k.buildTLSConfig()
+		if err != nil {
+			return nil, err
+		}
+		dialer.TLS = tlsConfig
+
 	case "SASL_PLAINTEXT":
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
@@ -164,10 +176,15 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
+
 	case "SASL_SSL":
-		dialer.TLS = &tls.Config{
-			MinVersion: tls.VersionTLS12,
+		// TLS with SASL authentication
+		tlsConfig, err := k.buildTLSConfig()
+		if err != nil {
+			return nil, err
 		}
+		dialer.TLS = tlsConfig
+
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
 			dialer.SASLMechanism = plain.Mechanism{
@@ -182,6 +199,7 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
+
 	default:
 		return nil, fmt.Errorf("unsupported security protocol: %s", k.config.Protocol.SecurityProtocol)
 	}
@@ -273,4 +291,40 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 // GetReaderTasks returns the list of reader IDs to run
 func (k *Kafka) GetReaderIDs() []string {
 	return k.readerManager.GetReaderIDs()
+}
+
+// buildTLSConfig creates TLS configuration with optional external certificates
+func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// Apply SSL config if provided
+	if k.config.Protocol.SSL != nil {
+		tlsConfig.InsecureSkipVerify = k.config.Protocol.SSL.SkipVerify
+
+		// Load CA certificate if provided
+		if k.config.Protocol.SSL.CAPath != "" {
+			caCert, err := os.ReadFile(k.config.Protocol.SSL.CAPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+			}
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("failed to parse CA certificate")
+			}
+			tlsConfig.RootCAs = caCertPool
+		}
+
+		// Load client certificate and key for mTLS
+		if k.config.Protocol.SSL.CertPath != "" && k.config.Protocol.SSL.KeyPath != "" {
+			cert, err := tls.LoadX509KeyPair(k.config.Protocol.SSL.CertPath, k.config.Protocol.SSL.KeyPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{cert}
+		}
+	}
+
+	return tlsConfig, nil
 }
