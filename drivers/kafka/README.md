@@ -29,9 +29,30 @@ Add Kafka credentials in following format in `source.json` file. To check more a
         "max_threads": 3
     }
 ```
-- There are 3 security protocols:<br>
+- There are 4 security protocols:<br>
     - `PLAINTEXT`
         - Kafka cluster without any authentication and encryption.
+    - `SSL`
+        - Kafka cluster with TLS encryption (no SASL authentication).
+        - Supports external certificates for custom CA or mTLS.
+        - All certificate fields are optional (useful for AWS MSK where broker certificates are managed).
+        ```json
+        "protocol": {
+            "security_protocol": "SSL",
+            "ssl": {
+                "ca_cert_path": "/path/to/ca-cert.pem",
+                "client_cert_path": "/path/to/client-cert.pem",
+                "client_key_path": "/path/to/client-key.pem",
+                "skip_verify": false
+            }
+        }
+        ```
+        - For AWS MSK (no custom certificates needed):
+        ```json
+        "protocol": {
+            "security_protocol": "SSL"
+        }
+        ```
     - `SASL_PLAINTEXT`
         - Kafka cluster with Simple Authentication and Security Layer i.e. authentication but no encription.
         - Requires SASL mechanism and SASL JAAS Configuration string. Supported are: 
@@ -53,6 +74,7 @@ Add Kafka credentials in following format in `source.json` file. To check more a
             ```
     - `SASL_SSL`
         - Kafka cluster with Simple Authentication and Security Layer i.e. authentication and encryption using Secure Sockets Layer.
+        - Supports external certificates for custom CA or mTLS (optional).
         - Requires SASL mechanism and SASL JAAS Configuration string. Supported are: 
             - PLAIN
             ```json
@@ -70,6 +92,30 @@ Add Kafka credentials in following format in `source.json` file. To check more a
                 "sasl_jaas_config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"TEST-PASS\" password=\"TEST-PASS\";"
             },
             ```
+            - With external certificates (mTLS):
+            ```json
+            "protocol": {
+                "security_protocol": "SASL_SSL",
+                "sasl_mechanism": "PLAIN",
+                "sasl_jaas_config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"TEST-USER\" password=\"TEST-PASS\";",
+                "ssl": {
+                    "ca_cert_path": "/path/to/ca-cert.pem",
+                    "client_cert_path": "/path/to/client-cert.pem",
+                    "client_key_path": "/path/to/client-key.pem"
+                }
+            },
+            ```
+
+### SSL Certificate Configuration
+The `ssl` configuration object supports the following optional fields:
+| Field | Description |
+|-------|-------------|
+| `ca_cert_path` | Path to CA certificate file for server verification |
+| `client_cert_path` | Path to client certificate file (for mTLS) |
+| `client_key_path` | Path to client private key file (for mTLS) |
+| `skip_verify` | Skip server certificate verification (not recommended for production) |
+
+> **Note:** For AWS MSK with IAM authentication or managed certificates, you can omit the `ssl` object entirely - the driver will use system CA certificates.
 
 ## Commands
 ### Discover Command
