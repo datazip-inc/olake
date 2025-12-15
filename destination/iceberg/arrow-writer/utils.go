@@ -123,19 +123,6 @@ func createFields(schema map[string]string, fieldIDs map[string]int32) []arrow.F
 	return fields
 }
 
-// In OLake, for equality deletes, we use OlakeID as the id
-// we create equality delete files for:
-// "d" : delete operation
-// "u" : update operation
-// "c" : insert operation
-func extractDeleteRecord(rec types.RawRecord) types.RawRecord {
-	if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
-		return types.RawRecord{OlakeID: rec.OlakeID}
-	}
-
-	return rec
-}
-
 func createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema) (arrow.Record, error) {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()

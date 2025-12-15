@@ -47,7 +47,7 @@ func (i *Iceberg) Spec() any {
 
 func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	if i.config.UseArrowWrites {
-		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server)
+		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
 	}
 
 	// default: legacy writer

@@ -32,6 +32,7 @@ type ArrowWriter struct {
 	partitionInfo    []internal.PartitionInfo
 	createdFilePaths []FileMetadata
 	writers          sync.Map
+	upsertMode       bool
 }
 
 type RollingWriter struct {
@@ -58,13 +59,14 @@ type FileUploadData struct {
 	RecordCount     int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) (*ArrowWriter, error) {
+func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		partitionInfo: partitionInfo,
 		schema:        schema,
 		stream:        stream,
 		server:        server,
 		arrowSchema:   make(map[string]*arrow.Schema),
+		upsertMode:    upsertMode,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -116,8 +118,15 @@ func (w *ArrowWriter) extract(records []types.RawRecord) (map[string][]types.Raw
 			pKey = key
 		}
 
-		del := extractDeleteRecord(rec)
-		deletes[pKey] = append(deletes[pKey], del)
+		// In OLake, for equality deletes, we use OlakeID as the id
+		// we create equality delete files for:
+		// "d" : delete operation
+		// "u" : update operation
+		// "c" : insert operation
+		if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
+			del := types.RawRecord{OlakeID: rec.OlakeID}
+			deletes[pKey] = append(deletes[pKey], del)
+		}
 		data[pKey] = append(data[pKey], rec)
 	}
 
@@ -130,29 +139,31 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		return fmt.Errorf("failed to partition data: %v", err)
 	}
 
-	for pKey, rec := range deletes {
-		record, err := createDeleteArrowRecord(rec, w.allocator, w.arrowSchema[fileTypeDelete])
-		if err != nil {
-			return fmt.Errorf("failed to create arrow record: %v", err)
-		}
+	if w.upsertMode {
+		for pKey, rec := range deletes {
+			record, err := createDeleteArrowRecord(rec, w.allocator, w.arrowSchema[fileTypeDelete])
+			if err != nil {
+				return fmt.Errorf("failed to create arrow record: %v", err)
+			}
 
-		partitionValues := w.getPartitionValues(rec)
-		writer, err := w.getOrCreateWriter(pKey, *record.Schema(), fileTypeDelete, partitionValues)
-		if err != nil {
+			partitionValues := w.getPartitionValues(rec)
+			writer, err := w.getOrCreateWriter(pKey, *record.Schema(), fileTypeDelete, partitionValues)
+			if err != nil {
+				record.Release()
+				return fmt.Errorf("failed to get or create writer for %s: %w", fileTypeDelete, err)
+			}
+			if err := writer.currentWriter.WriteBuffered(record); err != nil {
+				record.Release()
+				return fmt.Errorf("failed to write delete record: %v", err)
+			}
+			writer.currentRowCount += record.NumRows()
 			record.Release()
-			return fmt.Errorf("failed to get or create writer for %s: %w", fileTypeDelete, err)
-		}
-		if err := writer.currentWriter.WriteBuffered(record); err != nil {
-			record.Release()
-			return fmt.Errorf("failed to write delete record: %v", err)
-		}
-		writer.currentRowCount += record.NumRows()
-		record.Release()
 
-		if shouldFlush, err := w.checkAndFlush(ctx, writer, pKey, fileTypeDelete); err != nil {
-			return err
-		} else if shouldFlush {
-			w.writers.Delete(fileTypeDelete + ":" + pKey)
+			if shouldFlush, err := w.checkAndFlush(ctx, writer, pKey, fileTypeDelete); err != nil {
+				return err
+			} else if shouldFlush {
+				w.writers.Delete(fileTypeDelete + ":" + pKey)
+			}
 		}
 	}
 
@@ -312,31 +323,33 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to parse data schema field IDs: %w", err)
 	}
 
-	deleteFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeDelete])
-	if err != nil {
-		return fmt.Errorf("failed to parse delete schema field IDs: %w", err)
-	}
-
 	w.allocator = memory.NewGoAllocator()
 	w.fields = createFields(w.schema, dataFieldIDs)
 	w.arrowSchema[fileTypeData] = arrow.NewSchema(w.fields, nil)
 
-	olakeIDFieldID, ok := deleteFieldIDs[constants.OlakeID]
-	if !ok {
-		return fmt.Errorf("_olake_id field not found in delete schema")
-	}
+	if w.upsertMode {
+		deleteFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeDelete])
+		if err != nil {
+			return fmt.Errorf("failed to parse delete schema field IDs: %w", err)
+		}
 
-	w.arrowSchema[fileTypeDelete] = arrow.NewSchema([]arrow.Field{
-		{
-			Name:     constants.OlakeID,
-			Type:     arrow.BinaryTypes.String,
-			Nullable: false,
-			// Add PARQUET:field_id metadata for Iceberg Query Engines compatibility
-			Metadata: arrow.MetadataFrom(map[string]string{
-				"PARQUET:field_id": fmt.Sprintf("%d", olakeIDFieldID),
-			}),
-		},
-	}, nil)
+		olakeIDFieldID, ok := deleteFieldIDs[constants.OlakeID]
+		if !ok {
+			return fmt.Errorf("_olake_id field not found in delete schema")
+		}
+
+		w.arrowSchema[fileTypeDelete] = arrow.NewSchema([]arrow.Field{
+			{
+				Name:     constants.OlakeID,
+				Type:     arrow.BinaryTypes.String,
+				Nullable: false,
+				// Add PARQUET:field_id metadata for Iceberg Query Engines compatibility
+				Metadata: arrow.MetadataFrom(map[string]string{
+					"PARQUET:field_id": fmt.Sprintf("%d", olakeIDFieldID),
+				}),
+			},
+		}, nil)
+	}
 
 	return nil
 }
