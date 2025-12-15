@@ -47,7 +47,7 @@ func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address strin
 	if d.sshClient == nil {
 		return nil, fmt.Errorf("SSH client is not initialized")
 	}
-	conn, err := d.sshClient.Dial("tcp", address)
+	conn, err := d.sshClient.DialContext(ctx, "tcp", address)
 	if err != nil {
 		return nil, err
 	}
