@@ -108,7 +108,6 @@ func createFields(schema map[string]string, fieldIDs map[string]int32) []arrow.F
 		// OlakeID is used as identifier field, so cannot be nullable
 		nullable := fieldName != constants.OlakeID
 
-		// Add PARQUET:field_id metadata for Iceberg Query Engines compatibility
 		fields = append(fields, arrow.Field{
 			Name:     fieldName,
 			Type:     arrowType,

@@ -19,8 +19,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// need to check on the number of structs being used here
-
 type ArrowWriter struct {
 	fileschemajson   map[string]string
 	schema           map[string]string
@@ -353,7 +351,7 @@ func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema
 
 func (w *ArrowWriter) createWriter(schema arrow.Schema, fileType string, partitionValues []string) (*RollingWriter, error) {
 	baseProps := getDefaultWriterProps()
-	baseProps = append(baseProps, parquet.WithAllocator(memory.NewGoAllocator()))
+	baseProps = append(baseProps, parquet.WithAllocator(w.allocator))
 
 	currentBuffer := &bytes.Buffer{}
 	writerProps := parquet.NewWriterProperties(baseProps...)
