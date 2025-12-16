@@ -10,19 +10,20 @@ import (
 )
 
 type Config struct {
-	Hosts            []string `json:"hosts"`
-	Username         string   `json:"username"`
-	Password         string   `json:"password"`
-	AuthDB           string   `json:"authdb"`
-	ReplicaSet       string   `json:"replica_set"`
-	ReadPreference   string   `json:"read_preference"`
-	Srv              bool     `json:"srv"`
-	ServerRAM        uint     `json:"server_ram"`
-	MaxThreads       int      `json:"max_threads"`
-	Database         string   `json:"database"`
-	RetryCount       int      `json:"backoff_retry_count"`
-	ChunkingStrategy string   `json:"chunking_strategy"`
-	UseIAM           bool     `json:"use_iam"`
+	Hosts            []string         `json:"hosts"`
+	Username         string           `json:"username"`
+	Password         string           `json:"password"`
+	AuthDB           string           `json:"authdb"`
+	ReplicaSet       string           `json:"replica_set"`
+	ReadPreference   string           `json:"read_preference"`
+	Srv              bool             `json:"srv"`
+	ServerRAM        uint             `json:"server_ram"`
+	MaxThreads       int              `json:"max_threads"`
+	Database         string           `json:"database"`
+	RetryCount       int              `json:"backoff_retry_count"`
+	ChunkingStrategy string           `json:"chunking_strategy"`
+	UseIAM           bool             `json:"use_iam"`
+	SSHConfig        *utils.SSHConfig `json:"ssh_config"`
 }
 
 func (c *Config) URI() string {
