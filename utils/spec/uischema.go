@@ -22,7 +22,8 @@ const MongoDBUISchema = `{
         { "password": 12, "replica_set": 12 },
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
-        { "chunking_strategy": 12, "use_iam": 12 }
+        { "chunking_strategy": 12, "use_iam": 12 },
+        { "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
@@ -33,6 +34,23 @@ const MongoDBUISchema = `{
     "hosts": {
         "ui:options": {
             "label": false
+        }
+    },
+    "ssh_config": {
+        "ui:options": {
+            "title": false,
+            "description": false
+        },
+        "ui:grid": [
+            { "host": 12, "port": 12 },
+            { "username": 12, "private_key": 12 },
+            { "passphrase": 12, "password": 12 }
+        ],
+        "private_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
         }
     }
 }`
@@ -124,7 +142,8 @@ const OracleUISchema = `{
     { "username": 12, "sid": 12, "service_name": 12 },
     { "password": 12, "port": 12 },
     { "jdbc_url_params": 12, "ssl": 12 },
-    { "max_threads": 12, "backoff_retry_count": 12 }
+    { "max_threads": 12, "backoff_retry_count": 12 },
+    { "ssh_config": 12 }
   ],
   "ssl": {
     "ui:options": {
@@ -140,6 +159,23 @@ const OracleUISchema = `{
       "SID",
       "Service Name"
     ]
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    }
   }
 }`
 
