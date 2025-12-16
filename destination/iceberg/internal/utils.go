@@ -5,7 +5,7 @@ import (
 )
 
 type ServerClient interface {
-	SendClientRequest(ctx context.Context, reqPayload interface{}) (string, map[string]string, error)
+	SendClientRequest(ctx context.Context, reqPayload interface{}) (interface{}, error)
 	ServerID() string
 }
 

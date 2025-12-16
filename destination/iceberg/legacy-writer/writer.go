@@ -131,12 +131,19 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	defer cancel()
 
 	// Send the batch to the server
-	res, _, err := w.server.SendClientRequest(reqCtx, request)
+	res, err := w.server.SendClientRequest(reqCtx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send batch: %s", err)
 	}
 
-	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, res)
+	ingestResponse := res.(*proto.RecordIngestResponse)
+	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, ingestResponse.GetResult())
+
+	return nil
+}
+
+func (w *LegacyWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
+	w.schema = newSchema
 
 	return nil
 }
@@ -154,12 +161,13 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 
-	res, _, err := w.server.SendClientRequest(ctx, request)
+	res, err := w.server.SendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to send commit message: %s", err)
 	}
 
-	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, res)
+	ingestResponse := res.(*proto.RecordIngestResponse)
+	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
 
 	return nil
 }

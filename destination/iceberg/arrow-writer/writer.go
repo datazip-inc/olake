@@ -222,6 +222,20 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 	return false, nil
 }
 
+func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
+	if err := w.closeWriters(ctx); err != nil {
+		return fmt.Errorf("failed to flush writers during schema evolution: %v", err)
+	}
+
+	w.schema = newSchema
+
+	if err := w.initialize(ctx); err != nil {
+		return fmt.Errorf("failed to reinitialize with evolved schema: %v", err)
+	}
+
+	return nil
+}
+
 func (w *ArrowWriter) Close(ctx context.Context) error {
 	err := w.closeWriters(ctx)
 	if err != nil {
@@ -240,7 +254,7 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 	commitCtx, commitCancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer commitCancel()
 
-	_, _, err = w.server.SendClientRequest(commitCtx, commitRequest)
+	_, err = w.server.SendClientRequest(commitCtx, commitRequest)
 	if err != nil {
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
@@ -413,14 +427,15 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 	uploadCtx, uploadCancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer uploadCancel()
 
-	filePath, _, err := w.server.SendClientRequest(uploadCtx, &request)
+	resp, err := w.server.SendClientRequest(uploadCtx, &request)
 	if err != nil {
 		return fmt.Errorf("failed to upload %s file via Iceberg FileIO: %v", uploadData.FileType, err)
 	}
 
+	arrowResponse := resp.(*proto.ArrowIngestResponse)
 	fileMeta := &proto.ArrowPayload_FileMetadata{
 		FileType:        uploadData.FileType,
-		FilePath:        filePath,
+		FilePath:        arrowResponse.GetResult(),
 		RecordCount:     uploadData.RecordCount,
 		PartitionValues: uploadData.PartitionValues,
 	}
@@ -442,12 +457,13 @@ func (w *ArrowWriter) fetchIcebergSchemas(ctx context.Context) error {
 	schemaCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	_, schemaMap, err := w.server.SendClientRequest(schemaCtx, request)
+	resp, err := w.server.SendClientRequest(schemaCtx, request)
 	if err != nil {
 		return fmt.Errorf("failed to fetch schema JSON from server: %w", err)
 	}
 
-	w.fileschemajson = schemaMap
+	arrowResp := resp.(*proto.ArrowIngestResponse)
+	w.fileschemajson = arrowResp.GetIcebergSchemas()
 
 	return nil
 }

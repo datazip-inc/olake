@@ -95,14 +95,15 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			},
 		}
 
-		response, _, err := i.server.SendClientRequest(ctx, &requestPayload)
+		response, err := i.server.SendClientRequest(ctx, &requestPayload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
 
-		schema, err = parseSchema(response)
+		ingestResponse := response.(*proto.RecordIngestResponse)
+		schema, err = parseSchema(ingestResponse.GetResult())
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
+			return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
 		}
 	} else {
 		// set global schema for current thread
@@ -184,12 +185,13 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		},
 	}
 
-	res, _, err := server.SendClientRequest(ctx, request)
+	res, err := server.SendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to create or get table: %s", err)
 	}
 
-	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.options.ThreadID, res)
+	ingestResponse := res.(*proto.RecordIngestResponse)
+	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.options.ThreadID, ingestResponse.GetResult())
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
@@ -212,12 +214,13 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		}},
 	}
 
-	resInsert, _, err := server.SendClientRequest(ctx, recrodInsertRequest)
+	resInsert, err := server.SendClientRequest(ctx, recrodInsertRequest)
 	if err != nil {
 		return fmt.Errorf("failed to insert request: %s", err)
 	}
 
-	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.options.ThreadID, resInsert)
+	ingestResponse = resInsert.(*proto.RecordIngestResponse)
+	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.options.ThreadID, ingestResponse.GetResult())
 	return nil
 }
 
@@ -435,17 +438,21 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 			})
 		}
 
-		response, _, err = i.server.SendClientRequest(ctx, &request)
+		resp, err := i.server.SendClientRequest(ctx, &request)
 		if err != nil {
 			return false, fmt.Errorf("failed to evolve schema: %s", err)
 		}
+		ingestResponse := resp.(*proto.RecordIngestResponse)
+		response = ingestResponse.GetResult()
 	} else {
 		logger.Debugf("Thread[%s]: refreshing table schema", i.options.ThreadID)
 		request.Type = proto.IcebergPayload_REFRESH_TABLE_SCHEMA
-		response, _, err = i.server.SendClientRequest(ctx, &request)
+		resp, err := i.server.SendClientRequest(ctx, &request)
 		if err != nil {
 			return false, fmt.Errorf("failed to refresh schema: %s", err)
 		}
+		ingestResponse := resp.(*proto.RecordIngestResponse)
+		response = ingestResponse.GetResult()
 	}
 
 	// only refresh table schema
@@ -455,18 +462,9 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	}
 
 	i.schema = copySchema(schemaAfterEvolution)
-
-	// close the previous iceberg writer
-	if err := i.writer.Close(ctx); err != nil {
-		return nil, fmt.Errorf("failed to close previous writer before schema evolution: %v", err)
+	if err := i.writer.EvolveSchema(ctx, schemaAfterEvolution); err != nil {
+		return nil, fmt.Errorf("failed to evolve writer schema: %v", err)
 	}
-
-	// create a new iceberg writer
-	writer, err := i.NewWriter(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to recreate writer after schema evolution: %v", err)
-	}
-	i.writer = writer
 
 	return schemaAfterEvolution, nil
 }
@@ -558,7 +556,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 				ThreadId:      i.server.serverID,
 			},
 		}
-		_, _, err := i.server.SendClientRequest(ctx, &request)
+		_, err := i.server.SendClientRequest(ctx, &request)
 		if err != nil {
 			return fmt.Errorf("failed to drop table %s: %s", dropTable, err)
 		}
