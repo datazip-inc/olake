@@ -91,3 +91,30 @@ func ParsePrivateKey(pemText, passphrase string) (ssh.Signer, error) {
 	}
 	return nil, err
 }
+
+// NoDeadlineConn wraps a net.Conn to suppress "deadline not supported" errors from the crypto/ssh package.
+type NoDeadlineConn struct {
+	net.Conn
+}
+
+func (c *NoDeadlineConn) SetDeadline(_ time.Time) error {
+	return nil // Ignore deadline setting
+}
+
+func (c *NoDeadlineConn) SetReadDeadline(_ time.Time) error {
+	return nil // Ignore read deadline setting
+}
+
+func (c *NoDeadlineConn) SetWriteDeadline(_ time.Time) error {
+	return nil // Ignore write deadline setting
+}
+
+// The crypto/ssh package does not support deadline methods.
+//   - Required for: mongodb and oracle drivers, which internally set default deadlines or call these methods unconditionally.
+//   - Not Required for: mysql driver (only calls SetDeadline if a timeout is explicitly configured) or postgres driver (uses context for timeouts).
+func ConnWithCustomDeadlineSupport(conn net.Conn) (net.Conn, error) {
+	if conn == nil {
+		return nil, fmt.Errorf("connection is nil")
+	}
+	return &NoDeadlineConn{Conn: conn}, nil
+}

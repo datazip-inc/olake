@@ -1,0 +1,14 @@
+{
+    "host": "host.docker.internal",
+    "port": 1521,
+    "username": "MYUSER",
+    "password": "secret1234",
+    "service_name": "ORCL",
+    "ssl": {
+        "mode": "disable"
+    },
+    "jdbc_url_params": {
+        "TIMEOUT": "86400"
+    },
+    "max_threads": 10
+}

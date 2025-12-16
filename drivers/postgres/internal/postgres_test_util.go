@@ -45,6 +45,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				col_bigint BIGINT,
+				col_cursor INT,
 				col_bigserial BIGSERIAL PRIMARY KEY,
 				col_bool BOOLEAN,
 				col_char CHAR(1),
@@ -69,6 +70,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_uuid UUID,
 				col_varbit VARBIT(20),
 				col_xml XML,
+				col_point POINT,
+				col_polygon POLYGON,
+				col_circle CIRCLE,
 				CONSTRAINT unique_custom_key UNIQUE (col_bigserial)
 			)`, integrationTestTable)
 
@@ -85,21 +89,25 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "insert":
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
-				col_bigint, col_bool, col_char, col_character,
+				col_cursor, col_bigint, col_bool, col_char, col_character,
 				col_character_varying, col_date, col_decimal,
 				col_double_precision, col_float4, col_int, col_int2,
 				col_integer, col_interval, col_json, col_jsonb,
 				col_name, col_numeric, col_real, col_text,
-				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
+				col_point, col_polygon, col_circle
 			) VALUES (
-				123456789012345, TRUE, 'c', 'char_val',
+				6, 123456789012345, TRUE, 'c', 'char_val',
 				'varchar_val', '2023-01-01', 123.45,
 				123.456789, 123.45, 123, 123, 12345,
 				'1 hour', '{"key": "value"}', '{"key": "value"}',
 				'test_name', 123.45, 123.45, 'sample text',
 				'2023-01-01 12:00:00', '2023-01-01 12:00:00+00',
 				'123e4567-e89b-12d3-a456-426614174000', B'101010',
-				'<tag>value</tag>'
+				'<tag>value</tag>',
+				'(10.5,20.5)'::point,
+				'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+				'<(5,5),3.5>'::circle
 			)`, integrationTestTable)
 
 	case "update":
@@ -115,6 +123,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_double_precision = 987.654321,
 				col_float4 = 543.21,
 				col_int = 321,
+				col_cursor = NULL,
 				col_int2 = 321,
 				col_integer = 54321,
 				col_interval = '2 hours',
@@ -128,7 +137,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_timestamptz = '2024-07-01 15:30:00+00',
 				col_uuid = '00000000-0000-0000-0000-000000000000',
 				col_varbit = B'111000',
-				col_xml = '<updated>value</updated>'
+				col_xml = '<updated>value</updated>',
+				col_point = '(15.5,25.5)'::point,
+				col_polygon = '((5,5),(15,5),(15,15),(5,15),(5,5))'::polygon,
+				col_circle = '<(10,10),5.5>'::circle
 			WHERE col_bigserial = 1`, integrationTestTable)
 
 	case "delete":
@@ -165,6 +177,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		return
 
+	case "evolve-schema":
+		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT`, integrationTestTable)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
@@ -180,22 +195,26 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
-			col_bigint, col_bigserial, col_bool, col_char, col_character,
+			col_cursor, col_bigint, col_bigserial, col_bool, col_char, col_character,
 			col_character_varying, col_date, col_decimal,
 			col_double_precision, col_float4, col_int, col_int2, col_integer,
 			col_interval, col_json, col_jsonb, col_name, col_numeric,
 			col_real, col_text, col_timestamp, col_timestamptz,
-			col_uuid, col_varbit, col_xml
+			col_uuid, col_varbit, col_xml,
+			col_point, col_polygon, col_circle
 		) VALUES (
-			123456789012345, DEFAULT, TRUE, 'c', 'char_val',
+			%d, 123456789012345, DEFAULT, TRUE, 'c', 'char_val',
 			'varchar_val', '2023-01-01', 123.45,
 			123.456789, 123.45, 123, 123, 12345, '1 hour', '{"key": "value"}',
 			'{"key": "value"}', 'test_name', 123.45, 123.45,
 			'sample text', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00+00',
 			'123e4567-e89b-12d3-a456-426614174000', B'101010',
-			'<tag>value</tag>'
-		)`, tableName)
+			'<tag>value</tag>',
+			'(10.5,20.5)'::point,
+			'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+			'<(5,5),3.5>'::circle
+		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")
@@ -227,9 +246,12 @@ var ExpectedPostgresData = map[string]interface{}{
 	"col_uuid":              "123e4567-e89b-12d3-a456-426614174000",
 	"col_varbit":            "101010",
 	"col_xml":               "<tag>value</tag>",
+	"col_point":             "(10.5,20.5)",
+	"col_polygon":           "((0,0),(10,0),(10,10),(0,10),(0,0))",
+	"col_circle":            "<(5,5),3.5>",
 }
 
-var ExpectedUpdatedPostgresData = map[string]interface{}{
+var ExpectedUpdatedData = map[string]interface{}{
 	"col_bigint":            int64(123456789012340),
 	"col_bool":              false,
 	"col_char":              "d",
@@ -238,8 +260,8 @@ var ExpectedUpdatedPostgresData = map[string]interface{}{
 	"col_date":              arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":           float64(543.21),
 	"col_double_precision":  987.654321,
-	"col_float4":            float32(543.21),
-	"col_int":               int32(321),
+	"col_float4":            float64(543.21),
+	"col_int":               int64(321),
 	"col_int2":              int32(321),
 	"col_integer":           int32(54321),
 	"col_interval":          "02:00:00",
@@ -254,9 +276,12 @@ var ExpectedUpdatedPostgresData = map[string]interface{}{
 	"col_uuid":              "00000000-0000-0000-0000-000000000000",
 	"col_varbit":            "111000",
 	"col_xml":               "<updated>value</updated>",
+	"col_point":             "(15.5,25.5)",
+	"col_polygon":           "((5,5),(15,5),(15,15),(5,15),(5,5))",
+	"col_circle":            "<(10,10),5.5>",
 }
 
-var PostgresToIcebergSchema = map[string]string{
+var PostgresToDestinationSchema = map[string]string{
 	"col_bigint":            "bigint",
 	"col_bigserial":         "bigserial",
 	"col_bool":              "boolean",
@@ -282,4 +307,38 @@ var PostgresToIcebergSchema = map[string]string{
 	"col_uuid":              "uuid",
 	"col_varbit":            "varbit",
 	"col_xml":               "xml",
+	"col_point":             "point",
+	"col_polygon":           "polygon",
+	"col_circle":            "circle",
+}
+
+var UpdatedPostgresToDestinationSchema = map[string]string{
+	"col_bigint":            "bigint",
+	"col_bigserial":         "bigserial",
+	"col_bool":              "boolean",
+	"col_char":              "char",
+	"col_character":         "character",
+	"col_character_varying": "varchar",
+	"col_date":              "date",
+	"col_decimal":           "double",
+	"col_double_precision":  "double precision",
+	"col_float4":            "double",
+	"col_int":               "bigint",
+	"col_int2":              "smallint",
+	"col_integer":           "integer",
+	"col_interval":          "interval",
+	"col_json":              "json",
+	"col_jsonb":             "jsonb",
+	"col_name":              "name",
+	"col_numeric":           "double",
+	"col_real":              "real",
+	"col_text":              "text",
+	"col_timestamp":         "timestamp",
+	"col_timestamptz":       "timestamptz",
+	"col_uuid":              "uuid",
+	"col_varbit":            "varbit",
+	"col_xml":               "xml",
+	"col_point":             "point",
+	"col_polygon":           "polygon",
+	"col_circle":            "circle",
 }
