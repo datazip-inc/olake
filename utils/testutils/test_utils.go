@@ -66,6 +66,7 @@ type TestConfig struct {
 	ParquetDestinationPath string
 	StatePath              string
 	StatsPath              string
+	RPSBenchmarksPath      string
 	HostTestDataPath       string
 	HostCatalogPath        string
 	HostTestCatalogPath    string
@@ -89,6 +90,7 @@ func GetTestConfig(driver string) *TestConfig {
 		HostTestDataPath:       fmt.Sprintf(hostTestDataPath, driver, ""),
 		HostTestCatalogPath:    fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
 		HostCatalogPath:        fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
+		RPSBenchmarksPath:      fmt.Sprintf(hostTestDataPath, driver, "rps_benchmarks.json"),
 		SourcePath:             fmt.Sprintf(containerTestDataPath, driver, "source.json"),
 		CatalogPath:            fmt.Sprintf(containerTestDataPath, driver, "streams.json"),
 		IcebergDestinationPath: fmt.Sprintf(containerTestDataPath, driver, "iceberg_destination.json"),
@@ -1056,35 +1058,34 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return false, 0, fmt.Errorf("failed to get RPS from stats: %s", err)
 		}
 
-		// get past benchmark RPS stats
-		// benchmarksFilePath := filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "rps_benchmarks.json"))
-		benchmarks, err := LoadRPSBenchmarks("benchmarksFilePath")
+		// Get past benchmark RPS stats
+		benchmarks, err := LoadRPSBenchmarks(config.RPSBenchmarksPath)
 		if err != nil {
 			return false, 0, err
 		}
 
-		averageRPS, pastRPSCount, _ := benchmarks.pastRPSStats(constants.DriverType(config.Driver), isBackfill)
+		averageRPS, pastRPSCount := benchmarks.pastRPSStats(isBackfill)
 
-		// this happens when the driver has not been benchmarked yet or the mode for the driver has not been benchmarked yet.
-		// we don't fail the test in this case.
+		// No benchmarks exist yet for this driver/mode
+		// Skip validation to allow initial benchmarking.
 		if pastRPSCount == 0 {
+			t.Logf("No benchmarks exist yet for %s %s mode, skipping validation", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 			return true, rps, nil
 		}
 
 		t.Logf("CurrentRPS: %.2f, averageRPS: %.2f, pastRPSCount: %d", rps, averageRPS, pastRPSCount)
 		if rps < BenchmarkThreshold*averageRPS {
-			return false, rps, fmt.Errorf("❌ RPS is less than the average of past %d RPS values", pastRPSCount)
+			return false, rps, nil
 		}
 		return true, rps, nil
 	}
 
 	writeRPSHistory := func(config TestConfig, isBackfill bool, rps float64) error {
-		// benchmarksFilePath := filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "rps_benchmarks.json"))
-		benchmarks, err := LoadRPSBenchmarks("benchmarksFilePath")
+		benchmarks, err := LoadRPSBenchmarks(config.RPSBenchmarksPath)
 		if err != nil {
 			return err
 		}
-		return benchmarks.writeRPSHistory(constants.DriverType(config.Driver), isBackfill, rps)
+		return benchmarks.writeRPSHistory(isBackfill, rps)
 	}
 
 	syncWithTimeout := func(ctx context.Context, c testcontainers.Container, cmd string) ([]byte, error) {
