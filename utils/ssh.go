@@ -92,7 +92,7 @@ func ParsePrivateKey(pemText, passphrase string) (ssh.Signer, error) {
 	return nil, err
 }
 
-// NoDeadlineConn is a net.Conn that ignores deadlines
+// NoDeadlineConn wraps a net.Conn to suppress "deadline not supported" errors from the crypto/ssh package.
 type NoDeadlineConn struct {
 	net.Conn
 }
@@ -110,9 +110,8 @@ func (c *NoDeadlineConn) SetWriteDeadline(_ time.Time) error {
 }
 
 // The crypto/ssh package does not support deadline methods.
-// Some db drivers(for Golang) such as of mongodb and oracle, directly call these deadline methods, which will cause an error.
-// While some db drivers(for Golang) they either have a check for deadline timeout and return an error if it is set or ignore if the timeout is not set, such as in mysql go driver. While in some driver they internally set the deadline methods such as in pgx driver.
-// So for drivers that directly call these deadline methods, we need to wrap the connection with a custom connection that ignores the deadline methods.
+//   - Required for: mongodb and oracle drivers, which internally set default deadlines or call these methods unconditionally.
+//   - Not Required for: mysql driver (only calls SetDeadline if a timeout is explicitly configured) or postgres driver (uses context for timeouts).
 func ConnWithCustomDeadlineSupport(conn net.Conn) (net.Conn, error) {
 	if conn == nil {
 		return nil, fmt.Errorf("connection is nil")
