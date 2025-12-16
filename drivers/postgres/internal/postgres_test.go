@@ -11,13 +11,16 @@ import (
 func TestPostgresIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		TestConfig:         testutils.GetTestConfig(string(constants.Postgres)),
-		Namespace:          "public",
-		ExpectedData:       ExpectedPostgresData,
-		ExpectedUpdateData: ExpectedUpdatedPostgresData,
-		DataTypeSchema:     PostgresToIcebergSchema,
-		ExecuteQuery:       ExecuteQuery,
-		IcebergDB:          "postgres_postgres_public",
+		TestConfig:                       testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:                        "public",
+		ExpectedData:                     ExpectedPostgresData,
+		ExpectedUpdatedData:              ExpectedUpdatedData,
+		DestinationDataTypeSchema:        PostgresToDestinationSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedPostgresToDestinationSchema,
+		ExecuteQuery:                     ExecuteQuery,
+		DestinationDB:                    "postgres_postgres_public",
+		CursorField:                      "col_cursor:col_int",
+		PartitionRegex:                   "/{col_bigserial,identity}",
 	}
 	testConfig.TestIntegration(t)
 }
