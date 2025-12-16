@@ -48,10 +48,6 @@ type PerformanceTest struct {
 	ExecuteQuery    func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 }
 
-type benchmarkStats struct {
-	Backfill float64
-	CDC      float64
-}
 type SyncSpeed struct {
 	Speed string `json:"Speed"`
 }
@@ -66,15 +62,6 @@ type TestConfig struct {
 	HostTestDataPath    string
 	HostCatalogPath     string
 	HostTestCatalogPath string
-}
-
-// this benchmark is for performance test which runs on a github runner
-// for absolute benchmarks, please checkout olake docs: https://olake.io/docs/connectors/postgres/benchmarks
-var benchmarks = map[constants.DriverType]benchmarkStats{
-	constants.MySQL:    {Backfill: 15906.40, CDC: 15648.93},
-	constants.Postgres: {Backfill: 12000, CDC: 1500},
-	constants.Oracle:   {Backfill: 3500, CDC: 0},
-	constants.MongoDB:  {Backfill: 0, CDC: 0},
 }
 
 // GetTestConfig returns the test config for the given driver
@@ -473,26 +460,46 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	ctx := context.Background()
 
 	// checks if the current rps (from stats.json) is at least 90% of the benchmark rps
-	isRPSAboveBenchmark := func(config TestConfig, isBackfill bool) (bool, error) {
+	isRPSAboveBenchmark := func(config TestConfig, isBackfill bool) (bool, float64, error) {
 		// get current RPS
 		var stats SyncSpeed
 		if err := utils.UnmarshalFile(filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
-			return false, err
+			return false, 0, err
 		}
 		rps, err := typeutils.ReformatFloat64(strings.Split(stats.Speed, " ")[0])
 		if err != nil {
-			return false, fmt.Errorf("failed to get RPS from stats: %s", err)
+			return false, 0, fmt.Errorf("failed to get RPS from stats: %s", err)
 		}
 
-		// get benchmark RPS
-		benchmarkDriverStats := benchmarks[constants.DriverType(config.Driver)]
-		benchmarkRPS := utils.Ternary(isBackfill, benchmarkDriverStats.Backfill, benchmarkDriverStats.CDC).(float64)
-
-		t.Logf("CurrentRPS: %.2f, BenchmarkRPS: %.2f", rps, benchmarkRPS)
-		if rps < BenchmarkThreshold*benchmarkRPS {
-			return false, fmt.Errorf("❌ RPS is less than benchmark RPS")
+		// get past benchmark RPS stats
+		// benchmarksFilePath := filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "rps_benchmarks.json"))
+		benchmarks, err := LoadRPSBenchmarks("benchmarksFilePath")
+		if err != nil {
+			return false, 0, err
 		}
-		return true, nil
+
+		averageRPS, pastRPSCount, _ := benchmarks.pastRPSStats(constants.DriverType(config.Driver), isBackfill)
+
+		// this happens when the driver has not been benchmarked yet or the mode for the driver has not been benchmarked yet.
+		// we don't fail the test in this case.
+		if pastRPSCount == 0 {
+			return true, rps, nil
+		}
+
+		t.Logf("CurrentRPS: %.2f, averageRPS: %.2f, pastRPSCount: %d", rps, averageRPS, pastRPSCount)
+		if rps < BenchmarkThreshold*averageRPS {
+			return false, rps, fmt.Errorf("❌ RPS is less than the average of past %d RPS values", pastRPSCount)
+		}
+		return true, rps, nil
+	}
+
+	writeRPSHistory := func(config TestConfig, isBackfill bool, rps float64) error {
+		// benchmarksFilePath := filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "rps_benchmarks.json"))
+		benchmarks, err := LoadRPSBenchmarks("benchmarksFilePath")
+		if err != nil {
+			return err
+		}
+		return benchmarks.writeRPSHistory(constants.DriverType(config.Driver), isBackfill, rps)
 	}
 
 	syncWithTimeout := func(ctx context.Context, c testcontainers.Container, cmd string) ([]byte, error) {
@@ -558,11 +565,16 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) sync completed")
 
-							checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, true)
+							checkRPS, currentRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, true)
 							if err != nil {
 								return fmt.Errorf("failed to check RPS: %s", err)
 							}
+
 							require.True(t, checkRPS, fmt.Sprintf("%s backfill performance below benchmark", cfg.TestConfig.Driver))
+
+							if err := writeRPSHistory(*cfg.TestConfig, true, currentRPS); err != nil {
+								return fmt.Errorf("failed to write RPS history: %s", err)
+							}
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
 
 							if len(cfg.CDCStreams) > 0 {
@@ -602,11 +614,15 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) sync completed")
 
-								checkRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, false)
+								checkRPS, currentRPS, err := isRPSAboveBenchmark(*cfg.TestConfig, false)
 								if err != nil {
 									return fmt.Errorf("failed to check RPS: %s", err)
 								}
 								require.True(t, checkRPS, fmt.Sprintf("%s CDC performance below benchmark", cfg.TestConfig.Driver))
+
+								if err := writeRPSHistory(*cfg.TestConfig, false, currentRPS); err != nil {
+									return fmt.Errorf("failed to write RPS history: %s", err)
+								}
 								t.Logf("✅ SUCCESS: %s cdc", cfg.TestConfig.Driver)
 							}
 							return nil
