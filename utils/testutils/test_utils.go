@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
+		s = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
@@ -166,6 +168,8 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
+	// in case of Oracle, the stream names are in uppercase in stream.json
+	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(
@@ -314,7 +318,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase A: Full load + CDC tests")
+	t.Log("Starting Iceberg Full load + CDC tests")
 
 	testCases := []syncTestCase{
 		{
@@ -373,7 +377,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		})
 	}
 
-	t.Log("Phase A: Full load + CDC tests completed successfully")
+	t.Log("Iceberg Full load + CDC tests completed successfully")
 
 	// Drop the Iceberg table after all tests are finished
 	dropIcebergTable(t, testTable, cfg.DestinationDB)
@@ -389,7 +393,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase B: Parquet Full load + CDC tests")
+	t.Log("Starting Parquet Full load + CDC tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
@@ -457,7 +461,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		})
 	}
 
-	t.Log("Phase B: Parquet Full load + CDC tests completed successfully")
+	t.Log("Parquet Full load + CDC tests completed successfully")
 	return nil
 }
 
@@ -469,7 +473,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase C: Full load + Incremental tests")
+	t.Log("Starting Iceberg Full load + Incremental tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
@@ -492,24 +496,42 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:      "full load",
+			name:      "Full-Refresh",
 			operation: "",
 			useState:  false,
 			opSymbol:  "r",
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "insert",
+			name:      "Incremental - insert",
 			operation: "insert",
 			useState:  true,
 			opSymbol:  "u",
 			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "Incremental - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
 	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// schema evolution
+			if tc.operation == "update" {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+				}
+			}
+
+			// drop iceberg table before sync
+			dropIcebergTable(t, testTable, cfg.DestinationDB)
+			t.Logf("Dropped Iceberg table: %s", testTable)
+
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
@@ -526,7 +548,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		})
 	}
 
-	t.Log("Phase C: Full load + Incremental tests completed successfully")
+	t.Log("Iceberg Full load + Incremental tests completed successfully")
 	return nil
 }
 
@@ -537,7 +559,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	c testcontainers.Container,
 	testTable string,
 ) error {
-	t.Log("Starting Phase D: Parquet Full load + Incremental tests")
+	t.Log("Starting Parquet Full load + Incremental tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
@@ -560,24 +582,38 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:      "full load",
+			name:      "Full-Refresh",
 			operation: "",
 			useState:  false,
 			opSymbol:  "r",
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "insert",
+			name:      "Incremental - insert",
 			operation: "insert",
 			useState:  true,
 			opSymbol:  "u",
 			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "Incremental - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
 	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// schema evolution
+			if tc.operation == "update" {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+				}
+			}
+
 			// Delete parquet files before next operation to avoid error due to schema changes
 			if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
@@ -599,7 +635,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 		})
 	}
 
-	t.Log("Phase D: Parquet Full load + Incremental tests completed successfully")
+	t.Log("Parquet Full load + Incremental tests completed successfully")
 	return nil
 }
 
@@ -726,27 +762,29 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
-							t.Run("Phase A: Iceberg Full load + CDC", func(t *testing.T) {
-								if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Phase A failed: %v", err)
-								}
-							})
+							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
+								t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
+									if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
+										t.Fatalf("Iceberg Full load + CDC tests failed: %v", err)
+									}
+								})
 
-							t.Run("Phase B: Parquet Full load + CDC", func(t *testing.T) {
-								if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Phase B failed: %v", err)
-								}
-							})
+								t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
+									if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
+										t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
+									}
+								})
+							}
 
-							t.Run("Phase C: Iceberg Full load + Incremental", func(t *testing.T) {
+							t.Run("Iceberg Full load + Incremental tests", func(t *testing.T) {
 								if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Phase C failed: %v", err)
+									t.Fatalf("Iceberg Full load + Incremental tests failed: %v", err)
 								}
 							})
 
-							t.Run("Phase D: Parquet Full load + Incremental", func(t *testing.T) {
+							t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
 								if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Phase D failed: %v", err)
+									t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
 								}
 							})
 

@@ -18,7 +18,7 @@ func TestMySQLIntegration(t *testing.T) {
 		UpdatedDestinationDataTypeSchema: EvolvedMySQLToDestinationSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "mysql_olake_mysql_test",
-		CursorField:                      "id",
+		CursorField:                      "id_cursor:id_smallint",
 		PartitionRegex:                   "/{id,identity}",
 	}
 	testConfig.TestIntegration(t)
