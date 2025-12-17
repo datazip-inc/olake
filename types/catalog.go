@@ -95,9 +95,8 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
+		StreamDefaults:  GetStreamDefaults(driver),
 	}
-
-	catalog.StreamDefaults = GetStreamDefaults(driver)
 
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
