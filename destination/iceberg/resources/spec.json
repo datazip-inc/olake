@@ -41,6 +41,11 @@
           "type": "string",
           "title": "S3 Path",
           "description": "The S3 path or storage location for Iceberg data"
+        },
+        "catalog_name": {
+          "type": "string",
+          "title": "Catalog Name",
+          "description": "User defined catalog name, if left blank defaults to olake_iceberg"
         }
       },
       "required": [
