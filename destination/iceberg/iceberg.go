@@ -321,8 +321,10 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 			// set pre configured fields
+			timestamp := time.Now().UTC()
+			records[idx].OlakeTimestamp = timestamp
 			records[idx].Data[constants.OlakeID] = record.OlakeID
-			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
+			records[idx].Data[constants.OlakeTimestamp] = timestamp
 			records[idx].Data[constants.OpType] = record.OperationType
 			if record.CdcTimestamp != nil {
 				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
