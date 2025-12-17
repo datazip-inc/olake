@@ -49,5 +49,7 @@ var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
 
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 
+var SkipCDCDrivers = []DriverType{Oracle}
+
 // LoadedStateVersion stores the version of the state file being used
 var LoadedStateVersion = 1

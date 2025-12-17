@@ -275,8 +275,8 @@ func parseStringTimestamp(value string, isTimestamp bool) (time.Time, error) {
 		}
 	}
 
-	// time unable to be parsed string will be returned as it state version >= 1 (backward compatibility)
-	if !isTimestamp && constants.LoadedStateVersion >= constants.LatestStateVersion {
+	// time unable to be parsed string will be returned as it is for state version != 0 (backward compatibility)
+	if !isTimestamp && constants.LoadedStateVersion != 0 {
 		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
 
