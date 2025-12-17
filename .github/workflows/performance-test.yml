@@ -89,23 +89,23 @@ jobs:
       run: |
         echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/destination.json
     
-    - name: Download RPS Benchmarks History
+    - name: Download Benchmarks History
       uses: actions/download-artifact@v4
       continue-on-error: true
       with:
-        name: rps_benchmarks_${{ matrix.driver }}
+        name: benchmarks_${{ matrix.driver }}
         path: ./drivers/${{ matrix.driver }}/internal/testdata/
     
     - name: Run Performance Tests
       run: go test -v ./drivers/${{ matrix.driver }}/internal/... -timeout 0 -run 'Performance'
     
-    - name: Upload RPS Benchmarks History
+    - name: Upload Benchmarks History
       uses: actions/upload-artifact@v4
       if: always()
       continue-on-error: true
       with:
-        name: rps_benchmarks_${{ matrix.driver }}
-        path: ./drivers/${{ matrix.driver }}/internal/testdata/rps_benchmarks.json
+        name: benchmarks_${{ matrix.driver }}
+        path: ./drivers/${{ matrix.driver }}/internal/testdata/benchmarks.json
         retention-days: 90
    
     - name: Cleanup

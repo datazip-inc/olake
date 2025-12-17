@@ -13,25 +13,25 @@ const (
 	maxRPSHistorySize = 5
 )
 
-type rpsHistory struct {
-	Values    []float64 `json:"values"`
+type history struct {
+	RPS       []float64 `json:"rps"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type RPSBenchmarkStore struct {
-	Backfill rpsHistory `json:"backfill"`
-	CDC      rpsHistory `json:"cdc"`
-	FilePath string     `json:"-"`
+type BenchmarkStore struct {
+	Backfill history `json:"backfill"`
+	CDC      history `json:"cdc"`
+	FilePath string  `json:"-"`
 }
 
-func LoadRPSBenchmarks(path string) (*RPSBenchmarkStore, error) {
-	store := &RPSBenchmarkStore{
-		Backfill: rpsHistory{
-			Values:    make([]float64, 0, maxRPSHistorySize),
+func LoadBenchmarks(path string) (*BenchmarkStore, error) {
+	store := &BenchmarkStore{
+		Backfill: history{
+			RPS:       make([]float64, 0, maxRPSHistorySize),
 			UpdatedAt: time.Now(),
 		},
-		CDC: rpsHistory{
-			Values:    make([]float64, 0, maxRPSHistorySize),
+		CDC: history{
+			RPS:       make([]float64, 0, maxRPSHistorySize),
 			UpdatedAt: time.Now(),
 		},
 		FilePath: path,
@@ -42,7 +42,7 @@ func LoadRPSBenchmarks(path string) (*RPSBenchmarkStore, error) {
 	return store, nil
 }
 
-func (store *RPSBenchmarkStore) load() error {
+func (store *BenchmarkStore) load() error {
 	if err := utils.UnmarshalFile(store.FilePath, store, false); err != nil {
 		if _, statErr := os.Stat(store.FilePath); os.IsNotExist(statErr) {
 			// Missing file is acceptable, it will be created when the first RPS is recorded.
@@ -54,29 +54,29 @@ func (store *RPSBenchmarkStore) load() error {
 	return nil
 }
 
-// recordRPS records a new RPS value for the given driver and mode, and persists it to the file.
-func (store *RPSBenchmarkStore) recordRPS(
+// record records a new value for the given driver and mode, and persists it to the file.
+func (store *BenchmarkStore) record(
 	isBackfill bool,
 	rps float64,
 ) error {
-	values := utils.Ternary(
+	rpsValues := utils.Ternary(
 		isBackfill,
-		store.Backfill.Values,
-		store.CDC.Values,
+		store.Backfill.RPS,
+		store.CDC.RPS,
 	).([]float64)
 
-	values = append(values, rps)
+	rpsValues = append(rpsValues, rps)
 
 	// Truncate history to maintain a rolling window of the last maxRPSHistorySize values.
-	if len(values) > maxRPSHistorySize {
-		values = values[len(values)-maxRPSHistorySize:]
+	if len(rpsValues) > maxRPSHistorySize {
+		rpsValues = rpsValues[len(rpsValues)-maxRPSHistorySize:]
 	}
 
 	if isBackfill {
-		store.Backfill.Values = values
+		store.Backfill.RPS = rpsValues
 		store.Backfill.UpdatedAt = time.Now()
 	} else {
-		store.CDC.Values = values
+		store.CDC.RPS = rpsValues
 		store.CDC.UpdatedAt = time.Now()
 	}
 
@@ -85,19 +85,19 @@ func (store *RPSBenchmarkStore) recordRPS(
 
 // stats returns the average RPS and count of past RPS values for the given driver and mode.
 // The count cannot exceed maxRPSHistorySize.
-func (store *RPSBenchmarkStore) stats(
+func (store *BenchmarkStore) stats(
 	isBackfill bool,
 ) (averageRPS float64, count int) {
-	values := utils.Ternary(
+	rpsValues := utils.Ternary(
 		isBackfill,
-		store.Backfill.Values,
-		store.CDC.Values,
+		store.Backfill.RPS,
+		store.CDC.RPS,
 	).([]float64)
 
-	if len(values) == 0 {
+	if len(rpsValues) == 0 {
 		// No benchmarks recorded for this mode yet.
 		return 0, 0
 	}
 
-	return utils.Average(values), len(values)
+	return utils.Average(rpsValues), len(rpsValues)
 }

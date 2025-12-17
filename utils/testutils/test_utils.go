@@ -66,7 +66,7 @@ type TestConfig struct {
 	ParquetDestinationPath string
 	StatePath              string
 	StatsPath              string
-	RPSBenchmarksPath      string
+	BenchmarksPath         string
 	HostTestDataPath       string
 	HostCatalogPath        string
 	HostTestCatalogPath    string
@@ -90,7 +90,7 @@ func GetTestConfig(driver string) *TestConfig {
 		HostTestDataPath:       fmt.Sprintf(hostTestDataPath, driver, ""),
 		HostTestCatalogPath:    fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
 		HostCatalogPath:        fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
-		RPSBenchmarksPath:      fmt.Sprintf(hostTestDataPath, driver, "rps_benchmarks.json"),
+		BenchmarksPath:         fmt.Sprintf(hostTestDataPath, driver, "benchmarks.json"),
 		SourcePath:             fmt.Sprintf(containerTestDataPath, driver, "source.json"),
 		CatalogPath:            fmt.Sprintf(containerTestDataPath, driver, "streams.json"),
 		IcebergDestinationPath: fmt.Sprintf(containerTestDataPath, driver, "iceberg_destination.json"),
@@ -1059,7 +1059,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		}
 
 		// Get past benchmark RPS stats
-		benchmarks, err := LoadRPSBenchmarks(config.RPSBenchmarksPath)
+		benchmarks, err := LoadBenchmarks(config.BenchmarksPath)
 		if err != nil {
 			return false, 0, err
 		}
@@ -1080,12 +1080,12 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		return true, rps, nil
 	}
 
-	recordRPS := func(config TestConfig, isBackfill bool, rps float64) error {
-		benchmarks, err := LoadRPSBenchmarks(config.RPSBenchmarksPath)
+	recordBenchmark := func(config TestConfig, isBackfill bool, rps float64) error {
+		benchmarks, err := LoadBenchmarks(config.BenchmarksPath)
 		if err != nil {
 			return err
 		}
-		return benchmarks.recordRPS(isBackfill, rps)
+		return benchmarks.record(isBackfill, rps)
 	}
 
 	syncWithTimeout := func(ctx context.Context, c testcontainers.Container, cmd string) ([]byte, error) {
@@ -1158,7 +1158,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							require.True(t, checkRPS, fmt.Sprintf("%s backfill performance below benchmark", cfg.TestConfig.Driver))
 
-							if err := recordRPS(*cfg.TestConfig, true, currentRPS); err != nil {
+							if err := recordBenchmark(*cfg.TestConfig, true, currentRPS); err != nil {
 								return fmt.Errorf("failed to write RPS history: %s", err)
 							}
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
@@ -1206,7 +1206,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								require.True(t, checkRPS, fmt.Sprintf("%s CDC performance below benchmark", cfg.TestConfig.Driver))
 
-								if err := recordRPS(*cfg.TestConfig, false, currentRPS); err != nil {
+								if err := recordBenchmark(*cfg.TestConfig, false, currentRPS); err != nil {
 									return fmt.Errorf("failed to write RPS history: %s", err)
 								}
 								t.Logf("✅ SUCCESS: %s cdc", cfg.TestConfig.Driver)
