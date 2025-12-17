@@ -58,30 +58,20 @@ type DefaultStreamMetadata struct {
 
 // createStreamMetadata creates StreamMetadata with proper defaults based on driver type
 func CreateStreamMetadata(streamName, driver string) StreamMetadata {
-	// Whether the source is a relational driver or not
-	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
-		return src == constants.DriverType(driver)
-	})
-
 	return StreamMetadata{
 		StreamName:     streamName,
 		PartitionRegex: "",
 		AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-		Normalization:  isRelational,
+		Normalization:  isDriverRelational(driver),
 	}
 }
 
 // GetStreamDefaults returns default stream metadata based on driver type
 // This represents the default values for all streams within a driver
 func GetStreamDefaults(driver string) *DefaultStreamMetadata {
-	// Whether the source is a relational driver or not
-	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
-		return src == constants.DriverType(driver)
-	})
-
 	return &DefaultStreamMetadata{
 		AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-		Normalization: isRelational,
+		Normalization: isDriverRelational(driver),
 	}
 }
 
@@ -327,4 +317,12 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 	}
 
 	return diffStreams
+}
+
+// isDriverRelational checks if the driver is a relational driver
+func isDriverRelational(driver string) bool {
+	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
+		return src == constants.DriverType(driver)
+	})
+	return isRelational
 }
