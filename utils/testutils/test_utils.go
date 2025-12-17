@@ -1064,28 +1064,28 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return false, 0, err
 		}
 
-		averageRPS, pastRPSCount := benchmarks.pastRPSStats(isBackfill)
+		averageRPS, count := benchmarks.stats(isBackfill)
 
 		// No benchmarks exist yet for this driver/mode
 		// Skip validation to allow initial benchmarking.
-		if pastRPSCount == 0 {
+		if count == 0 {
 			t.Logf("No benchmarks exist yet for %s %s mode, skipping validation", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 			return true, rps, nil
 		}
 
-		t.Logf("CurrentRPS: %.2f, averageRPS: %.2f, pastRPSCount: %d", rps, averageRPS, pastRPSCount)
+		t.Logf("CurrentRPS: %.2f, averageRPS: %.2f, count: %d", rps, averageRPS, count)
 		if rps < BenchmarkThreshold*averageRPS {
 			return false, rps, nil
 		}
 		return true, rps, nil
 	}
 
-	writeRPSHistory := func(config TestConfig, isBackfill bool, rps float64) error {
+	recordRPS := func(config TestConfig, isBackfill bool, rps float64) error {
 		benchmarks, err := LoadRPSBenchmarks(config.RPSBenchmarksPath)
 		if err != nil {
 			return err
 		}
-		return benchmarks.writeRPSHistory(isBackfill, rps)
+		return benchmarks.recordRPS(isBackfill, rps)
 	}
 
 	syncWithTimeout := func(ctx context.Context, c testcontainers.Container, cmd string) ([]byte, error) {
@@ -1158,7 +1158,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 							require.True(t, checkRPS, fmt.Sprintf("%s backfill performance below benchmark", cfg.TestConfig.Driver))
 
-							if err := writeRPSHistory(*cfg.TestConfig, true, currentRPS); err != nil {
+							if err := recordRPS(*cfg.TestConfig, true, currentRPS); err != nil {
 								return fmt.Errorf("failed to write RPS history: %s", err)
 							}
 							t.Logf("✅ SUCCESS: %s backfill", cfg.TestConfig.Driver)
@@ -1206,7 +1206,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								require.True(t, checkRPS, fmt.Sprintf("%s CDC performance below benchmark", cfg.TestConfig.Driver))
 
-								if err := writeRPSHistory(*cfg.TestConfig, false, currentRPS); err != nil {
+								if err := recordRPS(*cfg.TestConfig, false, currentRPS); err != nil {
 									return fmt.Errorf("failed to write RPS history: %s", err)
 								}
 								t.Logf("✅ SUCCESS: %s cdc", cfg.TestConfig.Driver)
