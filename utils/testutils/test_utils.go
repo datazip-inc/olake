@@ -185,6 +185,14 @@ func resetStateFileCommand(config TestConfig) string {
 	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
+func toggleArrowWritesCommand(config TestConfig, enabled bool) string {
+	tmpDest := "/tmp/iceberg_destination.json"
+	return fmt.Sprintf(
+		`jq '.writer.arrow_writes = %t' %s > %s && mv %s %s`,
+		enabled, config.IcebergDestinationPath, tmpDest, tmpDest, config.IcebergDestinationPath,
+	)
+}
+
 // to get backfill streams from cdc streams e.g. "demo_cdc" -> "demo"
 func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
 	backfillStreams := []string{}
@@ -311,6 +319,24 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	return nil
 }
 
+// testIcebergWithWriter wraps an Iceberg test to run with specified writer type
+func (cfg *IntegrationTest) testIcebergWithWriter(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+	useArrowWriter bool,
+	testFunc func(context.Context, *testing.T, testcontainers.Container, string) error,
+) error {
+	cmd := toggleArrowWritesCommand(*cfg.TestConfig, useArrowWriter)
+	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	if err != nil || code != 0 {
+		return fmt.Errorf("failed to toggle arrow_writes (%d): %s\n%s", code, err, out)
+	}
+
+	return testFunc(ctx, t, c, testTable)
+}
+
 // testIcebergFullLoadAndCDC tests Full load and CDC operations
 func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	ctx context.Context,
@@ -319,6 +345,10 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	testTable string,
 ) error {
 	t.Log("Starting Iceberg Full load + CDC tests")
+
+	if err := cfg.resetTable(ctx, t, testTable); err != nil {
+		return fmt.Errorf("failed to reset table: %w", err)
+	}
 
 	testCases := []syncTestCase{
 		{
@@ -763,11 +793,14 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
 							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
-								t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
-									if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-										t.Fatalf("Iceberg Full load + CDC tests failed: %v", err)
-									}
-								})
+								for _, useArrowWriter := range []bool{false, true} {
+									writerType := utils.Ternary(useArrowWriter, "Arrow", "Legacy").(string)
+									t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", writerType), func(t *testing.T) {
+										if err := cfg.testIcebergWithWriter(ctx, t, c, currentTestTable, useArrowWriter, cfg.testIcebergFullLoadAndCDC); err != nil {
+											t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", writerType, err)
+										}
+									})
+								}
 
 								t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
 									if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
@@ -776,11 +809,14 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								})
 							}
 
-							t.Run("Iceberg Full load + Incremental tests", func(t *testing.T) {
-								if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Iceberg Full load + Incremental tests failed: %v", err)
-								}
-							})
+							for _, useArrowWriter := range []bool{false, true} {
+								writerType := utils.Ternary(useArrowWriter, "Arrow", "Legacy").(string)
+								t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", writerType), func(t *testing.T) {
+									if err := cfg.testIcebergWithWriter(ctx, t, c, currentTestTable, useArrowWriter, cfg.testIcebergFullLoadAndIncremental); err != nil {
+										t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", writerType, err)
+									}
+								})
+							}
 
 							t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
 								if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
