@@ -168,7 +168,7 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 			if val == nil {
 				recordBuilder.Field(idx).AppendNull()
 			} else {
-				if err := appendValueToBuilder(recordBuilder.Field(idx), val, field.Name, normalization); err != nil {
+				if err := appendValueToBuilder(recordBuilder.Field(idx), val); err != nil {
 					return nil, fmt.Errorf("cannot identify value for the col %s: %s", field.Name, err)
 				}
 			}
@@ -180,7 +180,7 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 	return arrowRecord, nil
 }
 
-func appendValueToBuilder(builder array.Builder, val interface{}, fieldName string, normalization bool) error {
+func appendValueToBuilder(builder array.Builder, val interface{}) error {
 	switch builder := builder.(type) {
 	case *array.BooleanBuilder:
 		if boolVal, err := typeutils.ReformatBool(val); err == nil {

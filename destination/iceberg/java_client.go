@@ -40,7 +40,6 @@ type serverInstance struct {
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
 func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo, port int, upsert bool, destinationDatabase string, arrowWriterEnabled bool) ([]byte, error) {
-
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),

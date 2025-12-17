@@ -67,7 +67,7 @@ service ArrowIngestService {
 message ArrowPayload {
   enum PayloadType {
     UPLOAD_FILE = 0;
-    REGISTER = 1;
+    REGISTER_AND_COMMIT = 1;
     JSONSCHEMA = 2;
   }
 
@@ -82,8 +82,7 @@ message ArrowPayload {
 
   message FileUploadRequest {
     bytes file_data = 1;
-    string file_type = 2;
-    string partition_key = 3;
+    string partition_key = 2;
   }
 
   message Metadata {
@@ -98,6 +97,5 @@ message ArrowPayload {
 
 message ArrowIngestResponse {
   string result = 1;
-  bool success = 2;
-  map<string, string> icebergSchemas = 3;
+  map<string, string> icebergSchemas = 2;
 }

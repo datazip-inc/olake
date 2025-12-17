@@ -6210,9 +6210,9 @@ public final class RecordIngest {
        */
       UPLOAD_FILE(0),
       /**
-       * <code>REGISTER = 1;</code>
+       * <code>REGISTER_AND_COMMIT = 1;</code>
        */
-      REGISTER(1),
+      REGISTER_AND_COMMIT(1),
       /**
        * <code>JSONSCHEMA = 2;</code>
        */
@@ -6225,9 +6225,9 @@ public final class RecordIngest {
        */
       public static final int UPLOAD_FILE_VALUE = 0;
       /**
-       * <code>REGISTER = 1;</code>
+       * <code>REGISTER_AND_COMMIT = 1;</code>
        */
-      public static final int REGISTER_VALUE = 1;
+      public static final int REGISTER_AND_COMMIT_VALUE = 1;
       /**
        * <code>JSONSCHEMA = 2;</code>
        */
@@ -6259,7 +6259,7 @@ public final class RecordIngest {
       public static PayloadType forNumber(int value) {
         switch (value) {
           case 0: return UPLOAD_FILE;
-          case 1: return REGISTER;
+          case 1: return REGISTER_AND_COMMIT;
           case 2: return JSONSCHEMA;
           default: return null;
         }
@@ -7314,24 +7314,12 @@ public final class RecordIngest {
       com.google.protobuf.ByteString getFileData();
 
       /**
-       * <code>string file_type = 2;</code>
-       * @return The fileType.
-       */
-      java.lang.String getFileType();
-      /**
-       * <code>string file_type = 2;</code>
-       * @return The bytes for fileType.
-       */
-      com.google.protobuf.ByteString
-          getFileTypeBytes();
-
-      /**
-       * <code>string partition_key = 3;</code>
+       * <code>string partition_key = 2;</code>
        * @return The partitionKey.
        */
       java.lang.String getPartitionKey();
       /**
-       * <code>string partition_key = 3;</code>
+       * <code>string partition_key = 2;</code>
        * @return The bytes for partitionKey.
        */
       com.google.protobuf.ByteString
@@ -7351,7 +7339,6 @@ public final class RecordIngest {
       }
       private FileUploadRequest() {
         fileData_ = com.google.protobuf.ByteString.EMPTY;
-        fileType_ = "";
         partitionKey_ = "";
       }
 
@@ -7391,50 +7378,11 @@ public final class RecordIngest {
         return fileData_;
       }
 
-      public static final int FILE_TYPE_FIELD_NUMBER = 2;
-      @SuppressWarnings("serial")
-      private volatile java.lang.Object fileType_ = "";
-      /**
-       * <code>string file_type = 2;</code>
-       * @return The fileType.
-       */
-      @java.lang.Override
-      public java.lang.String getFileType() {
-        java.lang.Object ref = fileType_;
-        if (ref instanceof java.lang.String) {
-          return (java.lang.String) ref;
-        } else {
-          com.google.protobuf.ByteString bs = 
-              (com.google.protobuf.ByteString) ref;
-          java.lang.String s = bs.toStringUtf8();
-          fileType_ = s;
-          return s;
-        }
-      }
-      /**
-       * <code>string file_type = 2;</code>
-       * @return The bytes for fileType.
-       */
-      @java.lang.Override
-      public com.google.protobuf.ByteString
-          getFileTypeBytes() {
-        java.lang.Object ref = fileType_;
-        if (ref instanceof java.lang.String) {
-          com.google.protobuf.ByteString b = 
-              com.google.protobuf.ByteString.copyFromUtf8(
-                  (java.lang.String) ref);
-          fileType_ = b;
-          return b;
-        } else {
-          return (com.google.protobuf.ByteString) ref;
-        }
-      }
-
-      public static final int PARTITION_KEY_FIELD_NUMBER = 3;
+      public static final int PARTITION_KEY_FIELD_NUMBER = 2;
       @SuppressWarnings("serial")
       private volatile java.lang.Object partitionKey_ = "";
       /**
-       * <code>string partition_key = 3;</code>
+       * <code>string partition_key = 2;</code>
        * @return The partitionKey.
        */
       @java.lang.Override
@@ -7451,7 +7399,7 @@ public final class RecordIngest {
         }
       }
       /**
-       * <code>string partition_key = 3;</code>
+       * <code>string partition_key = 2;</code>
        * @return The bytes for partitionKey.
        */
       @java.lang.Override
@@ -7486,11 +7434,8 @@ public final class RecordIngest {
         if (!fileData_.isEmpty()) {
           output.writeBytes(1, fileData_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(fileType_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, fileType_);
-        }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 3, partitionKey_);
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, partitionKey_);
         }
         getUnknownFields().writeTo(output);
       }
@@ -7505,11 +7450,8 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeBytesSize(1, fileData_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(fileType_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, fileType_);
-        }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, partitionKey_);
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, partitionKey_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -7528,8 +7470,6 @@ public final class RecordIngest {
 
         if (!getFileData()
             .equals(other.getFileData())) return false;
-        if (!getFileType()
-            .equals(other.getFileType())) return false;
         if (!getPartitionKey()
             .equals(other.getPartitionKey())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -7545,8 +7485,6 @@ public final class RecordIngest {
         hash = (19 * hash) + getDescriptor().hashCode();
         hash = (37 * hash) + FILE_DATA_FIELD_NUMBER;
         hash = (53 * hash) + getFileData().hashCode();
-        hash = (37 * hash) + FILE_TYPE_FIELD_NUMBER;
-        hash = (53 * hash) + getFileType().hashCode();
         hash = (37 * hash) + PARTITION_KEY_FIELD_NUMBER;
         hash = (53 * hash) + getPartitionKey().hashCode();
         hash = (29 * hash) + getUnknownFields().hashCode();
@@ -7679,7 +7617,6 @@ public final class RecordIngest {
           super.clear();
           bitField0_ = 0;
           fileData_ = com.google.protobuf.ByteString.EMPTY;
-          fileType_ = "";
           partitionKey_ = "";
           return this;
         }
@@ -7718,9 +7655,6 @@ public final class RecordIngest {
             result.fileData_ = fileData_;
           }
           if (((from_bitField0_ & 0x00000002) != 0)) {
-            result.fileType_ = fileType_;
-          }
-          if (((from_bitField0_ & 0x00000004) != 0)) {
             result.partitionKey_ = partitionKey_;
           }
         }
@@ -7772,14 +7706,9 @@ public final class RecordIngest {
           if (other.getFileData() != com.google.protobuf.ByteString.EMPTY) {
             setFileData(other.getFileData());
           }
-          if (!other.getFileType().isEmpty()) {
-            fileType_ = other.fileType_;
-            bitField0_ |= 0x00000002;
-            onChanged();
-          }
           if (!other.getPartitionKey().isEmpty()) {
             partitionKey_ = other.partitionKey_;
-            bitField0_ |= 0x00000004;
+            bitField0_ |= 0x00000002;
             onChanged();
           }
           this.mergeUnknownFields(other.getUnknownFields());
@@ -7814,15 +7743,10 @@ public final class RecordIngest {
                   break;
                 } // case 10
                 case 18: {
-                  fileType_ = input.readStringRequireUtf8();
+                  partitionKey_ = input.readStringRequireUtf8();
                   bitField0_ |= 0x00000002;
                   break;
                 } // case 18
-                case 26: {
-                  partitionKey_ = input.readStringRequireUtf8();
-                  bitField0_ |= 0x00000004;
-                  break;
-                } // case 26
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -7872,81 +7796,9 @@ public final class RecordIngest {
           return this;
         }
 
-        private java.lang.Object fileType_ = "";
-        /**
-         * <code>string file_type = 2;</code>
-         * @return The fileType.
-         */
-        public java.lang.String getFileType() {
-          java.lang.Object ref = fileType_;
-          if (!(ref instanceof java.lang.String)) {
-            com.google.protobuf.ByteString bs =
-                (com.google.protobuf.ByteString) ref;
-            java.lang.String s = bs.toStringUtf8();
-            fileType_ = s;
-            return s;
-          } else {
-            return (java.lang.String) ref;
-          }
-        }
-        /**
-         * <code>string file_type = 2;</code>
-         * @return The bytes for fileType.
-         */
-        public com.google.protobuf.ByteString
-            getFileTypeBytes() {
-          java.lang.Object ref = fileType_;
-          if (ref instanceof String) {
-            com.google.protobuf.ByteString b = 
-                com.google.protobuf.ByteString.copyFromUtf8(
-                    (java.lang.String) ref);
-            fileType_ = b;
-            return b;
-          } else {
-            return (com.google.protobuf.ByteString) ref;
-          }
-        }
-        /**
-         * <code>string file_type = 2;</code>
-         * @param value The fileType to set.
-         * @return This builder for chaining.
-         */
-        public Builder setFileType(
-            java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          fileType_ = value;
-          bitField0_ |= 0x00000002;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string file_type = 2;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearFileType() {
-          fileType_ = getDefaultInstance().getFileType();
-          bitField0_ = (bitField0_ & ~0x00000002);
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string file_type = 2;</code>
-         * @param value The bytes for fileType to set.
-         * @return This builder for chaining.
-         */
-        public Builder setFileTypeBytes(
-            com.google.protobuf.ByteString value) {
-          if (value == null) { throw new NullPointerException(); }
-          checkByteStringIsUtf8(value);
-          fileType_ = value;
-          bitField0_ |= 0x00000002;
-          onChanged();
-          return this;
-        }
-
         private java.lang.Object partitionKey_ = "";
         /**
-         * <code>string partition_key = 3;</code>
+         * <code>string partition_key = 2;</code>
          * @return The partitionKey.
          */
         public java.lang.String getPartitionKey() {
@@ -7962,7 +7814,7 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>string partition_key = 3;</code>
+         * <code>string partition_key = 2;</code>
          * @return The bytes for partitionKey.
          */
         public com.google.protobuf.ByteString
@@ -7979,7 +7831,7 @@ public final class RecordIngest {
           }
         }
         /**
-         * <code>string partition_key = 3;</code>
+         * <code>string partition_key = 2;</code>
          * @param value The partitionKey to set.
          * @return This builder for chaining.
          */
@@ -7987,22 +7839,22 @@ public final class RecordIngest {
             java.lang.String value) {
           if (value == null) { throw new NullPointerException(); }
           partitionKey_ = value;
-          bitField0_ |= 0x00000004;
+          bitField0_ |= 0x00000002;
           onChanged();
           return this;
         }
         /**
-         * <code>string partition_key = 3;</code>
+         * <code>string partition_key = 2;</code>
          * @return This builder for chaining.
          */
         public Builder clearPartitionKey() {
           partitionKey_ = getDefaultInstance().getPartitionKey();
-          bitField0_ = (bitField0_ & ~0x00000004);
+          bitField0_ = (bitField0_ & ~0x00000002);
           onChanged();
           return this;
         }
         /**
-         * <code>string partition_key = 3;</code>
+         * <code>string partition_key = 2;</code>
          * @param value The bytes for partitionKey to set.
          * @return This builder for chaining.
          */
@@ -8011,7 +7863,7 @@ public final class RecordIngest {
           if (value == null) { throw new NullPointerException(); }
           checkByteStringIsUtf8(value);
           partitionKey_ = value;
-          bitField0_ |= 0x00000004;
+          bitField0_ |= 0x00000002;
           onChanged();
           return this;
         }
@@ -10021,17 +9873,11 @@ public final class RecordIngest {
         getResultBytes();
 
     /**
-     * <code>bool success = 2;</code>
-     * @return The success.
-     */
-    boolean getSuccess();
-
-    /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     int getIcebergSchemasCount();
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     boolean containsIcebergSchemas(
         java.lang.String key);
@@ -10042,12 +9888,12 @@ public final class RecordIngest {
     java.util.Map<java.lang.String, java.lang.String>
     getIcebergSchemas();
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     java.util.Map<java.lang.String, java.lang.String>
     getIcebergSchemasMap();
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     /* nullable */
 java.lang.String getIcebergSchemasOrDefault(
@@ -10055,7 +9901,7 @@ java.lang.String getIcebergSchemasOrDefault(
         /* nullable */
 java.lang.String defaultValue);
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     java.lang.String getIcebergSchemasOrThrow(
         java.lang.String key);
@@ -10098,7 +9944,7 @@ java.lang.String defaultValue);
     protected com.google.protobuf.MapField internalGetMapField(
         int number) {
       switch (number) {
-        case 3:
+        case 2:
           return internalGetIcebergSchemas();
         default:
           throw new RuntimeException(
@@ -10152,18 +9998,7 @@ java.lang.String defaultValue);
       }
     }
 
-    public static final int SUCCESS_FIELD_NUMBER = 2;
-    private boolean success_ = false;
-    /**
-     * <code>bool success = 2;</code>
-     * @return The success.
-     */
-    @java.lang.Override
-    public boolean getSuccess() {
-      return success_;
-    }
-
-    public static final int ICEBERGSCHEMAS_FIELD_NUMBER = 3;
+    public static final int ICEBERGSCHEMAS_FIELD_NUMBER = 2;
     private static final class IcebergSchemasDefaultEntryHolder {
       static final com.google.protobuf.MapEntry<
           java.lang.String, java.lang.String> defaultEntry =
@@ -10190,7 +10025,7 @@ java.lang.String defaultValue);
       return internalGetIcebergSchemas().getMap().size();
     }
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     @java.lang.Override
     public boolean containsIcebergSchemas(
@@ -10207,14 +10042,14 @@ java.lang.String defaultValue);
       return getIcebergSchemasMap();
     }
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     @java.lang.Override
     public java.util.Map<java.lang.String, java.lang.String> getIcebergSchemasMap() {
       return internalGetIcebergSchemas().getMap();
     }
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     @java.lang.Override
     public /* nullable */
@@ -10228,7 +10063,7 @@ java.lang.String defaultValue) {
       return map.containsKey(key) ? map.get(key) : defaultValue;
     }
     /**
-     * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+     * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
      */
     @java.lang.Override
     public java.lang.String getIcebergSchemasOrThrow(
@@ -10259,15 +10094,12 @@ java.lang.String defaultValue) {
       if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(result_)) {
         com.google.protobuf.GeneratedMessageV3.writeString(output, 1, result_);
       }
-      if (success_ != false) {
-        output.writeBool(2, success_);
-      }
       com.google.protobuf.GeneratedMessageV3
         .serializeStringMapTo(
           output,
           internalGetIcebergSchemas(),
           IcebergSchemasDefaultEntryHolder.defaultEntry,
-          3);
+          2);
       getUnknownFields().writeTo(output);
     }
 
@@ -10280,10 +10112,6 @@ java.lang.String defaultValue) {
       if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(result_)) {
         size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, result_);
       }
-      if (success_ != false) {
-        size += com.google.protobuf.CodedOutputStream
-          .computeBoolSize(2, success_);
-      }
       for (java.util.Map.Entry<java.lang.String, java.lang.String> entry
            : internalGetIcebergSchemas().getMap().entrySet()) {
         com.google.protobuf.MapEntry<java.lang.String, java.lang.String>
@@ -10292,7 +10120,7 @@ java.lang.String defaultValue) {
             .setValue(entry.getValue())
             .build();
         size += com.google.protobuf.CodedOutputStream
-            .computeMessageSize(3, icebergSchemas__);
+            .computeMessageSize(2, icebergSchemas__);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -10311,8 +10139,6 @@ java.lang.String defaultValue) {
 
       if (!getResult()
           .equals(other.getResult())) return false;
-      if (getSuccess()
-          != other.getSuccess()) return false;
       if (!internalGetIcebergSchemas().equals(
           other.internalGetIcebergSchemas())) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -10328,9 +10154,6 @@ java.lang.String defaultValue) {
       hash = (19 * hash) + getDescriptor().hashCode();
       hash = (37 * hash) + RESULT_FIELD_NUMBER;
       hash = (53 * hash) + getResult().hashCode();
-      hash = (37 * hash) + SUCCESS_FIELD_NUMBER;
-      hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-          getSuccess());
       if (!internalGetIcebergSchemas().getMap().isEmpty()) {
         hash = (37 * hash) + ICEBERGSCHEMAS_FIELD_NUMBER;
         hash = (53 * hash) + internalGetIcebergSchemas().hashCode();
@@ -10446,7 +10269,7 @@ java.lang.String defaultValue) {
       protected com.google.protobuf.MapField internalGetMapField(
           int number) {
         switch (number) {
-          case 3:
+          case 2:
             return internalGetIcebergSchemas();
           default:
             throw new RuntimeException(
@@ -10457,7 +10280,7 @@ java.lang.String defaultValue) {
       protected com.google.protobuf.MapField internalGetMutableMapField(
           int number) {
         switch (number) {
-          case 3:
+          case 2:
             return internalGetMutableIcebergSchemas();
           default:
             throw new RuntimeException(
@@ -10487,7 +10310,6 @@ java.lang.String defaultValue) {
         super.clear();
         bitField0_ = 0;
         result_ = "";
-        success_ = false;
         internalGetMutableIcebergSchemas().clear();
         return this;
       }
@@ -10526,9 +10348,6 @@ java.lang.String defaultValue) {
           result.result_ = result_;
         }
         if (((from_bitField0_ & 0x00000002) != 0)) {
-          result.success_ = success_;
-        }
-        if (((from_bitField0_ & 0x00000004) != 0)) {
           result.icebergSchemas_ = internalGetIcebergSchemas();
           result.icebergSchemas_.makeImmutable();
         }
@@ -10583,12 +10402,9 @@ java.lang.String defaultValue) {
           bitField0_ |= 0x00000001;
           onChanged();
         }
-        if (other.getSuccess() != false) {
-          setSuccess(other.getSuccess());
-        }
         internalGetMutableIcebergSchemas().mergeFrom(
             other.internalGetIcebergSchemas());
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -10620,20 +10436,15 @@ java.lang.String defaultValue) {
                 bitField0_ |= 0x00000001;
                 break;
               } // case 10
-              case 16: {
-                success_ = input.readBool();
-                bitField0_ |= 0x00000002;
-                break;
-              } // case 16
-              case 26: {
+              case 18: {
                 com.google.protobuf.MapEntry<java.lang.String, java.lang.String>
                 icebergSchemas__ = input.readMessage(
                     IcebergSchemasDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
                 internalGetMutableIcebergSchemas().getMutableMap().put(
                     icebergSchemas__.getKey(), icebergSchemas__.getValue());
-                bitField0_ |= 0x00000004;
+                bitField0_ |= 0x00000002;
                 break;
-              } // case 26
+              } // case 18
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -10723,38 +10534,6 @@ java.lang.String defaultValue) {
         return this;
       }
 
-      private boolean success_ ;
-      /**
-       * <code>bool success = 2;</code>
-       * @return The success.
-       */
-      @java.lang.Override
-      public boolean getSuccess() {
-        return success_;
-      }
-      /**
-       * <code>bool success = 2;</code>
-       * @param value The success to set.
-       * @return This builder for chaining.
-       */
-      public Builder setSuccess(boolean value) {
-        
-        success_ = value;
-        bitField0_ |= 0x00000002;
-        onChanged();
-        return this;
-      }
-      /**
-       * <code>bool success = 2;</code>
-       * @return This builder for chaining.
-       */
-      public Builder clearSuccess() {
-        bitField0_ = (bitField0_ & ~0x00000002);
-        success_ = false;
-        onChanged();
-        return this;
-      }
-
       private com.google.protobuf.MapField<
           java.lang.String, java.lang.String> icebergSchemas_;
       private com.google.protobuf.MapField<java.lang.String, java.lang.String>
@@ -10774,7 +10553,7 @@ java.lang.String defaultValue) {
         if (!icebergSchemas_.isMutable()) {
           icebergSchemas_ = icebergSchemas_.copy();
         }
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         onChanged();
         return icebergSchemas_;
       }
@@ -10782,7 +10561,7 @@ java.lang.String defaultValue) {
         return internalGetIcebergSchemas().getMap().size();
       }
       /**
-       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
        */
       @java.lang.Override
       public boolean containsIcebergSchemas(
@@ -10799,14 +10578,14 @@ java.lang.String defaultValue) {
         return getIcebergSchemasMap();
       }
       /**
-       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
        */
       @java.lang.Override
       public java.util.Map<java.lang.String, java.lang.String> getIcebergSchemasMap() {
         return internalGetIcebergSchemas().getMap();
       }
       /**
-       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
        */
       @java.lang.Override
       public /* nullable */
@@ -10820,7 +10599,7 @@ java.lang.String defaultValue) {
         return map.containsKey(key) ? map.get(key) : defaultValue;
       }
       /**
-       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
        */
       @java.lang.Override
       public java.lang.String getIcebergSchemasOrThrow(
@@ -10834,13 +10613,13 @@ java.lang.String defaultValue) {
         return map.get(key);
       }
       public Builder clearIcebergSchemas() {
-        bitField0_ = (bitField0_ & ~0x00000004);
+        bitField0_ = (bitField0_ & ~0x00000002);
         internalGetMutableIcebergSchemas().getMutableMap()
             .clear();
         return this;
       }
       /**
-       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
        */
       public Builder removeIcebergSchemas(
           java.lang.String key) {
@@ -10855,11 +10634,11 @@ java.lang.String defaultValue) {
       @java.lang.Deprecated
       public java.util.Map<java.lang.String, java.lang.String>
           getMutableIcebergSchemas() {
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         return internalGetMutableIcebergSchemas().getMutableMap();
       }
       /**
-       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
        */
       public Builder putIcebergSchemas(
           java.lang.String key,
@@ -10868,17 +10647,17 @@ java.lang.String defaultValue) {
         if (value == null) { throw new NullPointerException("map value"); }
         internalGetMutableIcebergSchemas().getMutableMap()
             .put(key, value);
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         return this;
       }
       /**
-       * <code>map&lt;string, string&gt; icebergSchemas = 3;</code>
+       * <code>map&lt;string, string&gt; icebergSchemas = 2;</code>
        */
       public Builder putAllIcebergSchemas(
           java.util.Map<java.lang.String, java.lang.String> values) {
         internalGetMutableIcebergSchemas().getMutableMap()
             .putAll(values);
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         return this;
       }
       @java.lang.Override
@@ -11039,35 +10818,35 @@ java.lang.String defaultValue) {
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
       "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\212\005\n\014ArrowPayload\022F\n\004type\030\001" +
+      "success\030\002 \001(\010\"\202\005\n\014ArrowPayload\022F\n\004type\030\001" +
       " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
       "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
       "25.io.debezium.server.iceberg.rpc.ArrowP" +
       "ayload.Metadata\032d\n\014FileMetadata\022\021\n\tfile_" +
       "type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_" +
-      "count\030\003 \001(\003\022\030\n\020partition_values\030\005 \003(\t\032P\n" +
-      "\021FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n" +
-      "\tfile_type\030\002 \001(\t\022\025\n\rpartition_key\030\003 \001(\t\032" +
-      "\362\001\n\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n" +
-      "\tthread_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\0132" +
-      "9.io.debezium.server.iceberg.rpc.ArrowPa" +
-      "yload.FileMetadata\022X\n\013file_upload\030\004 \001(\0132" +
-      ">.io.debezium.server.iceberg.rpc.ArrowPa" +
-      "yload.FileUploadRequestH\000\210\001\001B\016\n\014_file_up" +
-      "load\"<\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\014\n\010" +
-      "REGISTER\020\001\022\016\n\nJSONSCHEMA\020\002\"\316\001\n\023ArrowInge" +
-      "stResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 " +
-      "\001(\010\022_\n\016icebergSchemas\030\003 \003(\0132G.io.debeziu" +
-      "m.server.iceberg.rpc.ArrowIngestResponse" +
-      ".IcebergSchemasEntry\0325\n\023IcebergSchemasEn" +
-      "try\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n\023" +
-      "RecordIngestService\022s\n\013SendRecords\022..io." +
-      "debezium.server.iceberg.rpc.IcebergPaylo" +
-      "ad\0324.io.debezium.server.iceberg.rpc.Reco" +
-      "rdIngestResponse2\205\001\n\022ArrowIngestService\022" +
-      "o\n\nIcebergAPI\022,.io.debezium.server.icebe" +
-      "rg.rpc.ArrowPayload\0323.io.debezium.server" +
-      ".iceberg.rpc.ArrowIngestResponseb\006proto3"
+      "count\030\003 \001(\003\022\030\n\020partition_values\030\005 \003(\t\032=\n" +
+      "\021FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\025\n" +
+      "\rpartition_key\030\002 \001(\t\032\362\001\n\010Metadata\022\027\n\017des" +
+      "t_table_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n" +
+      "\rfile_metadata\030\003 \003(\01329.io.debezium.serve" +
+      "r.iceberg.rpc.ArrowPayload.FileMetadata\022" +
+      "X\n\013file_upload\030\004 \001(\0132>.io.debezium.serve" +
+      "r.iceberg.rpc.ArrowPayload.FileUploadReq" +
+      "uestH\000\210\001\001B\016\n\014_file_upload\"G\n\013PayloadType" +
+      "\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT" +
+      "\020\001\022\016\n\nJSONSCHEMA\020\002\"\275\001\n\023ArrowIngestRespon" +
+      "se\022\016\n\006result\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003" +
+      "(\0132G.io.debezium.server.iceberg.rpc.Arro" +
+      "wIngestResponse.IcebergSchemasEntry\0325\n\023I" +
+      "cebergSchemasEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value" +
+      "\030\002 \001(\t:\0028\0012\212\001\n\023RecordIngestService\022s\n\013Se" +
+      "ndRecords\022..io.debezium.server.iceberg.r" +
+      "pc.IcebergPayload\0324.io.debezium.server.i" +
+      "ceberg.rpc.RecordIngestResponse2\205\001\n\022Arro" +
+      "wIngestService\022o\n\nIcebergAPI\022,.io.debezi" +
+      "um.server.iceberg.rpc.ArrowPayload\0323.io." +
+      "debezium.server.iceberg.rpc.ArrowIngestR" +
+      "esponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -11126,7 +10905,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor,
-        new java.lang.String[] { "FileData", "FileType", "PartitionKey", });
+        new java.lang.String[] { "FileData", "PartitionKey", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(2);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new
@@ -11138,7 +10917,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor,
-        new java.lang.String[] { "Result", "Success", "IcebergSchemas", });
+        new java.lang.String[] { "Result", "IcebergSchemas", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor.getNestedTypes().get(0);
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_fieldAccessorTable = new

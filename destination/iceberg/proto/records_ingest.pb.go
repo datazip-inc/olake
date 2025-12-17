@@ -82,22 +82,22 @@ func (IcebergPayload_PayloadType) EnumDescriptor() ([]byte, []int) {
 type ArrowPayload_PayloadType int32
 
 const (
-	ArrowPayload_UPLOAD_FILE ArrowPayload_PayloadType = 0
-	ArrowPayload_REGISTER    ArrowPayload_PayloadType = 1
-	ArrowPayload_JSONSCHEMA  ArrowPayload_PayloadType = 2
+	ArrowPayload_UPLOAD_FILE         ArrowPayload_PayloadType = 0
+	ArrowPayload_REGISTER_AND_COMMIT ArrowPayload_PayloadType = 1
+	ArrowPayload_JSONSCHEMA          ArrowPayload_PayloadType = 2
 )
 
 // Enum value maps for ArrowPayload_PayloadType.
 var (
 	ArrowPayload_PayloadType_name = map[int32]string{
 		0: "UPLOAD_FILE",
-		1: "REGISTER",
+		1: "REGISTER_AND_COMMIT",
 		2: "JSONSCHEMA",
 	}
 	ArrowPayload_PayloadType_value = map[string]int32{
-		"UPLOAD_FILE": 0,
-		"REGISTER":    1,
-		"JSONSCHEMA":  2,
+		"UPLOAD_FILE":         0,
+		"REGISTER_AND_COMMIT": 1,
+		"JSONSCHEMA":          2,
 	}
 )
 
@@ -295,8 +295,7 @@ func (x *ArrowPayload) GetMetadata() *ArrowPayload_Metadata {
 type ArrowIngestResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Result         string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	Success        bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	IcebergSchemas map[string]string      `protobuf:"bytes,3,rep,name=icebergSchemas,proto3" json:"icebergSchemas,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	IcebergSchemas map[string]string      `protobuf:"bytes,2,rep,name=icebergSchemas,proto3" json:"icebergSchemas,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -336,13 +335,6 @@ func (x *ArrowIngestResponse) GetResult() string {
 		return x.Result
 	}
 	return ""
-}
-
-func (x *ArrowIngestResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
 }
 
 func (x *ArrowIngestResponse) GetIcebergSchemas() map[string]string {
@@ -763,8 +755,7 @@ func (x *ArrowPayload_FileMetadata) GetPartitionValues() []string {
 type ArrowPayload_FileUploadRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FileData      []byte                 `protobuf:"bytes,1,opt,name=file_data,json=fileData,proto3" json:"file_data,omitempty"`
-	FileType      string                 `protobuf:"bytes,2,opt,name=file_type,json=fileType,proto3" json:"file_type,omitempty"`
-	PartitionKey  string                 `protobuf:"bytes,3,opt,name=partition_key,json=partitionKey,proto3" json:"partition_key,omitempty"`
+	PartitionKey  string                 `protobuf:"bytes,2,opt,name=partition_key,json=partitionKey,proto3" json:"partition_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -804,13 +795,6 @@ func (x *ArrowPayload_FileUploadRequest) GetFileData() []byte {
 		return x.FileData
 	}
 	return nil
-}
-
-func (x *ArrowPayload_FileUploadRequest) GetFileType() string {
-	if x != nil {
-		return x.FileType
-	}
-	return ""
 }
 
 func (x *ArrowPayload_FileUploadRequest) GetPartitionKey() string {
@@ -935,7 +919,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x14REFRESH_TABLE_SCHEMA\x10\x05\"H\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\"\xa2\x06\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\"\x90\x06\n" +
 	"\fArrowPayload\x12L\n" +
 	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
 	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\x96\x01\n" +
@@ -943,27 +927,25 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\tfile_type\x18\x01 \x01(\tR\bfileType\x12\x1b\n" +
 	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x12!\n" +
 	"\frecord_count\x18\x03 \x01(\x03R\vrecordCount\x12)\n" +
-	"\x10partition_values\x18\x05 \x03(\tR\x0fpartitionValues\x1ar\n" +
+	"\x10partition_values\x18\x05 \x03(\tR\x0fpartitionValues\x1aU\n" +
 	"\x11FileUploadRequest\x12\x1b\n" +
-	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12\x1b\n" +
-	"\tfile_type\x18\x02 \x01(\tR\bfileType\x12#\n" +
-	"\rpartition_key\x18\x03 \x01(\tR\fpartitionKey\x1a\xa5\x02\n" +
+	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12#\n" +
+	"\rpartition_key\x18\x02 \x01(\tR\fpartitionKey\x1a\xa5\x02\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12^\n" +
 	"\rfile_metadata\x18\x03 \x03(\v29.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadataR\ffileMetadata\x12d\n" +
 	"\vfile_upload\x18\x04 \x01(\v2>.io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequestH\x00R\n" +
 	"fileUpload\x88\x01\x01B\x0e\n" +
-	"\f_file_upload\"<\n" +
+	"\f_file_upload\"G\n" +
 	"\vPayloadType\x12\x0f\n" +
-	"\vUPLOAD_FILE\x10\x00\x12\f\n" +
-	"\bREGISTER\x10\x01\x12\x0e\n" +
+	"\vUPLOAD_FILE\x10\x00\x12\x17\n" +
+	"\x13REGISTER_AND_COMMIT\x10\x01\x12\x0e\n" +
 	"\n" +
-	"JSONSCHEMA\x10\x02\"\xfb\x01\n" +
+	"JSONSCHEMA\x10\x02\"\xe1\x01\n" +
 	"\x13ArrowIngestResponse\x12\x16\n" +
-	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\x12o\n" +
-	"\x0eicebergSchemas\x18\x03 \x03(\v2G.io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntryR\x0eicebergSchemas\x1aA\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\x12o\n" +
+	"\x0eicebergSchemas\x18\x02 \x03(\v2G.io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntryR\x0eicebergSchemas\x1aA\n" +
 	"\x13IcebergSchemasEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\x8a\x01\n" +

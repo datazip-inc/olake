@@ -193,7 +193,6 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 	return nil
 }
 
-
 func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, partitionKey string, fileType string) error {
 	sizeSoFar := int64(writer.currentBuffer.Len()) + writer.currentWriter.RowGroupTotalBytesWritten()
 	targetFileSize := utils.Ternary(fileType == fileTypeDelete, targetDeleteFileSize, targetDataFileSize).(int64)
@@ -242,7 +241,7 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 	}
 
 	commitRequest := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_REGISTER,
+		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
 		Metadata: &proto.ArrowPayload_Metadata{
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
@@ -296,7 +295,7 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 	})
 
 	if err == nil {
-		w.writers.Range(func(key, value interface{}) bool {
+		w.writers.Range(func(key, _ interface{}) bool {
 			w.writers.Delete(key)
 			return true
 		})
@@ -417,7 +416,6 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 			ThreadId:      w.server.ServerID(),
 			FileUpload: &proto.ArrowPayload_FileUploadRequest{
 				FileData:     uploadData.FileData,
-				FileType:     uploadData.FileType,
 				PartitionKey: uploadData.PartitionKey,
 			},
 		},
@@ -454,7 +452,7 @@ func (w *ArrowWriter) fetchIcebergSchemas(ctx context.Context) error {
 		},
 	}
 
-	schemaCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	schemaCtx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 
 	resp, err := w.server.SendClientRequest(schemaCtx, request)

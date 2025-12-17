@@ -86,7 +86,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          sendSchemaResponse(responseObserver, "Schema JSON retrieved successfully", schemaMap);
                          break;
 
-                    case REGISTER:
+                    case REGISTER_AND_COMMIT:
                          List<ArrowPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
                          int dataFileCount = 0;
                          int deleteFileCount = 0;
@@ -145,7 +145,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          ArrowPayload.FileUploadRequest uploadReq = metadata.getFileUpload();
 
                          byte[] fileData = uploadReq.getFileData().toByteArray();
-                         String fileType = uploadReq.getFileType();
                          String partitionKey = uploadReq.getPartitionKey();
 
                          if (this.outputFileFactory == null) {
@@ -208,7 +207,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
      private void sendResponse(StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver, String message) {
           RecordIngest.ArrowIngestResponse response = RecordIngest.ArrowIngestResponse.newBuilder()
                     .setResult(message)
-                    .setSuccess(true)
                     .build();
           responseObserver.onNext(response);
           responseObserver.onCompleted();
@@ -218,7 +216,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                java.util.Map<String, String> schemaMap) {
           RecordIngest.ArrowIngestResponse response = RecordIngest.ArrowIngestResponse.newBuilder()
                     .setResult(message)
-                    .setSuccess(true)
                     .putAllIcebergSchemas(schemaMap)
                     .build();
           responseObserver.onNext(response);

@@ -127,7 +127,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	}
 
 	// Send to gRPC server with timeout
-	reqCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 3600*time.Second)
 	defer cancel()
 
 	// Send the batch to the server
@@ -142,7 +142,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	return nil
 }
 
-func (w *LegacyWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
+func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]string) error {
 	w.schema = newSchema
 
 	return nil
