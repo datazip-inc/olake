@@ -18,7 +18,7 @@ func TestMongodbIntegration(t *testing.T) {
 		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "mongodb_olake_mongodb_test",
-		CursorField:                      "_id",
+		CursorField:                      "id_cursor:id_int",
 		PartitionRegex:                   "/{_id,identity}",
 	}
 	testConfig.TestIntegration(t)
