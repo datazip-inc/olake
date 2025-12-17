@@ -83,7 +83,7 @@ func parseFieldIDsFromIcebergSchema(schemaJSON string) (map[string]int32, error)
 	}
 
 	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
-		return nil, fmt.Errorf("failed to parse Iceberg schema JSON: %w", err)
+		return nil, fmt.Errorf("failed to parse Iceberg schema JSON: %s", err)
 	}
 
 	fieldIDs := make(map[string]int32)
@@ -169,7 +169,7 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 				recordBuilder.Field(idx).AppendNull()
 			} else {
 				if err := appendValueToBuilder(recordBuilder.Field(idx), val, field.Name, normalization); err != nil {
-					return nil, fmt.Errorf("cannot identify value for the col %v: %v", field.Name, err)
+					return nil, fmt.Errorf("cannot identify value for the col %s: %s", field.Name, err)
 				}
 			}
 		}
@@ -224,7 +224,7 @@ func appendValueToBuilder(builder array.Builder, val interface{}, fieldName stri
 		if mapVal, ok := val.(map[string]interface{}); ok {
 			jsonBytes, err := json.Marshal(mapVal)
 			if err != nil {
-				return fmt.Errorf("failed to marshal map to JSON: %w", err)
+				return fmt.Errorf("failed to marshal map to JSON: %s", err)
 			}
 			builder.Append(string(jsonBytes))
 		} else {

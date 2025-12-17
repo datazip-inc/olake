@@ -8,9 +8,11 @@
 
 package io.debezium.server.iceberg.tableoperator;
 
-import com.google.common.collect.ImmutableMap;
-import jakarta.enterprise.context.Dependent;
-import jakarta.inject.Inject;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -35,10 +37,11 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import com.google.common.collect.ImmutableMap;
+
+import jakarta.enterprise.context.Dependent;
+import jakarta.inject.Inject;
+
 /**
  * Wrapper to perform operations on iceberg tables
  *
@@ -231,7 +234,7 @@ public class IcebergTableOperator {
     }
   }
 
-     public void accumulateDataFiles(String threadId, Table table, List<String> filePaths,
+     public void accumulateDataFiles(String threadId, Table table, String filePath,
                List<String> partitionValues) {
           if (table == null) {
                LOGGER.warn("No table found for thread: {}", threadId);
@@ -242,50 +245,39 @@ public class IcebergTableOperator {
                FileIO fileIO = table.io();
                MetricsConfig metricsConfig = MetricsConfig.forTable(table);
 
-               for (String filePath : filePaths) {
-                    try {
-                         InputFile inputFile = fileIO.newInputFile(filePath);
-                         Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
+               InputFile inputFile = fileIO.newInputFile(filePath);
+               Metrics metrics = ParquetUtil.fileMetrics(inputFile, metricsConfig);
 
-                         DataFiles.Builder dataFileBuilder = DataFiles.builder(table.spec())
-                                   .withPath(filePath)
-                                   .withFormat(FileFormat.PARQUET)
-                                   .withFileSizeInBytes(inputFile.getLength())
-                                   .withMetrics(metrics);
+               DataFiles.Builder dataFileBuilder = DataFiles.builder(table.spec())
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(inputFile.getLength())
+                         .withMetrics(metrics);
 
-                         if (partitionValues != null && !partitionValues.isEmpty()) {
-                              org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                                        table.spec(),
-                                        partitionValues);
-                              dataFileBuilder.withPartition(partitionData);
-                              LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId,
-                                        partitionValues.size());
-                         } else {
-                              LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
-                         }
-
-                         DataFile dataFile = dataFileBuilder.build();
-                         dataFiles.add(dataFile);
-                         LOGGER.debug("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
-                                   dataFiles.size());
-                    } catch (Exception e) {
-                         LOGGER.error("Thread {}: failed to accumulate file {}: {}", threadId, filePath, e.getMessage(),
-                                   e);
-                         throw e;
-                    }
+               if (partitionValues != null && !partitionValues.isEmpty()) {
+                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
+                              table.spec(),
+                              partitionValues);
+                    dataFileBuilder.withPartition(partitionData);
+                    LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId,
+                              partitionValues.size());
+               } else {
+                    LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
                }
 
-               LOGGER.info("Thread {}: accumulated {} data files (total: {})", threadId, filePaths.size(),
+               DataFile dataFile = dataFileBuilder.build();
+               dataFiles.add(dataFile);
+               LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
                          dataFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate data files: %s", threadId,
-                         e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId,
+                         filePath, e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
-     public void accumulateDeleteFiles(String threadId, Table table, List<String> filePaths, int equalityFieldId,
+     public void accumulateDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
                long recordCount, List<String> partitionValues) {
           if (table == null) {
                LOGGER.warn("No table found for thread: {}", threadId);
@@ -295,45 +287,34 @@ public class IcebergTableOperator {
           try {
                FileIO fileIO = table.io();
 
-               for (String filePath : filePaths) {
-                    try {
-                         InputFile inputFile = fileIO.newInputFile(filePath);
-                         long fileSize = inputFile.getLength();
+               InputFile inputFile = fileIO.newInputFile(filePath);
+               long fileSize = inputFile.getLength();
 
-                         FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
-                                   .ofEqualityDeletes(equalityFieldId)
-                                   .withPath(filePath)
-                                   .withFormat(FileFormat.PARQUET)
-                                   .withFileSizeInBytes(fileSize)
-                                   .withRecordCount(recordCount);
+               FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
+                         .ofEqualityDeletes(equalityFieldId)
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(fileSize)
+                         .withRecordCount(recordCount);
 
-                         if (partitionValues != null && !partitionValues.isEmpty()) {
-                              org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                                        table.spec(),
-                                        partitionValues);
-                              deleteFileBuilder.withPartition(partitionData);
-                              LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
-                                        partitionValues.size());
-                         } else {
-                              LOGGER.debug("Thread {}: delete file created as global (unpartitioned)", threadId);
-                         }
-
-                         DeleteFile deleteFile = deleteFileBuilder.build();
-                         deleteFiles.add(deleteFile);
-                         LOGGER.debug("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
-                                   threadId, filePath, equalityFieldId, deleteFiles.size());
-                    } catch (Exception e) {
-                         LOGGER.error("Thread {}: failed to accumulate delete file {}: {}", threadId, filePath,
-                                   e.getMessage(), e);
-                         throw e;
-                    }
+               if (partitionValues != null && !partitionValues.isEmpty()) {
+                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
+                              table.spec(),
+                              partitionValues);
+                    deleteFileBuilder.withPartition(partitionData);
+                    LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
+                              partitionValues.size());
+               } else {
+                    LOGGER.debug("Thread {}: delete file created as global (unpartitioned)", threadId);
                }
 
-               LOGGER.info("Thread {}: accumulated {} delete files (total: {})", threadId, filePaths.size(),
-                         deleteFiles.size());
+               DeleteFile deleteFile = deleteFileBuilder.build();
+               deleteFiles.add(deleteFile);
+               LOGGER.info("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
+                         threadId, filePath, equalityFieldId, deleteFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate delete files: %s", threadId,
-                         e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId,
+                         filePath, e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }

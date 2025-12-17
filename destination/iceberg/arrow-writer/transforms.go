@@ -41,7 +41,7 @@ func parseTransform(transform string) (base string, arg int, err error) {
 	if m[2] != "" {
 		arg, err = strconv.Atoi(m[2])
 		if err != nil {
-			return "", -1, fmt.Errorf("invalid numeric argument in transform %v: %v", transform, err)
+			return "", -1, fmt.Errorf("invalid numeric argument in transform %s: %s", transform, err)
 		}
 	}
 

@@ -65,7 +65,7 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 	}
 
 	if err := writer.initialize(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize fields: %w", err)
+		return nil, fmt.Errorf("failed to initialize fields: %s", err)
 	}
 
 	return writer, nil
@@ -139,32 +139,30 @@ func (w *ArrowWriter) extract(records []types.RawRecord) (map[string]*Partitione
 func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
 	data, deletes, err := w.extract(records)
 	if err != nil {
-		return fmt.Errorf("failed to partition data: %v", err)
+		return fmt.Errorf("failed to partition data: %s", err)
 	}
 
 	if w.upsertMode {
 		for _, partitioned := range deletes {
 			record, err := createDeleteArrowRecord(partitioned.Records, w.allocator, w.arrowSchema[fileTypeDelete])
 			if err != nil {
-				return fmt.Errorf("failed to create arrow record: %v", err)
+				return fmt.Errorf("failed to create arrow record: %s", err)
 			}
 
 			writer, err := w.getOrCreateWriter(partitioned.PartitionKey, *record.Schema(), fileTypeDelete, partitioned.PartitionValues)
 			if err != nil {
 				record.Release()
-				return fmt.Errorf("failed to get or create writer for %s: %w", fileTypeDelete, err)
+				return fmt.Errorf("failed to get or create writer for %s: %s", fileTypeDelete, err)
 			}
 			if err := writer.currentWriter.WriteBuffered(record); err != nil {
 				record.Release()
-				return fmt.Errorf("failed to write delete record: %v", err)
+				return fmt.Errorf("failed to write delete record: %s", err)
 			}
 			writer.currentRowCount += record.NumRows()
 			record.Release()
 
-			if shouldFlush, err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeDelete); err != nil {
+			if err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeDelete); err != nil {
 				return err
-			} else if shouldFlush {
-				w.writers.Delete(fileTypeDelete + ":" + partitioned.PartitionKey)
 			}
 		}
 	}
@@ -172,25 +170,23 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 	for _, partitioned := range data {
 		record, err := createArrowRecord(partitioned.Records, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled())
 		if err != nil {
-			return fmt.Errorf("failed to create arrow record: %v", err)
+			return fmt.Errorf("failed to create arrow record: %s", err)
 		}
 
 		writer, err := w.getOrCreateWriter(partitioned.PartitionKey, *record.Schema(), fileTypeData, partitioned.PartitionValues)
 		if err != nil {
 			record.Release()
-			return fmt.Errorf("failed to get or create writer for data: %w", err)
+			return fmt.Errorf("failed to get or create writer for data: %s", err)
 		}
 		if err := writer.currentWriter.WriteBuffered(record); err != nil {
 			record.Release()
-			return fmt.Errorf("failed to write data record: %w", err)
+			return fmt.Errorf("failed to write data record: %s", err)
 		}
 		writer.currentRowCount += record.NumRows()
 		record.Release()
 
-		if shouldFlush, err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeData); err != nil {
+		if err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeData); err != nil {
 			return err
-		} else if shouldFlush {
-			w.writers.Delete(fileTypeData + ":" + partitioned.PartitionKey)
 		}
 	}
 
@@ -198,15 +194,16 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 }
 
 
-func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, partitionKey string, fileType string) (bool, error) {
-	// current size: all previously flushed row groups (in buffer) + current in-progress row group (buffered in memory)
+func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, partitionKey string, fileType string) error {
 	sizeSoFar := int64(writer.currentBuffer.Len()) + writer.currentWriter.RowGroupTotalBytesWritten()
 	targetFileSize := utils.Ternary(fileType == fileTypeDelete, targetDeleteFileSize, targetDataFileSize).(int64)
 
 	if sizeSoFar >= targetFileSize {
 		if err := writer.currentWriter.Close(); err != nil {
-			return false, fmt.Errorf("failed to close writer during flush: %w", err)
+			return fmt.Errorf("failed to close writer during flush: %s", err)
 		}
+
+		w.writers.Delete(fileType + ":" + partitionKey)
 
 		uploadData := &FileUploadData{
 			FileType:        fileType,
@@ -217,24 +214,22 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 		}
 
 		if err := w.uploadFile(ctx, uploadData); err != nil {
-			return false, fmt.Errorf("failed to upload parquet during flush: %w", err)
+			return fmt.Errorf("failed to upload parquet during flush: %s", err)
 		}
-
-		return true, nil
 	}
 
-	return false, nil
+	return nil
 }
 
 func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
 	if err := w.closeWriters(ctx); err != nil {
-		return fmt.Errorf("failed to flush writers during schema evolution: %v", err)
+		return fmt.Errorf("failed to flush writers during schema evolution: %s", err)
 	}
 
 	w.schema = newSchema
 
 	if err := w.initialize(ctx); err != nil {
-		return fmt.Errorf("failed to reinitialize with evolved schema: %v", err)
+		return fmt.Errorf("failed to reinitialize with evolved schema: %s", err)
 	}
 
 	return nil
@@ -243,7 +238,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 func (w *ArrowWriter) Close(ctx context.Context) error {
 	err := w.closeWriters(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to close arrow writers: %v", err)
+		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
 
 	commitRequest := &proto.ArrowPayload{
@@ -274,7 +269,6 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 		writer, _ := value.(*RollingWriter)
 		if closeErr := writer.currentWriter.Close(); closeErr != nil {
 			err = fmt.Errorf("failed to close writer: %s", closeErr)
-
 			return false
 		}
 
@@ -294,13 +288,19 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 		}
 
 		if uploadErr := w.uploadFile(ctx, uploadData); uploadErr != nil {
-			err = fmt.Errorf("failed to upload parquet: %v", uploadErr)
-
+			err = fmt.Errorf("failed to upload parquet: %s", uploadErr)
 			return false
 		}
 
 		return true
 	})
+
+	if err == nil {
+		w.writers.Range(func(key, value interface{}) bool {
+			w.writers.Delete(key)
+			return true
+		})
+	}
 
 	return err
 }
@@ -312,7 +312,7 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 
 	dataFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeData])
 	if err != nil {
-		return fmt.Errorf("failed to parse data schema field IDs: %w", err)
+		return fmt.Errorf("failed to parse data schema field IDs: %s", err)
 	}
 
 	w.allocator = memory.NewGoAllocator()
@@ -322,7 +322,7 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 	if w.upsertMode {
 		deleteFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeDelete])
 		if err != nil {
-			return fmt.Errorf("failed to parse delete schema field IDs: %w", err)
+			return fmt.Errorf("failed to parse delete schema field IDs: %s", err)
 		}
 
 		olakeIDFieldID, ok := deleteFieldIDs[constants.OlakeID]
@@ -356,7 +356,7 @@ func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema
 
 	writer, err := w.createWriter(schema, fileType, partitionValues)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create rolling writer: %v", err)
+		return nil, fmt.Errorf("failed to create rolling writer: %s", err)
 	}
 
 	ww, ok := w.writers.LoadOrStore(key, writer)
@@ -381,28 +381,24 @@ func (w *ArrowWriter) createWriter(schema arrow.Schema, fileType string, partiti
 
 	writer, err := pqarrow.NewFileWriter(&schema, currentBuffer, writerProps, arrowProps)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new file writer: %v", err)
+		return nil, fmt.Errorf("failed to create new file writer: %s", err)
 	}
 
 	if fileType == fileTypeDelete {
 		if err = writer.AppendKeyValueMetadata("delete-type", "equality"); err != nil {
-			return nil, fmt.Errorf("failed to append key value metadata, delete-type equality: %v", err)
+			return nil, fmt.Errorf("failed to append key value metadata, delete-type equality: %s", err)
 		}
 
 		// Extract field ID from _olake_id field metadata
 		olakeIDField := schema.Field(0)
 		fieldIDStr, _ := olakeIDField.Metadata.GetValue("PARQUET:field_id")
 		if err = writer.AppendKeyValueMetadata("delete-field-ids", fieldIDStr); err != nil {
-			return nil, fmt.Errorf("failed to append key value metadata, delete-field-ids: %v", err)
+			return nil, fmt.Errorf("failed to append key value metadata, delete-field-ids: %s", err)
 		}
+	}
 
-		if err = writer.AppendKeyValueMetadata("iceberg.schema", w.fileschemajson[fileTypeDelete]); err != nil {
-			return nil, fmt.Errorf("failed to append iceberg schema json: %v", err)
-		}
-	} else if fileType == fileTypeData {
-		if err = writer.AppendKeyValueMetadata("iceberg.schema", w.fileschemajson[fileTypeData]); err != nil {
-			return nil, fmt.Errorf("failed to append iceberg schema json: %v", err)
-		}
+	if err = writer.AppendKeyValueMetadata("iceberg.schema", w.fileschemajson[fileType]); err != nil {
+		return nil, fmt.Errorf("failed to append iceberg schema json: %s", err)
 	}
 
 	return &RollingWriter{
@@ -433,7 +429,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 
 	resp, err := w.server.SendClientRequest(uploadCtx, &request)
 	if err != nil {
-		return fmt.Errorf("failed to upload %s file via Iceberg FileIO: %v", uploadData.FileType, err)
+		return fmt.Errorf("failed to upload %s file via Iceberg FileIO: %s", uploadData.FileType, err)
 	}
 
 	arrowResponse := resp.(*proto.ArrowIngestResponse)
@@ -463,7 +459,7 @@ func (w *ArrowWriter) fetchIcebergSchemas(ctx context.Context) error {
 
 	resp, err := w.server.SendClientRequest(schemaCtx, request)
 	if err != nil {
-		return fmt.Errorf("failed to fetch schema JSON from server: %w", err)
+		return fmt.Errorf("failed to fetch schema JSON from server: %s", err)
 	}
 
 	arrowResp := resp.(*proto.ArrowIngestResponse)

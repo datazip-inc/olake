@@ -9,7 +9,6 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,6 +63,8 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
 
                switch (request.getType()) {
                     case JSONSCHEMA:
+                         this.icebergTable.refresh();
+
                          java.util.Map<String, String> schemaMap = new java.util.HashMap<>();
 
                          org.apache.iceberg.Schema tableSchema = this.icebergTable.schema();
@@ -109,7 +110,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                         icebergTableOperator.accumulateDeleteFiles(
                                                   threadId,
                                                   icebergTable,
-                                                  java.util.Collections.singletonList(filePath),
+                                                  filePath,
                                                   fieldId,
                                                   recordCount,
                                                   deletePartitionValues);
@@ -121,7 +122,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                         icebergTableOperator.accumulateDataFiles(
                                                   threadId,
                                                   icebergTable,
-                                                  java.util.Collections.singletonList(filePath),
+                                                  filePath,
                                                   dataPartitionValues);
                                         dataFileCount++;
                                         break;
@@ -154,30 +155,34 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                         fileFormat);
                          }
 
-                         EncryptedOutputFile encryptedFile = this.outputFileFactory
-                                   .newOutputFile();
+                         EncryptedOutputFile encryptedFile = this.outputFileFactory.newOutputFile();
+
+                         // fullPath =
+                         // "s3://bucket/namespace/table/data/20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
                          String fullPath = encryptedFile.encryptingOutputFile().location();
                          int lastSlashIndex = fullPath.lastIndexOf('/');
-                         String generatedFilename = lastSlashIndex >= 0 ? fullPath.substring(lastSlashIndex + 1)
-                                   : fullPath;
 
+                         // generatedFilename =
+                         // "20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
+                         String generatedFilename = fullPath.substring(lastSlashIndex + 1);
                          FileIO fileIO = this.icebergTable.io();
-                         LocationProvider locations = this.icebergTable.locationProvider();
 
                          String icebergLocation;
+
+                         // example: partitionKey = "name=George/department_trunc=E"
                          if (partitionKey != null && !partitionKey.isEmpty()) {
-                              String baseLocation = locations.newDataLocation(generatedFilename);
-                              int lastSlash = baseLocation.lastIndexOf('/');
-                              if (lastSlash > 0) {
-                                   String basePath = baseLocation.substring(0, lastSlash);
-                                   icebergLocation = basePath + "/" + partitionKey + "/" + generatedFilename;
-                              } else {
-                                   icebergLocation = partitionKey + "/" + generatedFilename;
-                              }
+                              // basePath = "s3://bucket/namespace/table/data"
+                              String basePath = fullPath.substring(0, lastSlashIndex);
+
+                              // Final path:
+                              // "s3://bucket/namespace/table/data/name=George/department_trunc=E/20251217-1-...-00001.parquet"
+                              icebergLocation = basePath + "/" + partitionKey + "/" + generatedFilename;
                          } else {
-                              icebergLocation = locations.newDataLocation(generatedFilename);
+                              // For non-partitioned tables, use the generated path as-is
+                              icebergLocation = fullPath;
                          }
 
+                         // Create the output file at the final partitioned location and write data
                          OutputFile outputFile = fileIO.newOutputFile(icebergLocation);
                          try (OutputStream out = outputFile.create()) {
                               out.write(fileData);
