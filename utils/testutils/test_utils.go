@@ -346,6 +346,10 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 ) error {
 	t.Log("Starting Iceberg Full load + CDC tests")
 
+	if err := cfg.resetTable(ctx, t, testTable); err != nil {
+		return fmt.Errorf("failed to reset table: %w", err)
+	}
+
 	testCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
