@@ -188,7 +188,7 @@ func ConstructColPath(valueStr, field, transform string) string {
 	}
 }
 
-func TransformValue(val any, transform string, colType string) (any, error) {
+func TransformValue(val any, transform string, colType string) (string, error) {
 	transform = strings.TrimSpace(strings.ToLower(transform))
 	if val == nil {
 		return NULL, nil
@@ -196,7 +196,7 @@ func TransformValue(val any, transform string, colType string) (any, error) {
 
 	base, arg, err := parseTransform(transform)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	switch base {
@@ -211,6 +211,6 @@ func TransformValue(val any, transform string, colType string) (any, error) {
 	case "truncate":
 		return truncateTransform(val, arg, colType)
 	default:
-		return nil, fmt.Errorf("unknown partition transform %q", transform)
+		return "", fmt.Errorf("unknown partition transform %q", transform)
 	}
 }

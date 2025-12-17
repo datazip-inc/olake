@@ -130,9 +130,9 @@ func createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocat
 		recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
 	}
 
-	arrRec := recordBuilder.NewRecord()
+	arrowRec := recordBuilder.NewRecord()
 
-	return arrRec, nil
+	return arrowRec, nil
 }
 
 func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool) (arrow.Record, error) {
@@ -221,7 +221,7 @@ func appendValueToBuilder(builder array.Builder, val interface{}, fieldName stri
 		}
 	case *array.StringBuilder:
 		// OLake converts the data column to json format for a denormalized table
-		if mapVal, ok := val.(map[string]interface{}); !normalization && fieldName == constants.StringifiedData && ok {
+		if mapVal, ok := val.(map[string]interface{}); ok {
 			jsonBytes, err := json.Marshal(mapVal)
 			if err != nil {
 				return fmt.Errorf("failed to marshal map to JSON: %w", err)

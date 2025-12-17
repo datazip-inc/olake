@@ -40,6 +40,12 @@ type RollingWriter struct {
 	partitionValues []string
 }
 
+type PartitionedRecords struct {
+	Records         []types.RawRecord
+	PartitionKey    string
+	PartitionValues []string
+}
+
 type FileUploadData struct {
 	FileType        string
 	FileData        []byte
@@ -67,7 +73,7 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 
 func (w *ArrowWriter) createPartitionKey(record types.RawRecord) (string, []string, error) {
 	paths := make([]string, 0, len(w.partitionInfo))
-	values := make([]string, 0, len(w.partitionInfo))
+	transformedValues := make([]string, 0, len(w.partitionInfo))
 
 	for _, partition := range w.partitionInfo {
 		field, transform := partition.Field, partition.Transform
@@ -76,47 +82,55 @@ func (w *ArrowWriter) createPartitionKey(record types.RawRecord) (string, []stri
 			return "", nil, fmt.Errorf("partition field %q does not exist in schema", field)
 		}
 
-		transformedVal, err := TransformValue(record.Data[field], transform, colType)
+		value, err := TransformValue(record.Data[field], transform, colType)
 		if err != nil {
 			return "", nil, err
 		}
 
-		valueStr := transformedVal.(string)
-		colPath := ConstructColPath(valueStr, field, transform)
+		colPath := ConstructColPath(value, field, transform)
 		paths = append(paths, colPath)
-		values = append(values, valueStr)
+		transformedValues = append(transformedValues, value)
 	}
 
 	partitionKey := strings.Join(paths, "/")
 
-	return partitionKey, values, nil
+	return partitionKey, transformedValues, nil
 }
 
-func (w *ArrowWriter) extract(records []types.RawRecord) (map[string][]types.RawRecord, map[string][]types.RawRecord, error) {
-	// data and delete record maps to store (file path : type.RawRecord)
-	data := make(map[string][]types.RawRecord)
-	deletes := make(map[string][]types.RawRecord)
+func (w *ArrowWriter) extract(records []types.RawRecord) (map[string]*PartitionedRecords, map[string]*PartitionedRecords, error) {
+	data := make(map[string]*PartitionedRecords)
+	deletes := make(map[string]*PartitionedRecords)
 
 	for _, rec := range records {
 		pKey := ""
+		var pValues []string
 		if len(w.partitionInfo) != 0 {
-			key, _, err := w.createPartitionKey(rec)
+			key, values, err := w.createPartitionKey(rec)
 			if err != nil {
 				return nil, nil, err
 			}
 			pKey = key
+			pValues = values
 		}
 
-		// In OLake, for equality deletes, we use OlakeID as the id
-		// we create equality delete files for:
-		// "d" : delete operation
-		// "u" : update operation
-		// "c" : insert operation
 		if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
 			del := types.RawRecord{OlakeID: rec.OlakeID}
-			deletes[pKey] = append(deletes[pKey], del)
+			if deletes[pKey] == nil {
+				deletes[pKey] = &PartitionedRecords{
+					PartitionKey:    pKey,
+					PartitionValues: pValues,
+				}
+			}
+			deletes[pKey].Records = append(deletes[pKey].Records, del)
 		}
-		data[pKey] = append(data[pKey], rec)
+
+		if data[pKey] == nil {
+			data[pKey] = &PartitionedRecords{
+				PartitionKey:    pKey,
+				PartitionValues: pValues,
+			}
+		}
+		data[pKey].Records = append(data[pKey].Records, rec)
 	}
 
 	return data, deletes, nil
@@ -129,14 +143,13 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 	}
 
 	if w.upsertMode {
-		for pKey, rec := range deletes {
-			record, err := createDeleteArrowRecord(rec, w.allocator, w.arrowSchema[fileTypeDelete])
+		for _, partitioned := range deletes {
+			record, err := createDeleteArrowRecord(partitioned.Records, w.allocator, w.arrowSchema[fileTypeDelete])
 			if err != nil {
 				return fmt.Errorf("failed to create arrow record: %v", err)
 			}
 
-			partitionValues := w.getPartitionValues(rec)
-			writer, err := w.getOrCreateWriter(pKey, *record.Schema(), fileTypeDelete, partitionValues)
+			writer, err := w.getOrCreateWriter(partitioned.PartitionKey, *record.Schema(), fileTypeDelete, partitioned.PartitionValues)
 			if err != nil {
 				record.Release()
 				return fmt.Errorf("failed to get or create writer for %s: %w", fileTypeDelete, err)
@@ -148,22 +161,21 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			writer.currentRowCount += record.NumRows()
 			record.Release()
 
-			if shouldFlush, err := w.checkAndFlush(ctx, writer, pKey, fileTypeDelete); err != nil {
+			if shouldFlush, err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeDelete); err != nil {
 				return err
 			} else if shouldFlush {
-				w.writers.Delete(fileTypeDelete + ":" + pKey)
+				w.writers.Delete(fileTypeDelete + ":" + partitioned.PartitionKey)
 			}
 		}
 	}
 
-	for pKey, rec := range data {
-		record, err := createArrowRecord(rec, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled())
+	for _, partitioned := range data {
+		record, err := createArrowRecord(partitioned.Records, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled())
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %v", err)
 		}
 
-		partitionValues := w.getPartitionValues(rec)
-		writer, err := w.getOrCreateWriter(pKey, *record.Schema(), fileTypeData, partitionValues)
+		writer, err := w.getOrCreateWriter(partitioned.PartitionKey, *record.Schema(), fileTypeData, partitioned.PartitionValues)
 		if err != nil {
 			record.Release()
 			return fmt.Errorf("failed to get or create writer for data: %w", err)
@@ -175,24 +187,16 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		writer.currentRowCount += record.NumRows()
 		record.Release()
 
-		if shouldFlush, err := w.checkAndFlush(ctx, writer, pKey, fileTypeData); err != nil {
+		if shouldFlush, err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeData); err != nil {
 			return err
 		} else if shouldFlush {
-			w.writers.Delete(fileTypeData + ":" + pKey)
+			w.writers.Delete(fileTypeData + ":" + partitioned.PartitionKey)
 		}
 	}
 
 	return nil
 }
 
-func (w *ArrowWriter) getPartitionValues(records []types.RawRecord) []string {
-	if len(records) == 0 || len(w.partitionInfo) == 0 {
-		return nil
-	}
-	_, partitionValues, _ := w.createPartitionKey(records[0])
-
-	return partitionValues
-}
 
 func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, partitionKey string, fileType string) (bool, error) {
 	// current size: all previously flushed row groups (in buffer) + current in-progress row group (buffered in memory)
@@ -269,7 +273,7 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 		mapKey := key.(string)
 		writer, _ := value.(*RollingWriter)
 		if closeErr := writer.currentWriter.Close(); closeErr != nil {
-			err = fmt.Errorf("failed to close writer: %v", closeErr)
+			err = fmt.Errorf("failed to close writer: %s", closeErr)
 
 			return false
 		}
