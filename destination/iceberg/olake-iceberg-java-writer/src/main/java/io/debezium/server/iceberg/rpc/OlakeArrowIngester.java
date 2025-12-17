@@ -156,13 +156,11 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
 
                          EncryptedOutputFile encryptedFile = this.outputFileFactory.newOutputFile();
 
-                         // fullPath =
-                         // "s3://bucket/namespace/table/data/20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
+                         // fullPath = "s3://bucket/namespace/table/data/20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
                          String fullPath = encryptedFile.encryptingOutputFile().location();
                          int lastSlashIndex = fullPath.lastIndexOf('/');
 
-                         // generatedFilename =
-                         // "20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
+                         // generatedFilename = "20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
                          String generatedFilename = fullPath.substring(lastSlashIndex + 1);
                          FileIO fileIO = this.icebergTable.io();
 
@@ -173,15 +171,13 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                               // basePath = "s3://bucket/namespace/table/data"
                               String basePath = fullPath.substring(0, lastSlashIndex);
 
-                              // Final path:
-                              // "s3://bucket/namespace/table/data/name=George/department_trunc=E/20251217-1-...-00001.parquet"
+                              // Final path: "s3://bucket/namespace/table/data/name=George/department_trunc=E/20251217-1-...-00001.parquet"
                               icebergLocation = basePath + "/" + partitionKey + "/" + generatedFilename;
                          } else {
                               // For non-partitioned tables, use the generated path as-is
                               icebergLocation = fullPath;
                          }
 
-                         // Create the output file at the final partitioned location and write data
                          OutputFile outputFile = fileIO.newOutputFile(icebergLocation);
                          try (OutputStream out = outputFile.create()) {
                               out.write(fileData);
