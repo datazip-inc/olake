@@ -26,7 +26,6 @@ type ArrowWriter struct {
 	allocator        memory.Allocator
 	stream           types.StreamInterface
 	server           internal.ServerClient
-	fields           []arrow.Field
 	partitionInfo    []internal.PartitionInfo
 	createdFilePaths []*proto.ArrowPayload_FileMetadata
 	writers          sync.Map
@@ -315,8 +314,8 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 	}
 
 	w.allocator = memory.NewGoAllocator()
-	w.fields = createFields(w.schema, dataFieldIDs)
-	w.arrowSchema[fileTypeData] = arrow.NewSchema(w.fields, nil)
+	fields := createFields(w.schema, dataFieldIDs)
+	w.arrowSchema[fileTypeData] = arrow.NewSchema(fields, nil)
 
 	if w.upsertMode {
 		deleteFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeDelete])

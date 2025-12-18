@@ -305,7 +305,7 @@ public class IcebergTableOperator {
                     LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
                               partitionValues.size());
                } else {
-                    LOGGER.debug("Thread {}: delete file created as global (unpartitioned)", threadId);
+                    LOGGER.debug("Thread {}: delete file scoped to global (unpartitioned)", threadId);
                }
 
                DeleteFile deleteFile = deleteFileBuilder.build();
