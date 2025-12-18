@@ -116,7 +116,7 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	plugin := strings.ToLower(strings.TrimSpace(slot.Plugin))
 	switch plugin {
 	case "pgoutput":
-		return &pgoutputReplicator{socket: socket, publication: config.Publication, relationIDToMsgMap: make(map[uint32]*pglogrepl.RelationMessage)}, nil
+		return newPgoutputReplicator(socket, config.Publication, config.WorkerCount), nil
 	default:
 		return &wal2jsonReplicator{socket: socket}, nil
 	}

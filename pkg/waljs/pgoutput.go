@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -15,15 +16,40 @@ import (
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/sync/errgroup"
 )
 
-// pgoutputReplicator implements Replicator for pgoutput
+type walChange struct {
+	kind       string
+	relationID uint32
+	data       any
+}
+
+type transactionBatch struct {
+	commitTime time.Time
+	changes    []walChange
+}
+
 type pgoutputReplicator struct {
 	socket               *Socket
 	publication          string
-	txnCommitTime        time.Time                             // transaction commit time
-	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
-	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
+	workerCount          int
+	txnCommitTime        time.Time
+	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage
+	relationMu           sync.RWMutex
+	transactionCompleted bool
+}
+
+func newPgoutputReplicator(socket *Socket, publication string, workerCount int) *pgoutputReplicator {
+	if workerCount <= 0 {
+		workerCount = 1
+	}
+	return &pgoutputReplicator{
+		socket:             socket,
+		publication:        publication,
+		workerCount:        workerCount,
+		relationIDToMsgMap: make(map[uint32]*pglogrepl.RelationMessage),
+	}
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -43,11 +69,17 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 		return fmt.Errorf("failed to start replication: %v", err)
 	}
 
-	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
+	logger.Infof("pgoutput starting from lsn=%s target=%s workers=%d", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition, p.workerCount)
 
+	if p.workerCount <= 1 {
+		return p.streamChangesSequential(ctx, db, insertFn)
+	}
+	return p.streamChangesParallel(ctx, db, insertFn)
+}
+
+func (p *pgoutputReplicator) streamChangesSequential(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	cdcStartTime := time.Now()
 	messageReceived := false
-	// transactionCompleted default true
 	p.transactionCompleted = true
 
 	for {
@@ -64,7 +96,6 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				return nil
 			}
 
-			// receive message with timeout
 			msgCtx, cancel := context.WithTimeout(ctx, p.socket.initialWaitTime)
 			msg, err := p.socket.pgConn.ReceiveMessage(msgCtx)
 			cancel()
@@ -72,7 +103,6 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				if errors.Is(err, context.DeadlineExceeded) {
 					return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
 				}
-
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {
 					return nil
 				}
@@ -90,7 +120,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				if err != nil {
 					return fmt.Errorf("failed to parse XLogData: %v", err)
 				}
-				if err := p.processPgoutputWAL(ctx, xld.WALData, insertFn); err != nil {
+				if err := p.processWALSequential(ctx, xld.WALData, insertFn); err != nil {
 					return err
 				}
 				p.socket.ClientXLogPos = xld.WALStart
@@ -113,8 +143,212 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 }
 
-// TODO: can we parallelize this function
-func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []byte, insertFn abstract.CDCMsgFn) error {
+func (p *pgoutputReplicator) streamChangesParallel(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
+	batchChan := make(chan *transactionBatch, p.workerCount*2)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	for i := 0; i < p.workerCount; i++ {
+		g.Go(func() error {
+			return p.batchWorker(gCtx, batchChan, insertFn)
+		})
+	}
+
+	g.Go(func() error {
+		defer close(batchChan)
+		return p.receiveAndBatch(gCtx, db, batchChan)
+	})
+
+	return g.Wait()
+}
+
+func (p *pgoutputReplicator) receiveAndBatch(ctx context.Context, db *sqlx.DB, batchChan chan<- *transactionBatch) error {
+	cdcStartTime := time.Now()
+	messageReceived := false
+	transactionCompleted := true
+	var currentBatch *transactionBatch
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
+				return fmt.Errorf("%s, try increasing it or do full load", constants.NoRecordsFoundError)
+			}
+
+			if transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
+				logger.Infof("finishing sync, reached wal position: %s", p.socket.CurrentWalPosition)
+				return nil
+			}
+
+			msgCtx, cancel := context.WithTimeout(ctx, p.socket.initialWaitTime)
+			msg, err := p.socket.pgConn.ReceiveMessage(msgCtx)
+			cancel()
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
+				}
+				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {
+					return nil
+				}
+				return err
+			}
+
+			copyData, ok := msg.(*pgproto3.CopyData)
+			if !ok {
+				return fmt.Errorf("pgoutput unexpected message type: %T", msg)
+			}
+
+			switch copyData.Data[0] {
+			case pglogrepl.XLogDataByteID:
+				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
+				if err != nil {
+					return fmt.Errorf("failed to parse XLogData: %v", err)
+				}
+
+				logicalMsg, err := pglogrepl.Parse(xld.WALData)
+				if err != nil {
+					return fmt.Errorf("failed to parse WAL data: %v", err)
+				}
+
+				switch msg := logicalMsg.(type) {
+				case *pglogrepl.RelationMessage:
+					p.relationMu.Lock()
+					p.relationIDToMsgMap[msg.RelationID] = msg
+					p.relationMu.Unlock()
+
+				case *pglogrepl.BeginMessage:
+					transactionCompleted = false
+					currentBatch = &transactionBatch{
+						commitTime: msg.CommitTime,
+						changes:    make([]walChange, 0),
+					}
+
+				case *pglogrepl.InsertMessage:
+					if currentBatch != nil {
+						currentBatch.changes = append(currentBatch.changes, walChange{
+							kind:       "insert",
+							relationID: msg.RelationID,
+							data:       msg,
+						})
+					}
+
+				case *pglogrepl.UpdateMessage:
+					if currentBatch != nil {
+						currentBatch.changes = append(currentBatch.changes, walChange{
+							kind:       "update",
+							relationID: msg.RelationID,
+							data:       msg,
+						})
+					}
+
+				case *pglogrepl.DeleteMessage:
+					if currentBatch != nil {
+						currentBatch.changes = append(currentBatch.changes, walChange{
+							kind:       "delete",
+							relationID: msg.RelationID,
+							data:       msg,
+						})
+					}
+
+				case *pglogrepl.CommitMessage:
+					transactionCompleted = true
+					if currentBatch != nil && len(currentBatch.changes) > 0 {
+						select {
+						case <-ctx.Done():
+							return nil
+						case batchChan <- currentBatch:
+						}
+					}
+					currentBatch = nil
+				}
+
+				p.socket.ClientXLogPos = xld.WALStart
+				messageReceived = true
+
+			case pglogrepl.PrimaryKeepaliveMessageByteID:
+				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
+				if err != nil {
+					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
+				}
+				p.socket.ClientXLogPos = pkm.ServerWALEnd
+				if pkm.ReplyRequested {
+					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
+						return fmt.Errorf("failed to send standby status update: %v", err)
+					}
+				}
+
+			default:
+				logger.Debugf("pgoutput: unhandled message type: %d", copyData.Data[0])
+			}
+		}
+	}
+}
+
+func (p *pgoutputReplicator) batchWorker(ctx context.Context, batchChan <-chan *transactionBatch, insertFn abstract.CDCMsgFn) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case batch, ok := <-batchChan:
+			if !ok {
+				return nil
+			}
+			if err := p.processBatch(ctx, batch, insertFn); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (p *pgoutputReplicator) processBatch(ctx context.Context, batch *transactionBatch, insertFn abstract.CDCMsgFn) error {
+	for _, change := range batch.changes {
+		p.relationMu.RLock()
+		rel, ok := p.relationIDToMsgMap[change.relationID]
+		p.relationMu.RUnlock()
+
+		if !ok {
+			return fmt.Errorf("unknown relation id: %d", change.relationID)
+		}
+
+		stream := p.socket.changeFilter.tables[fmt.Sprintf("%s.%s", rel.Namespace, rel.RelationName)]
+		if stream == nil {
+			continue
+		}
+
+		var values map[string]any
+		var err error
+
+		switch change.kind {
+		case "insert":
+			msg := change.data.(*pglogrepl.InsertMessage)
+			values, err = p.tupleValuesToMap(rel, msg.Tuple)
+		case "update":
+			msg := change.data.(*pglogrepl.UpdateMessage)
+			values, err = p.tupleValuesToMap(rel, msg.NewTuple)
+		case "delete":
+			msg := change.data.(*pglogrepl.DeleteMessage)
+			values, err = p.tupleValuesToMap(rel, msg.OldTuple)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if err := insertFn(ctx, abstract.CDCChange{
+			Stream:    stream,
+			Timestamp: batch.commitTime,
+			Kind:      change.kind,
+			Data:      values,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *pgoutputReplicator) processWALSequential(ctx context.Context, walData []byte, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {
 		return fmt.Errorf("failed to parse WAL data: %v", err)
