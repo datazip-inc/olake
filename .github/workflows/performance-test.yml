@@ -9,6 +9,7 @@ on:
     - '**/*.java'
 
 permissions:
+  actions: read
   id-token: write
   contents: read
 
@@ -89,19 +90,33 @@ jobs:
       run: |
         echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/destination.json
     
+    - name: Get Last Successful Run ID
+      id: last_run
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch "staging" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+        
+        if [ -n "$PREVIOUS_ID" ]; then
+          echo "id=$PREVIOUS_ID" >> $GITHUB_OUTPUT
+        fi
+
     - name: Download Benchmarks History
+      if: steps.last_run.outputs.id != ''
       uses: actions/download-artifact@v4
       continue-on-error: true
       with:
         name: benchmarks_${{ matrix.driver }}
         path: ./drivers/${{ matrix.driver }}/internal/testdata/
+        run-id: ${{ steps.last_run.outputs.id }}
+        github-token: ${{ github.token }}
     
     - name: Run Performance Tests
       run: go test -v ./drivers/${{ matrix.driver }}/internal/... -timeout 0 -run 'Performance'
     
     - name: Upload Benchmarks History
       uses: actions/upload-artifact@v4
-      if: always()
+      if: success()
       continue-on-error: true
       with:
         name: benchmarks_${{ matrix.driver }}
