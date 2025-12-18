@@ -423,12 +423,20 @@ func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error
 		return "", 0, 0, fmt.Errorf("invalid minor version: %s", err)
 	}
 
-	mysqlFlavor := "MySQL"
-	if strings.Contains(strings.ToUpper(version), "MARIADB") {
-		mysqlFlavor = "MariaDB"
+	upper := strings.ToUpper(version)
+	mysqlFlavor := "mysql"
+	if strings.Contains(upper, "MARIADB") {
+		mysqlFlavor = "mariadb"
 	}
 
 	return mysqlFlavor, majorVersion, minorVersion, nil
+}
+
+// DetectMySQLFlavor detects the MySQL flavor by querying the server version
+// Returns "mysql", "mariadb", or "mysql" (default) for Percona and other variants
+func DetectMySQLFlavor(ctx context.Context, client *sqlx.DB) (string, error) {
+	flavor, _, _, err := MySQLVersion(ctx, client)
+	return flavor, err
 }
 
 func WithIsolation(ctx context.Context, client *sqlx.DB, fn func(tx *sql.Tx) error) error {
