@@ -258,7 +258,7 @@ const IcebergUISchema = `{
   },
   "writer": {
     "ui:grid": [
-      { "catalog_type": 12 },
+      { "catalog_type": 12, "catalog_name": 12 },
       { "rest_catalog_url": 12, "hive_uri": 12 },
       { "jdbc_url": 12, "jdbc_username": 12, "jdbc_password": 12 },
       { "iceberg_s3_path": 12, "hive_clients": 12 },
