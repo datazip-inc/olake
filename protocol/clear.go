@@ -3,6 +3,7 @@ package protocol
 import (
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -30,14 +31,18 @@ var clearCmd = &cobra.Command{
 			return err
 		}
 
+		// Initialize state - clear command needs existing state for stream classification
 		state = &types.State{
-			Type: types.StreamType,
+			Type:    types.StreamType,
+			Version: constants.LatestStateVersion, // Default to 0 if state file doesn't have version
 		}
 		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
 		}
+		state.Version = constants.LatestStateVersion
+		constants.LoadedStateVersion = state.Version
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
