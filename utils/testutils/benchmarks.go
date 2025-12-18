@@ -28,11 +28,11 @@ func LoadBenchmarks(path string) (*BenchmarkStore, error) {
 	store := &BenchmarkStore{
 		Backfill: history{
 			RPS:       make([]float64, 0, maxRPSHistorySize),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now().UTC(),
 		},
 		CDC: history{
 			RPS:       make([]float64, 0, maxRPSHistorySize),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now().UTC(),
 		},
 		FilePath: path,
 	}
@@ -74,10 +74,10 @@ func (store *BenchmarkStore) record(
 
 	if isBackfill {
 		store.Backfill.RPS = rpsValues
-		store.Backfill.UpdatedAt = time.Now()
+		store.Backfill.UpdatedAt = time.Now().UTC()
 	} else {
 		store.CDC.RPS = rpsValues
-		store.CDC.UpdatedAt = time.Now()
+		store.CDC.UpdatedAt = time.Now().UTC()
 	}
 
 	return logger.FileLoggerWithPath(store, store.FilePath)
