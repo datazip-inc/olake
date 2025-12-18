@@ -245,7 +245,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 func TestCatalogMergeCatalogs(t *testing.T) {
 	testCases := []struct {
 		name       string
-		driver     string
 		oldCatalog *Catalog
 		newCatalog *Catalog
 		expected   *Catalog
@@ -253,7 +252,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		// when old catalog is nil, new catalog should be returned unchanged
 		{
 			name:       "nil old catalog returns new catalog unchanged",
-			driver:     "mysql",
 			oldCatalog: nil,
 			newCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -292,8 +290,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		},
 		// when merging single stream, old catalog metadata and selected stream data should be preserved
 		{
-			name:   "single stream merge",
-			driver: "mysql",
+			name: "single stream merge",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -365,8 +362,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		},
 		// new stream gets added with its metadata, while existing stream's configuration and selected stream data are preserved
 		{
-			name:   "new stream introduced",
-			driver: "mongodb",
+			name: "new stream introduced",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -455,8 +451,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		},
 		// Removed streams are excluded from the result, but remaining streams keep their original configuration
 		{
-			name:   "old stream removed",
-			driver: "mysql",
+			name: "old stream removed",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -538,8 +533,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 		},
 		// when destination database is updated, old catalog metadata should be preserved
 		{
-			name:   "destination database updation",
-			driver: "mysql",
+			name: "destination database updation",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
