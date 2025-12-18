@@ -17,17 +17,13 @@ services:
       - bash
       - -c
       - |
-        # Install wal2json
-        apt-get update && apt-get install -y postgresql-15-wal2json
-        
         # Start PostgreSQL with basic config in background
         docker-entrypoint.sh postgres \
           -c hba_file=/etc/postgresql/pg_hba.conf \
           -c listen_addresses='*' \
           -c wal_level=logical \
           -c max_wal_senders=10 \
-          -c max_replication_slots=10 \
-          -c shared_preload_libraries=wal2json &
+          -c max_replication_slots=10 &
         
         # Wait for PostgreSQL to be ready
         while ! pg_isready -U postgres -h localhost -p 5432; do
@@ -39,10 +35,17 @@ services:
         DO \$\$
         BEGIN
           IF NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'olake_slot') THEN
-            PERFORM pg_create_logical_replication_slot('olake_slot', 'wal2json');
+            PERFORM pg_create_logical_replication_slot('olake_slot', 'pgoutput');
             RAISE NOTICE 'Replication slot created successfully';
           ELSE
             RAISE NOTICE 'Replication slot already exists';
+          END IF;
+          
+          IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'olake_publication') THEN
+            CREATE PUBLICATION olake_publication FOR ALL TABLES;
+            RAISE NOTICE 'Publication olake_publication created successfully';
+          ELSE
+            RAISE NOTICE 'Publication olake_publication already exists';
           END IF;
         END
         \$\$;

@@ -17,7 +17,7 @@ func RetryOnBackoff(attempts int, sleep time.Duration, f func() error) (err erro
 		// check if error is non retryable
 		for _, nonRetryableError := range constants.NonRetryableErrors {
 			if strings.Contains(err.Error(), nonRetryableError) {
-				break
+				return err
 			}
 		}
 
