@@ -108,9 +108,8 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
 // 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
-// 3. StreamDefaults: Preserve from old catalog if exists, otherwise set from driver
-// 4. Everything else: Keep as new catalog
-func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
+// 3. Everything else: Keep as new catalog
+func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -124,14 +123,6 @@ func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
 	}
 
 	newStreams := createStreamMap(newCatalog)
-
-	// Preserve stream_defaults from old catalog if it exists
-	// Otherwise, set it based on driver (backward compatibility)
-	if oldCatalog.StreamDefaults != nil {
-		newCatalog.StreamDefaults = oldCatalog.StreamDefaults
-	} else {
-		newCatalog.StreamDefaults = GetStreamDefaults(driver)
-	}
 
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
@@ -315,7 +306,6 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 	return diffStreams
 }
 
-// isDriverRelational checks if the driver is a relational driver
 func isDriverRelational(driver string) bool {
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
