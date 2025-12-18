@@ -99,5 +99,5 @@ func (store *BenchmarkStore) stats(
 		return 0, 0
 	}
 
-	return utils.Average(rpsValues), observations
+	return utils.Average(rpsValues), len(rpsValues)
 }
