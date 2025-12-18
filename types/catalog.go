@@ -112,10 +112,6 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 // 4. Everything else: Keep as new catalog
 func mergeCatalogs(driver string, oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog == nil {
-		// Ensure newCatalog has StreamDefaults set
-		if newCatalog.StreamDefaults == nil {
-			newCatalog.StreamDefaults = GetStreamDefaults(driver)
-		}
 		return newCatalog
 	}
 
