@@ -10,6 +10,7 @@ var uiSchemaMap = map[string]string{
 	"postgres": PostgresUISchema,
 	"mysql":    MySQLUISchema,
 	"oracle":   OracleUISchema,
+	"mssql":    MSSQLUISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
 	"kafka":    KafkaUISchema,
@@ -97,6 +98,40 @@ const MySQLUISchema = `{
     },
     "type": {
       "ui:widget": "hidden"
+    }
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    }
+  }
+}`
+
+const MSSQLUISchema = `{
+  "ui:grid": [
+    { "host": 12, "database": 12 },
+    { "username": 12, "password": 12 },
+    { "port": 12, "max_threads": 12 },
+    { "retry_count": 12, "update_method": 12 },
+    { "ssh_config": 12 }
+  ],
+  "update_method": {
+    "ui:widget": "radio",
+    "ui:options": {
+      "title": false,
+      "description": false
     }
   },
   "ssh_config": {

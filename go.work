@@ -1,12 +1,11 @@
-go 1.24.0
-
-toolchain go1.23.7
+go 1.24.2
 
 use (
 	.
-	./drivers/mongodb
-	./drivers/mysql
-	./drivers/postgres
-	./drivers/oracle
 	./drivers/kafka
+	./drivers/mongodb
+	./drivers/mssql
+	./drivers/mysql
+	./drivers/oracle
+	./drivers/postgres
 )

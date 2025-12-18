@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -29,7 +30,8 @@ type MSSQL struct {
 	CDCSupport bool
 	cdcConfig  CDC
 
-	state *types.State
+	state   *types.State
+	streams map[string]types.StreamInterface
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -124,18 +126,14 @@ func (m *MSSQL) buildConnectionString() string {
 
 	// Basic connection string with encryption disabled for local development
 	// For production, use proper certificates
+	// Use proper URL encoding like Postgres driver for robust handling of special characters
 	connStr := fmt.Sprintf("sqlserver://%s:%s@%s?database=%s&encrypt=disable",
-		urlEncode(m.config.Username),
-		urlEncode(m.config.Password),
+		url.QueryEscape(m.config.Username),
+		url.QueryEscape(m.config.Password),
 		host,
-		urlEncode(m.config.Database),
+		url.QueryEscape(m.config.Database),
 	)
 	return connStr
-}
-
-func urlEncode(v string) string {
-	replacer := strings.NewReplacer("@", "%40", ":", "%3A", "/", "%2F", "?", "%3F", "#", "%23")
-	return replacer.Replace(v)
 }
 
 // Close ensures proper cleanup

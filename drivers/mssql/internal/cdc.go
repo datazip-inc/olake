@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -21,6 +22,15 @@ type MSSQLGlobalState struct {
 func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	if !m.CDCSupport {
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
+	}
+
+	// Index streams by ID for CDC routing so that emitted changes can reference
+	// the same StreamInterface instances created during setup.
+	if m.streams == nil {
+		m.streams = make(map[string]types.StreamInterface, len(streams))
+	}
+	for _, s := range streams {
+		m.streams[s.ID()] = s
 	}
 
 	globalState := m.state.GetGlobal()
@@ -139,6 +149,9 @@ func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if len(lsn) == 0 {
+		return "", fmt.Errorf("no LSN available (CDC may not be initialized or no transactions exist)")
+	}
 	return hex.EncodeToString(lsn), nil
 }
 
@@ -184,6 +197,12 @@ JOIN cdc.change_tables c ON t.object_id = c.object_id
 }
 
 func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
+	// Validate capture instance name to prevent SQL injection
+	// Capture instances follow pattern: schema_table_CT (alphanumeric + underscore)
+	if !regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString(captureInstance) {
+		return fmt.Errorf("invalid capture instance name format: %s", captureInstance)
+	}
+
 	// Convert hex LSN back to binary for function call.
 	from, err := hex.DecodeString(fromLSN)
 	if err != nil {
@@ -195,6 +214,7 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 	}
 
 	// Use direct function call with parameters - go-mssqldb handles binary parameters correctly
+	// Capture instance name is validated above to prevent SQL injection
 	query := fmt.Sprintf(`
 SELECT *
 FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')
@@ -245,7 +265,14 @@ FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')
 			}
 		}
 
-		cfgStream := (&types.ConfiguredStream{Stream: types.NewStream(table, schema, &m.config.Database)})
+		// Reuse the configured stream instance from setup, if available.
+		streamID := fmt.Sprintf("%s.%s", schema, table)
+		cfgStream, ok := m.streams[streamID]
+		if !ok {
+			// If we can't find a matching configured stream, skip the change.
+			logger.Warnf("skipping CDC change for unmapped MSSQL stream %s", streamID)
+			continue
+		}
 		if err := processFn(ctx, abstract.CDCChange{
 			Stream:    cfgStream,
 			Timestamp: time.Now().UTC(),

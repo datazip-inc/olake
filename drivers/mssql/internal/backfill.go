@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -64,7 +65,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	})
 }
 
-// GetOrSplitChunks splits a table into chunks using PK seek or ROW_NUMBER() fallback.
+// GetOrSplitChunks splits a table into chunks using PK seek or %%physloc%% fallback.
 func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
 	var avgRowSize any
@@ -89,204 +90,171 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
+	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 
-	// Split via primary key when available
-	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
-		// SQL Server doesn't support read-only transactions
+	// Use chunkColumn if provided, otherwise use PK columns
+	if chunkColumn != "" {
+		pkColumns = []string{chunkColumn}
+		logger.Debugf("Stream %s: Using chunkColumn=%s for chunking", stream.ID(), chunkColumn)
+	} else if len(pkColumns) > 0 {
+		logger.Debugf("Stream %s: Using PK columns=%v for chunking", stream.ID(), pkColumns)
+	} else {
+		logger.Debugf("Stream %s: No PK or chunkColumn, will use %%physloc%% chunking", stream.ID())
+	}
+
+	// Split via primary key when available - unified approach for both single and composite keys (like MySQL)
+	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk], pkCols []string) error {
 		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
-			pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
-			if chunkColumn != "" {
-				pkColumns = []string{chunkColumn}
-			}
+			pkColumns := pkCols
 
-			// Normalise column order for stability (important for composite keys).
 			sort.Strings(pkColumns)
 
-			// Composite primary key / composite chunk column support.
-			if len(pkColumns) > 1 && chunkColumn == "" {
-				minVal, maxVal, err := m.getCompositeTableExtremes(ctx, stream, pkColumns, tx)
+			if len(pkColumns) == 0 {
+				return nil
+			}
+
+			minVal, maxVal, err := m.getTableExtremesMSSQL(ctx, stream, pkColumns, tx)
+			if err != nil {
+				return fmt.Errorf("failed to get table extremes: %s", err)
+			}
+			if minVal == nil {
+				return nil
+			}
+
+			chunks.Insert(types.Chunk{
+				Min: nil,
+				Max: utils.ConvertToString(minVal),
+			})
+
+			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
+
+			query := jdbc.MSSQLNextChunkEndQuery(stream, pkColumns, chunkSize)
+			currentVal := minVal
+
+			for {
+				columns := strings.Split(utils.ConvertToString(currentVal), ",")
+
+				args := make([]interface{}, 0)
+				for colIdx := 0; colIdx < len(pkColumns); colIdx++ {
+					for partIdx := 0; partIdx <= colIdx && partIdx < len(columns); partIdx++ {
+						args = append(args, strings.TrimSpace(columns[partIdx]))
+					}
+				}
+
+				var nextValRaw interface{}
+				err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
+				if err == sql.ErrNoRows || nextValRaw == nil {
+					break
+				}
 				if err != nil {
-					return fmt.Errorf("failed to get MSSQL composite table extremes: %s", err)
-				}
-				if minVal == nil {
-					return nil
-				}
-
-				// First chunk: (-inf, minVal]
-				chunks.Insert(types.Chunk{
-					Min: nil,
-					Max: utils.ConvertToString(minVal),
-				})
-
-				logger.Infof("Stream %s MSSQL composite extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
-
-				query := jdbc.MSSQLCompositeNextChunkEndQuery(stream, pkColumns, chunkSize)
-				currentVal := minVal
-
-				for {
-					// Split the current composite value into individual column parts.
-					columns := strings.Split(utils.ConvertToString(currentVal), ",")
-
-					// Build arguments for lexicographic > comparison, same pattern as MySQL.
-					args := make([]interface{}, 0)
-					for colIdx := 0; colIdx < len(pkColumns); colIdx++ {
-						for partIdx := 0; partIdx <= colIdx && partIdx < len(columns); partIdx++ {
-							args = append(args, strings.TrimSpace(columns[partIdx]))
-						}
-					}
-
-					var nextValRaw interface{}
-					if err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw); err != nil {
-						if err == sql.ErrNoRows {
-							break
-						}
-						return fmt.Errorf("failed to get MSSQL next composite chunk end: %s", err)
-					}
-					if nextValRaw == nil {
-						break
-					}
-
-					if currentVal != nil {
-						chunks.Insert(types.Chunk{
-							Min: utils.ConvertToString(currentVal),
-							Max: utils.ConvertToString(nextValRaw),
-						})
-					}
-					currentVal = nextValRaw
+					return fmt.Errorf("failed to get next chunk end: %s", err)
 				}
 
 				if currentVal != nil {
 					chunks.Insert(types.Chunk{
 						Min: utils.ConvertToString(currentVal),
-						Max: nil,
+						Max: utils.ConvertToString(nextValRaw),
 					})
 				}
-				return nil
+				currentVal = nextValRaw
 			}
 
-			// Single-column PK or explicit chunk column.
-			if len(pkColumns) == 0 {
-				return nil
+			if currentVal != nil {
+				chunks.Insert(types.Chunk{
+					Min: utils.ConvertToString(currentVal),
+					Max: nil,
+				})
 			}
 
-			pk := pkColumns[0]
-			minVal, maxVal, err := m.getTableExtremes(ctx, stream, pk, tx)
+			return nil
+		})
+	}
+
+	// %%physloc%% based splitting when no PK is available
+	splitViaPhysLoc := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
+		// SQL Server doesn't support read-only transactions
+		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
+			minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream, tx)
 			if err != nil {
-				return fmt.Errorf("failed to get table extremes: %s", err)
+				return fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
 			}
 			if minVal == nil || maxVal == nil {
 				return nil
 			}
 
-			// evenly distribute by numeric difference when possible
-			pkType, _ := stream.Schema().GetType(pk)
-			if pkType == types.Int64 || pkType == types.Int32 {
-				splits, err := m.splitViaBatchSize(minVal, maxVal, int(chunkSize))
-				if err != nil {
-					return fmt.Errorf("failed to split MSSQL batch-size chunks: %s", err)
-				}
-				for _, c := range splits.Array() {
-					chunks.Insert(c)
-				}
-				return nil
-			}
-
-			// Non-numeric PK: approximate using next-boundary query pattern.
-			if err := m.splitViaNextQuery(ctx, tx, stream, pk, minVal, chunks, chunkSize); err != nil {
-				return fmt.Errorf("failed to split via next query: %s", err)
+			// %%physloc%% is binary, use next-boundary query pattern
+			if err := m.splitViaPhysLocNextQuery(ctx, tx, stream, minVal, chunks, chunkSize); err != nil {
+				return fmt.Errorf("failed to split via %%physloc%%: %s", err)
 			}
 			return nil
 		})
 	}
 
-	// Row number based splitting when no PK is available
-	splitViaRowNumber := func(chunks *types.Set[types.Chunk]) error {
-		// row_number-based splitting: 1..N with fixed chunk size.
-		var start int64
-		for start = 0; start < approxRowCount; start += chunkSize {
-			end := start + chunkSize
-			if end >= approxRowCount {
-				chunks.Insert(types.Chunk{
-					Min: start,
-					Max: nil,
-				})
-				break
-			}
-			chunks.Insert(types.Chunk{
-				Min: start,
-				Max: end,
-			})
-		}
-		return nil
-	}
-
-	if stream.GetStream().SourceDefinedPrimaryKey.Len() > 0 || chunkColumn != "" {
-		if err := splitViaPrimaryKey(stream, chunks); err != nil {
+	if len(pkColumns) > 0 {
+		logger.Debugf("Stream %s: Using PK-based chunking with columns: %v", stream.ID(), pkColumns)
+		if err := splitViaPrimaryKey(stream, chunks, pkColumns); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := splitViaRowNumber(chunks); err != nil {
+		// Use %%physloc%% as fallback when no PK is available
+		logger.Debugf("Stream %s: Using %%physloc%% chunking (no PK or chunkColumn available)", stream.ID())
+		if err := splitViaPhysLoc(stream, chunks); err != nil {
 			return nil, err
 		}
 	}
 	return chunks, nil
 }
 
-func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, column string, tx *sql.Tx) (min, max any, err error) {
-	query := jdbc.MinMaxQueryMSSQL(stream, column)
+// getTableExtremes returns MIN and MAX key values for the given PK columns (unified for both single and composite keys).
+func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
 }
 
-// getCompositeTableExtremes returns MIN and MAX composite key values for the given PK columns.
-// The values are returned as a single concatenated string in the same format used by
-// MSSQLCompositeNextChunkEndQuery, enabling consistent lexicographic chunking.
-func (m *MSSQL) getCompositeTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
-	query := jdbc.MinMaxQueryMSSQLComposite(stream, pkColumns)
+// getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.
+func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (min, max any, err error) {
+	query := jdbc.MSSQLPhysLocExtremesQuery(stream)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
 }
 
-// splitViaBatchSize evenly splits numeric PK space into ranges.
-func (m *MSSQL) splitViaBatchSize(min, max interface{}, dynamicChunkSize int) (*types.Set[types.Chunk], error) {
-	splits := types.NewSet[types.Chunk]()
-	chunkStart := min
-	chunkEnd, err := utils.AddConstantToInterface(min, dynamicChunkSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to split MSSQL batch-size chunks: %s", err)
-	}
-
-	for typeutils.Compare(chunkEnd, max) <= 0 {
-		splits.Insert(types.Chunk{Min: chunkStart, Max: chunkEnd})
-		chunkStart = chunkEnd
-		newChunkEnd, err := utils.AddConstantToInterface(chunkEnd, dynamicChunkSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to split MSSQL batch-size chunks: %s", err)
-		}
-		chunkEnd = newChunkEnd
-	}
-	splits.Insert(types.Chunk{Min: chunkStart, Max: nil})
-	return splits, nil
-}
-
-// splitViaNextQuery uses a paginated NEXT VALUE query when PK is non-numeric.
-func (m *MSSQL) splitViaNextQuery(ctx context.Context, tx *sql.Tx, stream types.StreamInterface, pk string, min interface{}, chunks *types.Set[types.Chunk], chunkSize int64) error {
+// splitViaPhysLocNextQuery uses %%physloc%% to find next chunk boundaries.
+func (m *MSSQL) splitViaPhysLocNextQuery(ctx context.Context, tx *sql.Tx, stream types.StreamInterface, min interface{}, chunks *types.Set[types.Chunk], chunkSize int64) error {
 	current := min
+	// First chunk: (-inf, minVal]
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: utils.ConvertToString(current),
+	})
+
 	for {
 		var next any
-		query := jdbc.MSSQLNextChunkEndQuery(stream, pk, chunkSize)
+		query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
 
 		err := tx.QueryRowContext(ctx, query, current).Scan(&next)
 		if err == sql.ErrNoRows || next == nil {
-			chunks.Insert(types.Chunk{Min: current, Max: nil})
+			chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
 			break
 		}
-		if typeutils.Compare(next, current) == 0 {
-			chunks.Insert(types.Chunk{Min: current, Max: nil})
-			break
+		if err != nil {
+			return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
 		}
 
-		chunks.Insert(types.Chunk{Min: current, Max: next})
+		// Compare binary values
+		if currentBytes, ok := current.([]byte); ok {
+			if nextBytes, ok2 := next.([]byte); ok2 {
+				if bytes.Equal(currentBytes, nextBytes) {
+					chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
+					break
+				}
+			}
+		}
+
+		chunks.Insert(types.Chunk{
+			Min: utils.ConvertToString(current),
+			Max: utils.ConvertToString(next),
+		})
 		current = next
 	}
 	return nil
