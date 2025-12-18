@@ -87,7 +87,7 @@ func (store *BenchmarkStore) record(
 // The count cannot exceed maxRPSHistorySize.
 func (store *BenchmarkStore) stats(
 	isBackfill bool,
-) (averageRPS float64, count int) {
+) (averageRPS float64, observations int) {
 	rpsValues := utils.Ternary(
 		isBackfill,
 		store.Backfill.RPS,
@@ -99,5 +99,5 @@ func (store *BenchmarkStore) stats(
 		return 0, 0
 	}
 
-	return utils.Average(rpsValues), len(rpsValues)
+	return utils.Average(rpsValues), observations
 }

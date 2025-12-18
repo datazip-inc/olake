@@ -1064,16 +1064,16 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			return false, 0, err
 		}
 
-		averageRPS, count := benchmarks.stats(isBackfill)
+		averageRPS, observations := benchmarks.stats(isBackfill)
 
 		// No benchmarks exist yet for this driver/mode
 		// Skip validation to allow initial benchmarking.
-		if count == 0 {
+		if observations == 0 {
 			t.Logf("No benchmarks exist yet for %s %s mode, skipping validation", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 			return true, rps, nil
 		}
 
-		t.Logf("CurrentRPS: %.2f, averageRPS: %.2f, count: %d", rps, averageRPS, count)
+		t.Logf("CurrentRPS: %.2f, averageRPS: %.2f, observations: %d", rps, averageRPS, observations)
 		if rps < BenchmarkThreshold*averageRPS {
 			return false, rps, nil
 		}
