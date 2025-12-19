@@ -368,6 +368,11 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	records = dedupRecords(records)
 
 	if !i.stream.NormalizationEnabled() {
+		// Setting this for arrow writer
+		timestamp := time.Now().UTC()
+		for idx := range records {
+			records[idx].OlakeTimestamp = timestamp
+		}
 		return false, records, i.schema, nil
 	}
 
