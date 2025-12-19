@@ -20,9 +20,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	switch driver {
 	case constants.MySQL:
 		return fmt.Sprintf("`%s`", identifier) // MySQL uses backticks for quoting identifiers
-	case constants.Postgres:
-		return fmt.Sprintf("%q", identifier)
-	case constants.Oracle:
+	case constants.Postgres, constants.DB2, constants.Oracle:
 		return fmt.Sprintf("%q", identifier)
 	default:
 		return identifier
@@ -32,7 +30,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 // GetPlaceholder returns the appropriate placeholder for the given driver
 func GetPlaceholder(driver constants.DriverType) func(int) string {
 	switch driver {
-	case constants.MySQL:
+	case constants.MySQL, constants.DB2:
 		return func(_ int) string { return "?" }
 	case constants.Postgres:
 		return func(i int) string { return fmt.Sprintf("$%d", i) }
@@ -571,6 +569,8 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 			driverType = constants.Postgres
 		case "oracle":
 			driverType = constants.Oracle
+		case "db2":
+			driverType = constants.DB2
 		default:
 			driverType = constants.Postgres // default fallback
 		}
@@ -769,4 +769,206 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 		arguments = append(arguments, argument)
 	}
 	return thresholdFilter, arguments, nil
+}
+
+// DB2 Specific Queries
+
+// DB2DiscoveryQuery returns the query to discover tables in a DB2 database
+// Uses SYSCAT.TABLES. We filter for 'T' (Table) and 'V' (View).
+func DB2DiscoveryQuery() string {
+	return `
+		SELECT
+			TRIM(TABSCHEMA) AS table_schema,
+			TRIM(TABNAME) AS table_name
+		FROM SYSCAT.TABLES
+		WHERE TYPE IN ('T', 'V')
+		  AND TABSCHEMA NOT LIKE 'SYS%'
+		ORDER BY TABSCHEMA, TABNAME
+	`
+}
+
+// DB2TableSchemaAndPrimaryKeysQuery returns the query to fetch columns for a specific table
+func DB2TableSchemaAndPrimaryKeysQuery() string {
+	return `
+		SELECT
+			c.COLNAME   AS column_name,
+			c.TYPENAME  AS data_type,
+			c.NULLS     AS is_nullable,
+			k.COLNAME   AS pk_column
+		FROM SYSCAT.COLUMNS c
+			LEFT JOIN SYSCAT.KEYCOLUSE k ON c.TABSCHEMA = k.TABSCHEMA AND c.TABNAME = k.TABNAME AND c.COLNAME = k.COLNAME
+		WHERE c.TABSCHEMA = ? AND c.TABNAME = ?
+		ORDER BY c.COLNO
+	`
+}
+
+// DB2RowCountQuery uses generic CARD from SYSCAT.TABLES (CARD is approx).
+func DB2ApproxRowCountQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT CARD FROM SYSCAT.TABLES WHERE TABSCHEMA = '%s' AND TABNAME = '%s'`, stream.Namespace(), stream.Name())
+}
+
+func DB2ChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+	ridFunc := fmt.Sprintf("RID(%s)", quotedTable)
+
+	// chunk condition
+	var chunkCond string
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", ridFunc, chunk.Min, ridFunc, chunk.Max)
+	case chunk.Min != nil:
+		chunkCond = fmt.Sprintf("%s >= %v", ridFunc, chunk.Min)
+	case chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s < %v", ridFunc, chunk.Max)
+	}
+
+	// user-based filter
+	if filter != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE (%s) AND (%s)", quotedTable, chunkCond, filter)
+	}
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, chunkCond)
+}
+
+// DB2MinMaxRidQuery to find the range of RIDs for chunking
+func DB2MinMaxRidQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+	return fmt.Sprintf(`SELECT MIN(RID_VAL), MAX(RID_VAL) FROM (SELECT RID(%s) AS RID_VAL FROM %s) AS T`, quotedTable, quotedTable)
+}
+
+// DB2PageStatsQuery returns the query to fetch the page size and number of pages for a table
+func DB2PageStatsQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT TSP.PAGESIZE, T.NPAGES
+        FROM SYSCAT.TABLES T
+        JOIN SYSCAT.TABLESPACES TSP ON T.TBSPACE = TSP.TBSPACE
+        WHERE T.TABSCHEMA = '%s'
+          AND T.TABNAME = '%s'
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2TableExistQuery returns the query to check if a table exists in DB2
+func DB2TableExistQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT CASE 
+            WHEN EXISTS (SELECT 1 FROM "%s"."%s") THEN 1 
+            ELSE 0 
+        END FROM SYSIBM.SYSDUMMY1
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2AvgRowSizeQuery returns the query to fetch the average row size for a table in DB2
+func DB2AvgRowSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT AVGROWSIZE
+        FROM SYSCAT.TABLES
+        WHERE TABSCHEMA = '%s'
+          AND TABNAME = '%s'
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2MinMaxQuery returns the query to fetch MIN and MAX values of a column in a DB2 table
+func DB2MinMaxQuery(stream types.StreamInterface, columns []string) string {
+	quotedCols := QuoteColumns(columns, constants.DB2)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	// DB2 concatenation
+	concatExpr := ""
+	for i, col := range quotedCols {
+		if i > 0 {
+			concatExpr += " || ',' || "
+		}
+		concatExpr += col
+	}
+
+	orderAsc := strings.Join(quotedCols, ", ")
+	descCols := make([]string, len(quotedCols))
+	for i, col := range quotedCols {
+		descCols[i] = col + " DESC"
+	}
+	orderDesc := strings.Join(descCols, ", ")
+
+	return fmt.Sprintf(`
+    SELECT
+        (SELECT %s FROM %s ORDER BY %s FETCH FIRST 1 ROWS ONLY) AS min_value,
+        (SELECT %s FROM %s ORDER BY %s FETCH FIRST 1 ROWS ONLY) AS max_value
+    FROM SYSIBM.SYSDUMMY1
+    `,
+		concatExpr, quotedTable, orderAsc,
+		concatExpr, quotedTable, orderDesc,
+	)
+}
+
+// DB2NextChunkEndQuery returns the query to calculate the next chunk boundary for DB2
+func DB2NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
+	quotedCols := QuoteColumns(columns, constants.DB2)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	// DB2 concatenation
+	concatExpr := ""
+	for i, col := range quotedCols {
+		if i > 0 {
+			concatExpr += " || ',' || "
+		}
+		concatExpr += col
+	}
+
+	var query strings.Builder
+	// SELECT with quoted and concatenated values
+	fmt.Fprintf(&query, "SELECT %s AS key_str FROM (SELECT %s FROM %s",
+		concatExpr,
+		strings.Join(quotedCols, ", "),
+		quotedTable,
+	)
+
+	// WHERE clause for lexicographic "greater than"
+	query.WriteString(" WHERE ")
+	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
+		if currentColIndex > 0 {
+			query.WriteString(" OR ")
+		}
+		query.WriteString("(")
+		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
+			fmt.Fprintf(&query, "%s = ? AND ", quotedCols[equalityColIndex])
+		}
+		fmt.Fprintf(&query, "%s > ?", quotedCols[currentColIndex])
+		query.WriteString(")")
+	}
+
+	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(quotedCols, ", "))
+	fmt.Fprintf(&query, " OFFSET %d ROWS FETCH NEXT 1 ROWS ONLY) AS subquery", chunkSize)
+	return query.String()
+}
+
+// DB2PKChunkScanQuery builds a chunk scan query for DB2 using Primary Keys
+func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
+	quotedCols := QuoteColumns(filterColumns, constants.DB2)
+	// for composite key check
+	columns := strings.Join(quotedCols, ", ")
+	if len(filterColumns) > 1 {
+		columns = fmt.Sprintf("(%s)", columns)
+	}
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	buildSQLTuple := func(val any) string {
+		parts := strings.Split(val.(string), ",")
+		for i, part := range parts {
+			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
+		}
+		return strings.Join(parts, ", ")
+	}
+
+	chunkCond := ""
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", columns, buildSQLTuple(chunk.Min), columns, buildSQLTuple(chunk.Max))
+	case chunk.Min != nil:
+		chunkCond = fmt.Sprintf("%s >= (%s)", columns, buildSQLTuple(chunk.Min))
+	case chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s < (%s)", columns, buildSQLTuple(chunk.Max))
+	}
+
+	if extraFilter != "" && chunkCond != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE (%s) AND (%s)", quotedTable, chunkCond, extraFilter)
+	}
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, chunkCond)
 }

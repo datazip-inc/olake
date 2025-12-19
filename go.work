@@ -9,4 +9,5 @@ use (
 	./drivers/postgres
 	./drivers/oracle
 	./drivers/kafka
+	./drivers/db2
 )

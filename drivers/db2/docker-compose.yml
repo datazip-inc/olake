@@ -1,0 +1,27 @@
+version: '3'
+services:
+  db2-driver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Override CMD to use 'go run' for development so it recompiles on restart
+    command: ["go", "run", "."] 
+    environment:
+      - DB2HOME=/opt/clidriver
+      - CGO_CFLAGS=-I/opt/clidriver/include
+      - CGO_LDFLAGS=-L/opt/clidriver/lib
+      - LD_LIBRARY_PATH=/opt/clidriver/lib
+    develop:
+      watch:
+        # Action 1: Sync Go files and restart the container
+        - action: sync+restart
+          path: ./
+          target: /app
+          ignore:
+            - db2-driver  # Ignore the binary if it exists locally
+            - .git/
+        
+        # Action 2: Rebuild image if dependencies change
+        - action: rebuild
+          path: ./go.mod
+
