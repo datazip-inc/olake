@@ -2,151 +2,239 @@ package types
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestGetFilter_Empty(t *testing.T) {
-    s := &ConfiguredStream{
-        StreamMetadata: StreamMetadata{Filter: ""},
-        Stream:         NewStream("users", "public", nil),
+func TestGetFilter(t *testing.T) {
+    testCases := []struct {
+        name       string
+        filter     string
+        wantErr    bool
+        wantConds  int
+        wantColumn string
+        wantOp     string
+        wantValue  string
+        wantLogic  string
+    }{
+        {
+            name:      "Empty filter",
+            filter:    "",
+            wantErr:   false,
+            wantConds: 0,
+        },
+        {
+            name:       "Single condition",
+            filter:     "age>30",
+            wantErr:    false,
+            wantConds:  1,
+            wantColumn: "age",
+            wantOp:     ">",
+            wantValue:  "30",
+        },
+        {
+            name:      "Two conditions with AND",
+            filter:    "age>=18 and score<100",
+            wantErr:   false,
+            wantConds: 2,
+            wantLogic: "and",
+        },
     }
 
-    f, err := s.GetFilter()
-    if err != nil {
-        t.Fatalf("expected no error for empty filter, got %v", err)
-    }
-    if len(f.Conditions) != 0 {
-        t.Fatalf("expected 0 conditions for empty filter, got %d", len(f.Conditions))
-    }
-}
+    for _, tc := range testCases {
+        t.Run(tc.name, func(t *testing.T) {
+            s := &ConfiguredStream{
+                StreamMetadata: StreamMetadata{Filter: tc.filter},
+                Stream:         NewStream("users", "public", nil),
+            }
 
-func TestGetFilter_SingleCondition(t *testing.T) {
-    s := &ConfiguredStream{
-        StreamMetadata: StreamMetadata{Filter: "age>30"},
-        Stream:         NewStream("users", "public", nil),
-    }
+            f, err := s.GetFilter()
+            if tc.wantErr {
+                assert.Error(t, err)
+                return
+            }
 
-    f, err := s.GetFilter()
-    if err != nil {
-        t.Fatalf("unexpected error: %v", err)
-    }
-    if len(f.Conditions) != 1 {
-        t.Fatalf("expected 1 condition, got %d", len(f.Conditions))
-    }
-    c := f.Conditions[0]
-    if c.Column != "age" || c.Operator != ">" || c.Value != "30" {
-        t.Fatalf("unexpected condition values: %+v", c)
-    }
-}
+            assert.NoError(t, err)
+            assert.Equal(t, tc.wantConds, len(f.Conditions))
 
-func TestGetFilter_TwoConditionsAnd(t *testing.T) {
-    s := &ConfiguredStream{
-        StreamMetadata: StreamMetadata{Filter: "age>=18 and score<100"},
-        Stream:         NewStream("users", "public", nil),
-    }
+            if tc.wantLogic != "" {
+                assert.Equal(t, tc.wantLogic, f.LogicalOperator)
+            }
 
-    f, err := s.GetFilter()
-    if err != nil {
-        t.Fatalf("unexpected error: %v", err)
-    }
-    if f.LogicalOperator != "and" {
-        t.Fatalf("expected logical operator 'and', got '%s'", f.LogicalOperator)
-    }
-    if len(f.Conditions) != 2 {
-        t.Fatalf("expected 2 conditions, got %d", len(f.Conditions))
+            if tc.wantConds == 1 {
+                c := f.Conditions[0]
+                assert.Equal(t, tc.wantColumn, c.Column)
+                assert.Equal(t, tc.wantOp, c.Operator)
+                assert.Equal(t, tc.wantValue, c.Value)
+            }
+        })
     }
 }
 
 func TestCursor(t *testing.T) {
-    st := NewStream("orders", "public", nil)
-    st.CursorField = "created_at:updated_at"
-    cs := st.Wrap(0)
-    p, s2 := cs.Cursor()
-    if p != "created_at" || s2 != "updated_at" {
-        t.Fatalf("unexpected cursors: %s, %s", p, s2)
+    testCases := []struct {
+        name        string
+        cursorField string
+        wantPrimary string
+        wantSecondary string
+    }{
+        {
+            name:          "Two cursor fields",
+            cursorField:   "created_at:updated_at",
+            wantPrimary:   "created_at",
+            wantSecondary: "updated_at",
+        },
+        {
+            name:          "Single cursor field",
+            cursorField:   "id",
+            wantPrimary:   "id",
+            wantSecondary: "",
+        },
     }
 
-    st2 := NewStream("items", "public", nil)
-    st2.CursorField = "id"
-    cs2 := st2.Wrap(0)
-    p2, s3 := cs2.Cursor()
-    if p2 != "id" || s3 != "" {
-        t.Fatalf("unexpected cursors for single field: %s, %s", p2, s3)
+    for _, tc := range testCases {
+        t.Run(tc.name, func(t *testing.T) {
+            st := NewStream("orders", "public", nil)
+            st.CursorField = tc.cursorField
+            cs := st.Wrap(0)
+
+            p, s := cs.Cursor()
+            assert.Equal(t, tc.wantPrimary, p)
+            assert.Equal(t, tc.wantSecondary, s)
+        })
     }
 }
 
-func TestGetDestinationDatabase_Precedence(t *testing.T) {
-    st := NewStream("prod", "sales", nil)
-    st.DestinationDatabase = "target_db"
-    cs := st.Wrap(0)
-
-    db := cs.GetDestinationDatabase(nil)
-    if db != "target_db" {
-        t.Fatalf("expected destination database to be target_db, got %s", db)
-    }
-
-    st2 := NewStream("prod", "sales", nil)
-    cs2 := st2.Wrap(0)
+func TestGetDestinationDatabase(t *testing.T) {
     iceberg := "iceberg_db"
-    db2 := cs2.GetDestinationDatabase(&iceberg)
-    if db2 != "iceberg_db" {
-        t.Fatalf("expected iceberg_db, got %s", db2)
+
+    testCases := []struct {
+        name                 string
+        destinationDatabase  string
+        icebergOverride      *string
+        wantDB               string
+    }{
+        {
+            name:                "Destination database precedence",
+            destinationDatabase: "target_db",
+            icebergOverride:     nil,
+            wantDB:              "target_db",
+        },
+        {
+            name:                "Fallback to iceberg override",
+            destinationDatabase: "",
+            icebergOverride:     &iceberg,
+            wantDB:              "iceberg_db",
+        },
+    }
+
+    for _, tc := range testCases {
+        t.Run(tc.name, func(t *testing.T) {
+            st := NewStream("prod", "sales", nil)
+            st.DestinationDatabase = tc.destinationDatabase
+            cs := st.Wrap(0)
+
+            got := cs.GetDestinationDatabase(tc.icebergOverride)
+            assert.Equal(t, tc.wantDB, got)
+        })
     }
 }
 
-func TestGetDestinationTable_Default(t *testing.T) {
-    st := NewStream("customers", "public", nil)
-    st.DestinationTable = ""
-    cs := st.Wrap(0)
-    tbl := cs.GetDestinationTable()
-    if tbl != "customers" {
-        t.Fatalf("expected default destination table to be stream name, got %s", tbl)
+func TestGetDestinationTable(t *testing.T) {
+    testCases := []struct {
+        name              string
+        streamName        string
+        destinationTable  string
+        wantTable         string
+    }{
+        {
+            name:             "Default to stream name when empty",
+            streamName:       "customers",
+            destinationTable: "",
+            wantTable:        "customers",
+        },
+    }
+
+    for _, tc := range testCases {
+        t.Run(tc.name, func(t *testing.T) {
+            st := NewStream(tc.streamName, "public", nil)
+            st.DestinationTable = tc.destinationTable
+            cs := st.Wrap(0)
+
+            got := cs.GetDestinationTable()
+            assert.Equal(t, tc.wantTable, got)
+        })
     }
 }
 
-func TestValidate_InvalidSyncMode(t *testing.T) {
-    source := NewStream("s", "ns", nil)
-    source.SupportedSyncModes.Insert(FULLREFRESH)
-
-    cfg := NewStream("s", "ns", nil)
-    cfg.SyncMode = INCREMENTAL
-    cs := cfg.Wrap(0)
-
-    err := cs.Validate(source)
-    if err == nil {
-        t.Fatalf("expected error for invalid sync mode, got nil")
+func TestValidate(t *testing.T) {
+    testCases := []struct {
+        name              string
+        setupSource       func() *Stream
+        setupCfg          func() *Stream
+        wantErr           bool
+    }{
+        {
+            name: "Invalid sync mode not supported by source",
+            setupSource: func() *Stream {
+                s := NewStream("s", "ns", nil)
+                s.SupportedSyncModes.Insert(FULLREFRESH)
+                return s
+            },
+            setupCfg: func() *Stream {
+                c := NewStream("s", "ns", nil)
+                c.SyncMode = INCREMENTAL
+                return c
+            },
+            wantErr: true,
+        },
+        {
+            name: "Invalid cursor field not available in source",
+            setupSource: func() *Stream {
+                s := NewStream("s", "ns", nil)
+                s.SupportedSyncModes.Insert(INCREMENTAL)
+                s.AvailableCursorFields.Insert("id")
+                return s
+            },
+            setupCfg: func() *Stream {
+                c := NewStream("s", "ns", nil)
+                c.SyncMode = INCREMENTAL
+                c.CursorField = "created_at"
+                return c
+            },
+            wantErr: true,
+        },
+        {
+            name: "Primary key difference (cfg has superset of source)",
+            setupSource: func() *Stream {
+                s := NewStream("s", "ns", nil)
+                s.SupportedSyncModes.Insert(FULLREFRESH)
+                s.SourceDefinedPrimaryKey.Insert("id")
+                return s
+            },
+            setupCfg: func() *Stream {
+                c := NewStream("s", "ns", nil)
+                c.SyncMode = FULLREFRESH
+                c.SourceDefinedPrimaryKey.Insert("id", "name")
+                return c
+            },
+            wantErr: true,
+        },
     }
-}
 
-func TestValidate_InvalidCursorField(t *testing.T) {
-    source := NewStream("s", "ns", nil)
-    source.SupportedSyncModes.Insert(INCREMENTAL)
-    source.AvailableCursorFields.Insert("id")
+    for _, tc := range testCases {
+        t.Run(tc.name, func(t *testing.T) {
+            source := tc.setupSource()
+            cfg := tc.setupCfg()
+            cs := cfg.Wrap(0)
 
-    cfg := NewStream("s", "ns", nil)
-    cfg.SyncMode = INCREMENTAL
-    cfg.CursorField = "created_at"
-    cs := cfg.Wrap(0)
-
-    err := cs.Validate(source)
-    if err == nil {
-        t.Fatalf("expected error for invalid cursor field, got nil")
-    }
-}
-
-func TestValidate_PrimaryKeyDifference(t *testing.T) {
-    source := NewStream("s", "ns", nil)
-    source.SupportedSyncModes.Insert(FULLREFRESH)
-    source.SourceDefinedPrimaryKey.Insert("id")
-
-    cfg := NewStream("s", "ns", nil)
-    cfg.SyncMode = FULLREFRESH
-    cfg.SourceDefinedPrimaryKey.Insert("id", "name")
-    cs := cfg.Wrap(0)
-
-    // source has proper subset of cfg primary keys -> should error
-    err := cs.Validate(source)
-    if err == nil {
-        t.Fatalf("expected error for primary key difference, got nil")
+            err := cs.Validate(source)
+            if tc.wantErr {
+                assert.Error(t, err)
+            } else {
+                assert.NoError(t, err)
+            }
+        })
     }
 }
 
@@ -154,7 +242,5 @@ func TestNormalizationEnabled(t *testing.T) {
     st := NewStream("s", "ns", nil)
     cs := st.Wrap(0)
     cs.StreamMetadata.Normalization = true
-    if !cs.NormalizationEnabled() {
-        t.Fatalf("expected normalization to be enabled")
-    }
+    assert.True(t, cs.NormalizationEnabled())
 }
