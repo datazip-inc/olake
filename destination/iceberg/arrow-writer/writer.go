@@ -203,8 +203,6 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 			return fmt.Errorf("failed to close writer during flush: %s", err)
 		}
 
-		w.writers.Delete(fileType + ":" + partitionKey)
-
 		uploadData := &FileUploadData{
 			FileType:        fileType,
 			FileData:        writer.currentBuffer.Bytes(),
@@ -216,6 +214,8 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 		if err := w.uploadFile(ctx, uploadData); err != nil {
 			return fmt.Errorf("failed to upload parquet during flush: %s", err)
 		}
+
+		w.writers.Delete(fileType + ":" + partitionKey)
 	}
 
 	return nil
