@@ -41,7 +41,7 @@ func TestProcessBatch(t *testing.T) {
 			tables: map[string]types.StreamInterface{
 				"public.users": stream,
 			},
-			converter: func(value interface{}, columnType string) (interface{}, error) {
+			converter: func(value interface{}, _ string) (interface{}, error) {
 				return value, nil
 			},
 		},
@@ -99,7 +99,7 @@ func TestBatchWorkerProcessesMultipleBatches(t *testing.T) {
 			tables: map[string]types.StreamInterface{
 				"public.orders": stream,
 			},
-			converter: func(value interface{}, columnType string) (interface{}, error) {
+			converter: func(value interface{}, _ string) (interface{}, error) {
 				return value, nil
 			},
 		},
@@ -161,7 +161,7 @@ func TestTransactionBatchMaintainsOrder(t *testing.T) {
 			tables: map[string]types.StreamInterface{
 				"public.items": stream,
 			},
-			converter: func(value interface{}, columnType string) (interface{}, error) {
+			converter: func(value interface{}, _ string) (interface{}, error) {
 				return value, nil
 			},
 		},
