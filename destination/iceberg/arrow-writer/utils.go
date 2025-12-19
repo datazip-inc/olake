@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
@@ -143,6 +144,7 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
+	olakeTimestamp := time.Now().UTC()
 	for _, record := range records {
 		for idx, field := range schema.Fields() {
 			var val any
@@ -150,7 +152,8 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 			case constants.OlakeID:
 				val = record.OlakeID
 			case constants.OlakeTimestamp:
-				val = record.OlakeTimestamp
+				// for olake timestamp, set current timestamp
+				val = olakeTimestamp
 			case constants.OpType:
 				val = record.OperationType
 			case constants.CdcTimestamp:
