@@ -43,7 +43,7 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		"port":                     fmt.Sprintf("%d", port),
 		"warehouse":                config.IcebergS3Path,
 		"table-namespace":          destinationDatabase,
-		"catalog-name":             "olake_iceberg",
+		"catalog-name":             config.CatalogName,
 		"table-prefix":             "",
 		"create-identifier-fields": !config.NoIdentifierFields,
 		"upsert":                   strconv.FormatBool(upsert),
