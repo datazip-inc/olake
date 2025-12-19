@@ -193,6 +193,8 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 }
 
 func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, partitionKey string, fileType string) error {
+	// logic, sizeSoFar := actual File Size + current compressed data (RowGroupTotalBytesWritten())
+	// we can find out current row group's compressed size even before completing the entire row group
 	sizeSoFar := int64(writer.currentBuffer.Len()) + writer.currentWriter.RowGroupTotalBytesWritten()
 	targetFileSize := utils.Ternary(fileType == fileTypeDelete, targetDeleteFileSize, targetDataFileSize).(int64)
 
@@ -220,7 +222,7 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 }
 
 func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
-	if err := w.closeWriters(ctx); err != nil {
+	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to flush writers during schema evolution: %s", err)
 	}
 
@@ -234,7 +236,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 }
 
 func (w *ArrowWriter) Close(ctx context.Context) error {
-	err := w.closeWriters(ctx)
+	err := w.completeWriters(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
@@ -259,7 +261,7 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 	return nil
 }
 
-func (w *ArrowWriter) closeWriters(ctx context.Context) error {
+func (w *ArrowWriter) completeWriters(ctx context.Context) error {
 	var err error
 
 	w.writers.Range(func(key, value interface{}) bool {
@@ -304,7 +306,7 @@ func (w *ArrowWriter) closeWriters(ctx context.Context) error {
 }
 
 func (w *ArrowWriter) initialize(ctx context.Context) error {
-	if err := w.fetchIcebergSchemas(ctx); err != nil {
+	if err := w.fetchAndUpdateIcebergSchema(ctx); err != nil {
 		return err
 	}
 
@@ -442,7 +444,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 	return nil
 }
 
-func (w *ArrowWriter) fetchIcebergSchemas(ctx context.Context) error {
+func (w *ArrowWriter) fetchAndUpdateIcebergSchema(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,
 		Metadata: &proto.ArrowPayload_Metadata{

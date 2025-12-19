@@ -428,9 +428,6 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		},
 	}
 
-	var response string
-	var err error
-	// check if table schema is different from global schema
 	if differentSchema(globalSchemaMap, recordsSchema) {
 		logger.Infof("Thread[%s]: evolving schema in iceberg table", i.options.ThreadID)
 		for field, fieldType := range recordsSchema {
@@ -439,23 +436,17 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 				IceType: fieldType,
 			})
 		}
-
-		resp, err := i.server.SendClientRequest(ctx, &request)
-		if err != nil {
-			return false, fmt.Errorf("failed to evolve schema: %s", err)
-		}
-		ingestResponse := resp.(*proto.RecordIngestResponse)
-		response = ingestResponse.GetResult()
 	} else {
 		logger.Debugf("Thread[%s]: refreshing table schema", i.options.ThreadID)
 		request.Type = proto.IcebergPayload_REFRESH_TABLE_SCHEMA
-		resp, err := i.server.SendClientRequest(ctx, &request)
-		if err != nil {
-			return false, fmt.Errorf("failed to refresh schema: %s", err)
-		}
-		ingestResponse := resp.(*proto.RecordIngestResponse)
-		response = ingestResponse.GetResult()
 	}
+
+	resp, err := i.server.SendClientRequest(ctx, &request)
+	if err != nil {
+		return false, fmt.Errorf("failed to %s: %w", request.Type.String(), err)
+	}
+
+	response := resp.(*proto.RecordIngestResponse).GetResult()
 
 	// only refresh table schema
 	schemaAfterEvolution, err := parseSchema(response)
