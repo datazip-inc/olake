@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,7 @@ type IntegrationTest struct {
 	DestinationDB                    string
 	CursorField                      string
 	PartitionRegex                   string
+	Normalization                    *bool // Controls normalization setting (nil defaults to true)
 }
 
 type PerformanceTest struct {
@@ -140,8 +142,8 @@ func discoverCommand(config TestConfig, flags ...string) string {
 	return baseCmd
 }
 
-// update normalization=true for selected streams under selected_streams.<namespace> by name
-func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool) string {
+// update normalization for selected streams under selected_streams.<namespace> by name
+func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool, normalization bool) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -153,10 +155,11 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	condition := strings.Join(streamConditions, " or ")
 	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 	jqExpr := fmt.Sprintf(
-		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s")) }' %s > %s && mv %s %s`,
+		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = %t | .partition_regex = "%s")) }' %s > %s && mv %s %s`,
 		namespace,
 		namespace,
 		condition,
+		normalization,
 		partitionRegex,
 		config.CatalogPath,
 		tmpCatalog,
@@ -289,13 +292,19 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
 	evolvedSchema := operation == "update"
 
+	// Resolve normalization setting (nil defaults to true)
+	normalization := true
+	if cfg.Normalization != nil {
+		normalization = *cfg.Normalization
+	}
+
 	switch destinationType {
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, normalization)
 			} else {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, normalization)
 			}
 		}
 	case "parquet":
@@ -749,18 +758,20 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
-							// streamUpdateCmd := fmt.Sprintf(
-							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
-							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
-							// )
-							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
+							// Resolve normalization setting (nil defaults to true)
+							normalization := true
+							if cfg.Normalization != nil {
+								normalization = *cfg.Normalization
+							}
+
+							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true, normalization)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
-								return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
+								return fmt.Errorf("failed to update normalization and partition regex in streams.json (%d): %s\n%s",
 									code, err, out,
 								)
 							}
 
-							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
+							t.Logf("Updated normalization=%v and added partition regex in %s", normalization, cfg.TestConfig.CatalogPath)
 
 							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
 								t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
@@ -841,7 +852,7 @@ func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, normalization bool) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -903,17 +914,41 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 
 	for rowIdx, row := range selectRows {
-		icebergMap := make(map[string]interface{}, len(schema)+1)
-		for _, col := range row.FieldNames() {
-			icebergMap[col] = row.Value(col)
-		}
-		for key, expected := range schema {
-			icebergValue, ok := icebergMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+		if !normalization {
+			// In denormalized mode, data is stored as JSON string in 'data' column
+			rawJSON, ok := row.Value(constants.StringifiedData).(string)
+			require.True(t, ok, "Row %d: Column 'data' should be a string in denormalized mode", rowIdx)
+
+			var actualData map[string]interface{}
+			err := json.Unmarshal([]byte(rawJSON), &actualData)
+			require.NoError(t, err, "Row %d: Failed to unmarshal JSON 'data' column", rowIdx)
+
+			// Verify each expected field exists in the JSON
+			for key, expected := range schema {
+				val, exists := actualData[key]
+				require.Truef(t, exists, "Row %d: Key %s not found in actual data", rowIdx, key)
+				require.EqualValues(t, expected, val, "Row %d: Value mismatch for key %s", rowIdx, key)
+			}
+		} else {
+			// Normalized mode: verify each column directly
+			icebergMap := make(map[string]interface{}, len(schema)+1)
+			for _, col := range row.FieldNames() {
+				icebergMap[col] = row.Value(col)
+			}
+			for key, expected := range schema {
+				icebergValue, ok := icebergMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
+				require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+			}
 		}
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
+
+	// Skip datatype verification for denormalized mode since columns are stored in a single 'data' column
+	if !normalization {
+		t.Logf("Skipping datatype verification for denormalized mode")
+		return
+	}
 
 	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", fullTableName)
 	describeDf, err := spark.Sql(ctx, describeQuery)
@@ -1130,7 +1165,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.BackfillStreams, true)
+							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.BackfillStreams, true, true)
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -1164,7 +1199,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.CDCStreams, false)
+								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.CDCStreams, false, true)
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
