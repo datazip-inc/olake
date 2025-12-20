@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.21.12
-// source: iceberg/proto/records_ingest.proto
+// source: records_ingest.proto
 
 package proto
 
@@ -117,5 +117,107 @@ var RecordIngestService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "iceberg/proto/records_ingest.proto",
+	Metadata: "records_ingest.proto",
+}
+
+const (
+	ArrowIngestService_IcebergAPI_FullMethodName = "/io.debezium.server.iceberg.rpc.ArrowIngestService/IcebergAPI"
+)
+
+// ArrowIngestServiceClient is the client API for ArrowIngestService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ArrowIngestServiceClient interface {
+	IcebergAPI(ctx context.Context, in *ArrowPayload, opts ...grpc.CallOption) (*ArrowIngestResponse, error)
+}
+
+type arrowIngestServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewArrowIngestServiceClient(cc grpc.ClientConnInterface) ArrowIngestServiceClient {
+	return &arrowIngestServiceClient{cc}
+}
+
+func (c *arrowIngestServiceClient) IcebergAPI(ctx context.Context, in *ArrowPayload, opts ...grpc.CallOption) (*ArrowIngestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ArrowIngestResponse)
+	err := c.cc.Invoke(ctx, ArrowIngestService_IcebergAPI_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ArrowIngestServiceServer is the server API for ArrowIngestService service.
+// All implementations must embed UnimplementedArrowIngestServiceServer
+// for forward compatibility.
+type ArrowIngestServiceServer interface {
+	IcebergAPI(context.Context, *ArrowPayload) (*ArrowIngestResponse, error)
+	mustEmbedUnimplementedArrowIngestServiceServer()
+}
+
+// UnimplementedArrowIngestServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedArrowIngestServiceServer struct{}
+
+func (UnimplementedArrowIngestServiceServer) IcebergAPI(context.Context, *ArrowPayload) (*ArrowIngestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IcebergAPI not implemented")
+}
+func (UnimplementedArrowIngestServiceServer) mustEmbedUnimplementedArrowIngestServiceServer() {}
+func (UnimplementedArrowIngestServiceServer) testEmbeddedByValue()                            {}
+
+// UnsafeArrowIngestServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ArrowIngestServiceServer will
+// result in compilation errors.
+type UnsafeArrowIngestServiceServer interface {
+	mustEmbedUnimplementedArrowIngestServiceServer()
+}
+
+func RegisterArrowIngestServiceServer(s grpc.ServiceRegistrar, srv ArrowIngestServiceServer) {
+	// If the following call pancis, it indicates UnimplementedArrowIngestServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ArrowIngestService_ServiceDesc, srv)
+}
+
+func _ArrowIngestService_IcebergAPI_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ArrowPayload)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArrowIngestServiceServer).IcebergAPI(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArrowIngestService_IcebergAPI_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArrowIngestServiceServer).IcebergAPI(ctx, req.(*ArrowPayload))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ArrowIngestService_ServiceDesc is the grpc.ServiceDesc for ArrowIngestService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ArrowIngestService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "io.debezium.server.iceberg.rpc.ArrowIngestService",
+	HandlerType: (*ArrowIngestServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "IcebergAPI",
+			Handler:    _ArrowIngestService_IcebergAPI_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "records_ingest.proto",
 }
