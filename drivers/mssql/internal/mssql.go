@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strings"
@@ -269,9 +270,49 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	return stream, nil
 }
 
+// isBinaryType checks if the column type is a binary type that needs hex encoding.
+func isBinaryType(columnType string) bool {
+	columnTypeLower := strings.ToLower(columnType)
+
+	// Exact matches for binary types
+	binaryTypes := map[string]bool{
+		"image":      true,
+		"rowversion": true,
+		"timestamp":  true,
+	}
+	if binaryTypes[columnTypeLower] {
+		return true
+	}
+
+	// Prefix matches (check varbinary before binary since "varbinary" starts with "binary")
+	binaryPrefixes := []string{"varbinary", "binary"}
+	for _, prefix := range binaryPrefixes {
+		if strings.HasPrefix(columnTypeLower, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
 		return nil, typeutils.ErrNullValue
+	}
+
+	// Handle binary types: encode []byte to hex to ensure valid UTF-8
+	if isBinaryType(columnType) {
+		switch v := value.(type) {
+		case []byte:
+			// Encode binary data as hex to ensure valid UTF-8 string
+			return hex.EncodeToString(v), nil
+		case string:
+			// Already a string, return as-is
+			return v, nil
+		default:
+			// For other types, convert to string representation
+			return fmt.Sprintf("%v", v), nil
+		}
 	}
 
 	// SQL Server stores UNIQUEIDENTIFIER values in a mixed-endian binary format:

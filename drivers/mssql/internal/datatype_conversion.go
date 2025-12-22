@@ -30,6 +30,8 @@ var mssqlTypeToDataTypes = map[string]types.DataType{
 	"nchar":    types.String,
 	"nvarchar": types.String,
 	"ntext":    types.String,
+	"sysname":  types.String,
+	"json":     types.String,
 
 	// Binary
 	"binary":     types.String,

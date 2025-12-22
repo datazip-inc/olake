@@ -13,11 +13,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-const (
-	// cdcPollingDelay is the delay between polling cycles when no changes are detected
-	cdcPollingDelay = 500 * time.Millisecond
-)
-
 // MSSQLGlobalState keeps last processed LSN for CDC
 type MSSQLGlobalState struct {
 	LSN string `json:"lsn"`
@@ -99,18 +94,26 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 				return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
 			}
 
-			// If caught up to latest position, wait before polling again
+			// If caught up to latest position
 			if fromLSN == toLSN {
-				time.Sleep(cdcPollingDelay)
+				// If changes were received, exit immediately
+				if changesReceived {
+					return nil
+				}
+				// If no changes received yet, continue loop to wait for InitialWaitTime
 				continue
 			}
 
 			// Process changes between fromLSN and toLSN
-			if err := m.streamChangesOnce(ctx, fromLSN, toLSN, processFn); err != nil {
+			recordsProcessed, err := m.streamChangesOnce(ctx, fromLSN, toLSN, processFn)
+			if err != nil {
 				return err
 			}
 
-			changesReceived = true
+			// Only set changesReceived if records were actually processed
+			if recordsProcessed > 0 {
+				changesReceived = true
+			}
 			fromLSN = toLSN
 			m.state.SetGlobal(MSSQLGlobalState{LSN: fromLSN})
 		}
@@ -155,10 +158,11 @@ func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 }
 
 // streamChangesOnce reads changes for all CDC-enabled tables between fromLSN and toLSN.
-func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
+// Returns the number of records processed.
+func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, processFn abstract.CDCMsgFn) (int, error) {
 	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDiscoverQuery())
 	if err != nil {
-		return fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
+		return 0, fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
 	}
 	defer rows.Close()
 
@@ -172,7 +176,7 @@ func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, pr
 	for rows.Next() {
 		var c capture
 		if err := rows.Scan(&c.schema, &c.table, &c.inst); err != nil {
-			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
+			return 0, fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
 		}
 
 		streamID := fmt.Sprintf("%s.%s", c.schema, c.table)
@@ -183,26 +187,29 @@ func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, pr
 		captures = append(captures, c)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return 0, err
 	}
 
+	totalRecords := 0
 	for _, capture := range captures {
-		if err := m.streamTableChanges(ctx, capture.schema, capture.table, capture.inst, fromLSN, toLSN, processFn); err != nil {
-			return err
+		records, err := m.streamTableChanges(ctx, capture.schema, capture.table, capture.inst, fromLSN, toLSN, processFn)
+		if err != nil {
+			return totalRecords, err
 		}
+		totalRecords += records
 	}
-	return nil
+	return totalRecords, nil
 }
 
-func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
+func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) (int, error) {
 	// Convert hex LSN back to binary for function call.
 	from, err := hex.DecodeString(fromLSN)
 	if err != nil {
-		return fmt.Errorf("failed to parse fromLSN: %s", err)
+		return 0, fmt.Errorf("failed to parse fromLSN: %s", err)
 	}
 	to, err := hex.DecodeString(toLSN)
 	if err != nil {
-		return fmt.Errorf("failed to parse toLSN: %s", err)
+		return 0, fmt.Errorf("failed to parse toLSN: %s", err)
 	}
 
 	// Use direct function call with parameters - go-mssqldb handles binary parameters correctly
@@ -212,46 +219,38 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 
 	rows, err := m.client.QueryContext(ctx, query, from, to)
 	if err != nil {
-		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
+		return 0, fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
 	}
 	defer rows.Close()
 
-	cols, err := rows.Columns()
-	if err != nil {
-		return fmt.Errorf("failed to get MSSQL CDC columns: %s", err)
-	}
-
+	recordsProcessed := 0
 	for rows.Next() {
-		raw := make([]interface{}, len(cols))
-		dest := make([]interface{}, len(cols))
-		for i := range raw {
-			dest[i] = &raw[i]
-		}
-		if err := rows.Scan(dest...); err != nil {
-			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
+		// Use MapScan to properly convert data types including binary types
+		record := make(map[string]interface{})
+		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
+			return recordsProcessed, fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
 		}
 
-		record := make(map[string]interface{})
 		var opKind string
-		for i, name := range cols {
-			val := raw[i]
-			switch name {
-			case "__$operation":
-				switch v := val.(type) {
-				case int32:
-					opKind = operationFromCode(int(v))
-				case int64:
-					opKind = operationFromCode(int(v))
-				default:
-					opKind = "update"
-				}
-			case "__$start_lsn", "__$seqval", "__$update_mask":
-				// keep technical columns out of payload
-				continue
+		// Extract operation type from record (MapScan already processed it)
+		if opVal, ok := record["__$operation"]; ok {
+			switch v := opVal.(type) {
+			case int32:
+				opKind = operationFromCode(int(v))
+			case int64:
+				opKind = operationFromCode(int(v))
+			case int:
+				opKind = operationFromCode(v)
 			default:
-				record[name] = val
+				opKind = "update"
 			}
 		}
+
+		// Remove technical columns from payload
+		delete(record, "__$operation")
+		delete(record, "__$start_lsn")
+		delete(record, "__$seqval")
+		delete(record, "__$update_mask")
 
 		streamID := fmt.Sprintf("%s.%s", schema, table)
 		cfgStream, ok := m.streams[streamID]
@@ -266,10 +265,15 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 			Kind:      opKind,
 			Data:      record,
 		}); err != nil {
-			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
+			return recordsProcessed, fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
+
+		recordsProcessed++
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return recordsProcessed, err
+	}
+	return recordsProcessed, nil
 }
 
 func operationFromCode(code int) string {

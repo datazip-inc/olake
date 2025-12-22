@@ -660,7 +660,7 @@ func MSSQLCDCDiscoverQuery() string {
 			c.capture_instance
 		FROM sys.tables t
 		JOIN sys.schemas s ON t.schema_id = s.schema_id
-		JOIN cdc.change_tables c ON t.object_id = c.object_id
+		JOIN cdc.change_tables c ON t.object_id = c.source_object_id
 	`
 }
 
