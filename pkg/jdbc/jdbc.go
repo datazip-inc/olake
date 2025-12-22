@@ -552,7 +552,7 @@ func MySQLVersion(ctx context.Context, client *sqlx.DB) (int, int, error) {
 func WithIsolation(ctx context.Context, client *sqlx.DB, readOnly bool, fn func(tx *sql.Tx) error) error {
 	tx, err := client.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
-		ReadOnly:  true,
+		ReadOnly:  readOnly,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
@@ -649,8 +649,6 @@ func MinMaxQueryMSSQL(stream types.StreamInterface, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.MSSQL)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	// SQL Server CONCAT_WS requires at least 3 arguments (separator + 2 values)
-	// For single column, just use the column directly; for multiple, use CONCAT_WS
 	var concatCols string
 	if len(columns) == 1 {
 		concatCols = quotedCols[0]
@@ -689,7 +687,6 @@ func MSSQLNextChunkEndQuery(stream types.StreamInterface, columns []string, chun
 		keyStrExpr = fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
 	}
 
-	// WITH ordered AS (SELECT key_str_expr AS key_str, ROW_NUMBER() OVER (ORDER BY ...) AS rn FROM table WHERE ...)
 	fmt.Fprintf(&query, "WITH ordered AS (SELECT %s AS key_str, ROW_NUMBER() OVER (ORDER BY %s) AS rn FROM %s",
 		keyStrExpr,
 		strings.Join(quotedCols, ", "),

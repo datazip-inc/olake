@@ -102,7 +102,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		logger.Debugf("Stream %s: No PK or chunkColumn, will use %%physloc%% chunking", stream.ID())
 	}
 
-	// Split via primary key when available - unified approach for both single and composite keys (like MySQL)
+	// Split via primary key when available
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk], pkCols []string) error {
 		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
 			pkColumns := pkCols
@@ -205,7 +205,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, nil
 }
 
-// getTableExtremes returns MIN and MAX key values for the given PK columns (unified for both single and composite keys).
+// getTableExtremes returns MIN and MAX key values for the given PK columns
 func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
 	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)

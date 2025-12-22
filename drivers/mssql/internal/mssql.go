@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/microsoft/go-mssqldb" // register SQL Server driver
+	_ "github.com/microsoft/go-mssqldb"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -18,14 +18,11 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
-	"golang.org/x/crypto/ssh"
 )
 
-// MSSQL represents the SQL Server driver.
 type MSSQL struct {
-	client    *sqlx.DB
-	sshClient *ssh.Client
-	config    *Config
+	client *sqlx.DB
+	config *Config
 
 	CDCSupport bool
 	cdcConfig  CDC
@@ -55,23 +52,13 @@ func (m *MSSQL) CDCSupported() bool {
 }
 
 // Setup establishes the database connection and initialises CDC settings.
+// TODO: Add support for SSH Connection (bastion/jump node)
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	var err error
-	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
-		logger.Info("Found SSH Configuration")
-		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
-		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
-		}
-	}
-
 	var client *sqlx.DB
-	// NOTE: Current SSHConfig does not provide generic TCP forwarding helpers for MSSQL.
-	// For now we always open a direct connection; SSH configuration is validated but not used.
 	connStr := m.buildConnectionString()
 	db, err := sql.Open("sqlserver", connStr)
 	if err != nil {
@@ -89,7 +76,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
 
-	// TODO: If CDC config exists and permission check fails, fail the setup
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
@@ -98,7 +84,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 			return err
 		}
 		if cdc.InitialWaitTime == 0 {
-			// default set 10 sec (matching MySQL pattern)
 			cdc.InitialWaitTime = 10
 		}
 		m.cdcConfig = *cdc
@@ -117,23 +102,44 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	return nil
 }
 
-// buildConnectionString builds standard sqlserver connection string.
 func (m *MSSQL) buildConnectionString() string {
 	host := m.config.Host
 	if !strings.Contains(host, ":") {
 		host = fmt.Sprintf("%s:%d", host, m.config.Port)
 	}
 
-	// Basic connection string with encryption disabled for local development
-	// For production, use proper certificates
-	// Use proper URL encoding like Postgres driver for robust handling of special characters
-	connStr := fmt.Sprintf("sqlserver://%s:%s@%s?database=%s&encrypt=disable",
-		url.QueryEscape(m.config.Username),
-		url.QueryEscape(m.config.Password),
-		host,
-		url.QueryEscape(m.config.Database),
-	)
-	return connStr
+	query := url.Values{}
+	query.Add("database", m.config.Database)
+
+	// Set encrypt parameter based on SSL configuration
+	// MSSQL encrypt values: "disable", "true", "false"
+	// SSL modes: "disable" -> encrypt=disable, "require"/"verify-*" -> encrypt=true
+	if m.config.SSLConfiguration == nil {
+		query.Add("encrypt", "disable")
+	} else {
+		sslmode := string(m.config.SSLConfiguration.Mode)
+		switch sslmode {
+		case utils.SSLModeDisable:
+			query.Add("encrypt", "disable")
+		case utils.SSLModeRequire, utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
+			query.Add("encrypt", "true")
+			// TODO: Add support for certificate-based validation (verify-ca, verify-full)
+			if sslmode == utils.SSLModeRequire {
+				query.Add("TrustServerCertificate", "true")
+			}
+		default:
+			query.Add("encrypt", "disable")
+		}
+	}
+
+	u := &url.URL{
+		Scheme:   "sqlserver",
+		User:     url.UserPassword(m.config.Username, m.config.Password),
+		Host:     host,
+		RawQuery: query.Encode(),
+	}
+
+	return u.String()
 }
 
 // Close ensures proper cleanup
@@ -142,13 +148,6 @@ func (m *MSSQL) Close() error {
 		err := m.client.Close()
 		if err != nil {
 			logger.Errorf("failed to close connection with MSSQL: %s", err)
-		}
-	}
-
-	if m.sshClient != nil {
-		err := m.sshClient.Close()
-		if err != nil {
-			logger.Errorf("failed to close SSH client: %s", err)
 		}
 	}
 	return nil

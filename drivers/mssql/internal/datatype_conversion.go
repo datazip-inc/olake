@@ -3,7 +3,6 @@ package driver
 import "github.com/datazip-inc/olake/types"
 
 // mssqlTypeToDataTypes maps SQL Server types to internal data types.
-// Base types should match values from INFORMATION_SCHEMA.COLUMNS.DATA_TYPE.
 var mssqlTypeToDataTypes = map[string]types.DataType{
 	// Integer types
 	"tinyint":  types.Int32,

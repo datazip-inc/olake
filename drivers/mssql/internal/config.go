@@ -10,15 +10,15 @@ import (
 
 // Config represents the configuration for connecting to a MSSQL database.
 type Config struct {
-	Host         string           `json:"host"`
-	Port         int              `json:"port"`
-	Database     string           `json:"database"`
-	Username     string           `json:"username"`
-	Password     string           `json:"password"`
-	UpdateMethod interface{}      `json:"update_method"`
-	MaxThreads   int              `json:"max_threads"`
-	RetryCount   int              `json:"retry_count"`
-	SSHConfig    *utils.SSHConfig `json:"ssh_config"`
+	Host             string           `json:"host"`
+	Port             int              `json:"port"`
+	Database         string           `json:"database"`
+	Username         string           `json:"username"`
+	Password         string           `json:"password"`
+	UpdateMethod     interface{}      `json:"update_method"`
+	MaxThreads       int              `json:"max_threads"`
+	RetryCount       int              `json:"retry_count"`
+	SSLConfiguration *utils.SSLConfig `json:"ssl"`
 }
 
 // CDC configuration for SQL Server.
@@ -54,6 +54,17 @@ func (c *Config) Validate() error {
 
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount
+	}
+
+	if c.SSLConfiguration == nil {
+		c.SSLConfiguration = &utils.SSLConfig{
+			Mode: utils.SSLModeDisable,
+		}
+	}
+
+	err := c.SSLConfiguration.Validate()
+	if err != nil {
+		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
 	return utils.Validate(c)

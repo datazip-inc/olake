@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -13,7 +12,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// MSSQLGlobalState keeps last processed LSN for CDC / Change Tracking.
+// MSSQLGlobalState keeps last processed LSN for CDC
 type MSSQLGlobalState struct {
 	LSN string `json:"lsn"`
 }
@@ -24,8 +23,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	// Index streams by ID for CDC routing so that emitted changes can reference
-	// the same StreamInterface instances created during setup.
+	// Index streams by ID for CDC routing
 	if m.streams == nil {
 		m.streams = make(map[string]types.StreamInterface, len(streams))
 	}
@@ -82,7 +80,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 		default:
 		}
 
-		// Check if no changes received within initial wait time (similar to MySQL binlog behavior)
+		// Check if no changes received within initial wait time
 		if !changesReceived && m.cdcConfig.InitialWaitTime > 0 && time.Since(startTime) > time.Duration(m.cdcConfig.InitialWaitTime)*time.Second {
 			logger.Warnf("no records found in given initial wait time, try increasing it")
 			// Ensure current LSN is persisted even when exiting early
@@ -98,10 +96,10 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 			return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
 		}
 
-		// If caught up to latest position, exit (similar to MySQL binlog behavior)
+		// If caught up to latest position, exit
 		if fromLSN == toLSN {
 			logger.Infof("Reached the configured latest LSN %s; stopping CDC sync", toLSN)
-			// Ensure final LSN is persisted even when no new changes
+
 			m.state.SetGlobal(MSSQLGlobalState{LSN: toLSN})
 			return nil
 		}
@@ -117,13 +115,12 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 	}
 }
 
-// PostCDC persists final LSN; nothing else to cleanup for MSSQL.
+// PostCDC persists final LSN
 func (m *MSSQL) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool, _ string) error {
 	if !noErr {
 		return nil
 	}
-	// Ensure final LSN is persisted - get current max LSN and update state
-	// This ensures LSN is saved even if StreamChanges exited early
+
 	globalState := m.state.GetGlobal()
 	if globalState != nil && globalState.State != nil {
 		var mssqlState MSSQLGlobalState
@@ -197,12 +194,6 @@ JOIN cdc.change_tables c ON t.object_id = c.object_id
 }
 
 func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
-	// Validate capture instance name to prevent SQL injection
-	// Capture instances follow pattern: schema_table_CT (alphanumeric + underscore)
-	if !regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString(captureInstance) {
-		return fmt.Errorf("invalid capture instance name format: %s", captureInstance)
-	}
-
 	// Convert hex LSN back to binary for function call.
 	from, err := hex.DecodeString(fromLSN)
 	if err != nil {
@@ -214,7 +205,6 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 	}
 
 	// Use direct function call with parameters - go-mssqldb handles binary parameters correctly
-	// Capture instance name is validated above to prevent SQL injection
 	query := fmt.Sprintf(`
 SELECT *
 FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')
