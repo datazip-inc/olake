@@ -45,17 +45,6 @@ type StreamMetadata struct {
 	Normalization  bool   `json:"normalization,omitempty"`
 	Filter         string `json:"filter,omitempty"`
 }
-
-// createStreamMetadata creates StreamMetadata with proper defaults based on driver type
-func CreateStreamMetadata(streamName, driver string) StreamMetadata {
-	return StreamMetadata{
-		StreamName:     streamName,
-		PartitionRegex: "",
-		AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-		Normalization:  IsDriverRelational(driver),
-	}
-}
-
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
@@ -74,11 +63,11 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			Stream: stream,
 		})
 
-		streamMetadata := CreateStreamMetadata(stream.Name, driver)
-		catalog.SelectedStreams[stream.Namespace] = append(
-			catalog.SelectedStreams[stream.Namespace],
-			streamMetadata,
-		)
+		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
+			StreamName:    stream.Name,
+			AppendMode:    stream.DefaultStreamProperties.AppendMode,
+			Normalization: stream.DefaultStreamProperties.Normalization,
+		})
 	}
 
 	return catalog
