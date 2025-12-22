@@ -46,38 +46,18 @@ type StreamMetadata struct {
 	Filter         string `json:"filter,omitempty"`
 }
 
-// For stream_defaults – no omitempty
-type DefaultStreamMetadata struct {
-	ChunkColumn    string `json:"chunk_column"`
-	PartitionRegex string `json:"partition_regex"`
-	StreamName     string `json:"stream_name"`
-	AppendMode     bool   `json:"append_mode"`
-	Normalization  bool   `json:"normalization"`
-	Filter         string `json:"filter"`
-}
-
 // createStreamMetadata creates StreamMetadata with proper defaults based on driver type
 func CreateStreamMetadata(streamName, driver string) StreamMetadata {
 	return StreamMetadata{
 		StreamName:     streamName,
 		PartitionRegex: "",
 		AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-		Normalization:  isDriverRelational(driver),
-	}
-}
-
-// GetStreamDefaults returns default stream metadata based on driver type
-// This represents the default values for all streams within a driver
-func GetStreamDefaults(driver string) *DefaultStreamMetadata {
-	return &DefaultStreamMetadata{
-		AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-		Normalization: isDriverRelational(driver),
+		Normalization:  IsDriverRelational(driver),
 	}
 }
 
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
-	StreamDefaults  *DefaultStreamMetadata      `json:"stream_defaults,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
@@ -85,7 +65,6 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
-		StreamDefaults:  GetStreamDefaults(driver),
 	}
 
 	// Loop through each stream and populate Streams and SelectedStreams
@@ -305,7 +284,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 	return diffStreams
 }
 
-func isDriverRelational(driver string) bool {
+func IsDriverRelational(driver string) bool {
 	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
 	})

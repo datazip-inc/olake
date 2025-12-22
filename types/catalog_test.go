@@ -66,7 +66,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 			expected: &Catalog{
 				Streams:         []*ConfiguredStream{},
 				SelectedStreams: make(map[string][]StreamMetadata),
-				StreamDefaults:  &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 		// nil streams slice should return empty catalog
@@ -77,7 +76,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 			expected: &Catalog{
 				Streams:         []*ConfiguredStream{},
 				SelectedStreams: make(map[string][]StreamMetadata),
-				StreamDefaults:  &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 		// single stream in postgres
@@ -111,7 +109,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 		// single stream in mongodb, should return normalization as false
@@ -145,7 +142,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: false, Filter: ""},
 			},
 		},
 		// multiple streams tests
@@ -223,7 +219,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 	}
@@ -268,7 +263,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -285,7 +279,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 		// when merging single stream, old catalog metadata and selected stream data should be preserved
@@ -334,7 +327,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -357,7 +349,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 		// new stream gets added with its metadata, while existing stream's configuration and selected stream data are preserved
@@ -415,7 +406,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream2", PartitionRegex: "", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: false, Filter: ""},
 			},
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -446,7 +436,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: false, Filter: ""},
 			},
 		},
 		// Removed streams are excluded from the result, but remaining streams keep their original configuration
@@ -506,7 +495,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -528,7 +516,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 		// when destination database is updated, old catalog metadata should be preserved
@@ -554,7 +541,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 			newCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -590,7 +576,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream2", PartitionRegex: "another_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
@@ -623,7 +608,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true},
 					},
 				},
-				StreamDefaults: &DefaultStreamMetadata{ChunkColumn: "", PartitionRegex: "", StreamName: "", AppendMode: false, Normalization: true, Filter: ""},
 			},
 		},
 	}
@@ -633,7 +617,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog)
 			assert.Equal(t, len(tc.expected.Streams), len(result.Streams), "Stream count should match")
 			assert.Equal(t, tc.expected.SelectedStreams, result.SelectedStreams, "SelectedStreams should match")
-			assert.Equal(t, tc.expected.StreamDefaults, result.StreamDefaults, "StreamDefaults should match")
 
 			for i, expectedStream := range tc.expected.Streams {
 				actualStream := result.Streams[i]
