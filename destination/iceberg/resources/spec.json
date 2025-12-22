@@ -47,6 +47,12 @@
           "title": "Catalog Name",
           "pattern": "^[a-z_]+$",
           "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+        },
+        "arrow_writes": {
+          "type": "boolean",
+          "default": false,
+          "title": "Enable Arrow Writes",
+          "description": "Enable Apache Arrow-based Writer for Iceberg"
         }
       },
       "required": [
