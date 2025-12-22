@@ -122,10 +122,9 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return sm
 	}
 
-	newStreams := createStreamMap(newCatalog)
-
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
+		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
 			_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
