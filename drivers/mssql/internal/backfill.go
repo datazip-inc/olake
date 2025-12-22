@@ -44,9 +44,14 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 
-		stmt, err := jdbc.MSSQLChunkScanQuery(stream, chunk, filter, chunkColumn, pkColumns)
-		if err != nil {
-			return err
+		// Build query for the chunk
+		stmt := ""
+		if chunkColumn != "" {
+			stmt = jdbc.MSSQLChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
+		} else if len(pkColumns) > 0 {
+			stmt = jdbc.MSSQLChunkScanQuery(stream, pkColumns, chunk, filter)
+		} else {
+			stmt = jdbc.MSSQLPhysLocChunkScanQuery(stream, chunk, filter)
 		}
 
 		logger.Debugf("Executing chunk query: %s", stmt)

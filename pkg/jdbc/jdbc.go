@@ -259,10 +259,8 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 	return chunkCond
 }
 
-// buildChunkConditionMSSQLComposite builds the condition for a composite-key chunk in MSSQL.
-// It expands lexicographic comparisons into OR-of-ANDs over the quoted column list so that
-// SQL Server can evaluate composite ranges without tuple comparison syntax.
-func buildChunkConditionMSSQLComposite(quotedCols []string, chunk types.Chunk, extraFilter string) string {
+// buildChunkConditionMSSQL builds the condition for a chunk in MSSQL.
+func buildChunkConditionMSSQL(quotedCols []string, chunk types.Chunk, extraFilter string) string {
 	buildValues := func(val any) []string {
 		if val == nil {
 			return nil
@@ -719,74 +717,70 @@ func MSSQLNextChunkEndQuery(stream types.StreamInterface, columns []string, chun
 	return query.String()
 }
 
-// MSSQLChunkScanQuery returns the SQL query for scanning a chunk in MSSQL
-func MSSQLChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter, chunkColumn string, pkColumns []string) (string, error) {
+// MSSQLPhysLocChunkScanQuery returns the SQL query for scanning a chunk using %%physloc%% in MSSQL
+func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	tableName := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	// %%physloc%% based chunking when no PK/chunk column is available.
-	if len(pkColumns) == 0 && chunkColumn == "" {
-		// Helper to format %%physloc%% value (binary) as hex literal
-		formatPhysLocValue := func(val any) string {
-			if val == nil {
-				return "NULL"
-			}
-			// %%physloc%% is always binary, convert to hex literal
-			if b, ok := val.([]byte); ok {
-				if len(b) == 0 {
-					return "0x"
-				}
-				hexStr := fmt.Sprintf("%X", b)
-				return "0x" + hexStr
-			}
-			// If it's a string (from utils.ConvertToString on []byte), convert bytes to hex
-			if s, ok := val.(string); ok {
-				// If it's already a hex string like "0x...", use it directly
-				if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
-					return s
-				}
-				// Convert string of bytes to hex (utils.ConvertToString converts []byte to string of bytes)
-				hexStr := fmt.Sprintf("%X", []byte(s))
-				return "0x" + hexStr
-			}
-			return fmt.Sprintf("%v", val)
+	// Helper to format %%physloc%% value (binary) as hex literal
+	formatPhysLocValue := func(val any) string {
+		if val == nil {
+			return "NULL"
 		}
-
-		var chunkCond string
-		// Use %%%% to escape %% in fmt.Sprintf (%% becomes % in output)
-		switch {
-		case chunk.Min != nil && chunk.Max != nil:
-			chunkCond = fmt.Sprintf("%%%%physloc%%%% > %s AND %%%%physloc%%%% <= %s", formatPhysLocValue(chunk.Min), formatPhysLocValue(chunk.Max))
-		case chunk.Min != nil:
-			chunkCond = fmt.Sprintf("%%%%physloc%%%% > %s", formatPhysLocValue(chunk.Min))
-		case chunk.Max != nil:
-			chunkCond = fmt.Sprintf("%%%%physloc%%%% <= %s", formatPhysLocValue(chunk.Max))
-		default:
-			chunkCond = "1 = 1"
+		// %%physloc%% is always binary, convert to hex literal
+		if b, ok := val.([]byte); ok {
+			if len(b) == 0 {
+				return "0x"
+			}
+			hexStr := fmt.Sprintf("%X", b)
+			return "0x" + hexStr
 		}
+		// If it's a string (from utils.ConvertToString on []byte), convert bytes to hex
+		if s, ok := val.(string); ok {
+			// If it's already a hex string like "0x...", use it directly
+			if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+				return s
+			}
+			// Convert string of bytes to hex (utils.ConvertToString converts []byte to string of bytes)
+			hexStr := fmt.Sprintf("%X", []byte(s))
+			return "0x" + hexStr
+		}
+		return fmt.Sprintf("%v", val)
+	}
 
-		where := chunkCond
+	var chunkCond string
+	// Use %%%% to escape %% in fmt.Sprintf (%% becomes % in output)
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%%%%physloc%%%% > %s AND %%%%physloc%%%% <= %s", formatPhysLocValue(chunk.Min), formatPhysLocValue(chunk.Max))
+	case chunk.Min != nil:
+		chunkCond = fmt.Sprintf("%%%%physloc%%%% > %s", formatPhysLocValue(chunk.Min))
+	case chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%%%%physloc%%%% <= %s", formatPhysLocValue(chunk.Max))
+	default:
+		chunkCond = "1 = 1"
+	}
+
+	where := chunkCond
+	if filter != "" {
+		where = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
+	}
+
+	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, where)
+}
+
+// MSSQLChunkScanQuery returns the SQL query for scanning a chunk in MSSQL
+func MSSQLChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, filter string) string {
+	tableName := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+	quotedCols := QuoteColumns(filterColumns, constants.MSSQL)
+	condition := buildChunkConditionMSSQL(quotedCols, chunk, filter)
+	if condition == "" {
+		condition = "1 = 1"
 		if filter != "" {
-			where = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
+			condition = filter
 		}
-
-		return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, where), nil
 	}
-
-	// Unified PK/chunk column handling for both single and composite keys (like MySQL)
-	if len(pkColumns) > 0 {
-		quotedCols := QuoteColumns(pkColumns, constants.MSSQL)
-		condition := buildChunkConditionMSSQLComposite(quotedCols, chunk, filter)
-		if condition == "" {
-			condition = "1 = 1"
-			if filter != "" {
-				condition = filter
-			}
-		}
-		orderBy := strings.Join(quotedCols, ", ")
-		return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %s", tableName, condition, orderBy), nil
-	}
-
-	return "", fmt.Errorf("no primary key columns or chunk column available for MSSQL chunk scan")
+	orderBy := strings.Join(quotedCols, ", ")
+	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %s", tableName, condition, orderBy)
 }
 
 // MSSQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MSSQL
