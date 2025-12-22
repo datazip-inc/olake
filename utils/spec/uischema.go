@@ -226,7 +226,7 @@ const IcebergUISchema = `{
   },
   "writer": {
     "ui:grid": [
-      { "catalog_type": 12 },
+      { "catalog_type": 12, "catalog_name": 12 },
       { "rest_catalog_url": 12, "hive_uri": 12 },
       { "jdbc_url": 12, "jdbc_username": 12, "jdbc_password": 12 },
       { "iceberg_s3_path": 12, "hive_clients": 12 },
@@ -237,7 +237,7 @@ const IcebergUISchema = `{
       { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12 }
+      { "aws_region": 12, "arrow_writes": 12 }
     ],
     "no_identifier_fields": {
       "ui:widget": "boolean"
@@ -252,6 +252,9 @@ const IcebergUISchema = `{
       "ui:widget": "boolean"
     },
     "s3_path_style": {
+      "ui:widget": "boolean"
+    },
+    "arrow_writes": {
       "ui:widget": "boolean"
     },
     "catalog_type": {
