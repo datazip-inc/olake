@@ -13,6 +13,11 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+const (
+	// cdcPollingDelay is the delay between polling cycles when no changes are detected
+	cdcPollingDelay = 500 * time.Millisecond
+)
+
 // MSSQLGlobalState keeps last processed LSN for CDC
 type MSSQLGlobalState struct {
 	LSN string `json:"lsn"`
@@ -78,40 +83,37 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-		}
-
-		// Check if no changes received within initial wait time
-		if !changesReceived && m.cdcConfig.InitialWaitTime > 0 && time.Since(startTime) > time.Duration(m.cdcConfig.InitialWaitTime)*time.Second {
-			logger.Warnf("no records found in given initial wait time, try increasing it")
-			// Ensure current LSN is persisted even when exiting early
-			toLSN, err := m.currentMaxLSN(ctx)
-			if err == nil {
-				m.state.SetGlobal(MSSQLGlobalState{LSN: toLSN})
+			// Check if no changes received within initial wait time
+			if !changesReceived && m.cdcConfig.InitialWaitTime > 0 && time.Since(startTime) > time.Duration(m.cdcConfig.InitialWaitTime)*time.Second {
+				logger.Warnf("no records found in given initial wait time, try increasing it")
+				// Ensure current LSN is persisted even when exiting early
+				toLSN, err := m.currentMaxLSN(ctx)
+				if err == nil {
+					m.state.SetGlobal(MSSQLGlobalState{LSN: toLSN})
+				}
+				return nil
 			}
-			return nil
+
+			toLSN, err := m.currentMaxLSN(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
+			}
+
+			// If caught up to latest position, wait before polling again
+			if fromLSN == toLSN {
+				time.Sleep(cdcPollingDelay)
+				continue
+			}
+
+			// Process changes between fromLSN and toLSN
+			if err := m.streamChangesOnce(ctx, fromLSN, toLSN, processFn); err != nil {
+				return err
+			}
+
+			changesReceived = true
+			fromLSN = toLSN
+			m.state.SetGlobal(MSSQLGlobalState{LSN: fromLSN})
 		}
-
-		toLSN, err := m.currentMaxLSN(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
-		}
-
-		// If caught up to latest position, exit
-		if fromLSN == toLSN {
-			logger.Infof("Reached the configured latest LSN %s; stopping CDC sync", toLSN)
-
-			m.state.SetGlobal(MSSQLGlobalState{LSN: toLSN})
-			return nil
-		}
-
-		// Process changes between fromLSN and toLSN
-		if err := m.streamChangesOnce(ctx, fromLSN, toLSN, processFn); err != nil {
-			return err
-		}
-
-		changesReceived = true
-		fromLSN = toLSN
-		m.state.SetGlobal(MSSQLGlobalState{LSN: fromLSN})
 	}
 }
 
@@ -172,6 +174,12 @@ func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, pr
 		if err := rows.Scan(&c.schema, &c.table, &c.inst); err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
 		}
+
+		streamID := fmt.Sprintf("%s.%s", c.schema, c.table)
+		if _, selected := m.streams[streamID]; !selected {
+			continue
+		}
+
 		captures = append(captures, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -245,14 +253,13 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 			}
 		}
 
-		// Reuse the configured stream instance from setup, if available.
 		streamID := fmt.Sprintf("%s.%s", schema, table)
 		cfgStream, ok := m.streams[streamID]
 		if !ok {
-			// If we can't find a matching configured stream, skip the change.
 			logger.Warnf("skipping CDC change for unmapped MSSQL stream %s", streamID)
 			continue
 		}
+
 		if err := processFn(ctx, abstract.CDCChange{
 			Stream:    cfgStream,
 			Timestamp: time.Now().UTC(),
