@@ -672,16 +672,30 @@ func MSSQLCDCGetChangesQuery(captureInstance string) string {
 	`, captureInstance)
 }
 
+// buildMSSQLConcat builds a CONCAT expression for SQL Server (2012+)
+// Uses CONCAT instead of CONCAT_WS for maximum compatibility:
+// - CONCAT works on SQL Server 2012+ (vs CONCAT_WS which requires 2017+)
+func buildMSSQLConcat(quotedCols []string) string {
+	if len(quotedCols) == 1 {
+		return quotedCols[0]
+	}
+
+	// Manual separator insertion required
+	parts := make([]string, 0, len(quotedCols)*2-1)
+	for i, col := range quotedCols {
+		if i > 0 {
+			parts = append(parts, "','")
+		}
+		parts = append(parts, col)
+	}
+	return fmt.Sprintf("CONCAT(%s)", strings.Join(parts, ", "))
+}
+
 func MinMaxQueryMSSQL(stream types.StreamInterface, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.MSSQL)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	var concatCols string
-	if len(columns) == 1 {
-		concatCols = quotedCols[0]
-	} else {
-		concatCols = fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
-	}
+	concatCols := buildMSSQLConcat(quotedCols)
 
 	orderAsc := strings.Join(quotedCols, ", ")
 	descCols := make([]string, len(quotedCols))
@@ -707,12 +721,7 @@ func MSSQLNextChunkEndQuery(stream types.StreamInterface, columns []string, chun
 
 	var query strings.Builder
 
-	var keyStrExpr string
-	if len(columns) == 1 {
-		keyStrExpr = quotedCols[0]
-	} else {
-		keyStrExpr = fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
-	}
+	keyStrExpr := buildMSSQLConcat(quotedCols)
 
 	fmt.Fprintf(&query, "WITH ordered AS (SELECT %s AS key_str, ROW_NUMBER() OVER (ORDER BY %s) AS rn FROM %s",
 		keyStrExpr,

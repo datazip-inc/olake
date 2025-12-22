@@ -186,8 +186,8 @@ func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, pr
 		return err
 	}
 
-	for _, cap := range captures {
-		if err := m.streamTableChanges(ctx, cap.schema, cap.table, cap.inst, fromLSN, toLSN, processFn); err != nil {
+	for _, capture := range captures {
+		if err := m.streamTableChanges(ctx, capture.schema, capture.table, capture.inst, fromLSN, toLSN, processFn); err != nil {
 			return err
 		}
 	}

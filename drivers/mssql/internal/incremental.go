@@ -51,5 +51,3 @@ func (m *MSSQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 	}
 	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }
-
-

@@ -198,12 +198,12 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if len(pkColumns) > 0 {
 		logger.Debugf("Stream %s: Using PK-based chunking with columns: %v", stream.ID(), pkColumns)
 		if err := splitViaPrimaryKey(stream, chunks, pkColumns); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to split chunks via primary key for stream %s: %w", stream.ID(), err)
 		}
 	} else {
 		logger.Debugf("Stream %s: Using %%physloc%% chunking (no PK or chunkColumn available)", stream.ID())
 		if err := splitViaPhysLoc(stream, chunks); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to split chunks via %%physloc%% for stream %s: %w", stream.ID(), err)
 		}
 	}
 	return chunks, nil

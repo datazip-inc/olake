@@ -250,7 +250,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			if val, found := mssqlTypeToDataTypes[strings.ToLower(ci.dataType)]; found {
 				datatype = val
 			} else {
-				logger.Warnf("Unsupported MSSQL type '%s'for column '%s.%s', defaulting to String", ci.dataType, streamName, ci.name)
+				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", ci.dataType, streamName, ci.name)
 				datatype = types.String
 			}
 			stream.UpsertField(ci.name, datatype, strings.EqualFold(ci.isNullable, "YES"))
