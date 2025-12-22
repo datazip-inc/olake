@@ -34,6 +34,10 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
+func (m *Mongo) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, true // concurrent change streams supported, stream can start after finishing full load
+}
+
 func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())

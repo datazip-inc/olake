@@ -44,10 +44,6 @@ func (m *MySQL) CDCSupported() bool {
 	return m.CDCSupport
 }
 
-func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
-	return true, false, false
-}
-
 // GetConfigRef returns a reference to the configuration
 func (m *MySQL) GetConfigRef() abstract.Config {
 	m.config = &Config{}

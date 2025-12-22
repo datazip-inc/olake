@@ -30,6 +30,10 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 	}, nil
 }
 
+func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
+	return true, false, false // sequential change stream
+}
+
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {

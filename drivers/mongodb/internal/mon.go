@@ -47,10 +47,6 @@ func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
 }
 
-func (m *Mongo) ChangeStreamConfig() (bool, bool, bool) {
-	return true, false, true // concurrent change streams supported, stream can start after finishing full load
-}
-
 func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 	opts.ApplyURI(m.config.URI())

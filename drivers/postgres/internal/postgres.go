@@ -52,10 +52,6 @@ func (p *Postgres) CDCSupported() bool {
 	return p.CDCSupport
 }
 
-func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
-	return true, false, false // sequential change stream
-}
-
 func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()
 	if err != nil {

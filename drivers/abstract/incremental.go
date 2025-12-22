@@ -55,7 +55,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 	// Wait for all backfill processes to complete
 	return a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
-		a.GlobalConnGroup.Add(func(gCtx context.Context) (err error) {
+		a.GlobalConnGroup.Add(a.driver.MaxRetries(), func(gCtx context.Context) (err error) {
 			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 			stream := streams[index]
 			primaryCursor, secondaryCursor := stream.Cursor()
@@ -78,7 +78,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
 
-			defer a.handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID,
+			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID,
 				func(ctx context.Context) error {
 					if ctx.Err() != nil {
 						return ctx.Err()

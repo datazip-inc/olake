@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -138,9 +139,11 @@ func (g *CxGroup) Ctx() context.Context {
 	return g.ctx
 }
 
-func (g *CxGroup) Add(execute func(ctx context.Context) error) {
+func (g *CxGroup) Add(retryCount int, execute func(ctx context.Context) error) {
 	g.executor.Go(func() error {
-		return execute(g.ctx)
+		return RetryOnBackoff(retryCount, 1*time.Minute, func(attempt int) error {
+			return execute(g.ctx)
+		})
 	})
 }
 
@@ -148,14 +151,14 @@ func (g *CxGroup) Block() error {
 	return g.executor.Wait()
 }
 
-func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx context.Context, index int, one T) error) {
+func ConcurrentInGroup[T any](group *CxGroup, array []T, retryCount int, execute func(ctx context.Context, index int, one T) error) {
 	for idx, one := range array {
 		select {
 		case <-group.ctx.Done():
 			break
 		default:
 			// schedule an execution
-			group.Add(func(ctx context.Context) error {
+			group.Add(retryCount, func(ctx context.Context) error {
 				return execute(ctx, idx, one)
 			})
 		}

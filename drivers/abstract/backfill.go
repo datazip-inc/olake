@@ -52,7 +52,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 
-		defer a.handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
+		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
 			func(ctx context.Context) error {
 				if ctx.Err() != nil {
 					return ctx.Err()
@@ -77,6 +77,6 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
 		})
 	}
-	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, chunkProcessor)
+	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
 	return nil
 }

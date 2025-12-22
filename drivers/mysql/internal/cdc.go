@@ -38,6 +38,10 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
 }
 
+func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
+	return true, false, false
+}
+
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()

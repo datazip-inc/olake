@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type CDCChange struct {
@@ -71,10 +70,10 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	}
 	var streamMap sync.Map
 
-	utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, _ int, stream string) error {
+	utils.ConcurrentInGroup(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
 		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: failed to produce schema for stream %s: %s", constants.ErrNonRetryable, stream, err)
 		}
 		streamMap.Store(streamSchema.ID(), streamSchema)
 		return nil
@@ -149,59 +148,73 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 }
 
 func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
-	readFunc := func(attempt int) error {
-		if attempt > 0 {
-			logger.Infof("Retrying Read operation (attempt %d)", attempt)
-		}
-
-		if a.driver.MaxConnections() > 0 {
-			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
-		} else {
-			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, constants.DefaultThreadCount)
-		}
-
-		a.GlobalCtxGroup = utils.NewCGroup(ctx)
-
-		// run cdc sync
-		if len(cdcStreams) > 0 {
-			if a.driver.CDCSupported() {
-				if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-					return fmt.Errorf("failed to run change stream: %s", err)
-				}
-			} else {
-				return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
-			}
-		}
-
-		// run incremental sync
-		if len(incrementalStreams) > 0 {
-			if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
-				return fmt.Errorf("failed to run incremental sync: %s", err)
-			}
-		}
-
-		// handle standard streams (full refresh)
-		for _, stream := range backfillStreams {
-			stream := stream // capture for closure
-			a.GlobalCtxGroup.Add(func(ctx context.Context) error {
-				return a.Backfill(ctx, nil, pool, stream)
-			})
-		}
-
-		// wait for all threads to finish
-		if err := a.GlobalCtxGroup.Block(); err != nil {
-			return fmt.Errorf("error occurred while waiting for context groups: %s", err)
-		}
-
-		// wait for all threads to finish
-		if err := a.GlobalConnGroup.Block(); err != nil {
-			return fmt.Errorf("error occurred while waiting for connections: %s", err)
-		}
-		return nil
+	// set max read connections
+	if a.driver.MaxConnections() > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	// TODO: discuss for moving max retry as flag (job level in ui)
-	return utils.RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, readFunc)
+	// run cdc sync
+	if len(cdcStreams) > 0 {
+		if a.driver.CDCSupported() {
+			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+				return fmt.Errorf("failed to run change stream: %s", err)
+			}
+		} else {
+			return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
+		}
+	}
+
+	// run incremental sync
+	if len(incrementalStreams) > 0 {
+		if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
+			return fmt.Errorf("failed to run incremental sync: %s", err)
+		}
+	}
+
+	// handle standard streams (full refresh)
+	for _, stream := range backfillStreams {
+		a.GlobalCtxGroup.Add(a.driver.MaxRetries(), func(ctx context.Context) error {
+			return a.Backfill(ctx, nil, pool, stream)
+		})
+	}
+
+	// wait for all threads to finish
+	if err := a.GlobalCtxGroup.Block(); err != nil {
+		return fmt.Errorf("error occurred while waiting for context groups: %s", err)
+	}
+
+	// wait for all threads to finish
+	if err := a.GlobalConnGroup.Block(); err != nil {
+		return fmt.Errorf("error occurred while waiting for connections: %s", err)
+	}
+	return nil
+}
+
+// waitForBackfillCompletion waits for all backfill processes to complete and processes each completed stream
+func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, backfillWaitChannel chan string, streams []types.StreamInterface, processStream func(streamID string) error) error {
+	backfilledStreams := make([]string, 0, len(streams))
+	for len(backfilledStreams) < len(streams) {
+		select {
+		case <-mainCtx.Done():
+			// if main context stuck in error
+			return mainCtx.Err()
+		case <-a.GlobalConnGroup.Ctx().Done():
+			// if global conn group stuck in error
+			return nil
+		case streamID, ok := <-backfillWaitChannel:
+			if !ok {
+				return fmt.Errorf("backfill channel closed unexpectedly")
+			}
+			backfilledStreams = append(backfilledStreams, streamID)
+
+			if processStream != nil {
+				if err := processStream(streamID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // generateThreadID creates a unique thread ID for a stream
@@ -218,7 +231,7 @@ func generateThreadID(streamID string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 //
 // The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func (a *AbstractDriver) handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer interface{}, threadID string, postProcess func(ctx context.Context) error) func() {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer interface{}, threadID string, postProcess func(ctx context.Context) error) func() {
 	return func() {
 		if cancel == nil {
 			*err = fmt.Errorf("%w: cancel is nil, prev error: %w", constants.ErrNonRetryable, *err)
@@ -267,31 +280,4 @@ func (a *AbstractDriver) handleWriterCleanup(ctx context.Context, cancel context
 			*err = fmt.Errorf("%w: thread[%s]: %s", constants.ErrNonRetryable, threadID, *err)
 		}
 	}
-}
-
-// waitForBackfillCompletion waits for all backfill processes to complete and processes each completed stream
-func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, backfillWaitChannel chan string, streams []types.StreamInterface, processStream func(streamID string) error) error {
-	backfilledStreams := make([]string, 0, len(streams))
-	for len(backfilledStreams) < len(streams) {
-		select {
-		case <-mainCtx.Done():
-			// if main context stuck in error
-			return mainCtx.Err()
-		case <-a.GlobalConnGroup.Ctx().Done():
-			// if global conn group stuck in error
-			return nil
-		case streamID, ok := <-backfillWaitChannel:
-			if !ok {
-				return fmt.Errorf("backfill channel closed unexpectedly")
-			}
-			backfilledStreams = append(backfilledStreams, streamID)
-
-			if processStream != nil {
-				if err := processStream(streamID); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
 }

@@ -201,7 +201,7 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
-			wt.group.Add(func(ctx context.Context) error {
+			wt.group.Add(1, func(ctx context.Context) error {
 				return wt.flush(ctx, buf)
 			})
 		}
@@ -264,7 +264,7 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
 
-		wt.group.Add(func(ctx context.Context) error {
+		wt.group.Add(1, func(ctx context.Context) error {
 			return wt.flush(ctx, wt.buffer)
 		})
 
