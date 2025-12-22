@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.debezium.serde.DebeziumSerdes;
+import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -107,7 +108,10 @@ public class OlakeRpcServer {
         keySerde.configure(Collections.emptyMap(), true);
         keyDeserializer = keySerde.deserializer();
 
-        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"), icebergCatalog, partitionTransforms);
+        boolean arrowWriterEnabled = false;
+        if (stringConfigMap.get("arrow-writer-enabled") != null) {
+             arrowWriterEnabled = Boolean.parseBoolean(stringConfigMap.get("arrow-writer-enabled"));
+        }
 
         // Build the server to listen on port 50051
         int port = 50051; // Default port
@@ -121,11 +125,23 @@ public class OlakeRpcServer {
             maxMessageSize = Integer.parseInt(stringConfigMap.get("max-message-size"));
         }
         
-        Server server = ServerBuilder.forPort(port)
-                .addService(ori)
-                .maxInboundMessageSize(maxMessageSize)
-                .build()
-                .start();
+        ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
+                    .maxInboundMessageSize(maxMessageSize);
+
+        if (arrowWriterEnabled) {
+             OlakeArrowIngester oai = new OlakeArrowIngester(upsert_records, stringConfigMap.get("table-namespace"),
+                       icebergCatalog);
+             serverBuilder.addService(oai);
+             LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
+        }
+
+        // Check(), Setup() uses legacy writer approach, we will always need this service
+        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"),
+                  icebergCatalog, partitionTransforms);
+        serverBuilder.addService(ori);
+        LOGGER.info("Legacy writer enabled - registered OlakeRowsIngester service");
+
+        Server server = serverBuilder.build().start();
 
         // Log server startup without exposing potentially sensitive configuration details
         LOGGER.info("Server started on port {} with max message size: {}MB", 
