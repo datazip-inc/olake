@@ -10,6 +10,7 @@ var uiSchemaMap = map[string]string{
 	"postgres": PostgresUISchema,
 	"mysql":    MySQLUISchema,
 	"oracle":   OracleUISchema,
+	"s3":       S3UISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
 	"kafka":    KafkaUISchema,
@@ -178,6 +179,25 @@ const OracleUISchema = `{
     }
   }
 }`
+
+const S3UISchema = `{
+  "ui:grid": [
+    { "bucket_name": 12, "region": 12 },
+    { "access_key_id": 12, "secret_access_key": 12 },
+    { "path_prefix": 12, "endpoint": 12 },
+    { "file_format": 12, "compression": 12 },
+    { "delimiter": 12, "has_header": 12 },
+    { "skip_rows": 12, "quote_character": 12 },
+    { "json_line_delimited": 12, "file_pattern": 12 },
+    { "max_threads": 12, "batch_size": 12 },
+    { "retry_count": 12 }
+  ],
+  "has_header": {
+    "ui:widget": "boolean"
+  },
+  "json_line_delimited": {
+    "ui:widget": "boolean"
+  }`
 
 const KafkaUISchema = `{
     "ui:grid": [

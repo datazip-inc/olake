@@ -8,5 +8,6 @@ use (
 	./drivers/mysql
 	./drivers/postgres
 	./drivers/oracle
+	./drivers/s3
 	./drivers/kafka
 )
