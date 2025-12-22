@@ -185,17 +185,6 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
 			}
-			// Copy PK and schema from discovered source stream to configured stream if not already set
-			// This ensures PK-based chunking works even if catalog file doesn't include PK or schema
-			if elem.Stream.SourceDefinedPrimaryKey.Len() == 0 && source.SourceDefinedPrimaryKey.Len() > 0 {
-				for _, pk := range source.SourceDefinedPrimaryKey.Array() {
-					elem.Stream.WithPrimaryKey(pk)
-				}
-			}
-			// Copy schema if configured stream doesn't have one
-			if elem.Stream.Schema == nil && source.Schema != nil {
-				elem.Stream.Schema = source.Schema
-			}
 		}
 
 		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
