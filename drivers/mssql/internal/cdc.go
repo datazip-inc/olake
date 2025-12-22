@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -31,8 +32,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		m.streams[s.ID()] = s
 	}
 
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
+	initializeCDCState := func(ctx context.Context) error {
 		lsn, err := m.currentMaxLSN(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get MSSQL current max LSN: %s", err)
@@ -42,17 +42,17 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return nil
 	}
 
+	globalState := m.state.GetGlobal()
+	if globalState == nil || globalState.State == nil {
+		return initializeCDCState(ctx)
+	}
+
 	var mssqlState MSSQLGlobalState
 	if err := utils.Unmarshal(globalState.State, &mssqlState); err != nil {
 		return fmt.Errorf("failed to unmarshal MSSQL global state: %s", err)
 	}
 	if mssqlState.LSN == "" {
-		lsn, err := m.currentMaxLSN(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get MSSQL current max LSN: %s", err)
-		}
-		m.state.SetGlobal(MSSQLGlobalState{LSN: lsn})
-		m.state.ResetStreams()
+		return initializeCDCState(ctx)
 	}
 	return nil
 }
@@ -142,7 +142,7 @@ func (m *MSSQL) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool
 
 func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 	var lsn []byte
-	err := m.client.QueryRowContext(ctx, "SELECT sys.fn_cdc_get_max_lsn()").Scan(&lsn)
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCMaxLSNQuery()).Scan(&lsn)
 	if err != nil {
 		return "", err
 	}
@@ -154,15 +154,7 @@ func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 
 // streamChangesOnce reads changes for all CDC-enabled tables between fromLSN and toLSN.
 func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
-	// Discover CDC-enabled capture instances for current database.
-	rows, err := m.client.QueryContext(ctx, `
-SELECT s.name AS schema_name,
-       t.name AS table_name,
-       c.capture_instance
-FROM sys.tables t
-JOIN sys.schemas s ON t.schema_id = s.schema_id
-JOIN cdc.change_tables c ON t.object_id = c.object_id
-`)
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDiscoverQuery())
 	if err != nil {
 		return fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
 	}
@@ -173,6 +165,7 @@ JOIN cdc.change_tables c ON t.object_id = c.object_id
 		table  string
 		inst   string
 	}
+
 	var captures []capture
 	for rows.Next() {
 		var c capture
@@ -205,10 +198,7 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 	}
 
 	// Use direct function call with parameters - go-mssqldb handles binary parameters correctly
-	query := fmt.Sprintf(`
-SELECT *
-FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')
-`, captureInstance)
+	query := jdbc.MSSQLCDCGetChangesQuery(captureInstance)
 
 	logger.Infof("Streaming CDC changes for MSSQL table %s.%s between LSN %s and %s", schema, table, fromLSN, toLSN)
 

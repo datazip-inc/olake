@@ -576,27 +576,27 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, readOnly bool, fn func(
 // MSSQLDiscoverTablesQuery returns the query to discover tables in a MSSQL database
 func MSSQLDiscoverTablesQuery() string {
 	return `
-SELECT
-	t.TABLE_SCHEMA,
-	t.TABLE_NAME
-FROM INFORMATION_SCHEMA.TABLES t
-WHERE t.TABLE_TYPE = 'BASE TABLE'
-  AND t.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA','sys')
-`
+		SELECT
+			t.TABLE_SCHEMA,
+			t.TABLE_NAME
+		FROM INFORMATION_SCHEMA.TABLES t
+		WHERE t.TABLE_TYPE = 'BASE TABLE'
+		AND t.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA','sys')
+	`
 }
 
 // MSSQLTableSchemaQuery returns the query to fetch schema information for a table in MSSQL
 func MSSQLTableSchemaQuery() string {
 	return `
-SELECT
-    c.COLUMN_NAME,
-    c.DATA_TYPE,
-    c.IS_NULLABLE
-FROM INFORMATION_SCHEMA.COLUMNS c
-WHERE c.TABLE_SCHEMA = @p1
-  AND c.TABLE_NAME = @p2
-ORDER BY c.ORDINAL_POSITION
-`
+		SELECT
+			c.COLUMN_NAME,
+			c.DATA_TYPE,
+			c.IS_NULLABLE
+		FROM INFORMATION_SCHEMA.COLUMNS c
+		WHERE c.TABLE_SCHEMA = @p1
+		AND c.TABLE_NAME = @p2
+		ORDER BY c.ORDINAL_POSITION
+	`
 }
 
 // MSSQLPhysLocExtremesQuery returns the query to fetch MIN and MAX %%physloc%% values for a table
@@ -608,44 +608,68 @@ func MSSQLPhysLocExtremesQuery(stream types.StreamInterface) string {
 // MSSQLPhysLocNextChunkEndQuery returns the query to find the next %%physloc%% chunk boundary
 func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
-	// Use %%%% to escape %% in fmt.Sprintf (%% becomes % in output)
 	return fmt.Sprintf(`
-WITH ordered AS (
-    SELECT %%%%physloc%%%% AS physloc, ROW_NUMBER() OVER (ORDER BY %%%%physloc%%%%) AS rn
-    FROM %s
-    WHERE %%%%physloc%%%% > @p1
-)
-SELECT physloc
-FROM ordered
-WHERE rn = %d
-`, quotedTable, chunkSize)
+		WITH ordered AS (
+			SELECT %%%%physloc%%%% AS physloc, ROW_NUMBER() OVER (ORDER BY %%%%physloc%%%%) AS rn
+			FROM %s
+			WHERE %%%%physloc%%%% > @p1
+		)
+		SELECT physloc
+		FROM ordered
+		WHERE rn = %d
+	`, quotedTable, chunkSize)
 }
 
 // MSSQLPrimaryKeyQuery returns the query to fetch primary key columns of a table in MSSQL
 func MSSQLPrimaryKeyQuery() string {
 	return `
-SELECT COLUMN_NAME
-FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-WHERE TABLE_SCHEMA = @p1
-  AND TABLE_NAME = @p2
-  AND CONSTRAINT_NAME IN (
-    SELECT CONSTRAINT_NAME
-    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-    WHERE TABLE_SCHEMA = @p1
-      AND TABLE_NAME = @p2
-      AND CONSTRAINT_TYPE = 'PRIMARY KEY'
-  )
-ORDER BY ORDINAL_POSITION
-`
+		SELECT COLUMN_NAME
+		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+		WHERE TABLE_SCHEMA = @p1
+		AND TABLE_NAME = @p2
+		AND CONSTRAINT_NAME IN (
+			SELECT CONSTRAINT_NAME
+			FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+			WHERE TABLE_SCHEMA = @p1
+			AND TABLE_NAME = @p2
+			AND CONSTRAINT_TYPE = 'PRIMARY KEY'
+		)
+		ORDER BY ORDINAL_POSITION
+	`
 }
 
 // MSSQLCDCSupportQuery returns the query to check if CDC is enabled for the current database
 func MSSQLCDCSupportQuery() string {
 	return `
-SELECT is_cdc_enabled
-FROM sys.databases
-WHERE name = DB_NAME()
-`
+		SELECT is_cdc_enabled
+		FROM sys.databases
+		WHERE name = DB_NAME()
+	`
+}
+
+// MSSQLCDCMaxLSNQuery returns the query to fetch the current maximum LSN for CDC
+func MSSQLCDCMaxLSNQuery() string {
+	return "SELECT sys.fn_cdc_get_max_lsn()"
+}
+
+// MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
+func MSSQLCDCDiscoverQuery() string {
+	return `
+		SELECT s.name AS schema_name,
+			t.name AS table_name,
+			c.capture_instance
+		FROM sys.tables t
+		JOIN sys.schemas s ON t.schema_id = s.schema_id
+		JOIN cdc.change_tables c ON t.object_id = c.object_id
+	`
+}
+
+// MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
+func MSSQLCDCGetChangesQuery(captureInstance string) string {
+	return fmt.Sprintf(`
+		SELECT *
+		FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')
+	`, captureInstance)
 }
 
 func MinMaxQueryMSSQL(stream types.StreamInterface, columns []string) string {

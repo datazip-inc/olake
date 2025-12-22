@@ -201,7 +201,6 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil, err
 		}
 	} else {
-		// Use %%physloc%% as fallback when no PK is available
 		logger.Debugf("Stream %s: Using %%physloc%% chunking (no PK or chunkColumn available)", stream.ID())
 		if err := splitViaPhysLoc(stream, chunks); err != nil {
 			return nil, err
@@ -227,7 +226,6 @@ func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInter
 // splitViaPhysLocNextQuery uses %%physloc%% to find next chunk boundaries.
 func (m *MSSQL) splitViaPhysLocNextQuery(ctx context.Context, tx *sql.Tx, stream types.StreamInterface, min interface{}, chunks *types.Set[types.Chunk], chunkSize int64) error {
 	current := min
-	// First chunk: (-inf, minVal]
 	chunks.Insert(types.Chunk{
 		Min: nil,
 		Max: utils.ConvertToString(current),
