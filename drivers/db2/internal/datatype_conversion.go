@@ -10,11 +10,13 @@ var db2TypeToDataTypes = map[string]types.DataType{
 
 	// numeric / decimal
 	"real":     types.Float32,
+	"float":    types.Float64,
+	"numeric":  types.Float64,
 	"double":   types.Float64,
 	"decimal":  types.Float64,
 	"decfloat": types.Float64,
 
-	// boolean (DB2 supports BOOLEAN in newer versions)
+	// boolean
 	"boolean": types.Bool,
 
 	// strings

@@ -22,7 +22,7 @@ type Config struct {
 func (c *Config) BuildDSN() string {
 	// Base DSN
 	dsn := fmt.Sprintf(
-		"HOSTNAME=%s;PORT=%d;DATABASE=%s;UID=%s;PWD=%s;TxnIsolation=4;",
+		"HOSTNAME=%s;PORT=%d;DATABASE=%s;UID=%s;PWD=%s;",
 		c.Host,
 		c.Port,
 		c.Database,

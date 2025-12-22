@@ -18,7 +18,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// ChunkIterator iterates over chunks of data for a full refresh sync
 func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.DB2,
@@ -36,14 +35,14 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
-	// Determine if we should use PK based query or RID based query
+	// if PK present then PK based chunking else RID based chunking
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 
 	var stmt string
 	if len(pkColumns) > 0 || stream.Self().StreamMetadata.ChunkColumn != "" {
 		stmt = jdbc.DB2PKChunkScanQuery(stream, pkColumns, chunk, filter)
 	} else {
-		stmt = jdbc.DB2ChunkScanQuery(stream, chunk, filter)
+		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
 
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
@@ -61,7 +60,6 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 	})
 }
 
-// GetOrSplitChunks calculates the chunks for the table
 func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	// Approx Row Count
 	var approxRowCount int64
@@ -208,7 +206,7 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 }
 
 func (d *DB2) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
-	query := jdbc.DB2MinMaxQuery(stream, pkColumns)
+	query := jdbc.DB2MinMaxPKQuery(stream, pkColumns)
 	err = d.client.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
 }

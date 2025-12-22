@@ -773,8 +773,7 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 
 // DB2 Specific Queries
 
-// DB2DiscoveryQuery returns the query to discover tables in a DB2 database
-// Uses SYSCAT.TABLES. We filter for 'T' (Table) and 'V' (View).
+// DB2DiscoveryQuery returns the query to discover tables in a DB2 database with filter for 'T' (Table) and 'V' (View).
 func DB2DiscoveryQuery() string {
 	return `
 		SELECT
@@ -807,7 +806,8 @@ func DB2ApproxRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT CARD FROM SYSCAT.TABLES WHERE TABSCHEMA = '%s' AND TABNAME = '%s'`, stream.Namespace(), stream.Name())
 }
 
-func DB2ChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
+// DB2RidChunkScanQuery returns the query to fetch rows for a specific chunk using RID
+func DB2RidChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
 	ridFunc := fmt.Sprintf("RID(%s)", quotedTable)
 
@@ -829,7 +829,7 @@ func DB2ChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter s
 	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, chunkCond)
 }
 
-// DB2MinMaxRidQuery to find the range of RIDs for chunking
+// DB2MinMaxRidQuery to find the min/max of RIDs for chunking
 func DB2MinMaxRidQuery(stream types.StreamInterface) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
 	return fmt.Sprintf(`SELECT MIN(RID_VAL), MAX(RID_VAL) FROM (SELECT RID(%s) AS RID_VAL FROM %s) AS T`, quotedTable, quotedTable)
@@ -866,8 +866,8 @@ func DB2AvgRowSizeQuery(stream types.StreamInterface) string {
     `, stream.Namespace(), stream.Name())
 }
 
-// DB2MinMaxQuery returns the query to fetch MIN and MAX values of a column in a DB2 table
-func DB2MinMaxQuery(stream types.StreamInterface, columns []string) string {
+// DB2MinMaxQuery returns the query to fetch min/max values of a column
+func DB2MinMaxPKQuery(stream types.StreamInterface, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.DB2)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
 
