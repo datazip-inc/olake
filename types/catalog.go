@@ -40,9 +40,9 @@ type StatusRow struct {
 type StreamMetadata struct {
 	ChunkColumn    string `json:"chunk_column,omitempty"`
 	PartitionRegex string `json:"partition_regex,omitempty"`
-	StreamName     string `json:"stream_name,omitempty"`
-	AppendMode     bool   `json:"append_mode,omitempty"`
-	Normalization  bool   `json:"normalization,omitempty"`
+	StreamName     string `json:"stream_name"`
+	AppendMode     bool   `json:"append_mode"`
+	Normalization  bool   `json:"normalization"`
 	Filter         string `json:"filter,omitempty"`
 }
 type Catalog struct {
