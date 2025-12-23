@@ -28,8 +28,9 @@ type MSSQL struct {
 	CDCSupport bool
 	cdcConfig  CDC
 
-	state   *types.State
-	streams map[string]types.StreamInterface
+	state            *types.State
+	streams          map[string]types.StreamInterface
+	lastProcessedLSN string // Track the last LSN that was actually processed
 }
 
 // GetConfigRef implements abstract.DriverInterface.

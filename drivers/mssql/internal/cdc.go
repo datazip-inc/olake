@@ -69,9 +69,9 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 		return fmt.Errorf("failed to unmarshal MSSQL global state: %s", err)
 	}
 
-	fromLSN := mssqlState.LSN
+	fromLSN := mssqlState.LSN // we get this from the state file
 	startTime := time.Now()
-	changesReceived := false
+	changesReceived := false // we set this to true when we receive at least one change
 
 	for {
 		select {
@@ -95,12 +95,10 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 			}
 
 			// If caught up to latest position
-			if fromLSN == toLSN {
-				// If changes were received, exit immediately
+			if fromLSN >= toLSN {
 				if changesReceived {
 					return nil
 				}
-				// If no changes received yet, continue loop to wait for InitialWaitTime
 				continue
 			}
 
@@ -114,7 +112,9 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 			if recordsProcessed > 0 {
 				changesReceived = true
 			}
+
 			fromLSN = toLSN
+			m.lastProcessedLSN = fromLSN
 			m.state.SetGlobal(MSSQLGlobalState{LSN: fromLSN})
 		}
 	}
@@ -122,25 +122,8 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 
 // PostCDC persists final LSN
 func (m *MSSQL) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool, _ string) error {
-	if !noErr {
-		return nil
-	}
-
-	globalState := m.state.GetGlobal()
-	if globalState != nil && globalState.State != nil {
-		var mssqlState MSSQLGlobalState
-		if err := utils.Unmarshal(globalState.State, &mssqlState); err == nil {
-			// If LSN is empty or we want to ensure it's current, get max LSN
-			if mssqlState.LSN == "" {
-				lsn, err := m.currentMaxLSN(ctx)
-				if err == nil {
-					m.state.SetGlobal(MSSQLGlobalState{LSN: lsn})
-				}
-			} else {
-				// State already updated in StreamChanges loop, but ensure it's persisted
-				m.state.SetGlobal(MSSQLGlobalState{LSN: mssqlState.LSN})
-			}
-		}
+	if noErr && m.lastProcessedLSN != "" {
+		m.state.SetGlobal(MSSQLGlobalState{LSN: m.lastProcessedLSN})
 	}
 	return nil
 }
@@ -202,8 +185,13 @@ func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, pr
 }
 
 func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) (int, error) {
+	effectiveFromLSN, err := m.incrementLSN(ctx, fromLSN)
+	if err != nil {
+		return 0, err
+	}
+
 	// Convert hex LSN back to binary for function call.
-	from, err := hex.DecodeString(fromLSN)
+	from, err := hex.DecodeString(effectiveFromLSN)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse fromLSN: %s", err)
 	}
@@ -232,14 +220,25 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 		}
 
 		var opKind string
-		// Extract operation type from record (MapScan already processed it)
+		// SQL Server CDC returns two rows for updates:
+		// - 3 = update (before image) - skip this
+		// - 4 = update (after image) - process this
 		if opVal, ok := record["__$operation"]; ok {
 			switch v := opVal.(type) {
 			case int32:
+				if int(v) == 3 {
+					continue
+				}
 				opKind = operationFromCode(int(v))
 			case int64:
+				if int(v) == 3 {
+					continue
+				}
 				opKind = operationFromCode(int(v))
 			case int:
+				if v == 3 {
+					continue
+				}
 				opKind = operationFromCode(v)
 			default:
 				opKind = "update"
@@ -274,6 +273,22 @@ func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureIn
 		return recordsProcessed, err
 	}
 	return recordsProcessed, nil
+}
+
+func (m *MSSQL) incrementLSN(ctx context.Context, hexLSN string) (string, error) {
+	lsnBytes, err := hex.DecodeString(hexLSN)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse LSN for increment: %s", err)
+	}
+
+	var next []byte
+	if err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCIncrementLSNQuery(), lsnBytes).Scan(&next); err != nil {
+		return "", fmt.Errorf("failed to increment LSN: %s", err)
+	}
+	if len(next) == 0 {
+		return "", fmt.Errorf("incremented LSN is empty")
+	}
+	return hex.EncodeToString(next), nil
 }
 
 func operationFromCode(code int) string {

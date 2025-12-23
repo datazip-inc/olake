@@ -647,9 +647,15 @@ func MSSQLCDCSupportQuery() string {
 	`
 }
 
+// TODO: check about `sys.fn_cdc_get_min_lsn`
 // MSSQLCDCMaxLSNQuery returns the query to fetch the current maximum LSN for CDC
 func MSSQLCDCMaxLSNQuery() string {
 	return "SELECT sys.fn_cdc_get_max_lsn()"
+}
+
+// MSSQLCDCIncrementLSNQuery returns the query to increment an LSN for CDC
+func MSSQLCDCIncrementLSNQuery() string {
+	return "SELECT sys.fn_cdc_increment_lsn(@p1)"
 }
 
 // MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
