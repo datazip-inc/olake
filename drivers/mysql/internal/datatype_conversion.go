@@ -21,6 +21,9 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 	"float":   types.Float32,
 	"real":    types.Float32,
 	"decimal": types.Float64,
+
+	// Can handle up to 15 significant digits accurately (e.g., DECIMAL(15,2) or DECIMAL(15,7))
+	// Values with 16 digits may have minor rounding. Beyond 16 (from 17) digits will have precision loss.
 	"numeric": types.Float64,
 	"double":  types.Float64,
 
