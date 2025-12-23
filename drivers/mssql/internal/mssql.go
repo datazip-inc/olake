@@ -279,6 +279,8 @@ func isBinaryType(columnType string) bool {
 		"image":      true,
 		"rowversion": true,
 		"timestamp":  true,
+		"geometry":   true, // Spatial type stored as binary
+		"geography":  true, // Spatial type stored as binary
 	}
 	if binaryTypes[columnTypeLower] {
 		return true
@@ -300,14 +302,13 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		return nil, typeutils.ErrNullValue
 	}
 
-	// Handle binary types: encode []byte to hex to ensure valid UTF-8
+	// Handle binary and spatial types: encode []byte to hex to ensure valid UTF-8
 	if isBinaryType(columnType) {
 		switch v := value.(type) {
 		case []byte:
 			// Encode binary data as hex to ensure valid UTF-8 string
 			return hex.EncodeToString(v), nil
 		case string:
-			// Already a string, return as-is
 			return v, nil
 		default:
 			// For other types, convert to string representation
