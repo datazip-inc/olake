@@ -24,7 +24,6 @@ type ProtocolConfig struct {
 	SSL *SSLConfig `json:"ssl,omitempty"`
 }
 
-// SSLConfig holds SSL/TLS certificate configuration for Kafka connections
 type SSLConfig struct {
 	ServerCA   string `json:"server_ca,omitempty"`   
 	ClientCert string `json:"client_cert,omitempty"` 
