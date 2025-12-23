@@ -137,7 +137,7 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	}
 
 	// Use the appropriate query based on the MySQL version
-	query := utils.Ternary(mysqlFlavor == "MySQL" && (majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4)), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+	query := utils.Ternary(mysqlFlavor == "mysql" && (majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4)), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
 	rows, err := client.QueryContext(ctx, query)
 	if err != nil {
@@ -154,12 +154,11 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	var binlogDoDB, binlogIgnoreDB, executeGtidSet string
 
 	switch mysqlFlavor {
-	case "MySQL":
+	case "mysql":
 		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
 			return mysql.Position{}, fmt.Errorf("failed to scan MySQL binlog position: %s", err)
 		}
-	case "MariaDB":
-		// MariaDB returns 4 columns: File, Position, Binlog_Do_DB, Binlog_Ignore_DB
+	case "mariadb":
 		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB); err != nil {
 			return mysql.Position{}, fmt.Errorf("failed to scan MariaDB binlog position: %s", err)
 		}

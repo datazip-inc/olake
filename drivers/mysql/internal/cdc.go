@@ -7,6 +7,7 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/binlog"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
@@ -16,14 +17,18 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	// validate global state
 	if globalState.ServerID == 0 {
 		return nil, fmt.Errorf("invalid global state; server_id is missing")
 	}
-	// TODO: Support all flavour of mysql
+
+	flavor, err := jdbc.DetectMySQLFlavor(ctx, m.client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect MySQL flavor: %s", err)
+	}
+
 	config := &binlog.Config{
 		ServerID:        globalState.ServerID,
-		Flavor:          "mysql",
+		Flavor:          flavor,
 		Host:            m.config.Host,
 		Port:            uint16(m.config.Port),
 		User:            m.config.Username,
