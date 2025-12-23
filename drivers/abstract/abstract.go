@@ -16,7 +16,7 @@ type CDCChange struct {
 	Stream    types.StreamInterface
 	Timestamp time.Time
 	Kind      string
-	Data      map[string]interface{}
+	Data      map[string]any
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -173,7 +173,7 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 
 	// handle standard streams (full refresh)
 	for _, stream := range backfillStreams {
-		a.GlobalCtxGroup.Add(a.driver.MaxRetries(), func(ctx context.Context) error {
+		a.GlobalCtxGroup.AddWithRetry(a.driver.MaxRetries(), func(ctx context.Context) error {
 			return a.Backfill(ctx, nil, pool, stream)
 		})
 	}
@@ -231,7 +231,7 @@ func generateThreadID(streamID string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 //
 // The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer interface{}, threadID string, postProcess func(ctx context.Context) error) func() {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, postProcess func(ctx context.Context) error) func() {
 	return func() {
 		if cancel == nil {
 			*err = fmt.Errorf("%w: cancel is nil, prev error: %w", constants.ErrNonRetryable, *err)
@@ -263,21 +263,21 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 		}
 
 		if closeErr != nil {
-			*err = fmt.Errorf("%w: %s, prev error: %v", constants.ErrNonRetryable, closeErr, *err)
+			*err = utils.Ternary(*err == nil, closeErr, fmt.Errorf("%s: prev error: %w", closeErr, *err)).(error)
 		}
 
 		// check for panics before post-processing
 		if r := recover(); r != nil {
-			*err = fmt.Errorf("%w: panic recovered: %v, prev error: %v", constants.ErrNonRetryable, r, *err)
+			*err = utils.Ternary(*err == nil, fmt.Errorf("%w: panic recovered: %v", constants.ErrNonRetryable, r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
 		}
 
 		postErr := postProcess(ctx)
 		if postErr != nil {
-			*err = fmt.Errorf("%w: post process error: %s, prev error: %v", constants.ErrNonRetryable, postErr, *err)
+			*err = utils.Ternary(*err == nil, postErr, fmt.Errorf("%s: prev error: %w", postErr, *err)).(error)
 		}
 
 		if *err != nil && threadID != "" {
-			*err = fmt.Errorf("%w: thread[%s]: %s", constants.ErrNonRetryable, threadID, *err)
+			*err = fmt.Errorf("thread[%s]: %s", threadID, *err)
 		}
 	}
 }

@@ -55,7 +55,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 	// Wait for all backfill processes to complete
 	return a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
-		a.GlobalConnGroup.Add(a.driver.MaxRetries(), func(gCtx context.Context) (err error) {
+		a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(gCtx context.Context) (err error) {
 			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 			stream := streams[index]
 			primaryCursor, secondaryCursor := stream.Cursor()

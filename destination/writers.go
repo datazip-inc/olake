@@ -201,7 +201,7 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
-			wt.group.Add(1, func(ctx context.Context) error {
+			wt.group.Add(func(ctx context.Context) error {
 				return wt.flush(ctx, buf)
 			})
 		}
@@ -253,7 +253,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context) error {
+func (wt *WriterThread) Close(ctx context.Context) (err error) {
 	select {
 	case <-ctx.Done():
 		err := wt.writer.Close(ctx)
@@ -263,21 +263,22 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 		return nil
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
+		defer func() {
+			wt.streamArtifact.mu.Lock()
+			defer wt.streamArtifact.mu.Unlock()
 
-		wt.group.Add(1, func(ctx context.Context) error {
+			closeErr := wt.writer.Close(ctx)
+			if closeErr != nil {
+				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: prev error: %w", closeErr, err)).(error)
+			}
+		}()
+
+		wt.group.Add(func(ctx context.Context) error {
 			return wt.flush(ctx, wt.buffer)
 		})
 
 		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
-		}
-
-		wt.streamArtifact.mu.Lock()
-		defer wt.streamArtifact.mu.Unlock()
-
-		err := wt.writer.Close(ctx)
-		if err != nil {
-			return fmt.Errorf("%w: %s", constants.ErrNonRetryable, err)
 		}
 		return nil
 	}

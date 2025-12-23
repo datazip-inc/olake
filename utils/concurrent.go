@@ -139,11 +139,17 @@ func (g *CxGroup) Ctx() context.Context {
 	return g.ctx
 }
 
-func (g *CxGroup) Add(retryCount int, execute func(ctx context.Context) error) {
+func (g *CxGroup) AddWithRetry(retryCount int, execute func(ctx context.Context) error) {
 	g.executor.Go(func() error {
 		return RetryOnBackoff(retryCount, 1*time.Minute, func(attempt int) error {
 			return execute(g.ctx)
 		})
+	})
+}
+
+func (g *CxGroup) Add(execute func(ctx context.Context) error) {
+	g.executor.Go(func() error {
+		return execute(g.ctx)
 	})
 }
 
@@ -158,7 +164,7 @@ func ConcurrentInGroup[T any](group *CxGroup, array []T, retryCount int, execute
 			break
 		default:
 			// schedule an execution
-			group.Add(retryCount, func(ctx context.Context) error {
+			group.AddWithRetry(retryCount, func(ctx context.Context) error {
 				return execute(ctx, idx, one)
 			})
 		}
