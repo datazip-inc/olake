@@ -139,6 +139,10 @@ public final class RecordIngest {
        * <code>REFRESH_TABLE_SCHEMA = 5;</code>
        */
       REFRESH_TABLE_SCHEMA(5),
+      /**
+       * <code>CHECK_THREAD_STATUS = 6;</code>
+       */
+      CHECK_THREAD_STATUS(6),
       UNRECOGNIZED(-1),
       ;
 
@@ -166,6 +170,10 @@ public final class RecordIngest {
        * <code>REFRESH_TABLE_SCHEMA = 5;</code>
        */
       public static final int REFRESH_TABLE_SCHEMA_VALUE = 5;
+      /**
+       * <code>CHECK_THREAD_STATUS = 6;</code>
+       */
+      public static final int CHECK_THREAD_STATUS_VALUE = 6;
 
 
       public final int getNumber() {
@@ -198,6 +206,7 @@ public final class RecordIngest {
           case 3: return DROP_TABLE;
           case 4: return GET_OR_CREATE_TABLE;
           case 5: return REFRESH_TABLE_SCHEMA;
+          case 6: return CHECK_THREAD_STATUS;
           default: return null;
         }
       }
@@ -10794,7 +10803,7 @@ java.lang.String defaultValue) {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\204\007\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\236\007\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
@@ -10813,40 +10822,41 @@ java.lang.String defaultValue) {
       " \001(\tH\000\022\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_valu" +
       "e\030\003 \001(\003H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014doub" +
       "le_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025" +
-      "\n\013bytes_value\030\007 \001(\014H\000B\007\n\005value\"|\n\013Payloa" +
-      "dType\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE" +
-      "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
-      "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
-      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\202\005\n\014ArrowPayload\022F\n\004type\030\001" +
-      " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
-      "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
-      "25.io.debezium.server.iceberg.rpc.ArrowP" +
-      "ayload.Metadata\032d\n\014FileMetadata\022\021\n\tfile_" +
-      "type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_" +
-      "count\030\003 \001(\003\022\030\n\020partition_values\030\005 \003(\t\032=\n" +
-      "\021FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\025\n" +
-      "\rpartition_key\030\002 \001(\t\032\362\001\n\010Metadata\022\027\n\017des" +
-      "t_table_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n" +
-      "\rfile_metadata\030\003 \003(\01329.io.debezium.serve" +
-      "r.iceberg.rpc.ArrowPayload.FileMetadata\022" +
-      "X\n\013file_upload\030\004 \001(\0132>.io.debezium.serve" +
-      "r.iceberg.rpc.ArrowPayload.FileUploadReq" +
-      "uestH\000\210\001\001B\016\n\014_file_upload\"G\n\013PayloadType" +
-      "\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT" +
-      "\020\001\022\016\n\nJSONSCHEMA\020\002\"\275\001\n\023ArrowIngestRespon" +
-      "se\022\016\n\006result\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003" +
-      "(\0132G.io.debezium.server.iceberg.rpc.Arro" +
-      "wIngestResponse.IcebergSchemasEntry\0325\n\023I" +
-      "cebergSchemasEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value" +
-      "\030\002 \001(\t:\0028\0012\212\001\n\023RecordIngestService\022s\n\013Se" +
-      "ndRecords\022..io.debezium.server.iceberg.r" +
-      "pc.IcebergPayload\0324.io.debezium.server.i" +
-      "ceberg.rpc.RecordIngestResponse2\205\001\n\022Arro" +
-      "wIngestService\022o\n\nIcebergAPI\022,.io.debezi" +
-      "um.server.iceberg.rpc.ArrowPayload\0323.io." +
-      "debezium.server.iceberg.rpc.ArrowIngestR" +
-      "esponseb\006proto3"
+      "\n\013bytes_value\030\007 \001(\014H\000B\007\n\005value\"\225\001\n\013Paylo" +
+      "adType\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLV" +
+      "E_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CRE" +
+      "ATE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\022\027\n" +
+      "\023CHECK_THREAD_STATUS\020\006\"7\n\024RecordIngestRe" +
+      "sponse\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\"" +
+      "\202\005\n\014ArrowPayload\022F\n\004type\030\001 \001(\01628.io.debe" +
+      "zium.server.iceberg.rpc.ArrowPayload.Pay" +
+      "loadType\022G\n\010metadata\030\002 \001(\01325.io.debezium" +
+      ".server.iceberg.rpc.ArrowPayload.Metadat" +
+      "a\032d\n\014FileMetadata\022\021\n\tfile_type\030\001 \001(\t\022\021\n\t" +
+      "file_path\030\002 \001(\t\022\024\n\014record_count\030\003 \001(\003\022\030\n" +
+      "\020partition_values\030\005 \003(\t\032=\n\021FileUploadReq" +
+      "uest\022\021\n\tfile_data\030\001 \001(\014\022\025\n\rpartition_key" +
+      "\030\002 \001(\t\032\362\001\n\010Metadata\022\027\n\017dest_table_name\030\001" +
+      " \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile_metadata" +
+      "\030\003 \003(\01329.io.debezium.server.iceberg.rpc." +
+      "ArrowPayload.FileMetadata\022X\n\013file_upload" +
+      "\030\004 \001(\0132>.io.debezium.server.iceberg.rpc." +
+      "ArrowPayload.FileUploadRequestH\000\210\001\001B\016\n\014_" +
+      "file_upload\"G\n\013PayloadType\022\017\n\013UPLOAD_FIL" +
+      "E\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001\022\016\n\nJSONSCHE" +
+      "MA\020\002\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030\001" +
+      " \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debezi" +
+      "um.server.iceberg.rpc.ArrowIngestRespons" +
+      "e.IcebergSchemasEntry\0325\n\023IcebergSchemasE" +
+      "ntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n" +
+      "\023RecordIngestService\022s\n\013SendRecords\022..io" +
+      ".debezium.server.iceberg.rpc.IcebergPayl" +
+      "oad\0324.io.debezium.server.iceberg.rpc.Rec" +
+      "ordIngestResponse2\205\001\n\022ArrowIngestService" +
+      "\022o\n\nIcebergAPI\022,.io.debezium.server.iceb" +
+      "erg.rpc.ArrowPayload\0323.io.debezium.serve" +
+      "r.iceberg.rpc.ArrowIngestResponseb\006proto" +
+      "3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,

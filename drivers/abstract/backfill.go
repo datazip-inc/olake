@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"time"
@@ -40,12 +41,14 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
-		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
+		keys := fmt.Sprintf("%v%v", chunk.Min, chunk.Max)
+		hash := sha256.Sum256([]byte(keys))
+		threadID := fmt.Sprintf("%s_%x", stream.ID(), hash)
 		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
-		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
+
 		defer func() {
 			// wait for chunk completion
 			if writerErr := inserter.Close(ctx); writerErr != nil {
@@ -67,6 +70,22 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 				err = fmt.Errorf("thread[%s]: %s", threadID, err)
 			}
 		}()
+
+		// Check status if chunk was in preparing state
+		if chunk.Status == "preparing" {
+			committed, err := inserter.IsThreadCommitted(ctx, threadID)
+			if err != nil {
+				return fmt.Errorf("failed to check commit status: %s", err)
+			}
+			if committed {
+				logger.Infof("Thread[%s]: chunk min[%s] max[%s] already committed, skipping", threadID, chunk.Min, chunk.Max)
+				return nil
+			}
+		}
+
+		// Set status to preparing
+		a.state.UpdateChunkStatusToPreparing(stream.Self(), &chunk)
+		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
 			return a.driver.ChunkIterator(ctx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 				olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)

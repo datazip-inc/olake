@@ -624,6 +624,32 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
 }
 
+func (i *Iceberg) ThreadStatus(ctx context.Context, threadID string) (bool, error) {
+	if i.server == nil {
+		return false, fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := &proto.IcebergPayload{
+		Type: proto.IcebergPayload_CHECK_THREAD_STATUS,
+		Metadata: &proto.IcebergPayload_Metadata{
+			ThreadId:      threadID,
+			DestTableName: i.stream.GetDestinationTable(),
+		},
+	}
+
+	res, err := i.server.SendClientRequest(ctx, request)
+	if err != nil {
+		return false, err
+	}
+
+	ingestResponse, ok := res.(*proto.RecordIngestResponse)
+	if !ok {
+		return false, fmt.Errorf("unexpected response type: %T", res)
+	}
+
+	return ingestResponse.GetResult() == "true", nil
+}
+
 func init() {
 	destination.RegisteredWriters[types.Iceberg] = func() destination.Writer {
 		return new(Iceberg)

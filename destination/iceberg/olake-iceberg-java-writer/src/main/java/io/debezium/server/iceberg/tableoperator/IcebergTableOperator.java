@@ -143,18 +143,30 @@ public class IcebergTableOperator {
         // Check if any WriteResult has delete files
         boolean hasDeleteFiles = totalDeleteFiles > 0;
 
+        // Create a single transaction to bundle property update + data commit
+        org.apache.iceberg.Transaction transaction = table.newTransaction();
+
+        // 1. Stage Property Update
+        transaction.updateProperties()
+            .set(threadId, "committed")
+            .commit();
+
+        // 2. Stage Data Commit
         if (hasDeleteFiles) {
-          RowDelta rowDelta = table.newRowDelta();
+          RowDelta rowDelta = transaction.newRowDelta();
           // Add all data and delete files from all WriteResults
           dataFiles.forEach(rowDelta::addRows);
           deleteFiles.forEach(rowDelta::addDeletes);
           rowDelta.commit();
         } else {
-          AppendFiles appendFiles = table.newAppend();
+          AppendFiles appendFiles = transaction.newAppend();
           // Add all data files from all WriteResults
           dataFiles.forEach(appendFiles::appendFile);
           appendFiles.commit();
         }
+
+        // 3. Final Commit to Catalog (Creates ONE metadata file)
+        transaction.commitTransaction();
 
         LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
             totalDataFiles, totalDeleteFiles, threadId);
