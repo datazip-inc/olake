@@ -233,10 +233,6 @@ func generateThreadID(streamID string) string {
 // The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
 func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, postProcess func(ctx context.Context) error) func() {
 	return func() {
-		if cancel == nil {
-			*err = fmt.Errorf("%w: cancel is nil, prev error: %w", constants.ErrNonRetryable, *err)
-			return
-		}
 		// Cancel context if there's an error, so other threads using this context can detect the failure
 		if *err != nil {
 			cancel()
@@ -268,7 +264,7 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 
 		// check for panics before post-processing
 		if r := recover(); r != nil {
-			*err = utils.Ternary(*err == nil, fmt.Errorf("%w: panic recovered: %v", constants.ErrNonRetryable, r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
+			*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
 		}
 
 		postErr := postProcess(ctx)

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -258,7 +257,7 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 	case <-ctx.Done():
 		err := wt.writer.Close(ctx)
 		if err != nil {
-			return fmt.Errorf("%w: %s", constants.ErrNonRetryable, err)
+			return fmt.Errorf("failed to close writer: %s", err)
 		}
 		return nil
 	default:
@@ -269,7 +268,7 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 
 			closeErr := wt.writer.Close(ctx)
 			if closeErr != nil {
-				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: prev error: %w", closeErr, err)).(error)
+				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}
 		}()
 

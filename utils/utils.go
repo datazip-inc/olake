@@ -439,10 +439,15 @@ func SplitAndTrim(s string) []string {
 }
 
 // RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
-func RetryOnBackoff(attempts int, sleep time.Duration, f func(attempt int) error) (err error) {
+func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
 	for cur := range attempts {
-		if err = f(cur); err == nil {
-			return nil
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if err = f(ctx); err == nil {
+				return nil
+			}
 		}
 
 		// check if error is non retryable

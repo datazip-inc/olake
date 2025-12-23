@@ -141,9 +141,7 @@ func (g *CxGroup) Ctx() context.Context {
 
 func (g *CxGroup) AddWithRetry(retryCount int, execute func(ctx context.Context) error) {
 	g.executor.Go(func() error {
-		return RetryOnBackoff(retryCount, 1*time.Minute, func(attempt int) error {
-			return execute(g.ctx)
-		})
+		return RetryOnBackoff(g.ctx, retryCount, 1*time.Minute, execute)
 	})
 }
 

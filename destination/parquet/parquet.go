@@ -408,7 +408,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
-func (p *Parquet) EvolveSchema(ctx context.Context, _, _ any) (any, error) {
+func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, nil
 	}
