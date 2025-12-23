@@ -8,6 +8,8 @@ function fail() {
 
 joined_arguments=""
 
+
+
 # Function to check and build the Java JAR file for iceberg if needed
 function check_and_build_jar() {
     local connector="$1"
@@ -92,6 +94,7 @@ function build_and_run() {
     if [[ "$using_iceberg" == true ]]; then
         check_and_build_jar "iceberg"
     fi
+
 
     cd $path || fail "Failed to navigate to path: $path"
     
