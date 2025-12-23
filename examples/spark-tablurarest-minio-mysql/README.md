@@ -8,33 +8,36 @@ This example demonstrates an end-to-end data lakehouse pipeline:
 * [Docker](https://docs.docker.com/get-docker/) installed and running (Docker Desktop recommended for Mac/Windows)
 * [Docker Compose](https://docs.docker.com/compose/) (comes with Docker Desktop)
 * **Port Availability:** The following ports must be available on your system:
-   - **8000** - OLake UI
+   - **8000** - OLake UI (from separate stack)
    - **8088** - Spark UI
    - **8888** - Jupyter Notebook (Spark)
    - **3306** - MySQL database
    - **8181** - Iceberg REST catalog API
-   - **8443** - MinIO console UI
-   - **9090** - MinIO server API
+   - **9000** - MinIO server API
+   - **9091** - MinIO console UI
 
 **Note:** If any of these ports are in use, stop the conflicting services or modify the port mappings in the docker-compose.yml file.
 
 ## Quick Start
 
-### 1. Start the Demo Stack
+### 1. Start OLake Tech Stack
 
 ```bash
-# Navigate to this example directory
-cd examples/spark-tablurarest-minio-mysql
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
+```
 
-# Start all services
+### 2. Start the Demo Stack
+
+```bash
+cd examples/spark-tablurarest-minio-mysql
+```
+```bash
 docker compose up -d
 ```
 
-### 2. Accessing Services
+### 3. Accessing Services
 
-1. **Log in** to the OLake UI at [http://localhost:8000](http://localhost:8000) with credentials `admin`/`password`.
-
-2. **Verify Source Data:**
+1. **Verify Source Data:**
    - Access the MySQL CLI:
      ```bash
      docker exec -it primary_mysql mysql -u root -ppassword
@@ -45,9 +48,11 @@ docker compose up -d
      SELECT * FROM weather LIMIT 10;
      ```
 
+2. **Log in** to the OLake UI at [http://localhost:8000](http://localhost:8000) with credentials `admin`/`password`.
+
 3. **Create and Configure a Job:**
    Create a Job to define and run the data pipeline:
-   * On the main page, click on the **"Create your first Job"** button. Please make sure to **set the job name** as `job` and select a replication frequency.
+   * On the main page, click on the **"Create your first Job"** button.
 
    * **Set up the Source:**
        * **Connector:** `MySQL`
@@ -67,7 +72,7 @@ docker compose up -d
        * **Name of your destination:** `olake_iceberg`
        * **Version:** choose the latest available version
        * **Iceberg REST Catalog URI:** `http://host.docker.internal:8181`
-       * **Iceberg S3 Path:** `s3://warehouse/weather/`
+       * **Iceberg S3 Path:** `s3://warehouse/weather`
        * **S3 Endpoint (for Iceberg data files written by OLake workers):** `http://host.docker.internal:9000`
        * **AWS Region:** `us-east-1`
        * **S3 Access Key:** `minio`
@@ -92,15 +97,23 @@ docker compose up -d
 
 2. **Run Queries:**
    ```sql
+   SHOW CATALOGS;
+   ```
+   You will see the `demo` catalog available.
+
+   ```sql
    SHOW NAMESPACES IN demo;
    ```
-   Check for the namespace: `{job}_weather`, this is created by OLake
+   You will be able to see the namespace created for your table as `{job_name}_weather`
+
+   Now check the tables available in the namespace:
    ```sql
-   SHOW TABLES IN demo.{job}_weather;
+   SHOW TABLES IN {job_name}_weather;
    ```
+
    Now, query the iceberg table
    ```sql
-   SELECT * FROM demo.{job}_weather.weather LIMIT 10;
+   SELECT * FROM demo.{job_name}_weather.weather LIMIT 10;
    ```
 
 #### Option 2: Using Jupyter Notebook
@@ -111,60 +124,29 @@ docker compose up -d
 
    ```python
    %%sql
+   SHOW CATALOGS;
+   ```
+
+   ```python
+   %%sql
    SHOW NAMESPACES IN demo;
    ```
 
    ```python
    %%sql
-   SHOW TABLES IN demo.{job}_weather;
+   SHOW TABLES IN {job_name}_weather;
    ```
 
    ```python
    %%sql
-   SELECT * FROM iceberg.{job}_weather.weather LIMIT 10;
+   SELECT * FROM demo.{job_name}_weather.weather LIMIT 10;
    ```
-
-## Troubleshooting
-
-### View Logs
-```bash
-# All services
-docker compose logs -f
-
-# Specific service
-docker compose logs -f spark
-```
-
-### Check Service Status
-```bash
-docker compose ps
-```
-
-### Verify Data Load
-```bash
-# Connect to MySQL
-docker exec -it primary_mysql mysql -u root -ppassword weather
-
-# Check weather table
-SELECT COUNT(*) FROM weather;
-SELECT * FROM weather LIMIT 5;
-```
-
-### Test Spark Connection
-```bash
-# Check if Spark can see Iceberg tables
-docker exec -it olake-spark /opt/spark/bin/spark-sql \
-  --conf spark.sql.catalog.iceberg=org.apache.iceberg.spark.SparkCatalog \
-  --conf spark.sql.catalog.iceberg.type=rest \
-  --conf spark.sql.catalog.iceberg.uri=http://rest:8181 \
-  -e "SHOW TABLES IN iceberg.job_weather;"
-```
 
 ### Common Issues
 
 **Spark can't connect to Iceberg:**
 - Ensure the data pipeline in OLake has run successfully
-- Check that MinIO bucket contains data: `http://localhost:8443`
+- Check that MinIO bucket contains data: `http://localhost:9091` (credentials: minio/minio123)
 - Verify Iceberg REST catalog is responding: `http://localhost:8181/v1/namespaces`
 
 **MySQL connection issues:**
@@ -199,9 +181,9 @@ docker exec -it olake-spark /opt/spark/bin/spark-sql \
 ## Cleanup
 
 ```bash
-# Stop this example
-docker compose down
+# Stop and remove all data
+docker compose down -v
 
-# Stop base OLake stack
+# Stop base OLake stack (if running separately)
 curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - down
 ```
