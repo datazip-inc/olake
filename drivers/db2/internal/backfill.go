@@ -95,9 +95,12 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		avgRowSizeQuery := jdbc.DB2AvgRowSizeQuery(stream)
 		err := d.client.QueryRowContext(ctx, avgRowSizeQuery).Scan(&avgRowSize)
 		if err != nil {
-			logger.Errorf("Failed to get avg row size for stream %s", stream.ID(), err)
+			return nil, fmt.Errorf("failed to get avg row size: %s", err)
 		}
 		avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert avg row size to float: %s", err)
+		}
 
 		// chunk size
 		chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))

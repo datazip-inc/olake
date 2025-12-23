@@ -17,6 +17,7 @@ type Config struct {
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
+	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 }
 
 func (c *Config) BuildDSN() string {
