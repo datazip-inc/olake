@@ -238,7 +238,7 @@ const IcebergUISchema = `{
       { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12 }
+      { "aws_region": 12, "arrow_writes": 12 }
     ],
     "no_identifier_fields": {
       "ui:widget": "boolean"
@@ -253,6 +253,9 @@ const IcebergUISchema = `{
       "ui:widget": "boolean"
     },
     "s3_path_style": {
+      "ui:widget": "boolean"
+    },
+    "arrow_writes": {
       "ui:widget": "boolean"
     },
     "catalog_type": {
