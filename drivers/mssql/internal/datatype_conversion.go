@@ -11,10 +11,8 @@ var mssqlTypeToDataTypes = map[string]types.DataType{
 	"bigint":   types.Int64,
 
 	// Exact numeric
-	"decimal":    types.Float64,
-	"numeric":    types.Float64,
-	"smallmoney": types.Float64,
-	"money":      types.Float64,
+	"decimal": types.Float64,
+	"numeric": types.Float64,
 
 	// Approximate numeric
 	"float": types.Float64,
@@ -22,6 +20,10 @@ var mssqlTypeToDataTypes = map[string]types.DataType{
 
 	// Bit / boolean-like
 	"bit": types.Bool,
+
+	// Money types
+	"smallmoney": types.String,
+	"money":      types.String,
 
 	// Character strings
 	"char":     types.String,
