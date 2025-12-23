@@ -93,21 +93,23 @@ func (d *DB2) MaxRetries() int {
 func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for DB2 database %s", d.config.Database)
 
-	var tables []struct {
-		Schema string `db:"TABLE_SCHEMA"`
-		Name   string `db:"TABLE_NAME"`
-	}
-
-	if err := d.client.SelectContext(ctx, &tables, jdbc.DB2DiscoveryQuery()); err != nil {
+	rows, err := d.client.QueryContext(ctx, jdbc.DB2DiscoveryQuery())
+	if err != nil {
 		return nil, fmt.Errorf("failed to list tables: %w", err)
 	}
+	defer rows.Close()
 
-	streamNames := make([]string, 0, len(tables))
-	for _, t := range tables {
-		streamNames = append(
-			streamNames,
-			fmt.Sprintf("%s.%s", t.Schema, t.Name),
-		)
+	var streamNames []string
+	for rows.Next() {
+		var schema, name string
+		if err := rows.Scan(&schema, &name); err != nil {
+			return nil, fmt.Errorf("failed to scan table row: %w", err)
+		}
+		streamNames = append(streamNames, fmt.Sprintf("%s.%s", schema, name))
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over table rows: %w", err)
 	}
 
 	return streamNames, nil

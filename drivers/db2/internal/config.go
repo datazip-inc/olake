@@ -37,7 +37,7 @@ func (c *Config) BuildDSN() string {
 	}
 
 	// SSL if enabled
-	if c.SSLConfiguration != nil && c.SSLConfiguration.Mode != "disable" {
+	if c.SSLConfiguration != nil && c.SSLConfiguration.Mode != utils.SSLModeDisable {
 		dsn += ";SECURITY=SSL"
 		// TODO: Add support for more SSL params
 	}
