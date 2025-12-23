@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -304,21 +303,17 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 		tlsConfig.InsecureSkipVerify = k.config.Protocol.SSL.SkipVerify
 
 		// Load CA certificate if provided
-		if k.config.Protocol.SSL.CAPath != "" {
-			caCert, err := os.ReadFile(k.config.Protocol.SSL.CAPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read CA certificate: %w", err)
-			}
+		if k.config.Protocol.SSL.ServerCA != "" {
 			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM(caCert) {
+			if !caCertPool.AppendCertsFromPEM([]byte(k.config.Protocol.SSL.ServerCA)) {
 				return nil, fmt.Errorf("failed to parse CA certificate")
 			}
 			tlsConfig.RootCAs = caCertPool
 		}
 
 		// Load client certificate and key for mTLS
-		if k.config.Protocol.SSL.CertPath != "" && k.config.Protocol.SSL.KeyPath != "" {
-			cert, err := tls.LoadX509KeyPair(k.config.Protocol.SSL.CertPath, k.config.Protocol.SSL.KeyPath)
+		if k.config.Protocol.SSL.ClientCert != "" && k.config.Protocol.SSL.ClientKey != "" {
+			cert, err := tls.X509KeyPair([]byte(k.config.Protocol.SSL.ClientCert), []byte(k.config.Protocol.SSL.ClientKey))
 			if err != nil {
 				return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
 			}

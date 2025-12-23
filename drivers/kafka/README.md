@@ -40,9 +40,9 @@ Add Kafka credentials in following format in `source.json` file. To check more a
         "protocol": {
             "security_protocol": "SSL",
             "ssl": {
-                "ca_cert_path": "/path/to/ca-cert.pem",
-                "client_cert_path": "/path/to/client-cert.pem",
-                "client_key_path": "/path/to/client-key.pem",
+                "server_ca": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                "client_cert": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                "client_key": "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
                 "skip_verify": false
             }
         }
@@ -99,9 +99,9 @@ Add Kafka credentials in following format in `source.json` file. To check more a
                 "sasl_mechanism": "PLAIN",
                 "sasl_jaas_config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"TEST-USER\" password=\"TEST-PASS\";",
                 "ssl": {
-                    "ca_cert_path": "/path/to/ca-cert.pem",
-                    "client_cert_path": "/path/to/client-cert.pem",
-                    "client_key_path": "/path/to/client-key.pem"
+                    "server_ca": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                    "client_cert": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                    "client_key": "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----"
                 }
             },
             ```
@@ -110,12 +110,12 @@ Add Kafka credentials in following format in `source.json` file. To check more a
 The `ssl` configuration object supports the following optional fields:
 | Field | Description |
 |-------|-------------|
-| `ca_cert_path` | Path to CA certificate file for server verification |
-| `client_cert_path` | Path to client certificate file (for mTLS) |
-| `client_key_path` | Path to client private key file (for mTLS) |
+| `server_ca` | CA certificate content in PEM format for server verification (not a file path) |
+| `client_cert` | Client certificate content in PEM format for mTLS (not a file path) |
+| `client_key` | Client private key content in PEM format for mTLS (not a file path) |
 | `skip_verify` | Skip server certificate verification (not recommended for production) |
 
-> **Note:** For AWS MSK with IAM authentication or managed certificates, you can omit the `ssl` object entirely - the driver will use system CA certificates.
+> **Note:** All certificate fields accept the actual certificate/key content in PEM format, not file paths. For AWS MSK with IAM authentication or managed certificates, you can omit the `ssl` object entirely - the driver will use system CA certificates.
 
 ## Commands
 ### Discover Command

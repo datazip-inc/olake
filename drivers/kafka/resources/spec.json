@@ -81,20 +81,23 @@
                             "title": "SSL Configuration",
                             "description": "SSL/TLS certificate configuration (optional for AWS MSK)",
                             "properties": {
-                                "ca_cert_path": {
+                                "server_ca": {
                                     "type": "string",
-                                    "title": "CA Certificate Path",
-                                    "description": "Path to CA certificate file"
+                                    "title": "CA Certificate",
+                                    "description": "CA certificate content in PEM format",
+                                    "multiline": true
                                 },
-                                "client_cert_path": {
+                                "client_cert": {
                                     "type": "string",
-                                    "title": "Client Certificate Path",
-                                    "description": "Path to client certificate file for mTLS authentication"
+                                    "title": "Client Certificate",
+                                    "description": "Client certificate content for mTLS authentication in PEM format",
+                                    "multiline": true
                                 },
-                                "client_key_path": {
+                                "client_key": {
                                     "type": "string",
-                                    "title": "Client Key Path",
-                                    "description": "Path to client private key file for mTLS authentication"
+                                    "title": "Client Key",
+                                    "description": "Client private key content for mTLS authentication in PEM format",
+                                    "multiline": true
                                 },
                                 "skip_verify": {
                                     "type": "boolean",
@@ -123,20 +126,23 @@
                             "title": "SSL Configuration",
                             "description": "SSL/TLS certificate configuration (all fields optional for AWS MSK)",
                             "properties": {
-                                "ca_cert_path": {
+                                "server_ca": {
                                     "type": "string",
-                                    "title": "CA Certificate Path",
-                                    "description": "Path to CA certificate file"
+                                    "title": "CA Certificate",
+                                    "description": "CA certificate content in PEM format",
+                                    "multiline": true
                                 },
-                                "client_cert_path": {
+                                "client_cert": {
                                     "type": "string",
-                                    "title": "Client Certificate Path",
-                                    "description": "Path to client certificate file for mTLS authentication"
+                                    "title": "Client Certificate",
+                                    "description": "Client certificate content for mTLS authentication in PEM format",
+                                    "multiline": true
                                 },
-                                "client_key_path": {
+                                "client_key": {
                                     "type": "string",
-                                    "title": "Client Key Path",
-                                    "description": "Path to client private key file for mTLS authentication"
+                                    "title": "Client Key",
+                                    "description": "Client private key content for mTLS authentication in PEM format",
+                                    "multiline": true
                                 },
                                 "skip_verify": {
                                     "type": "boolean",

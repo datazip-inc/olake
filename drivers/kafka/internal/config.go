@@ -26,10 +26,10 @@ type ProtocolConfig struct {
 
 // SSLConfig holds SSL/TLS certificate configuration for Kafka connections
 type SSLConfig struct {
-	CAPath     string `json:"ca_cert_path,omitempty"`     
-	CertPath   string `json:"client_cert_path,omitempty"` 
-	KeyPath    string `json:"client_key_path,omitempty"`  
-	SkipVerify bool   `json:"skip_verify,omitempty"`      
+	ServerCA   string `json:"server_ca,omitempty"`   
+	ClientCert string `json:"client_cert,omitempty"` 
+	ClientKey  string `json:"client_key,omitempty"`  
+	SkipVerify bool   `json:"skip_verify,omitempty"` 
 }
 
 func (c *Config) Validate() error {
@@ -51,9 +51,9 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Protocol.SSL != nil {
-		if (c.Protocol.SSL.CertPath != "" && c.Protocol.SSL.KeyPath == "") ||
-			(c.Protocol.SSL.CertPath == "" && c.Protocol.SSL.KeyPath != "") {
-			return fmt.Errorf("both client_cert_path and client_key_path must be provided together for mTLS")
+		if (c.Protocol.SSL.ClientCert != "" && c.Protocol.SSL.ClientKey == "") ||
+			(c.Protocol.SSL.ClientCert == "" && c.Protocol.SSL.ClientKey != "") {
+			return fmt.Errorf("both client_cert and client_key must be provided together for mTLS")
 		}
 	}
 
