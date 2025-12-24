@@ -2,10 +2,7 @@ name: Integration Tests
 on:
   push:
     branches:
-      - "master"
-    paths:
-      - '**/*.go'
-      - '**/*.java'
+      - "*"
   pull_request:
     branches:
       - "*"
