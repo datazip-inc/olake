@@ -1,0 +1,15 @@
+{
+    "host": "host.docker.internal",
+    "port": 1433,
+    "database": "olake_mssql_test",
+    "username": "sa",
+    "password": "Password!123",
+    "ssl": {
+        "mode": "disable"
+    },
+    "update_method": {
+        "initial_wait_time": 120
+    },
+    "max_threads": 10,
+    "retry_count": 3
+}

@@ -1,0 +1,1288 @@
+{
+    "selected_streams": {
+        "cdc": [
+            {
+                "partition_regex": "",
+                "stream_name": "index_columns",
+                "normalization": true
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "lsn_time_mapping",
+                "normalization": true
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "change_tables",
+                "normalization": true
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "captured_columns",
+                "normalization": true
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "dbo_mssql_test_table_olake_CT",
+                "normalization": true
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "ddl_history",
+                "normalization": true
+            }
+        ],
+        "dbo": [
+            {
+                "partition_regex": "",
+                "stream_name": "systranschemas",
+                "normalization": true
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "mssql_test_table_olake",
+                "normalization": true
+            }
+        ]
+    },
+    "streams": [
+        {
+            "stream": {
+                "name": "systranschemas",
+                "namespace": "dbo",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "null",
+                                "timestamp_micro"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "null",
+                                "string"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "endlsn": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "endlsn"
+                        },
+                        "startlsn": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "startlsn"
+                        },
+                        "tabid": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "tabid"
+                        },
+                        "typeid": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "typeid"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "incremental",
+                    "cdc",
+                    "strict_cdc",
+                    "full_refresh"
+                ],
+                "source_defined_primary_key": [],
+                "available_cursor_fields": [
+                    "startlsn",
+                    "endlsn",
+                    "typeid",
+                    "tabid"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:dbo",
+                "destination_table": "systranschemas"
+            }
+        },
+        {
+            "stream": {
+                "name": "index_columns",
+                "namespace": "cdc",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "column_id": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "column_id"
+                        },
+                        "column_name": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "column_name"
+                        },
+                        "index_ordinal": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "index_ordinal"
+                        },
+                        "object_id": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "object_id"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "cdc",
+                    "strict_cdc",
+                    "full_refresh",
+                    "incremental"
+                ],
+                "source_defined_primary_key": [
+                    "object_id",
+                    "index_ordinal",
+                    "column_id"
+                ],
+                "available_cursor_fields": [
+                    "column_id",
+                    "object_id",
+                    "column_name",
+                    "index_ordinal"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:cdc",
+                "destination_table": "index_columns"
+            }
+        },
+        {
+            "stream": {
+                "name": "lsn_time_mapping",
+                "namespace": "cdc",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "start_lsn": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "start_lsn"
+                        },
+                        "tran_begin_lsn": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "tran_begin_lsn"
+                        },
+                        "tran_begin_time": {
+                            "type": [
+                                "timestamp",
+                                "null"
+                            ],
+                            "destination_column_name": "tran_begin_time"
+                        },
+                        "tran_end_time": {
+                            "type": [
+                                "timestamp",
+                                "null"
+                            ],
+                            "destination_column_name": "tran_end_time"
+                        },
+                        "tran_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "tran_id"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental",
+                    "cdc",
+                    "strict_cdc"
+                ],
+                "source_defined_primary_key": [
+                    "start_lsn"
+                ],
+                "available_cursor_fields": [
+                    "start_lsn",
+                    "tran_begin_time",
+                    "tran_end_time",
+                    "tran_id",
+                    "tran_begin_lsn"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:cdc",
+                "destination_table": "lsn_time_mapping"
+            }
+        },
+        {
+            "stream": {
+                "name": "change_tables",
+                "namespace": "cdc",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "capture_instance": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "capture_instance"
+                        },
+                        "create_date": {
+                            "type": [
+                                "timestamp",
+                                "null"
+                            ],
+                            "destination_column_name": "create_date"
+                        },
+                        "end_lsn": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "end_lsn"
+                        },
+                        "filegroup_name": {
+                            "type": [
+                                "null",
+                                "string"
+                            ],
+                            "destination_column_name": "filegroup_name"
+                        },
+                        "has_drop_pending": {
+                            "type": [
+                                "boolean",
+                                "null"
+                            ],
+                            "destination_column_name": "has_drop_pending"
+                        },
+                        "index_name": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "index_name"
+                        },
+                        "object_id": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "object_id"
+                        },
+                        "partition_switch": {
+                            "type": [
+                                "boolean"
+                            ],
+                            "destination_column_name": "partition_switch"
+                        },
+                        "role_name": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "role_name"
+                        },
+                        "source_object_id": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "source_object_id"
+                        },
+                        "start_lsn": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "start_lsn"
+                        },
+                        "supports_net_changes": {
+                            "type": [
+                                "boolean",
+                                "null"
+                            ],
+                            "destination_column_name": "supports_net_changes"
+                        },
+                        "version": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "version"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental",
+                    "cdc",
+                    "strict_cdc"
+                ],
+                "source_defined_primary_key": [
+                    "object_id"
+                ],
+                "available_cursor_fields": [
+                    "version",
+                    "end_lsn",
+                    "supports_net_changes",
+                    "has_drop_pending",
+                    "role_name",
+                    "create_date",
+                    "object_id",
+                    "source_object_id",
+                    "capture_instance",
+                    "start_lsn",
+                    "index_name",
+                    "filegroup_name",
+                    "partition_switch"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:cdc",
+                "destination_table": "change_tables"
+            }
+        },
+        {
+            "stream": {
+                "name": "captured_columns",
+                "namespace": "cdc",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "column_id": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "column_id"
+                        },
+                        "column_name": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "column_name"
+                        },
+                        "column_ordinal": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "column_ordinal"
+                        },
+                        "column_type": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "column_type"
+                        },
+                        "is_computed": {
+                            "type": [
+                                "boolean",
+                                "null"
+                            ],
+                            "destination_column_name": "is_computed"
+                        },
+                        "masking_function": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "masking_function"
+                        },
+                        "object_id": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "object_id"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental",
+                    "cdc",
+                    "strict_cdc"
+                ],
+                "source_defined_primary_key": [
+                    "object_id",
+                    "column_ordinal"
+                ],
+                "available_cursor_fields": [
+                    "object_id",
+                    "column_name",
+                    "column_id",
+                    "column_type",
+                    "column_ordinal",
+                    "is_computed",
+                    "masking_function"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:cdc",
+                "destination_table": "captured_columns"
+            }
+        },
+        {
+            "stream": {
+                "name": "dbo_mssql_test_table_olake_CT",
+                "namespace": "cdc",
+                "type_schema": {
+                    "properties": {
+                        "__$command_id": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "___command_id"
+                        },
+                        "__$end_lsn": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "___end_lsn"
+                        },
+                        "__$operation": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "___operation"
+                        },
+                        "__$seqval": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "___seqval"
+                        },
+                        "__$start_lsn": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "___start_lsn"
+                        },
+                        "__$update_mask": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "___update_mask"
+                        },
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "col_bigint": {
+                            "type": [
+                                "integer",
+                                "null"
+                            ],
+                            "destination_column_name": "col_bigint"
+                        },
+                        "col_binary": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_binary"
+                        },
+                        "col_bit": {
+                            "type": [
+                                "boolean",
+                                "null"
+                            ],
+                            "destination_column_name": "col_bit"
+                        },
+                        "col_char": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_char"
+                        },
+                        "col_date": {
+                            "type": [
+                                "timestamp",
+                                "null"
+                            ],
+                            "destination_column_name": "col_date"
+                        },
+                        "col_datetime": {
+                            "type": [
+                                "timestamp",
+                                "null"
+                            ],
+                            "destination_column_name": "col_datetime"
+                        },
+                        "col_datetime2": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "col_datetime2"
+                        },
+                        "col_datetime2_nullable": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "col_datetime2_nullable"
+                        },
+                        "col_datetimeoffset": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "col_datetimeoffset"
+                        },
+                        "col_decimal": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "destination_column_name": "col_decimal"
+                        },
+                        "col_float": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "destination_column_name": "col_float"
+                        },
+                        "col_int": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "col_int"
+                        },
+                        "col_int_nullable": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "col_int_nullable"
+                        },
+                        "col_money": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_money"
+                        },
+                        "col_nchar": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_nchar"
+                        },
+                        "col_ntext": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_ntext"
+                        },
+                        "col_numeric": {
+                            "type": [
+                                "number",
+                                "null"
+                            ],
+                            "destination_column_name": "col_numeric"
+                        },
+                        "col_nvarchar": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_nvarchar"
+                        },
+                        "col_real": {
+                            "type": [
+                                "number_small",
+                                "null"
+                            ],
+                            "destination_column_name": "col_real"
+                        },
+                        "col_smalldatetime": {
+                            "type": [
+                                "timestamp",
+                                "null"
+                            ],
+                            "destination_column_name": "col_smalldatetime"
+                        },
+                        "col_smallint": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "col_smallint"
+                        },
+                        "col_smallmoney": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_smallmoney"
+                        },
+                        "col_text": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_text"
+                        },
+                        "col_time": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_time"
+                        },
+                        "col_tinyint": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "col_tinyint"
+                        },
+                        "col_uniqueidentifier": {
+                            "type": [
+                                "null",
+                                "string"
+                            ],
+                            "destination_column_name": "col_uniqueidentifier"
+                        },
+                        "col_varbinary": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_varbinary"
+                        },
+                        "col_varchar": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "col_varchar"
+                        },
+                        "col_varchar_nullable": {
+                            "type": [
+                                "null",
+                                "string"
+                            ],
+                            "destination_column_name": "col_varchar_nullable"
+                        },
+                        "created_at": {
+                            "type": [
+                                "null",
+                                "timestamp_micro"
+                            ],
+                            "destination_column_name": "created_at"
+                        },
+                        "id": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "id"
+                        },
+                        "id_cursor": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "id_cursor"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental",
+                    "cdc",
+                    "strict_cdc"
+                ],
+                "source_defined_primary_key": [],
+                "available_cursor_fields": [
+                    "col_char",
+                    "col_nvarchar",
+                    "col_smalldatetime",
+                    "col_time",
+                    "created_at",
+                    "col_numeric",
+                    "__$operation",
+                    "col_int",
+                    "col_bigint",
+                    "col_money",
+                    "col_bit",
+                    "col_uniqueidentifier",
+                    "id",
+                    "col_smallint",
+                    "col_smallmoney",
+                    "col_text",
+                    "col_nchar",
+                    "__$update_mask",
+                    "id_cursor",
+                    "col_tinyint",
+                    "col_real",
+                    "col_varchar",
+                    "col_ntext",
+                    "col_datetimeoffset",
+                    "__$seqval",
+                    "col_decimal",
+                    "col_date",
+                    "col_datetime2",
+                    "col_int_nullable",
+                    "__$start_lsn",
+                    "__$end_lsn",
+                    "col_float",
+                    "col_varbinary",
+                    "col_varchar_nullable",
+                    "__$command_id",
+                    "col_binary",
+                    "col_datetime",
+                    "col_datetime2_nullable"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:cdc",
+                "destination_table": "dbo_mssql_test_table_olake_ct"
+            }
+        },
+        {
+            "stream": {
+                "name": "mssql_test_table_olake",
+                "namespace": "dbo",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "null",
+                                "string"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "col_bigint": {
+                            "type": [
+                                "integer"
+                            ],
+                            "destination_column_name": "col_bigint"
+                        },
+                        "col_binary": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_binary"
+                        },
+                        "col_bit": {
+                            "type": [
+                                "boolean"
+                            ],
+                            "destination_column_name": "col_bit"
+                        },
+                        "col_char": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_char"
+                        },
+                        "col_date": {
+                            "type": [
+                                "timestamp"
+                            ],
+                            "destination_column_name": "col_date"
+                        },
+                        "col_datetime": {
+                            "type": [
+                                "timestamp"
+                            ],
+                            "destination_column_name": "col_datetime"
+                        },
+                        "col_datetime2": {
+                            "type": [
+                                "timestamp_micro"
+                            ],
+                            "destination_column_name": "col_datetime2"
+                        },
+                        "col_datetime2_nullable": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "col_datetime2_nullable"
+                        },
+                        "col_datetimeoffset": {
+                            "type": [
+                                "timestamp_micro"
+                            ],
+                            "destination_column_name": "col_datetimeoffset"
+                        },
+                        "col_decimal": {
+                            "type": [
+                                "number"
+                            ],
+                            "destination_column_name": "col_decimal"
+                        },
+                        "col_float": {
+                            "type": [
+                                "number"
+                            ],
+                            "destination_column_name": "col_float"
+                        },
+                        "col_int": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "col_int"
+                        },
+                        "col_int_nullable": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "col_int_nullable"
+                        },
+                        "col_money": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_money"
+                        },
+                        "col_nchar": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_nchar"
+                        },
+                        "col_ntext": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_ntext"
+                        },
+                        "col_numeric": {
+                            "type": [
+                                "number"
+                            ],
+                            "destination_column_name": "col_numeric"
+                        },
+                        "col_nvarchar": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_nvarchar"
+                        },
+                        "col_real": {
+                            "type": [
+                                "number_small"
+                            ],
+                            "destination_column_name": "col_real"
+                        },
+                        "col_smalldatetime": {
+                            "type": [
+                                "timestamp"
+                            ],
+                            "destination_column_name": "col_smalldatetime"
+                        },
+                        "col_smallint": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "col_smallint"
+                        },
+                        "col_smallmoney": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_smallmoney"
+                        },
+                        "col_text": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_text"
+                        },
+                        "col_time": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_time"
+                        },
+                        "col_tinyint": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "col_tinyint"
+                        },
+                        "col_uniqueidentifier": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_uniqueidentifier"
+                        },
+                        "col_varbinary": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_varbinary"
+                        },
+                        "col_varchar": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "col_varchar"
+                        },
+                        "col_varchar_nullable": {
+                            "type": [
+                                "null",
+                                "string"
+                            ],
+                            "destination_column_name": "col_varchar_nullable"
+                        },
+                        "created_at": {
+                            "type": [
+                                "timestamp_micro"
+                            ],
+                            "destination_column_name": "created_at"
+                        },
+                        "id": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "id"
+                        },
+                        "id_cursor": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "id_cursor"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental",
+                    "cdc",
+                    "strict_cdc"
+                ],
+                "source_defined_primary_key": [
+                    "id"
+                ],
+                "available_cursor_fields": [
+                    "col_ntext",
+                    "col_varbinary",
+                    "col_uniqueidentifier",
+                    "col_tinyint",
+                    "col_bit",
+                    "col_text",
+                    "col_datetime2",
+                    "col_smallmoney",
+                    "col_nchar",
+                    "col_datetime2_nullable",
+                    "col_int",
+                    "col_real",
+                    "col_varchar",
+                    "col_date",
+                    "col_smalldatetime",
+                    "col_varchar_nullable",
+                    "id",
+                    "col_float",
+                    "col_char",
+                    "col_datetime",
+                    "col_time",
+                    "id_cursor",
+                    "col_bigint",
+                    "col_binary",
+                    "col_smallint",
+                    "col_numeric",
+                    "col_money",
+                    "col_nvarchar",
+                    "col_datetimeoffset",
+                    "created_at",
+                    "col_decimal",
+                    "col_int_nullable"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:dbo",
+                "destination_table": "mssql_test_table_olake"
+            }
+        },
+        {
+            "stream": {
+                "name": "ddl_history",
+                "namespace": "cdc",
+                "type_schema": {
+                    "properties": {
+                        "_cdc_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_cdc_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "ddl_command": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "ddl_command"
+                        },
+                        "ddl_lsn": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "ddl_lsn"
+                        },
+                        "ddl_time": {
+                            "type": [
+                                "timestamp",
+                                "null"
+                            ],
+                            "destination_column_name": "ddl_time"
+                        },
+                        "object_id": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "object_id"
+                        },
+                        "required_column_update": {
+                            "type": [
+                                "boolean",
+                                "null"
+                            ],
+                            "destination_column_name": "required_column_update"
+                        },
+                        "source_object_id": {
+                            "type": [
+                                "integer_small",
+                                "null"
+                            ],
+                            "destination_column_name": "source_object_id"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "cdc",
+                    "strict_cdc",
+                    "full_refresh",
+                    "incremental"
+                ],
+                "source_defined_primary_key": [
+                    "ddl_lsn",
+                    "object_id"
+                ],
+                "available_cursor_fields": [
+                    "ddl_time",
+                    "source_object_id",
+                    "object_id",
+                    "required_column_update",
+                    "ddl_command",
+                    "ddl_lsn"
+                ],
+                "sync_mode": "cdc",
+                "destination_database": "mssql_olake_mssql_test:cdc",
+                "destination_table": "ddl_history"
+            }
+        }
+    ]
+}

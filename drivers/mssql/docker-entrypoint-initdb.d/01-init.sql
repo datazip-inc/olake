@@ -63,3 +63,21 @@ BEGIN
         @supports_net_changes = 0;
 END;
 GO
+
+-------------------------------------------------------------------------------
+-- Inetgration test
+-------------------------------------------------------------------------------
+IF DB_ID('olake_mssql_test') IS NULL
+BEGIN
+    CREATE DATABASE olake_mssql_test;
+END;
+GO
+
+USE olake_mssql_test;
+GO
+
+-- Enable CDC at database level
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test' AND is_cdc_enabled = 0)
+BEGIN
+    EXEC sys.sp_cdc_enable_db;
+END;
