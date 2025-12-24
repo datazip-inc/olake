@@ -1,8 +1,6 @@
 name: Integration Tests
 on:
   push:
-    branches:
-      - "*"
   pull_request:
     branches:
       - "*"
@@ -15,7 +13,7 @@ env:
 
 jobs:
   integration-tests:
-    runs-on: 32gb-runner
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout code
@@ -32,49 +30,64 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # - name: Start Test Infrastructure
+      #   run: |
+      #     docker compose -f ./drivers/mysql/docker-compose.yml up -d
+      #     docker compose -f ./drivers/postgres/docker-compose.yml up -d
+      #     docker compose -f ./drivers/mongodb/docker-compose.yml up -d
+      #     docker compose -f ./drivers/oracle/docker-compose.yml up -d
+      #     docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+
       - name: Start Test Infrastructure
         run: |
-          docker compose -f ./drivers/mysql/docker-compose.yml up -d
-          docker compose -f ./drivers/postgres/docker-compose.yml up -d
-          docker compose -f ./drivers/mongodb/docker-compose.yml up -d
-          docker compose -f ./drivers/oracle/docker-compose.yml up -d
+          docker compose -f ./drivers/mssql/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
-
-      - name: Wait for MySQL
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 5
-          max_attempts: 30
-          retry_wait_seconds: 5
-          command: |
-            docker exec olake_mysql-test mysql -h localhost -u root -p${{ env.MYSQL_ROOT_PASSWORD }} -e "SELECT 1"
-
-      - name: Wait for PostgreSQL
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 5
-          max_attempts: 30
-          retry_wait_seconds: 5
-          command: |
-            docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
       
-      - name: Wait for MongoDB
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 5
-          max_attempts: 30
-          retry_wait_seconds: 5
-          command: |
-            docker exec primary_mongo mongosh --host localhost --port 27017 -u mongodb -p secure_password123 --authenticationDatabase admin --eval "db.adminCommand('ping')"
 
-      - name: Wait for Oracle
+      # - name: Wait for MySQL
+      #   uses: nick-fields/retry@v2
+      #   with:
+      #     timeout_minutes: 5
+      #     max_attempts: 30
+      #     retry_wait_seconds: 5
+      #     command: |
+      #       docker exec olake_mysql-test mysql -h localhost -u root -p${{ env.MYSQL_ROOT_PASSWORD }} -e "SELECT 1"
+
+      # - name: Wait for PostgreSQL
+      #   uses: nick-fields/retry@v2
+      #   with:
+      #     timeout_minutes: 5
+      #     max_attempts: 30
+      #     retry_wait_seconds: 5
+      #     command: |
+      #       docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
+      
+      # - name: Wait for MongoDB
+      #   uses: nick-fields/retry@v2
+      #   with:
+      #     timeout_minutes: 5
+      #     max_attempts: 30
+      #     retry_wait_seconds: 5
+      #     command: |
+      #       docker exec primary_mongo mongosh --host localhost --port 27017 -u mongodb -p secure_password123 --authenticationDatabase admin --eval "db.adminCommand('ping')"
+
+      # - name: Wait for Oracle
+      #   uses: nick-fields/retry@v2
+      #   with:
+      #     timeout_minutes: 5
+      #     max_attempts: 30
+      #     retry_wait_seconds: 5
+      #     command: |
+      #       docker exec oracle-23c bash -c "echo 'SELECT 1 FROM dual;' | sqlplus -s system/secret1234@//localhost:1521/ORCL"
+
+      - name: Wait for MSSQL
         uses: nick-fields/retry@v2
         with:
           timeout_minutes: 5
           max_attempts: 30
           retry_wait_seconds: 5
           command: |
-            docker exec oracle-23c bash -c "echo 'SELECT 1 FROM dual;' | sqlplus -s system/secret1234@//localhost:1521/ORCL"
+            docker exec mssql-test /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password!123' -Q "SELECT 1"
 
       - name: Set up Data Directories
         run: |
@@ -107,11 +120,17 @@ jobs:
         # run: go test -v -p 4 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... -timeout 0 -run 'Integration'
         run: go test ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
 
+      # - name: Cleanup
+      #   if: always()
+      #   run: |
+      #     docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
+      #     docker compose -f ./drivers/mysql/docker-compose.yml down
+      #     docker compose -f ./drivers/postgres/docker-compose.yml down
+      #     docker compose -f ./drivers/oracle/docker-compose.yml down
+      #     docker compose -f ./drivers/mongodb/docker-compose.yml down
+
       - name: Cleanup
         if: always()
         run: |
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
-          docker compose -f ./drivers/mysql/docker-compose.yml down
-          docker compose -f ./drivers/postgres/docker-compose.yml down
-          docker compose -f ./drivers/oracle/docker-compose.yml down
-          docker compose -f ./drivers/mongodb/docker-compose.yml down
+          docker compose -f ./drivers/mssql/docker-compose.yml down
