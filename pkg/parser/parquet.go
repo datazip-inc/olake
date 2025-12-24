@@ -2,8 +2,13 @@ package parser
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"math/big"
+	"strconv"
+	"time"
+	"unicode/utf8"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -138,7 +143,7 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 			record := make(map[string]any)
 			for colIdx, field := range fields {
 				if rowIdx < int64(len(columnData[colIdx])) {
-					value := parquetValueToInterface(columnData[colIdx][rowIdx])
+					value := parquetValueToInterfaceWithType(columnData[colIdx][rowIdx], field.Type())
 					record[field.Name()] = value
 				}
 			}
@@ -159,6 +164,7 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 
 // mapParquetTypeToOlake maps Parquet data types to Olake data types
 func mapParquetTypeToOlake(pqType pq.Type) types.DataType {
+
 	// First, check for logical type annotations which provide semantic meaning
 	if logicalType := pqType.LogicalType(); logicalType != nil {
 		// Integer logical types (INT_8, INT_16, INT_32, INT_64)
@@ -174,31 +180,20 @@ func mapParquetTypeToOlake(pqType pq.Type) types.DataType {
 			}
 		}
 
-		// Timestamp with precision
+		// Timestamp with precision (stored as INT64)
+		// We convert to epoch seconds, so map to Timestamp
 		if logicalType.Timestamp != nil {
-			if logicalType.Timestamp.Unit.Nanos != nil {
-				return types.TimestampNano
-			} else if logicalType.Timestamp.Unit.Micros != nil {
-				return types.TimestampMicro
-			} else if logicalType.Timestamp.Unit.Millis != nil {
-				return types.TimestampMilli
-			}
 			return types.Timestamp
 		}
 
-		// Time with precision
+		// Time with precision (stored as INT32 or INT64)
+		// We convert to seconds, so map to Int64
 		if logicalType.Time != nil {
-			if logicalType.Time.Unit.Nanos != nil {
-				return types.TimestampNano
-			} else if logicalType.Time.Unit.Micros != nil {
-				return types.TimestampMicro
-			} else if logicalType.Time.Unit.Millis != nil {
-				return types.TimestampMilli
-			}
-			return types.String
+			return types.Int64
 		}
 
-		// Date
+		// Date (stored as INT32 - days since epoch)
+		// We convert to epoch seconds, so map to Timestamp
 		if logicalType.Date != nil {
 			return types.Timestamp
 		}
@@ -235,6 +230,7 @@ func mapParquetTypeToOlake(pqType pq.Type) types.DataType {
 		return types.Int64
 	case pq.Int96:
 		// Int96 is typically used for timestamps in legacy Parquet files
+		// We convert to epoch seconds, so map to Timestamp
 		return types.Timestamp
 	case pq.Float:
 		return types.Float32
@@ -250,13 +246,99 @@ func mapParquetTypeToOlake(pqType pq.Type) types.DataType {
 	}
 }
 
-// parquetValueToInterface converts a parquet.Value to a Go interface{}
-func parquetValueToInterface(val pq.Value) interface{} {
+// parquetValueToInterfaceWithType converts a parquet.Value to a Go interface{}
+// Takes the field type to handle special cases like decimals and temporal types
+// parquetValueToInterfaceWithType converts a parquet.Value to a Go interface{}
+// Uses native parquet-go decimal support for proper conversion
+func parquetValueToInterfaceWithType(val pq.Value, fieldType pq.Type) interface{} {
 	if val.IsNull() {
 		return nil
 	}
 
-	// Check Kind() first to correctly identify the type before extracting value
+	logicalType := fieldType.LogicalType()
+
+	// Handle temporal types with logical type annotations
+	if logicalType != nil {
+		// Date (days since Unix epoch, stored as INT32)
+		if logicalType.Date != nil {
+			days := val.Int32()
+			seconds := int64(days) * 86400
+			t := time.Unix(seconds, 0).UTC()
+			return t.Format(time.RFC3339)
+		}
+
+		// Timestamp (stored as INT64 with different precision)
+		if logicalType.Timestamp != nil {
+			rawValue := val.Int64()
+			var t time.Time
+			if logicalType.Timestamp.Unit.Nanos != nil {
+				t = time.Unix(0, rawValue).UTC()
+			} else if logicalType.Timestamp.Unit.Micros != nil {
+				t = time.Unix(0, rawValue*1000).UTC()
+			} else if logicalType.Timestamp.Unit.Millis != nil {
+				t = time.Unix(0, rawValue*1_000_000).UTC()
+			} else {
+				t = time.Unix(rawValue, 0).UTC()
+			}
+			return t.Format(time.RFC3339)
+		}
+
+		// Time (stored as INT32 or INT64 with different precision)
+		if logicalType.Time != nil {
+			var rawValue int64
+			if val.Kind() == pq.Int32 {
+				rawValue = int64(val.Int32())
+			} else {
+				rawValue = val.Int64()
+			}
+
+			var seconds int64
+			if logicalType.Time.Unit.Nanos != nil {
+				seconds = rawValue / 1_000_000_000
+			} else if logicalType.Time.Unit.Micros != nil {
+				seconds = rawValue / 1_000_000
+			} else if logicalType.Time.Unit.Millis != nil {
+				seconds = rawValue / 1_000
+			} else {
+				seconds = rawValue
+			}
+			return seconds
+		}
+
+		// IMPROVED: Decimal handling using native parquet-go support
+		if logicalType.Decimal != nil {
+			// Try to use the native Decimal() method first
+
+			if floatVal, err := strconv.ParseFloat(val.String(), 64); err == nil {
+				return floatVal
+			}
+
+			// Fallback: manual conversion if native method fails
+			scale := int(logicalType.Decimal.Scale)
+
+			switch val.Kind() {
+			case pq.Double, pq.Float:
+				return val.Double()
+
+			case pq.Int32:
+				rawValue := int64(val.Int32())
+				return convertScaledInt(rawValue, scale)
+
+			case pq.Int64:
+				rawValue := val.Int64()
+				return convertScaledInt(rawValue, scale)
+
+			case pq.FixedLenByteArray, pq.ByteArray:
+				// Use native byte array to decimal conversion
+				return convertByteArrayDecimal(val.ByteArray(), scale)
+
+			default:
+				return val.Double()
+			}
+		}
+	}
+
+	// Handle non-decimal types
 	switch val.Kind() {
 	case pq.Boolean:
 		return val.Boolean()
@@ -269,15 +351,102 @@ func parquetValueToInterface(val pq.Value) interface{} {
 	case pq.Double:
 		return val.Double()
 	case pq.ByteArray, pq.FixedLenByteArray:
-		return string(val.ByteArray())
+		byteData := val.ByteArray()
+		if utf8.Valid(byteData) {
+			return string(byteData)
+		}
+		return base64.StdEncoding.EncodeToString(byteData)
 	case pq.Int96:
-		// Int96 is typically used for timestamps in legacy Parquet files
-		return val.String()
+		// Legacy timestamp format
+		nanos := val.Int64()
+		t := time.Unix(0, nanos).UTC()
+		return t.Format(time.RFC3339)
 	default:
-		// For Group types (nested structures, maps, lists) and unknown types,
-		// use the string representation which serializes the nested structure
 		return val.String()
 	}
+}
+
+// convertScaledInt converts a scaled integer to float64
+func convertScaledInt(rawValue int64, scale int) float64 {
+	if scale == 0 {
+		return float64(rawValue)
+	}
+
+	divisor := 1.0
+	for i := 0; i < scale; i++ {
+		divisor *= 10.0
+	}
+	return float64(rawValue) / divisor
+}
+
+// convertByteArrayDecimal converts a byte array decimal to float64
+// Handles big-endian signed integers properly
+func convertByteArrayDecimal(byteData []byte, scale int) float64 {
+	if len(byteData) == 0 {
+		return 0.0
+	}
+
+	// Check if it's a string representation
+	if utf8.Valid(byteData) {
+		strVal := string(byteData)
+		if floatVal, err := strconv.ParseFloat(strVal, 64); err == nil {
+			return floatVal
+		}
+	}
+
+	// Convert big-endian byte array to signed integer
+	// First byte indicates sign in two's complement
+	isNegative := (byteData[0] & 0x80) != 0
+
+	var rawValue int64
+
+	if len(byteData) <= 8 {
+		// Convert bytes to int64
+		for _, b := range byteData {
+			rawValue = rawValue<<8 | int64(b)
+		}
+
+		// Handle two's complement for negative numbers
+		if isNegative && len(byteData) < 8 {
+			// Sign extend: set all higher bits to 1
+			mask := int64(-1) << uint(len(byteData)*8)
+			rawValue |= mask
+		}
+	} else {
+		// For values larger than 8 bytes, use math/big for precision
+		return convertLargeByteArrayDecimal(byteData, scale)
+	}
+
+	return convertScaledInt(rawValue, scale)
+}
+
+// convertLargeByteArrayDecimal handles decimals larger than int64 using math/big
+func convertLargeByteArrayDecimal(byteData []byte, scale int) float64 {
+	// Use big.Int for arbitrary precision
+	bigInt := new(big.Int).SetBytes(byteData)
+
+	// Check if negative (two's complement)
+	if (byteData[0] & 0x80) != 0 {
+		// Calculate two's complement: flip bits and add 1
+		ones := new(big.Int).Lsh(big.NewInt(1), uint(len(byteData)*8))
+		ones.Sub(ones, big.NewInt(1))
+		bigInt.Xor(bigInt, ones)
+		bigInt.Add(bigInt, big.NewInt(1))
+		bigInt.Neg(bigInt)
+	}
+
+	// Convert to float64 with scaling
+	floatVal, _ := new(big.Float).SetInt(bigInt).Float64()
+
+	if scale > 0 {
+		divisor := 1.0
+		for i := 0; i < scale; i++ {
+			divisor *= 10.0
+		}
+		floatVal /= divisor
+	}
+
+	return floatVal
 }
 
 // prepareParquetReader validates and prepares a reader for Parquet file operations
@@ -358,4 +527,3 @@ func (w *ParquetReaderWrapper) Read(p []byte) (n int, err error) {
 	w.offset += int64(n)
 	return n, err
 }
-
