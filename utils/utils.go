@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"errors"
 
 	//nolint:gosec,G115
 	"crypto/md5"
@@ -451,7 +450,7 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 		}
 
 		// check if error is non retryable
-		if errors.Is(err, constants.ErrNonRetryable) {
+		if strings.Contains(err.Error(), constants.ErrNonRetryable.Error()) {
 			return err
 		}
 
