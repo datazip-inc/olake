@@ -87,7 +87,7 @@ jobs:
           max_attempts: 30
           retry_wait_seconds: 5
           command: |
-            docker exec mssql-test /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password!123' -Q "SELECT 1"
+            docker exec olake-mssql /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Password!123' -Q "SELECT 1"
 
       - name: Set up Data Directories
         run: |
