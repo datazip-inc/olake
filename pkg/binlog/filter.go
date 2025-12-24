@@ -16,6 +16,7 @@ import (
 type ChangeFilter struct {
 	streams   map[string]types.StreamInterface // Keyed by "schema.table"
 	converter func(value interface{}, columnType string) (interface{}, error)
+	lastGTIDEvent *replication.GTIDEvent 
 }
 
 // NewChangeFilter creates a filter for the given streams.
@@ -28,6 +29,10 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
 	}
 	return filter
+}
+
+func (f *ChangeFilter) TrackGTIDEvent(event *replication.GTIDEvent) {
+	f.lastGTIDEvent = event
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
@@ -77,7 +82,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		}
 		change := abstract.CDCChange{
 			Stream:    stream,
-			Timestamp: time.Now(),
+			Timestamp: f.getEventTimestamp(ev),
 			Kind:      operationType,
 			Data:      record,
 		}
@@ -86,6 +91,16 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		}
 	}
 	return nil
+}
+
+func (f *ChangeFilter) getEventTimestamp(ev *replication.BinlogEvent) time.Time {
+	// MySQL GTID events (8.0.1+) contain microsecond-precision timestamps
+	if f.lastGTIDEvent != nil && f.lastGTIDEvent.ImmediateCommitTimestamp > 0 {
+		return f.lastGTIDEvent.OriginalCommitTime()
+	}
+
+	// Fallback to second-precision header timestamp
+	return time.Unix(int64(ev.Header.Timestamp), 0)
 }
 
 // convertRowToMap converts a binlog row to a map.

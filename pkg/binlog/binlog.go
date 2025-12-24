@@ -111,6 +111,9 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 				c.CurrentPos.Pos = uint32(e.Position)
 				logger.Infof("Binlog rotated to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 
+			case *replication.GTIDEvent:
+				c.changeFilter.TrackGTIDEvent(e)
+				
 			case *replication.RowsEvent:
 				messageReceived = true
 				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, callback); err != nil {
