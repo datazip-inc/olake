@@ -37,7 +37,7 @@ func (p *JSONParser) InferSchema(ctx context.Context, reader io.Reader) (*types.
 	// 10MB should be enough to get 100 sample records for most JSON files
 	const maxBytesForInference = 10 * 1024 * 1024 // 10MB
 	limitedReader := io.LimitReader(reader, maxBytesForInference)
-	
+
 	data, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read JSON file: %w", err)
@@ -173,18 +173,18 @@ func (p *JSONParser) parseJSONArray(data []byte, maxSamples int) ([]map[string]i
 	logger.Debug("Parsing JSON array format")
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	
+
 	// Read opening bracket
 	token, err := decoder.Token()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read JSON array start: %w", err)
 	}
-	
+
 	// Verify it's an array
 	if delim, ok := token.(json.Delim); !ok || delim != '[' {
 		return nil, fmt.Errorf("expected JSON array, got: %v", token)
 	}
-	
+
 	// Stream elements one by one (up to maxSamples)
 	records := make([]map[string]interface{}, 0, maxSamples)
 	for decoder.More() && len(records) < maxSamples {
@@ -262,13 +262,14 @@ func (p *JSONParser) tryParseJSONL(data []byte, maxSamples int) ([]map[string]in
 }
 
 // inferJSONFieldType infers the data type of a JSON field from sample values
+// FIXED: Always use Float64 for numeric values to avoid Int64/Float64 conflicts
+// since JSON doesn't distinguish between integers and floats
 func inferJSONFieldType(values []interface{}) types.DataType {
 	if len(values) == 0 {
 		return types.String
 	}
 
-	allInt := true
-	allFloat := true
+	hasNumber := false
 	allBool := true
 	allObject := true
 	allArray := true
@@ -281,43 +282,34 @@ func inferJSONFieldType(values []interface{}) types.DataType {
 
 		nonNullCount++
 
-		// Check each value against all possible types
-		// If any value doesn't match a type, that type is ruled out
-		switch v := value.(type) {
+		switch value.(type) {
 		case bool:
-			allInt = false
-			allFloat = false
+			hasNumber = false
 			allObject = false
 			allArray = false
 		case float64:
-			// JSON numbers are always float64
-			// Check if it's actually an integer
-			if v != float64(int64(v)) {
-				allInt = false
-			}
+			// JSON numbers are always decoded as float64
+			// Always treat as Float64 to avoid schema conflicts
+			hasNumber = true
 			allBool = false
 			allObject = false
 			allArray = false
 		case string:
-			allInt = false
-			allFloat = false
+			hasNumber = false
 			allBool = false
 			allObject = false
 			allArray = false
 		case map[string]interface{}:
-			allInt = false
-			allFloat = false
+			hasNumber = false
 			allBool = false
 			allArray = false
 		case []interface{}:
-			allInt = false
-			allFloat = false
+			hasNumber = false
 			allBool = false
 			allObject = false
 		default:
-			// Unknown type, default to string
-			allInt = false
-			allFloat = false
+			// Unknown type, mark all as false
+			hasNumber = false
 			allBool = false
 			allObject = false
 			allArray = false
@@ -329,15 +321,14 @@ func inferJSONFieldType(values []interface{}) types.DataType {
 		return types.String
 	}
 
-	// Determine type based on what ALL values can be
-	// Priority: Bool > Int > Float > Object/Array > String
+	// Determine type based on what values were seen
+	// Priority: Bool > Float64 (for any number) > Object/Array > String
 	if allBool {
 		return types.Bool
 	}
-	if allInt {
-		return types.Int64
-	}
-	if allFloat {
+	if hasNumber {
+		// Always use Float64 for JSON numbers to avoid Int64/Float64 conflicts
+		// This is safer because JSON doesn't distinguish between int and float
 		return types.Float64
 	}
 	if allObject || allArray {
@@ -347,5 +338,3 @@ func inferJSONFieldType(values []interface{}) types.DataType {
 	// Default to string
 	return types.String
 }
-
-
