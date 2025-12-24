@@ -77,6 +77,6 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
 		})
 	}
-	utils.ConcurrentInGroup(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
 	return nil
 }

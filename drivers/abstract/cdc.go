@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -45,14 +46,14 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to run backfill: %s", err)
+		return fmt.Errorf("%w: failed to run backfill: %s", constants.ErrNonRetryable, err)
 	}
 
 	// Wait for all backfill processes to complete
 	err = a.waitForBackfillCompletion(mainCtx, backfillCompletionChannel, streams, func(streamID string) error {
 		// Start CDC stream immediately after backfill completes (concurrent mode)
 		if isConcurrentMode {
-			a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
+			a.GlobalConnGroup.Add(func(connGroupCtx context.Context) error {
 				streamIndex, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 				return a.streamChanges(connGroupCtx, pool, streamIndex)
 			})
@@ -72,12 +73,12 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 	if isParallelMode {
 		// reset the global connection group
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(mainCtx, a.driver.MaxConnections())
-		utils.ConcurrentInGroup(a.GlobalConnGroup, make([]int, a.driver.MaxConnections()), a.driver.MaxRetries(), func(ctx context.Context, streamIndex int, _ int) error {
+		utils.ConcurrentInGroup(a.GlobalConnGroup, make([]int, a.driver.MaxConnections()), func(ctx context.Context, streamIndex int, _ int) error {
 			return a.streamChanges(ctx, pool, streamIndex)
 		})
 		return nil
 	} else if isSequentialMode {
-		a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
+		a.GlobalConnGroup.Add(func(connGroupCtx context.Context) error {
 			return a.streamChanges(connGroupCtx, pool, 0)
 		})
 	}

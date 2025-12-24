@@ -70,7 +70,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	}
 	var streamMap sync.Map
 
-	utils.ConcurrentInGroup(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
 		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 		if err != nil {
 			return fmt.Errorf("%w: failed to produce schema for stream %s: %s", constants.ErrNonRetryable, stream, err)
@@ -156,8 +156,21 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	// run cdc sync
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {
-			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-				return fmt.Errorf("failed to run change stream: %s", err)
+			err := utils.RetryOnBackoff(ctx, a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(ctx context.Context) error {
+				if a.GlobalConnGroup.Ctx().Err() != nil {
+					// reset global conn group if it is stuck in error
+					a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
+				}
+
+				if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+					return err
+				}
+
+				// note: checking global conn group for errors in cdc
+				return a.GlobalConnGroup.Block()
+			})
+			if err != nil {
+				return fmt.Errorf("failed to run cdc sync: %s", err)
 			}
 		} else {
 			return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
@@ -173,7 +186,7 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 
 	// handle standard streams (full refresh)
 	for _, stream := range backfillStreams {
-		a.GlobalCtxGroup.AddWithRetry(a.driver.MaxRetries(), func(ctx context.Context) error {
+		a.GlobalCtxGroup.Add(func(ctx context.Context) error {
 			return a.Backfill(ctx, nil, pool, stream)
 		})
 	}
