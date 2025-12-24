@@ -96,7 +96,10 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 func (f *ChangeFilter) getEventTimestamp(ev *replication.BinlogEvent) time.Time {
 	// MySQL GTID events (8.0.1+) contain microsecond-precision timestamps
 	if f.lastGTIDEvent != nil && f.lastGTIDEvent.ImmediateCommitTimestamp > 0 {
-		return f.lastGTIDEvent.OriginalCommitTime()
+		micros := f.lastGTIDEvent.OriginalCommitTimestamp
+		seconds := micros / 1000000
+		millis := (micros % 1000000) / 1000
+		return time.Unix(int64(seconds), int64(millis)*1000000)
 	}
 
 	// Fallback to second-precision header timestamp
