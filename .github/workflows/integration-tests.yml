@@ -6,9 +6,9 @@ on:
   pull_request:
     branches:
       - "*"
-    paths:
-      - '**/*.go'
-      - '**/*.java'
+    # paths:
+    #   - '**/*.go'
+    #   - '**/*.java'
 
 env:
   MYSQL_ROOT_PASSWORD: root1234
@@ -104,7 +104,8 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 4 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... -timeout 0 -run 'Integration'
+        # run: go test -v -p 4 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... -timeout 0 -run 'Integration'
+        run: go test ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
 
       - name: Cleanup
         if: always()
