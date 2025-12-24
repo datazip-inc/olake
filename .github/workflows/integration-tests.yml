@@ -88,6 +88,10 @@ jobs:
           retry_wait_seconds: 5
           command: |
             docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -Q "SELECT 1"
+    
+      - name: Initialize MSSQL Database
+        run: |
+          docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -d master -i /docker-entrypoint-initdb.d/01-init.sql
 
       - name: Set up Data Directories
         run: |
