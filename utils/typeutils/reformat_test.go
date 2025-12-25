@@ -2,9 +2,11 @@ package typeutils
 
 import (
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetFirstNotNullType(t *testing.T) {
@@ -98,14 +100,14 @@ func TestReformatValue(t *testing.T) {
 			name:      "bool type from int 0",
 			datatypes: types.Bool,
 			value:     0,
-			output:    true,
+			output:    false,
 			outputErr: false,
 		},
 		{
 			name:      "bool type from int 1",
 			datatypes: types.Bool,
 			value:     1,
-			output:    false,
+			output:    true,
 			outputErr: false,
 		},
 		// Int 64 type tests
@@ -206,14 +208,14 @@ func TestReformatValue(t *testing.T) {
 			name:      "float64 type from float32",
 			datatypes: types.Float64,
 			value:     float32(3.14),
-			output:    float64(3.14),
+			output:    float64(float32(3.14)),
 			outputErr: false,
 		},
 		{
 			name:      "float64 type from int",
 			datatypes: types.Float64,
 			value:     42,
-			output:    float64(3.14),
+			output:    float64(42),
 			outputErr: false,
 		},
 		{
@@ -230,7 +232,102 @@ func TestReformatValue(t *testing.T) {
 			output:    float64(1.0),
 			outputErr: false,
 		},
-        
+		// float32 type tests
+		{
+			name:      "float32 type from float32",
+			datatypes: types.Float32,
+			value:     float32(3.14),
+			output:    float32(3.14),
+			outputErr: false,
+		},
+		{
+			name:      "float32 type from float64",
+			datatypes: types.Float32,
+			value:     float64(3.14),
+			output:    float32(3.14),
+			outputErr: false,
+		},
+		{
+			name:      "float32 type from string",
+			datatypes: types.Float32,
+			value:     "3.14",
+			output:    float32(3.14),
+			outputErr: false,
+		},
+		// string type tests
+		{
+			name:      "string type from string",
+			datatypes: types.String,
+			value:     "hello",
+			output:    "hello",
+			outputErr: false,
+		},
+		{
+			name:      "string type from int",
+			datatypes: types.String,
+			value:     42,
+			output:    "42",
+			outputErr: false,
+		},
+		{
+			name:      "string type from bool",
+			datatypes: types.String,
+			value:     true,
+			output:    "true",
+			outputErr: false,
+		},
+		{
+			name:      "string type from []byte",
+			datatypes: types.String,
+			value:     []byte("hello"),
+			output:    "hello",
+			outputErr: false,
+		},
+		// Timestamp type tests
+		{
+			name:      "timestamps type from time.Time",
+			datatypes: types.Timestamp,
+			value:     time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+			output:    time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+			outputErr: false,
+		},
+		{
+			name:      "timestamps type from String",
+			datatypes: types.Timestamp,
+			value:     "2023-01-01T12:00:00Z",
+			output:    time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+			outputErr: false,
+		},
+		{
+			name:      "timestamps type from int64 unix",
+			datatypes: types.Timestamp,
+			value:     int64(1672574400),
+			output:    time.Unix(1672574400, 0),
+			outputErr: false,
+		},
+		// Array type tests
+		{
+			name:      "array type from []any",
+			datatypes: types.Array,
+			value:     []any{1, 2, 3},
+			output:    []any{1, 2, 3},
+			outputErr: false,
+		},
+		{
+			name:      "array type from single value",
+			datatypes: types.Array,
+			value:     42,
+			output:    []any{42},
+			outputErr: false,
+		},
+		// Unknown type tests
+		{
+			name:      "unkown type passes through",
+			datatypes: types.Unknown,
+			value:     "some value",
+			output:    "some value",
+			outputErr: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -245,6 +342,126 @@ func TestReformatValue(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tc.output, result)
+			}
+		})
+	}
+}
+
+func TestReformatValueOnDataTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		datatypes []types.DataType
+		value     any
+		output    any
+	}{
+		{
+			name:      "uses first null type",
+			datatypes: []types.DataType{types.Null, types.Int64, types.String},
+			value:     "42",
+			output:    int64(42),
+		},
+		{
+			name:      "all null types",
+			datatypes: []types.DataType{types.Null, types.Null},
+			value:     "23",
+			output:    nil,
+		},
+		{
+			name:      "single type",
+			datatypes: []types.DataType{types.String},
+			value:     42,
+			output:    "42",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ReformatValueOnDataTypes(tc.datatypes, tc.value)
+			if tc.output == nil {
+				assert.Error(t, err)
+				assert.Equal(t, ErrNullValue, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.output, result)
+			}
+		})
+	}
+}
+
+func TestReformatRecord(t *testing.T) {
+	tests := []struct {
+		name         string
+		fields       Fields
+		record       types.Record
+		output       types.Record
+		outputErr    bool
+		outputErrMsg string
+	}{
+		{
+			name: "sucessful reformat",
+			fields: Fields{
+				"id":    NewField(types.Int64),
+				"name":  NewField(types.String),
+				"score": NewField(types.Float64),
+			},
+			record: types.Record{
+				"id":    "42",
+				"name":  "test",
+				"score": "42.33",
+			},
+			output: types.Record{
+				"id":    int64(42),
+				"name":  "test",
+				"score": float64(42.33),
+			},
+			outputErr: false,
+		},
+		{
+			name: "missing field error",
+			fields: Fields{
+				"id": NewField(types.Int64),
+			},
+			record: types.Record{
+				"id":   "42",
+				"name": "test",
+			},
+			outputErr:    true,
+			outputErrMsg: "missing field",
+		},
+		{
+			name: "empty record",
+			fields: Fields{
+				"id": NewField(types.Int64),
+			},
+			record:    types.Record{},
+			output:    types.Record{},
+			outputErr: false,
+		},
+		{
+			name: "bool conversion",
+			fields: Fields{
+				"active": NewField(types.Bool),
+			},
+			record: types.Record{
+				"active": true,
+			},
+			output: types.Record{
+				"active": true,
+			},
+			outputErr: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ReformatRecord(tc.fields, tc.record)
+			if tc.outputErr {
+				assert.Error(t, err)
+				if tc.outputErrMsg != "" {
+					assert.Contains(t, err.Error(), tc.outputErrMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.output, tc.record)
 			}
 		})
 	}
