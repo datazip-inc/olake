@@ -183,13 +183,13 @@ const KafkaUISchema = `{
     "ui:grid": [
       { "bootstrap_servers": 12, "consumer_group_id": 12 },
       { "threads_equal_total_partitions": 12, "max_threads": 12 },
-      { "protocol": 12, "backoff_retry_count": 12 }
+      { "backoff_retry_count": 12, "protocol": 12 }
     ],
     "protocol": {
       "ui:grid": [
         { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
-        { "tls_skip_verify": 12 },
-        { "ssl": 12 }
+        { "tls_skip_verify": 24 },
+        { "ssl": 24 }
       ],
       "sasl_jaas_config": {
         "ui:widget": "textarea",
@@ -206,26 +206,25 @@ const KafkaUISchema = `{
           "description": false
         },
         "ui:grid": [
-          { "server_ca": 12 },
-          { "client_cert": 12 },
+          { "server_ca": 12, "client_cert": 12 },
           { "client_key": 12 }
         ],
         "server_ca": {
           "ui:widget": "textarea",
           "ui:options": {
-            "rows": 3
+            "rows": 1
           }
         },
         "client_cert": {
           "ui:widget": "textarea",
           "ui:options": {
-            "rows": 3
+            "rows": 1
           }
         },
         "client_key": {
           "ui:widget": "textarea",
           "ui:options": {
-            "rows": 3
+            "rows": 1
           }
         }
       },
