@@ -14,9 +14,9 @@ import (
 
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
-	streams   map[string]types.StreamInterface // Keyed by "schema.table"
-	converter func(value interface{}, columnType string) (interface{}, error)
-	lastGTIDEvent *replication.GTIDEvent 
+	streams       map[string]types.StreamInterface // Keyed by "schema.table"
+	converter     func(value interface{}, columnType string) (interface{}, error)
+	lastGTIDEvent *replication.GTIDEvent
 }
 
 // NewChangeFilter creates a filter for the given streams.
@@ -96,10 +96,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 func (f *ChangeFilter) getEventTimestamp(ev *replication.BinlogEvent) time.Time {
 	// MySQL GTID events (8.0.1+) contain microsecond-precision timestamps
 	if f.lastGTIDEvent != nil && f.lastGTIDEvent.ImmediateCommitTimestamp > 0 {
-		micros := f.lastGTIDEvent.OriginalCommitTimestamp
-		seconds := micros / 1000000
-		millis := (micros % 1000000) / 1000
-		return time.Unix(int64(seconds), int64(millis)*1000000)
+		return time.UnixMicro(int64(f.lastGTIDEvent.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
 	}
 
 	// Fallback to second-precision header timestamp
