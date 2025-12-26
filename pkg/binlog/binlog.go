@@ -116,6 +116,8 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 					c.changeFilter.lastGTIDEvent = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
 				}
 
+				// TODO: Investigate MariaDB GTID event structure for microsecond timestamp support.
+
 			case *replication.RowsEvent:
 				messageReceived = true
 				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, callback); err != nil {
