@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"strconv"
 	"time"
 	"unicode/utf8"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	pq "github.com/parquet-go/parquet-go"
+	"github.com/shopspring/decimal"
 )
 
 // ParquetParser implements the Parser interface for Parquet files
@@ -305,36 +305,16 @@ func parquetValueToInterfaceWithType(val pq.Value, fieldType pq.Type) interface{
 			return seconds
 		}
 
-		// IMPROVED: Decimal handling using native parquet-go support
+		// Decimal stored as INT32/INT64/BYTE_ARRAY/FIXED_LEN_BYTE_ARRAY
 		if logicalType.Decimal != nil {
-			// Try to use the native Decimal() method first
 
-			if floatVal, err := strconv.ParseFloat(val.String(), 64); err == nil {
-				return floatVal
+			dec, err := decodeParquetDecimal(val, logicalType.Decimal.Scale)
+			if err != nil {
+				logger.Warnf("decimal decode failed: %v", err)
+				return nil
 			}
-
-			// Fallback: manual conversion if native method fails
-			scale := int(logicalType.Decimal.Scale)
-
-			switch val.Kind() {
-			case pq.Double, pq.Float:
-				return val.Double()
-
-			case pq.Int32:
-				rawValue := int64(val.Int32())
-				return convertScaledInt(rawValue, scale)
-
-			case pq.Int64:
-				rawValue := val.Int64()
-				return convertScaledInt(rawValue, scale)
-
-			case pq.FixedLenByteArray, pq.ByteArray:
-				// Use native byte array to decimal conversion
-				return convertByteArrayDecimal(val.ByteArray(), scale)
-
-			default:
-				return val.Double()
-			}
+			v, _ := dec.Float64()
+			return v
 		}
 	}
 
@@ -366,87 +346,38 @@ func parquetValueToInterfaceWithType(val pq.Value, fieldType pq.Type) interface{
 	}
 }
 
-// convertScaledInt converts a scaled integer to float64
-func convertScaledInt(rawValue int64, scale int) float64 {
-	if scale == 0 {
-		return float64(rawValue)
-	}
+func decodeParquetDecimal(val pq.Value, scale int32) (decimal.Decimal, error) {
+	var unscaled *big.Int
 
-	divisor := 1.0
-	for i := 0; i < scale; i++ {
-		divisor *= 10.0
-	}
-	return float64(rawValue) / divisor
-}
+	switch val.Kind() {
 
-// convertByteArrayDecimal converts a byte array decimal to float64
-// Handles big-endian signed integers properly
-func convertByteArrayDecimal(byteData []byte, scale int) float64 {
-	if len(byteData) == 0 {
-		return 0.0
-	}
+	case pq.Int32:
+		unscaled = big.NewInt(int64(val.Int32()))
 
-	// Check if it's a string representation
-	if utf8.Valid(byteData) {
-		strVal := string(byteData)
-		if floatVal, err := strconv.ParseFloat(strVal, 64); err == nil {
-			return floatVal
-		}
-	}
+	case pq.Int64:
+		unscaled = big.NewInt(val.Int64())
 
-	// Convert big-endian byte array to signed integer
-	// First byte indicates sign in two's complement
-	isNegative := (byteData[0] & 0x80) != 0
-
-	var rawValue int64
-
-	if len(byteData) <= 8 {
-		// Convert bytes to int64
-		for _, b := range byteData {
-			rawValue = rawValue<<8 | int64(b)
+	case pq.FixedLenByteArray, pq.ByteArray:
+		raw := val.ByteArray()
+		if len(raw) == 0 {
+			return decimal.Zero, nil
 		}
 
-		// Handle two's complement for negative numbers
-		if isNegative && len(byteData) < 8 {
-			// Sign extend: set all higher bits to 1
-			mask := int64(-1) << uint(len(byteData)*8)
-			rawValue |= mask
+		unscaled = new(big.Int).SetBytes(raw)
+
+		// two's complement (signed)
+		if raw[0]&0x80 != 0 {
+			bitLen := uint(len(raw) * 8)
+			max := new(big.Int).Lsh(big.NewInt(1), bitLen)
+			unscaled.Sub(unscaled, max)
 		}
-	} else {
-		// For values larger than 8 bytes, use math/big for precision
-		return convertLargeByteArrayDecimal(byteData, scale)
+
+	default:
+		return decimal.Zero, fmt.Errorf("unsupported decimal kind: %v", val.Kind())
 	}
 
-	return convertScaledInt(rawValue, scale)
-}
-
-// convertLargeByteArrayDecimal handles decimals larger than int64 using math/big
-func convertLargeByteArrayDecimal(byteData []byte, scale int) float64 {
-	// Use big.Int for arbitrary precision
-	bigInt := new(big.Int).SetBytes(byteData)
-
-	// Check if negative (two's complement)
-	if (byteData[0] & 0x80) != 0 {
-		// Calculate two's complement: flip bits and add 1
-		ones := new(big.Int).Lsh(big.NewInt(1), uint(len(byteData)*8))
-		ones.Sub(ones, big.NewInt(1))
-		bigInt.Xor(bigInt, ones)
-		bigInt.Add(bigInt, big.NewInt(1))
-		bigInt.Neg(bigInt)
-	}
-
-	// Convert to float64 with scaling
-	floatVal, _ := new(big.Float).SetInt(bigInt).Float64()
-
-	if scale > 0 {
-		divisor := 1.0
-		for i := 0; i < scale; i++ {
-			divisor *= 10.0
-		}
-		floatVal /= divisor
-	}
-
-	return floatVal
+	//  decimal library handles scale natively
+	return decimal.NewFromBigInt(unscaled, -scale), nil
 }
 
 // prepareParquetReader validates and prepares a reader for Parquet file operations
