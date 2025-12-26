@@ -94,6 +94,8 @@ func convertRowToMap(row []interface{}, columns []string, columnTypes []string, 
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(columns), len(row))
 	}
 
+	// TODO:TODO: float values from binlog are not always same as the output of select * from db,
+	// need to typecast it to the datatype of the column for consistency with db.
 	record := make(map[string]interface{})
 	for i, val := range row {
 		convertedVal, err := converter(val, columnTypes[i])
