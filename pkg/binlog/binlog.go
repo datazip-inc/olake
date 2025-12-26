@@ -112,7 +112,9 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 				logger.Infof("Binlog rotated to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 
 			case *replication.GTIDEvent:
-				c.changeFilter.TrackGTIDEvent(e)
+				if e.OriginalCommitTimestamp > 0 {
+					c.changeFilter.lastCommitTimestamp = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
+				}
 
 			case *replication.RowsEvent:
 				messageReceived = true

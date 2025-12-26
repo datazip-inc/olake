@@ -7,6 +7,7 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -14,9 +15,9 @@ import (
 
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
-	streams       map[string]types.StreamInterface // Keyed by "schema.table"
-	converter     func(value interface{}, columnType string) (interface{}, error)
-	lastGTIDEvent *replication.GTIDEvent
+	streams             map[string]types.StreamInterface // Keyed by "schema.table"
+	converter           func(value interface{}, columnType string) (interface{}, error)
+	lastCommitTimestamp time.Time
 }
 
 // NewChangeFilter creates a filter for the given streams.
@@ -29,10 +30,6 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
 	}
 	return filter
-}
-
-func (f *ChangeFilter) TrackGTIDEvent(event *replication.GTIDEvent) {
-	f.lastGTIDEvent = event
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
@@ -80,9 +77,14 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		if record == nil {
 			continue
 		}
+
+		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
+		// otherwise fall back to second-precision header timestamp
+		timestamp := utils.Ternary(!f.lastCommitTimestamp.IsZero(), f.lastCommitTimestamp, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
+
 		change := abstract.CDCChange{
 			Stream:    stream,
-			Timestamp: f.getEventTimestamp(ev),
+			Timestamp: timestamp,
 			Kind:      operationType,
 			Data:      record,
 		}
@@ -91,17 +93,6 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		}
 	}
 	return nil
-}
-
-func (f *ChangeFilter) getEventTimestamp(ev *replication.BinlogEvent) time.Time {
-	// MySQL GTID events (8.0.1+) store timestamps in microsecond units
-	// but, MySQL only provides millisecond precision, so last 3 digits are always 000
-	if f.lastGTIDEvent != nil && f.lastGTIDEvent.OriginalCommitTimestamp > 0 {
-		return time.UnixMicro(int64(f.lastGTIDEvent.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
-	}
-
-	// Fallback to second-precision header timestamp
-	return time.Unix(int64(ev.Header.Timestamp), 0)
 }
 
 // convertRowToMap converts a binlog row to a map.
