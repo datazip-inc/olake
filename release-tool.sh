@@ -59,6 +59,7 @@ function release() {
     local version=$1
     local platform=$2
     local branch=${3:-master}
+    local target_stage=${4:-driver-stage}
     local image_name="$DHID/$type-$connector"
     
     # Default to dev mode
@@ -82,6 +83,7 @@ function release() {
     echo "Attempting multi-platform build..."
     
     docker buildx build --platform "$platform" --push \
+        --target "$target_stage" \
         -t "${image_name}:${tag_version}" \
         -t "${image_name}:${latest_tag}" \
         --build-arg DRIVER_NAME="$connector" \
@@ -129,7 +131,15 @@ setup_buildx
 
 # Release the driver
 platform="linux/amd64,linux/arm64"
-echo "✅ Releasing driver $DRIVER for version $VERSION on branch $CURRENT_BRANCH to platforms: $platform"
+target_stage="driver-stage"
+
+if [[ "$DRIVER" == "db2" ]]; then
+    echo "ℹ️  DB2 detected: Building for linux/amd64 only using db2 driver stage"
+    platform="linux/amd64"
+    target_stage="db2-stage"
+fi
+
+echo "✅ Releasing driver $DRIVER for version $VERSION on branch $CURRENT_BRANCH to platforms: $platform (target: $target_stage)"
 
 chalk green "=== Releasing driver: $DRIVER ==="
 chalk green "=== Branch: $CURRENT_BRANCH ==="
@@ -141,4 +151,4 @@ type="source"
 # Build Java project
 build_java_project
 
-release "$VERSION" "$platform" "$CURRENT_BRANCH"
+release "$VERSION" "$platform" "$CURRENT_BRANCH" "$target_stage"

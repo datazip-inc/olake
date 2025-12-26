@@ -39,8 +39,10 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 
 	var stmt string
-	if len(pkColumns) > 0 || stream.Self().StreamMetadata.ChunkColumn != "" {
+	if len(pkColumns) > 0 {
 		stmt = jdbc.DB2PKChunkScanQuery(stream, pkColumns, chunk, filter)
+	} else if stream.Self().StreamMetadata.ChunkColumn != "" {
+		stmt = jdbc.DB2PKChunkScanQuery(stream, []string{stream.Self().StreamMetadata.ChunkColumn}, chunk, filter)
 	} else {
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
@@ -71,7 +73,6 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 		var hasRows bool
 		existsQuery := jdbc.DB2TableExistQuery(stream)
 		err := d.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
 		}

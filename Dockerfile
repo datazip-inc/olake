@@ -25,35 +25,25 @@ else \
   go build -o /olake main.go; \
 fi
 
-# Final Runtime Stage
-FROM debian:bookworm-slim
+# Final Runtime Stage Base
+FROM debian:bookworm-slim AS runtime-base-stage
 
 # Install runtime dependencies
 RUN apt-get update && \
-apt-get install -y --no-install-recommends \
-openjdk-17-jre-headless \
-libxml2 \
-ca-certificates \
-libpam-modules \
-libcrypt1 \
-&& rm -rf /var/lib/apt/lists/*
-
-# Copy the binary from the build stage
-COPY --from=builder /olake /home/olake
-
-# Copy DB2 CLI Driver
-COPY --from=builder /go/pkg/mod/github.com/ibmdb/clidriver /opt/clidriver
-
-# Set DB2 CLI environment variables
-ENV IBM_DB_HOME=/opt/clidriver
-ENV PATH=$IBM_DB_HOME/bin:$PATH
-ENV CGO_CFLAGS="-I$IBM_DB_HOME/include"
-ENV CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
-ENV LD_LIBRARY_PATH=$IBM_DB_HOME/lib
+    apt-get install -y --no-install-recommends \
+    openjdk-17-jre-headless \
+    libxml2 \
+    ca-certificates \
+    libpam-modules \
+    libcrypt1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Driver metadata
 ARG DRIVER_VERSION=dev
 ARG DRIVER_NAME=olake
+
+# Copy the binary from the build stage
+COPY --from=builder /olake /home/olake
 
 # Copy the pre-built JAR file from Maven
 # First try to copy from the source location (works after Maven build)
@@ -73,3 +63,19 @@ WORKDIR /home
 
 # Entrypoint
 ENTRYPOINT ["./olake"]
+
+# DB2 Specific Stage
+FROM runtime-base-stage AS db2-stage
+
+# Copy DB2 CLI Driver
+COPY --from=builder /go/pkg/mod/github.com/ibmdb/clidriver /opt/clidriver
+
+# Set DB2 CLI environment variables
+ENV IBM_DB_HOME=/opt/clidriver
+ENV PATH=$IBM_DB_HOME/bin:$PATH
+ENV CGO_CFLAGS="-I$IBM_DB_HOME/include"
+ENV CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
+ENV LD_LIBRARY_PATH=$IBM_DB_HOME/lib
+
+# Default Stage (for all other drivers)
+FROM runtime-base-stage AS driver-stage
