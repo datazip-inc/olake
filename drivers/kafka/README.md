@@ -39,11 +39,11 @@ Add Kafka credentials in following format in `source.json` file. To check more a
         ```json
         "protocol": {
             "security_protocol": "SSL",
+            "tls_skip_verify": false,
             "ssl": {
                 "server_ca": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
                 "client_cert": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
                 "client_key": "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
-                "skip_verify": false
             }
         }
         ```
@@ -74,7 +74,7 @@ Add Kafka credentials in following format in `source.json` file. To check more a
             ```
     - `SASL_SSL`
         - Kafka cluster with Simple Authentication and Security Layer i.e. authentication and encryption using Secure Sockets Layer.
-        - Supports external certificates for custom CA or mTLS (optional).
+        - Supports external certificates for custom CA or TLS/SSL (optional).
         - Requires SASL mechanism and SASL JAAS Configuration string. Supported are: 
             - PLAIN
             ```json
@@ -92,12 +92,13 @@ Add Kafka credentials in following format in `source.json` file. To check more a
                 "sasl_jaas_config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"TEST-PASS\" password=\"TEST-PASS\";"
             },
             ```
-            - With external certificates (mTLS):
+            - With external certificates (TLS/SSL):
             ```json
             "protocol": {
                 "security_protocol": "SASL_SSL",
                 "sasl_mechanism": "PLAIN",
                 "sasl_jaas_config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"TEST-USER\" password=\"TEST-PASS\";",
+                "tls_skip_verify": false,
                 "ssl": {
                     "server_ca": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
                     "client_cert": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
@@ -105,17 +106,6 @@ Add Kafka credentials in following format in `source.json` file. To check more a
                 }
             },
             ```
-
-### SSL Certificate Configuration
-The `ssl` configuration object supports the following optional fields:
-| Field | Description |
-|-------|-------------|
-| `server_ca` | CA certificate content in PEM format for server verification (not a file path) |
-| `client_cert` | Client certificate content in PEM format for mTLS (not a file path) |
-| `client_key` | Client private key content in PEM format for mTLS (not a file path) |
-| `skip_verify` | Skip server certificate verification (not recommended for production) |
-
-> **Note:** All certificate fields accept the actual certificate/key content in PEM format, not file paths. For AWS MSK with IAM authentication or managed certificates, you can omit the `ssl` object entirely - the driver will use system CA certificates.
 
 ## Commands
 ### Discover Command

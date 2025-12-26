@@ -17,18 +17,11 @@ type Config struct {
 }
 
 type ProtocolConfig struct {
-	SecurityProtocol string `json:"security_protocol"`
-	SASLMechanism    string `json:"sasl_mechanism,omitempty"`
-	SASLJAASConfig   string `json:"sasl_jaas_config,omitempty"`
-
-	SSL *SSLConfig `json:"ssl,omitempty"`
-}
-
-type SSLConfig struct {
-	ServerCA   string `json:"server_ca,omitempty"`   
-	ClientCert string `json:"client_cert,omitempty"` 
-	ClientKey  string `json:"client_key,omitempty"`  
-	SkipVerify bool   `json:"skip_verify,omitempty"` 
+	SecurityProtocol string           `json:"security_protocol"`
+	SASLMechanism    string           `json:"sasl_mechanism,omitempty"`
+	SASLJAASConfig   string           `json:"sasl_jaas_config,omitempty"`
+	TLSSkipVerify    bool             `json:"tls_skip_verify,omitempty"`
+	SSL              *utils.SSLConfig `json:"ssl,omitempty"`
 }
 
 func (c *Config) Validate() error {
@@ -49,10 +42,17 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.Protocol.SSL != nil {
-		if (c.Protocol.SSL.ClientCert != "" && c.Protocol.SSL.ClientKey == "") ||
-			(c.Protocol.SSL.ClientCert == "" && c.Protocol.SSL.ClientKey != "") {
-			return fmt.Errorf("both client_cert and client_key must be provided together for mTLS")
+	if c.Protocol.SecurityProtocol == "SSL" || c.Protocol.SecurityProtocol == "SASL_SSL" {
+		if c.Protocol.SSL != nil {
+			// Server CA is always required
+			if c.Protocol.SSL.ServerCA == "" {
+				return fmt.Errorf("server_ca must be provided")
+			}
+
+			// Client Cert and Key are required together for mTLS
+			if (c.Protocol.SSL.ClientCert != "") != (c.Protocol.SSL.ClientKey != "") {
+				return fmt.Errorf("both client_cert and client_key must be provided together for mTLS")
+			}
 		}
 	}
 

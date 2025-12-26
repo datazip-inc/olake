@@ -76,6 +76,12 @@
                             "description": "JAAS configuration string (e.g., org.apache.kafka.common.security.plain.PlainLoginModule required username=\"user\" password=\"pass\";)",
                             "minLength": 1
                         },
+                        "tls_skip_verify": {
+                            "type": "boolean",
+                            "title": "Skip TLS Verification",
+                            "description": "Skip TLS certificate verification (not recommended for production)",
+                            "default": false
+                        },
                         "ssl": {
                             "type": "object",
                             "title": "SSL Configuration",
@@ -98,12 +104,6 @@
                                     "title": "Client Key",
                                     "description": "Client private key content for mTLS authentication in PEM format",
                                     "multiline": true
-                                },
-                                "skip_verify": {
-                                    "type": "boolean",
-                                    "title": "Skip SSL Verification",
-                                    "description": "Skip server certificate verification (not recommended for production)",
-                                    "default": false
                                 }
                             }
                         }
@@ -120,6 +120,12 @@
                     "properties": {
                         "security_protocol": {
                             "const": "SSL"
+                        },
+                        "tls_skip_verify": {
+                            "type": "boolean",
+                            "title": "Skip TLS Verification",
+                            "description": "Skip TLS certificate verification (not recommended for production)",
+                            "default": false
                         },
                         "ssl": {
                             "type": "object",
@@ -143,12 +149,6 @@
                                     "title": "Client Key",
                                     "description": "Client private key content for mTLS authentication in PEM format",
                                     "multiline": true
-                                },
-                                "skip_verify": {
-                                    "type": "boolean",
-                                    "title": "Skip SSL Verification",
-                                    "description": "Skip server certificate verification (not recommended for production)",
-                                    "default": false
                                 }
                             }
                         }

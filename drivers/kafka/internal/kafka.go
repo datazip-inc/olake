@@ -219,6 +219,38 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 	return matches[1], matches[2], nil
 }
 
+// buildTLSConfig creates TLS configuration with optional external certificates
+func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// Apply SSL config if provided
+	if k.config.Protocol.SSL != nil {
+		tlsConfig.InsecureSkipVerify = k.config.Protocol.TLSSkipVerify
+
+		// Load CA certificate if provided
+		if k.config.Protocol.SSL.ServerCA != "" {
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM([]byte(k.config.Protocol.SSL.ServerCA)) {
+				return nil, fmt.Errorf("failed to parse CA certificate")
+			}
+			tlsConfig.RootCAs = caCertPool
+		}
+
+		// Load client certificate and key for mTLS
+		if k.config.Protocol.SSL.ClientCert != "" && k.config.Protocol.SSL.ClientKey != "" {
+			cert, err := tls.X509KeyPair([]byte(k.config.Protocol.SSL.ClientCert), []byte(k.config.Protocol.SSL.ClientKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{cert}
+		}
+	}
+
+	return tlsConfig, nil
+}
+
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
 func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
@@ -290,36 +322,4 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 // GetReaderTasks returns the list of reader IDs to run
 func (k *Kafka) GetReaderIDs() []string {
 	return k.readerManager.GetReaderIDs()
-}
-
-// buildTLSConfig creates TLS configuration with optional external certificates
-func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-	}
-
-	// Apply SSL config if provided
-	if k.config.Protocol.SSL != nil {
-		tlsConfig.InsecureSkipVerify = k.config.Protocol.SSL.SkipVerify
-
-		// Load CA certificate if provided
-		if k.config.Protocol.SSL.ServerCA != "" {
-			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM([]byte(k.config.Protocol.SSL.ServerCA)) {
-				return nil, fmt.Errorf("failed to parse CA certificate")
-			}
-			tlsConfig.RootCAs = caCertPool
-		}
-
-		// Load client certificate and key for mTLS
-		if k.config.Protocol.SSL.ClientCert != "" && k.config.Protocol.SSL.ClientKey != "" {
-			cert, err := tls.X509KeyPair([]byte(k.config.Protocol.SSL.ClientCert), []byte(k.config.Protocol.SSL.ClientKey))
-			if err != nil {
-				return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
-			}
-			tlsConfig.Certificates = []tls.Certificate{cert}
-		}
-	}
-
-	return tlsConfig, nil
 }

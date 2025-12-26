@@ -187,16 +187,50 @@ const KafkaUISchema = `{
     ],
     "protocol": {
       "ui:grid": [
-      { "sasl_mechanism": 12, "sasl_jaas_config": 12 }
+        { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
+        { "tls_skip_verify": 12 },
+        { "ssl": 12 }
       ],
       "sasl_jaas_config": {
-      "ui:widget": "textarea",
+        "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
         }
       },
+      "tls_skip_verify": {
+        "ui:widget": "boolean"
+      },
+      "ssl": {
+        "ui:options": {
+          "title": false,
+          "description": false
+        },
+        "ui:grid": [
+          { "server_ca": 12 },
+          { "client_cert": 12 },
+          { "client_key": 12 }
+        ],
+        "server_ca": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 3
+          }
+        },
+        "client_cert": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 3
+          }
+        },
+        "client_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 3
+          }
+        }
+      },
       "ui:options": {
-      "title": false
+        "title": false
       }
     },
     "threads_equal_total_partitions": {
