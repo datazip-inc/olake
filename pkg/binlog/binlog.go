@@ -113,7 +113,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 
 			case *replication.GTIDEvent:
 				if e.OriginalCommitTimestamp > 0 {
-					c.changeFilter.lastCommitTimestamp = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
+					c.changeFilter.lastGTIDEvent = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
 				}
 
 			case *replication.RowsEvent:

@@ -15,9 +15,9 @@ import (
 
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
-	streams             map[string]types.StreamInterface // Keyed by "schema.table"
-	converter           func(value interface{}, columnType string) (interface{}, error)
-	lastCommitTimestamp time.Time
+	streams       map[string]types.StreamInterface // Keyed by "schema.table"
+	converter     func(value interface{}, columnType string) (interface{}, error)
+	lastGTIDEvent time.Time
 }
 
 // NewChangeFilter creates a filter for the given streams.
@@ -80,7 +80,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 
 		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
 		// otherwise fall back to second-precision header timestamp
-		timestamp := utils.Ternary(!f.lastCommitTimestamp.IsZero(), f.lastCommitTimestamp, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
+		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
 
 		change := abstract.CDCChange{
 			Stream:    stream,
