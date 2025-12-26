@@ -3,6 +3,7 @@ package parser
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 // CSVParser implements the Parser interface for CSV files
@@ -198,6 +200,7 @@ func inferColumnType(sampleRows [][]string, columnIndex int) types.DataType {
 	allInt := true
 	allFloat := true
 	allBool := true
+	allTimestamp := true
 	nonNullCount := 0
 
 	for _, row := range sampleRows {
@@ -226,6 +229,11 @@ func inferColumnType(sampleRows [][]string, columnIndex int) types.DataType {
 		if lowerValue != "true" && lowerValue != "false" {
 			allBool = false
 		}
+
+		// Check if value can be parsed as timestamp
+		if _, err := typeutils.ReformatDate(value); err != nil {
+			allTimestamp = false
+		}
 	}
 
 	// If no non-null values found, default to string
@@ -234,7 +242,7 @@ func inferColumnType(sampleRows [][]string, columnIndex int) types.DataType {
 	}
 
 	// Determine type based on what ALL values can be parsed as
-	// Priority: Bool > Int > Float > String
+	// Priority: Bool > Int > Float > Timestamp > String
 	if allBool {
 		return types.Bool
 	}
@@ -243,6 +251,23 @@ func inferColumnType(sampleRows [][]string, columnIndex int) types.DataType {
 	}
 	if allFloat {
 		return types.Float64
+	}
+	if allTimestamp {
+		// Try to detect timestamp precision from first non-null value
+		for _, row := range sampleRows {
+			if columnIndex >= len(row) {
+				continue
+			}
+			value := strings.TrimSpace(row[columnIndex])
+			if value == "" || strings.ToLower(value) == "null" {
+				continue
+			}
+			if t, err := typeutils.ReformatDate(value); err == nil {
+				return typeutils.TypeFromValue(t)
+			}
+		}
+		// Default to TimestampMicro if we can't detect precision
+		return types.TimestampMicro
 	}
 
 	// Default to string
@@ -260,16 +285,28 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 
 	// Convert based on field type
 	switch fieldType {
-	case types.Int32, types.Int64:
+	case types.Int32:
+		intVal, err := strconv.ParseInt(trimmed, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert '%s' to int32: %w", trimmed, err)
+		}
+		return int32(intVal), nil
+	case types.Int64:
 		intVal, err := strconv.ParseInt(trimmed, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to integer: %w", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to int64: %w", trimmed, err)
 		}
 		return intVal, nil
-	case types.Float32, types.Float64:
+	case types.Float32:
+		floatVal, err := strconv.ParseFloat(trimmed, 32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert '%s' to float32: %w", trimmed, err)
+		}
+		return float32(floatVal), nil
+	case types.Float64:
 		floatVal, err := strconv.ParseFloat(trimmed, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to float: %w", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to float64: %w", trimmed, err)
 		}
 		return floatVal, nil
 	case types.Bool:
@@ -278,9 +315,36 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 			return nil, fmt.Errorf("failed to convert '%s' to boolean: %w", trimmed, err)
 		}
 		return boolVal, nil
+	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
+		// Parse timestamp string using ReformatDate which handles multiple formats
+		timestampVal, err := typeutils.ReformatDate(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert '%s' to timestamp: %w", trimmed, err)
+		}
+		return timestampVal, nil
+	case types.Object:
+		// Try to parse as JSON object
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+			// If parsing fails, return as string to avoid data loss
+			logger.Warnf("Failed to parse '%s' as JSON object, treating as string: %v", trimmed, err)
+			return trimmed, nil
+		}
+		return obj, nil
+	case types.Array:
+		// Try to parse as JSON array
+		var arr []interface{}
+		if err := json.Unmarshal([]byte(trimmed), &arr); err != nil {
+			// If parsing fails, return as string to avoid data loss
+			logger.Warnf("Failed to parse '%s' as JSON array, treating as string: %v", trimmed, err)
+			return trimmed, nil
+		}
+		return arr, nil
+	case types.Unknown:
+		// Unknown type defaults to string
+		return trimmed, nil
 	}
 
-	// Default to string
+	// Default to string (including types.String, types.Null)
 	return trimmed, nil
 }
-
