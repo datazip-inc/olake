@@ -30,7 +30,8 @@ type Mongo struct {
 	client        *mongo.Client
 	CDCSupport    bool // indicates if the MongoDB instance supports Change Streams
 	cdcCursor     sync.Map
-	state         *types.State        // reference to globally present state
+	state         *types.State // reference to globally present state
+	streams       []types.StreamInterface
 	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
 	sshDialer     *MongoSSHDialer
 }
@@ -227,7 +228,6 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
-
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
 		if fieldName, ok := key.(string); ok {
@@ -235,6 +235,12 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		return true
 	})
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, err
 }
 

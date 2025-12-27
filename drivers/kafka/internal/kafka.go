@@ -54,6 +54,10 @@ func (k *Kafka) Type() string {
 }
 
 func (k *Kafka) MaxConnections() int {
+	// return number of readers if available else default
+	if k.readerManager != nil && k.readerManager.GetReaderCount() > 0 {
+		return k.readerManager.GetReaderCount()
+	}
 	return k.config.MaxThreads
 }
 
@@ -121,8 +125,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 
 func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("producing schema for topic [%s]", streamName)
-	stream := types.NewStream(streamName, "topics", nil).WithSyncMode(types.STRICTCDC)
-	stream.SyncMode = types.STRICTCDC
+	stream := types.NewStream(streamName, "topics", nil)
 	schema := types.NewTypeSchema()
 	schema.AddTypes(Message, types.String)       // message payload
 	schema.AddTypes(Key, types.String)           // Kafka message key
@@ -130,7 +133,9 @@ func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stre
 	schema.AddTypes(Partition, types.Int64)      // Partition
 	schema.AddTypes(KafkaTimestamp, types.Int64) // Message timestamp
 	stream.WithSchema(schema)
+	stream.WithSyncMode(types.STRICTCDC)
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
+
 	return stream, nil
 }
 
@@ -252,7 +257,7 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
-func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
 	if len(observedPartitions) == 0 {
 		// Ensure we have all assigned partitions tracked
@@ -274,9 +279,9 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID string, c
 
 // getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
 // assigned to the reader identified by readerID. We match on the per-reader ClientID.
-func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string) ([]types.PartitionKey, error) {
-	clientID, ok := k.readerManager.GetReaderClientID(readerID)
-	if !ok || clientID == "" {
+func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int) ([]types.PartitionKey, error) {
+	readerID, clientID := k.readerManager.GetReaderIDAndClientID(readerIndex)
+	if clientID == "" {
 		return nil, fmt.Errorf("clientID not found for reader %s", readerID)
 	}
 
@@ -317,9 +322,4 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 	}
 
 	return assigned, nil
-}
-
-// GetReaderTasks returns the list of reader IDs to run
-func (k *Kafka) GetReaderIDs() []string {
-	return k.readerManager.GetReaderIDs()
 }

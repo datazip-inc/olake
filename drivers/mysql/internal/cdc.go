@@ -38,6 +38,10 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
 }
 
+func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
+	return true, false, false
+}
+
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
@@ -65,20 +69,22 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *MySQL) StreamChanges(ctx context.Context, _ int, OnMessage abstract.CDCMsgFn) error {
 	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
 }
 
-func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
-	if noErr {
+func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
+	defer m.BinlogConn.Cleanup()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
 			State: binlog.Binlog{
 				Position: m.BinlogConn.CurrentPos,
 			},
 		})
-		// TODO: Research about acknowledgment of binlogs in mysql
+		return nil
 	}
-	m.BinlogConn.Cleanup()
-	return nil
 }

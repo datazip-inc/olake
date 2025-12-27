@@ -76,13 +76,14 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// Generate and update chunks
 	var retryErr error
 	var chunksArray []types.Chunk
-	err = abstract.RetryOnBackoff(m.config.RetryCount, 1*time.Minute, func() error {
+	err = utils.RetryOnBackoff(ctx, m.config.RetryCount, constants.DefaultRetryTimeout, func(ctx context.Context) error {
 		chunksArray, retryErr = m.splitChunks(ctx, collection, stream, storageSize)
 		return retryErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed after retry backoff: %s", err)
 	}
+
 	return types.NewSet(chunksArray...), nil
 }
 
