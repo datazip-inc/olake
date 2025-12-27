@@ -545,6 +545,10 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 	return nil
 }
 
+func (p *Parquet) ThreadStatus(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
 func init() {
 	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
 		return new(Parquet)
