@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -167,7 +168,13 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 				}
 
 				// note: checking global conn group for errors in cdc
-				return a.GlobalConnGroup.Block()
+				err := a.GlobalConnGroup.Block()
+				if err != nil && strings.Contains(err.Error(), constants.BackfillFailedError.Error()) {
+					// skipping retry for backfill err as they already retried
+					return nil
+				}
+
+				return err
 			})
 			if err != nil {
 				return fmt.Errorf("failed to run cdc sync: %s", err)
@@ -213,7 +220,7 @@ func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, back
 			return mainCtx.Err()
 		case <-a.GlobalConnGroup.Ctx().Done():
 			// if global conn group stuck in error
-			return nil
+			return constants.GlobalContextGroupErr
 		case streamID, ok := <-backfillWaitChannel:
 			if !ok {
 				return fmt.Errorf("backfill channel closed unexpectedly")

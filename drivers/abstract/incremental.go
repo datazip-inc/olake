@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -54,7 +55,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 	}
 
 	// Wait for all backfill processes to complete
-	return a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
+	err = a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
 		a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(gCtx context.Context) (err error) {
 			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 			stream := streams[index]
@@ -97,6 +98,12 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 		})
 		return nil
 	})
+	if err == constants.GlobalContextGroupErr {
+		// err will be captured in err group block statement
+		return nil
+	}
+
+	return err
 }
 
 // RefomratCursorValue to parse the cursor value to the correct type

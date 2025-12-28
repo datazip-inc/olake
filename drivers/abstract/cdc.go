@@ -65,6 +65,10 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		return nil
 	})
 	if err != nil {
+		if err == constants.GlobalContextGroupErr {
+			// err will be captured in err group block statement
+			return nil
+		}
 		return fmt.Errorf("failed to process cdc streams: %s", err)
 	}
 

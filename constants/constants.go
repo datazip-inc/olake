@@ -44,4 +44,6 @@ const (
 
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
+var GlobalContextGroupErr = fmt.Errorf("global context group error")
+var BackfillFailedError = fmt.Errorf("failed to complete backfill")
 var SkipCDCDrivers = []DriverType{Oracle}
