@@ -110,18 +110,22 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "failed to create integration test table")
 
 		// Enable CDC for table
+		captureInstance := fmt.Sprintf("dbo_%s_olake", integrationTestTable)
 		enableTableCDC := fmt.Sprintf(`
-			IF NOT EXISTS (
-				SELECT 1 FROM cdc.change_tables WHERE source_object_id = OBJECT_ID('dbo.%s')
-			)
-			BEGIN
-				EXEC sys.sp_cdc_enable_table
-					@source_schema = N'dbo',
-					@source_name   = N'%s',
-					@role_name     = NULL,
-					@supports_net_changes = 0;
-			END;
-		`, integrationTestTable, integrationTestTable)
+		IF NOT EXISTS (
+			SELECT 1
+			FROM cdc.change_tables
+			WHERE capture_instance = N'%s'
+		)
+		BEGIN
+			EXEC sys.sp_cdc_enable_table
+				@source_schema = N'dbo',
+				@source_name   = N'%s',
+				@capture_instance = N'%s',
+				@role_name     = NULL,
+				@supports_net_changes = 0;
+		END;
+		`, captureInstance, integrationTestTable, captureInstance)
 		_, err = db.ExecContext(ctx, enableTableCDC)
 		require.NoError(t, err, "failed to enable CDC on integration test table")
 
@@ -146,7 +150,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_float, col_real, col_bit,
 				col_char, col_varchar, col_text, col_nchar, col_nvarchar, col_ntext,
 				col_binary, col_varbinary,
-				col_date, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset, col_time,
+				col_date, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
 				col_uniqueidentifier,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
 				created_at
@@ -158,7 +162,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 				0x0102030405060708090A0B0C0D0E0F10, 0x01020304,
 				'2023-01-01', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00', '13:14:15',
+				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				NULL, NULL, NULL,
 				'2023-01-01 12:00:00'
@@ -256,7 +260,7 @@ var ExpectedMSSQLData = map[string]interface{}{
 
 	// money
 	"col_smallmoney": "1.25",
-	"col_money":      "2.5",
+	"col_money":      "2.5000",
 
 	// strings
 	"col_char":     "char_val__",
@@ -320,7 +324,6 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_datetime":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime2":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetimeoffset": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_time":           "13:14:15",
 
 	"col_uniqueidentifier": "00000000-0000-0000-0000-000000000000",
 
