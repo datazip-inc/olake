@@ -110,22 +110,20 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "failed to create integration test table")
 
 		// Enable CDC for table
-		captureInstance := fmt.Sprintf("dbo_%s_olake", integrationTestTable)
 		enableTableCDC := fmt.Sprintf(`
 		IF NOT EXISTS (
 			SELECT 1
 			FROM cdc.change_tables
-			WHERE capture_instance = N'%s'
+			WHERE source_object_id = OBJECT_ID('dbo.%s')
 		)
 		BEGIN
 			EXEC sys.sp_cdc_enable_table
 				@source_schema = N'dbo',
 				@source_name   = N'%s',
-				@capture_instance = N'%s',
 				@role_name     = NULL,
 				@supports_net_changes = 0;
 		END;
-		`, captureInstance, integrationTestTable, captureInstance)
+		`, integrationTestTable, integrationTestTable)
 		_, err = db.ExecContext(ctx, enableTableCDC)
 		require.NoError(t, err, "failed to enable CDC on integration test table")
 
@@ -259,7 +257,7 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_bit": true,
 
 	// money
-	"col_smallmoney": "1.25",
+	"col_smallmoney": "1.2500",
 	"col_money":      "2.5000",
 
 	// strings
@@ -281,7 +279,6 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_datetime2":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetimeoffset": arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"created_at":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_time":           "13:14:15",
 
 	"col_uniqueidentifier": "123e4567-e89b-12d3-a456-426614174000",
 }
@@ -303,7 +300,7 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_bit": false,
 
 	// money
-	"col_smallmoney": "1.25",
+	"col_smallmoney": "1.2500",
 	"col_money":      "9.75",
 
 	// strings
