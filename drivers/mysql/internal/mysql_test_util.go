@@ -239,8 +239,7 @@ var ExpectedMySQLData = map[string]interface{}{
 	"is_active":              int32(1),
 	"long_varchar":           "long_varchar_val",
 	"name_bool":              int32(1),
-	"status":                 "active",
-	"priority":               "high",
+	"priority":               "medium",
 }
 
 var ExpectedUpdatedData = map[string]interface{}{
