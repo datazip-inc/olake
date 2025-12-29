@@ -110,7 +110,7 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 				}
 			}
 		}
-		
+
 		convertedVal, err := converter(val, columnTypes[i])
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
