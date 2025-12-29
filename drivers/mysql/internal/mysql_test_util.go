@@ -201,7 +201,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, NULL, 'medium'
+			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high'
 		)`, tableName, i, i)
 
 		_, err := db.ExecContext(ctx, query)
