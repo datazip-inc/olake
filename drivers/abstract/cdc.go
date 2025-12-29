@@ -65,7 +65,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		return nil
 	})
 	if err != nil {
-		if err == constants.GlobalContextGroupErr {
+		if err == constants.ErrGlobalContextGroup {
 			// err will be captured in err group block statement
 			return nil
 		}

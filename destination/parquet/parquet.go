@@ -41,6 +41,7 @@ type Parquet struct {
 	basePath         string                     // construct with streamNamespace/streamName
 	partitionedFiles map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
+	s3Uploader       *s3manager.Uploader
 	schema           typeutils.Fields
 }
 
@@ -77,6 +78,8 @@ func (p *Parquet) initS3Writer() error {
 		return fmt.Errorf("failed to create AWS session: %s", err)
 	}
 	p.s3Client = s3.New(sess)
+	// Initialize uploader for multipart uploads (handles files > 5GB automatically)
+	p.s3Uploader = s3manager.NewUploader(sess)
 
 	return nil
 }
@@ -311,8 +314,8 @@ func (p *Parquet) closePqFiles(ctx context.Context, closeOnError bool) error {
 			}
 			defer file.Close()
 
-			// Upload to S3
-			_, err = p.s3Client.PutObject(&s3.PutObjectInput{
+			// Upload to S3 using multipart upload (automatically handles files > 5GB)
+			_, err = p.s3Uploader.Upload(&s3manager.UploadInput{
 				Bucket: aws.String(p.config.Bucket),
 				Key:    aws.String(info.s3KeyPath),
 				Body:   file,

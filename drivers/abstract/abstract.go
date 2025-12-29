@@ -131,10 +131,6 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 		for streamID := range dropStreams {
 			a.state.Global.Streams.Remove(streamID)
 		}
-		// if all global streams are dropped, no point for global state itself, making it null
-		if len(a.state.Global.Streams.Array()) == 0 {
-			a.state.Global.State = nil
-		}
 	}
 
 	if len(a.state.Streams) > 0 {
@@ -169,7 +165,7 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 
 				// note: checking global conn group for errors in cdc
 				err := a.GlobalConnGroup.Block()
-				if err != nil && strings.Contains(err.Error(), constants.BackfillFailedError.Error()) {
+				if err != nil && strings.Contains(err.Error(), constants.ErrorBackfillFailed.Error()) {
 					// skipping retry for backfill err as they already retried
 					return nil
 				}
@@ -220,7 +216,7 @@ func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, back
 			return mainCtx.Err()
 		case <-a.GlobalConnGroup.Ctx().Done():
 			// if global conn group stuck in error
-			return constants.GlobalContextGroupErr
+			return constants.ErrGlobalContextGroup
 		case streamID, ok := <-backfillWaitChannel:
 			if !ok {
 				return fmt.Errorf("backfill channel closed unexpectedly")

@@ -98,7 +98,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 		})
 		return nil
 	})
-	if err == constants.GlobalContextGroupErr {
+	if err == constants.ErrGlobalContextGroup {
 		// err will be captured in err group block statement
 		return nil
 	}
