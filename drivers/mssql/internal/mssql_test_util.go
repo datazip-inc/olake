@@ -43,7 +43,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	integrationTestTable := streams[0]
 
 	// A capture instance is SQL Server’s logical CDC stream for a table.
-	captureInstance := fmt.Sprintf("dbo_%s_CT", integrationTestTable)
+	captureInstance := fmt.Sprintf("dbo_%s", integrationTestTable)
 
 	switch operation {
 	case "create":
