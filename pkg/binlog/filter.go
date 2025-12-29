@@ -68,7 +68,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	}
 
 	for _, row := range rowsToProcess {
-		record, err := convertRowToMap(row, e.Table.ColumnNameString(), columnTypes, f.converter)
+		record, err := convertRowToMap(row, e.Table, columnTypes, f.converter)
 		if err != nil {
 			return err
 		}
@@ -89,15 +89,28 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 }
 
 // convertRowToMap converts a binlog row to a map.
-func convertRowToMap(row []interface{}, columns []string, columnTypes []string, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
+func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, columnTypes []string, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
+	columns := tableMap.ColumnNameString()
 	if len(columns) != len(row) {
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(columns), len(row))
 	}
+
+	enumMap := tableMap.EnumStrValueMap()
 
 	// TODO: float values from binlog are not always same as the output of select * from db,
 	// need to typecast it to the datatype of the column for consistency with db.
 	record := make(map[string]interface{})
 	for i, val := range row {
+		if tableMap.IsEnumColumn(i) && val != nil {
+			if enumValues, ok := enumMap[i]; ok {
+				// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
+				// during such a case, we need to find out the enum value of it from the index
+				if idx, isInt64 := val.(int64); isInt64 {
+					val = enumValues[idx-1]
+				}
+			}
+		}
+		
 		convertedVal, err := converter(val, columnTypes[i])
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err

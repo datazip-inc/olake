@@ -76,6 +76,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				is_active TINYINT(1),
 				long_varchar MEDIUMTEXT,
 				name_bool TINYINT(1) DEFAULT '1',
+				status ENUM('active','inactive','pending') DEFAULT NULL,
+				priority ENUM('low','medium','high') DEFAULT 'low',
 				PRIMARY KEY (id)
 			)`, integrationTestTable)
 
@@ -100,7 +102,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
-			long_varchar, name_bool
+			long_varchar, name_bool, status, priority
 		) VALUES (
 			6, 6, 123456789012345,
 			100, 101, 102, 103,
@@ -111,7 +113,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
-			'long_varchar_val', 1
+			'long_varchar_val', 1, 'active', 'high'
 		)`, integrationTestTable)
 
 	case "update":
@@ -132,7 +134,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				name_mediumtext = 'upd medium', name_longtext = 'upd long',
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
-				long_varchar = 'updated long...', name_bool = 0
+				long_varchar = 'updated long...', name_bool = 0,
+				status = 'pending', priority = 'low'
 			WHERE id = 6`, integrationTestTable)
 
 	case "delete":
@@ -188,7 +191,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool
+			created_timestamp, is_active, long_varchar, name_bool, status, priority
 		) VALUES (
 			%d, %d, 123456789012345,
 			100, 101, 102, 103,
@@ -198,7 +201,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1
+			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, NULL, 'medium'
 		)`, tableName, i, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -236,6 +239,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"is_active":              int32(1),
 	"long_varchar":           "long_varchar_val",
 	"name_bool":              int32(1),
+	"status":                 "active",
+	"priority":               "high",
 }
 
 var ExpectedUpdatedData = map[string]interface{}{
@@ -268,6 +273,8 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"is_active":              int32(0),
 	"long_varchar":           "updated long...",
 	"name_bool":              int32(0),
+	"status":                 "pending",
+	"priority":               "low",
 }
 
 var MySQLToDestinationSchema = map[string]string{
@@ -300,6 +307,8 @@ var MySQLToDestinationSchema = map[string]string{
 	"is_active":              "tinyint",
 	"long_varchar":           "mediumtext",
 	"name_bool":              "tinyint",
+	"status":                 "enum",
+	"priority":               "enum",
 }
 
 var EvolvedMySQLToDestinationSchema = map[string]string{
@@ -333,4 +342,6 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"is_active":              "tinyint",
 	"long_varchar":           "mediumtext",
 	"name_bool":              "tinyint",
+	"status":                 "enum",
+	"priority":               "enum",
 }
