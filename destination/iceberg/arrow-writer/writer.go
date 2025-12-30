@@ -81,7 +81,10 @@ func (w *ArrowWriter) createPartitionKey(record types.RawRecord) (string, []stri
 			return "", nil, fmt.Errorf("partition field %q does not exist in schema", field)
 		}
 
-		value, err := TransformValue(record.Data[field], transform, colType)
+		// case: now() in partitionr regex
+		fieldValue := utils.Ternary(field == constants.OlakeTimestamp, record.OlakeTimestamp, record.Data[field])
+
+		value, err := TransformValue(fieldValue, transform, colType)
 		if err != nil {
 			return "", nil, err
 		}
