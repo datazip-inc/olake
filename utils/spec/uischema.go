@@ -22,7 +22,8 @@ const MongoDBUISchema = `{
         { "password": 12, "replica_set": 12 },
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
-        { "chunking_strategy": 12, "use_iam": 12 }
+        { "chunking_strategy": 12, "use_iam": 12 },
+        { "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
@@ -33,6 +34,23 @@ const MongoDBUISchema = `{
     "hosts": {
         "ui:options": {
             "label": false
+        }
+    },
+    "ssh_config": {
+        "ui:options": {
+            "title": false,
+            "description": false
+        },
+        "ui:grid": [
+            { "host": 12, "port": 12 },
+            { "username": 12, "private_key": 12 },
+            { "passphrase": 12, "password": 12 }
+        ],
+        "private_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
         }
     }
 }`
@@ -124,7 +142,8 @@ const OracleUISchema = `{
     { "username": 12, "sid": 12, "service_name": 12 },
     { "password": 12, "port": 12 },
     { "jdbc_url_params": 12, "ssl": 12 },
-    { "max_threads": 12, "backoff_retry_count": 12 }
+    { "max_threads": 12, "backoff_retry_count": 12 },
+    { "ssh_config": 12 }
   ],
   "ssl": {
     "ui:options": {
@@ -140,6 +159,23 @@ const OracleUISchema = `{
       "SID",
       "Service Name"
     ]
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    }
   }
 }`
 
@@ -147,20 +183,53 @@ const KafkaUISchema = `{
     "ui:grid": [
       { "bootstrap_servers": 12, "consumer_group_id": 12 },
       { "threads_equal_total_partitions": 12, "max_threads": 12 },
-      { "protocol": 12, "backoff_retry_count": 12 }
+      { "backoff_retry_count": 12, "protocol": 12 }
     ],
     "protocol": {
       "ui:grid": [
-      { "sasl_mechanism": 12, "sasl_jaas_config": 12 }
+        { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
+        { "tls_skip_verify": 24 },
+        { "ssl": 24 }
       ],
       "sasl_jaas_config": {
-      "ui:widget": "textarea",
+        "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
         }
       },
+      "tls_skip_verify": {
+        "ui:widget": "boolean"
+      },
+      "ssl": {
+        "ui:options": {
+          "title": false,
+          "description": false
+        },
+        "ui:grid": [
+          { "server_ca": 12, "client_cert": 12 },
+          { "client_key": 12 }
+        ],
+        "server_ca": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        }
+      },
       "ui:options": {
-      "title": false
+        "title": false
       }
     },
     "threads_equal_total_partitions": {
@@ -190,18 +259,18 @@ const IcebergUISchema = `{
   },
   "writer": {
     "ui:grid": [
-      { "catalog_type": 12 },
+      { "catalog_type": 12, "catalog_name": 12 },
       { "rest_catalog_url": 12, "hive_uri": 12 },
       { "jdbc_url": 12, "jdbc_username": 12, "jdbc_password": 12 },
-      { "iceberg_s3_path": 12, "iceberg_db": 12 },
-      { "hive_clients": 12, "s3_use_ssl": 12 },
-      { "hive_sasl_enabled": 12, "s3_path_style": 12 },
-      { "rest_auth_type": 12, "token": 12 },
-      { "oauth2_uri": 12, "credential": 12 },
-      { "no_identifier_fields": 12, "rest_signing_name": 12 },
-      { "rest_signing_region": 12, "rest_signing_v_4": 12, "scope": 12 },
-      { "s3_endpoint": 12, "aws_access_key": 12 },
-      { "aws_secret_key": 12, "aws_region": 12 }
+      { "iceberg_s3_path": 12, "hive_clients": 12 },
+      { "s3_use_ssl": 12, "hive_sasl_enabled": 12 },
+      { "s3_path_style": 12, "rest_auth_type": 12 },
+      { "token": 12, "oauth2_uri": 12 },
+      { "credential": 12, "no_identifier_fields": 12 },
+      { "rest_signing_name": 12, "rest_signing_region": 12 },
+      { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
+      { "aws_access_key": 12, "aws_secret_key": 12 },
+      { "aws_region": 12, "arrow_writes": 12 }
     ],
     "no_identifier_fields": {
       "ui:widget": "boolean"
@@ -216,6 +285,9 @@ const IcebergUISchema = `{
       "ui:widget": "boolean"
     },
     "s3_path_style": {
+      "ui:widget": "boolean"
+    },
+    "arrow_writes": {
       "ui:widget": "boolean"
     },
     "catalog_type": {

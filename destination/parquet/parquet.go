@@ -41,6 +41,7 @@ type Parquet struct {
 	basePath         string                   // construct with streamNamespace/streamName
 	partitionedFiles map[string]*FileMetadata // mapping of basePath/{regex} -> pqFiles
 	s3Client         *s3.S3
+	s3Uploader       *s3manager.Uploader
 	schema           typeutils.Fields
 }
 
@@ -77,6 +78,8 @@ func (p *Parquet) initS3Writer() error {
 		return fmt.Errorf("failed to create AWS session: %s", err)
 	}
 	p.s3Client = s3.New(sess)
+	// Initialize uploader for multipart uploads (handles files > 5GB automatically)
+	p.s3Uploader = s3manager.NewUploader(sess)
 
 	return nil
 }
@@ -186,8 +189,11 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 
 // Check validates local paths and S3 credentials if applicable.
 func (p *Parquet) Check(_ context.Context) error {
+	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	threadID := fmt.Sprintf("test_parquet_destination_%s", uniqueSuffix)
+
 	p.options = &destination.Options{
-		ThreadID: "test_parquet_destination",
+		ThreadID: threadID,
 	}
 
 	// check for s3 writer configuration
@@ -279,14 +285,14 @@ func (p *Parquet) closePqFiles() error {
 			}
 			s3KeyPath = filepath.Join(s3KeyPath, parquetFile.fileName)
 
-			// Upload to S3
-			_, err = p.s3Client.PutObject(&s3.PutObjectInput{
+			// Upload to S3 using multipart upload (automatically handles files > 5GB)
+			_, err = p.s3Uploader.Upload(&s3manager.UploadInput{
 				Bucket: aws.String(p.config.Bucket),
 				Key:    aws.String(s3KeyPath),
 				Body:   file,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to put object into s3: %s", err)
+				return fmt.Errorf("failed to upload object to s3: %s", err)
 			}
 
 			// Remove local file after successful upload

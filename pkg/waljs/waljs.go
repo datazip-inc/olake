@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
@@ -64,7 +65,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 			return nil
 		default:
 			if !messageReceived && w.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > w.socket.initialWaitTime {
-				return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
+				return fmt.Errorf("%s, try increasing it or do full load", constants.NoRecordsFoundError)
 			}
 
 			if w.socket.ClientXLogPos >= w.socket.CurrentWalPosition {
@@ -97,7 +98,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				if pkm.ReplyRequested {
 					logger.Debugf("keep alive message received: %v", pkm)
 					// send fake acknowledgement
-					err := AcknowledgeLSN(ctx, w.socket, true)
+					err := AcknowledgeLSN(ctx, db, w.socket, true)
 					if err != nil {
 						return fmt.Errorf("failed to ack lsn: %s", err)
 					}

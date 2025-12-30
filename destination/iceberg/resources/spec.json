@@ -37,21 +37,27 @@
           "title": "AWS Region",
           "description": "Specify the AWS region where the S3 bucket is hosted"
         },
-        "iceberg_db": {
-          "type": "string",
-          "title": "Database",
-          "description": "Specifies the name of the database to be created in AWS Glue"
-        },
         "iceberg_s3_path": {
           "type": "string",
           "title": "S3 Path",
           "description": "The S3 path or storage location for Iceberg data"
+        },
+        "catalog_name": {
+          "type": "string",
+          "title": "Catalog Name",
+          "pattern": "^[a-z_]+$",
+          "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+        },
+        "arrow_writes": {
+          "type": "boolean",
+          "default": false,
+          "title": "Enable Arrow Writes",
+          "description": "Enable Apache Arrow-based Writer for Iceberg"
         }
       },
       "required": [
         "catalog_type",
         "aws_region",
-        "iceberg_db",
         "iceberg_s3_path"
       ],
       "dependencies": {

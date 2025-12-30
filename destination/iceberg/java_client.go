@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -29,26 +30,28 @@ type portState struct {
 }
 
 type serverInstance struct {
-	port     int
-	cmd      *exec.Cmd
-	client   proto.RecordIngestServiceClient
-	conn     *grpc.ClientConn
-	serverID string
+	port        int
+	cmd         *exec.Cmd
+	client      proto.RecordIngestServiceClient
+	arrowClient proto.ArrowIngestServiceClient
+	conn        *grpc.ClientConn
+	serverID    string
 }
 
 // getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int, upsert bool, destinationDatabase string) ([]byte, error) {
+func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo, port int, upsert bool, destinationDatabase string, arrowWriterEnabled bool) ([]byte, error) {
 	// Create the server configuration map
 	serverConfig := map[string]interface{}{
 		"port":                     fmt.Sprintf("%d", port),
 		"warehouse":                config.IcebergS3Path,
 		"table-namespace":          destinationDatabase,
-		"catalog-name":             "olake_iceberg",
+		"catalog-name":             config.CatalogName,
 		"table-prefix":             "",
 		"create-identifier-fields": !config.NoIdentifierFields,
 		"upsert":                   strconv.FormatBool(upsert),
 		"upsert-keep-deletes":      "true",
 		"write.format.default":     "parquet",
+		"arrow-writer-enabled":     strconv.FormatBool(arrowWriterEnabled),
 	}
 
 	// Add partition fields as an array to preserve order
@@ -56,8 +59,8 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 		partitionFields := make([]map[string]string, 0, len(partitionInfo))
 		for _, info := range partitionInfo {
 			partitionFields = append(partitionFields, map[string]string{
-				"field":     info.field,
-				"transform": info.transform,
+				"field":     info.Field,
+				"transform": info.Transform,
 			})
 		}
 		serverConfig["partition-fields"] = partitionFields
@@ -126,7 +129,7 @@ func getServerConfigJSON(config *Config, partitionInfo []PartitionInfo, port int
 
 // setup java client
 
-func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
+func newIcebergClient(config *Config, partitionInfo []internal.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
 	// validate configuration
 	err := config.Validate()
 	if err != nil {
@@ -138,6 +141,9 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 		port      int
 		serverCmd *exec.Cmd
 	)
+
+	// Using legacy writer java server for Check()
+	arrowWriterEnabled := utils.Ternary(check, false, config.UseArrowWrites).(bool)
 
 	// nextStartPort controls from where the port scan should begin on each attempt
 	nextStartPort := 50051
@@ -164,7 +170,7 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 		}
 
 		// Build server configuration with selected port
-		configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase)
+		configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase, arrowWriterEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create server config: %s", err)
 		}
@@ -226,23 +232,31 @@ func newIcebergClient(config *Config, partitionInfo []PartitionInfo, threadID st
 
 		logger.Infof("Thread[%s]: Connected to new iceberg writer on port %d", threadID, port)
 		return &serverInstance{
-			port:     port,
-			cmd:      serverCmd,
-			client:   proto.NewRecordIngestServiceClient(conn),
-			conn:     conn,
-			serverID: threadID,
+			port:        port,
+			cmd:         serverCmd,
+			client:      proto.NewRecordIngestServiceClient(conn),
+			arrowClient: proto.NewArrowIngestServiceClient(conn),
+			conn:        conn,
+			serverID:    threadID,
 		}, nil
 	}
 
 	return nil, fmt.Errorf("failed to start iceberg writer after %d attempts due to port binding conflicts", maxAttempts)
 }
 
-func (s *serverInstance) sendClientRequest(ctx context.Context, reqPayload *proto.IcebergPayload) (string, error) {
-	resp, err := s.client.SendRecords(ctx, reqPayload)
-	if err != nil {
-		return "", fmt.Errorf("failed to send grpc request: %s", err)
+func (s *serverInstance) SendClientRequest(ctx context.Context, payload interface{}) (interface{}, error) {
+	switch p := payload.(type) {
+	case *proto.IcebergPayload:
+		return s.client.SendRecords(ctx, p)
+	case *proto.ArrowPayload:
+		return s.arrowClient.IcebergAPI(ctx, p)
+	default:
+		return nil, fmt.Errorf("unsupported payload type: %T", payload)
 	}
-	return resp.GetResult(), nil
+}
+
+func (s *serverInstance) ServerID() string {
+	return s.serverID
 }
 
 // closeIcebergClient closes the connection to the Iceberg server
