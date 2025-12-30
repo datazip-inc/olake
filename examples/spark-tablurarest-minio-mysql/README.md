@@ -52,39 +52,38 @@ docker compose up -d
 
 3. **Create and Configure a Job:**
    Create a Job to define and run the data pipeline:
-   * On the main page, click on the **"Create your first Job"** button.
+   * On the main page, click on the **"Create Job"** button.
 
-   * **Set up the Source:**
+   * **Job Configuration:**
+       * **Job Name:** `job` (Any name can be configured)
+       * Let the frequency be "Every Minute"
+
+   * **Set up your Source:** Set up a new source
        * **Connector:** `MySQL`
-       * **Version:** chose the latest available version
+       * **Version:** choose the latest available version
        * **Name of your source:** `olake_mysql`
        * **Host:** `host.docker.internal`
-       * **Port:** `3306`
        * **Database:** `weather`
        * **Username:** `root`
        * **Password:** `password`
-       * **SSH Config:** `No Tunnel`
-       * **Update Method:** `Standalone`
 
-   * **Set up the Destination:**
+   * **Set up your Destination:**
        * **Connector:** `Apache Iceberg`
-       * **Catalog:** `REST catalog`
-       * **Name of your destination:** `olake_iceberg`
        * **Version:** choose the latest available version
-       * **Iceberg REST Catalog URI:** `http://host.docker.internal:8181`
-       * **Iceberg S3 Path:** `s3://warehouse/weather`
-       * **S3 Endpoint (for Iceberg data files written by OLake workers):** `http://host.docker.internal:9000`
-       * **AWS Region:** `us-east-1`
+       * **Name of your destination:** `olake_iceberg`
+       * **Catalog Type:** `REST`
+       * **REST Catalog URI:** `http://host.docker.internal:8181`
+       * **S3 Path:** `s3://warehouse/weather`
+       * **S3 Endpoint:** `http://host.docker.internal:9000`
        * **S3 Access Key:** `minio`
        * **S3 Secret Key:** `minio123`
+       * **AWS Region:** `us-east-1`
 
-   * **Select Streams to sync:**
+   * **Streams Selection**
        * Make sure that the weather table has been selected for the sync.
-       * Click on the weather table and make sure that the Normalisation is set to `true` using the toggle button.
+       * Click on the weather table and make sure that the Normalisation is set to `true` using the toggle button, and then click on `Create Job` button.
 
-   * **Save and Run the Job:**
-       * Save the job configuration.
-       * Run the job manually from the UI to initiate the data pipeline from MySQL to Iceberg by clicking **Sync now**.
+   You can check the job status in the **Jobs** section.
 
 ### 3. Query Data with Spark
 
@@ -148,10 +147,6 @@ docker compose up -d
 - Ensure the data pipeline in OLake has run successfully
 - Check that MinIO bucket contains data: `http://localhost:9091` (credentials: minio/minio123)
 - Verify Iceberg REST catalog is responding: `http://localhost:8181/v1/namespaces`
-
-**MySQL connection issues:**
-- Wait for `init-mysql-tasks` to complete data loading
-- Check MySQL logs: `docker compose logs primary_mysql`
 
 **MinIO access issues:**
 - Check MinIO credentials in docker-compose.yml match OLake destination config
