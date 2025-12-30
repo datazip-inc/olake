@@ -11,7 +11,9 @@ package io.debezium.server.iceberg.tableoperator;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -346,19 +348,19 @@ public class IcebergTableOperator {
                          int month = Integer.parseInt(parts[1]);
                          typedValue = (year - 1970) * 12 + (month - 1);
                     } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                         LocalDate date = java.time.LocalDate.parse(stringValue);
-                         java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
-                         typedValue = (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
+                         LocalDate date = LocalDate.parse(stringValue);
+                         LocalDate epoch = LocalDate.of(1970, 1, 1);
+                         typedValue = (int) ChronoUnit.DAYS.between(epoch, date);
                     } else if (transformName.contains("hour") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
                          String[] parts = stringValue.split("-");
-                         java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
+                         LocalDateTime dateTime = LocalDateTime.of(
                                    Integer.parseInt(parts[0]),
                                    Integer.parseInt(parts[1]),
                                    Integer.parseInt(parts[2]),
                                    Integer.parseInt(parts[3]),
                                    0);
-                         java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
-                         typedValue = (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
+                         LocalDateTime epoch = LocalDateTime.of(1970, 1, 1, 0, 0);
+                         typedValue = (int) ChronoUnit.HOURS.between(epoch, dateTime);
                     } else {
                          typedValue = Conversions.fromPartitionString(fieldType, stringValue);
                     }
