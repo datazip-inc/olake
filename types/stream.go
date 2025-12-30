@@ -33,6 +33,13 @@ type Stream struct {
 	// Normalized Destination Database and Table used as default values for destination database and table
 	DestinationDatabase string `json:"destination_database,omitempty"`
 	DestinationTable    string `json:"destination_table,omitempty"`
+	// Default stream properties (connector level)
+	DefaultStreamProperties *DefaultStreamProperties `json:"default_stream_properties,omitempty"`
+}
+
+type DefaultStreamProperties struct {
+	Normalization bool `json:"normalization"`
+	AppendMode    bool `json:"append_mode"`
 }
 
 func NewStream(name, namespace string, sourceDatabase *string) *Stream {
@@ -134,7 +141,7 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	}
 	logger.Info(message)
 	// write catalog to the specified file
-	message.Catalog = mergeCatalogs(driver, oldCatalog, message.Catalog)
+	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
 	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
 	if err != nil {
