@@ -18,10 +18,10 @@ import (
 // As OLake starts supporting more data types, we will update the transformations logic here.
 //
 // Supported Transforms:
-//   - Identity, Void: 		All data types
-//   - Bucket: 			int, long, string, timestamptz
-//   - Truncate: int, long, string
-//   - Year, Month, Day, Hour: timestamptz
+//   - Identity, Void: 			All data types
+//   - Bucket: 				int, long, string, timestamptz
+//   - Truncate: 				int, long, string
+//   - Year, Month, Day, Hour: 	timestamptz
 
 const NULL = "null"
 
