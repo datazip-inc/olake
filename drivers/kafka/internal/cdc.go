@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -96,10 +97,19 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 			result[Partition] = message.Partition
 			result[Offset] = message.Offset
 			result[Key] = string(message.Key)
-			result[KafkaTimestamp] = message.Time.UnixMilli()
+			result[KafkaTimestamp] = message.Time.UTC().Format(time.RFC3339)
 			return result
 		}()
 		if data != nil {
+			// kafka json message types reformatting
+			for key, val := range data {
+				var stats typeutils.JSONTypeTrack
+				typeutils.DetectJSONType(val, &stats)
+				resolvedType := typeutils.InferJSONType(stats)
+				reformatted, _ := typeutils.ReformatValue(resolvedType, val)
+				data[key] = reformatted
+			}
+
 			// process the change
 			if err := processFn(ctx, abstract.CDCChange{
 				Stream:    currentPartitionMeta.Stream,

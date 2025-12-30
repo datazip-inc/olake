@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
@@ -119,17 +121,106 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	return topicNames, nil
 }
 
-func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
+func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("producing schema for topic [%s]", streamName)
 	stream := types.NewStream(streamName, "topics", nil).WithSyncMode(types.STRICTCDC)
 	stream.SyncMode = types.STRICTCDC
-	schema := types.NewTypeSchema()
-	schema.AddTypes(Message, types.String)       // message payload
-	schema.AddTypes(Key, types.String)           // Kafka message key
-	schema.AddTypes(Offset, types.Int64)         // Offset for tracking
-	schema.AddTypes(Partition, types.Int64)      // Partition
-	schema.AddTypes(KafkaTimestamp, types.Int64) // Message timestamp
-	stream.WithSchema(schema)
+
+	// create reader manager
+	k.readerManager = kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
+		BootstrapServers: k.config.BootstrapServers,
+		Dialer:           k.dialer,
+		AdminClient:      k.adminClient,
+	})
+
+	// get the topic metadata
+	topicDetail, err := k.readerManager.GetTopicMetadata(ctx, streamName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", streamName, err)
+	}
+
+	// get offsets for all partitions
+	offsetRequests := make([]kafka.OffsetRequest, 0, len(topicDetail.Partitions)*2)
+	for _, p := range topicDetail.Partitions {
+		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.FirstOffset})
+		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.LastOffset})
+	}
+
+	offsetsResp, err := k.adminClient.ListOffsets(ctx, &kafka.ListOffsetsRequest{
+		Topics: map[string][]kafka.OffsetRequest{streamName: offsetRequests},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", streamName, err)
+	}
+
+	var messagesDetails []map[string]interface{}
+	var mu sync.Mutex
+	// get messages from partitions for schema discovery
+	err = utils.Concurrent(ctx, offsetsResp.Topics[streamName], len(offsetsResp.Topics[streamName]), func(ctx context.Context, partitionDetails kafka.PartitionOffsets, _ int) error {
+		// skip empty partitions
+		if partitionDetails.FirstOffset >= partitionDetails.LastOffset {
+			return nil
+		}
+
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:   utils.SplitAndTrim(k.config.BootstrapServers),
+			Topic:     streamName,
+			Partition: partitionDetails.Partition,
+			Dialer:    k.dialer,
+			MaxBytes:  10e6,
+		})
+		defer reader.Close()
+
+		// set offset to first offset
+		if err := reader.SetOffset(partitionDetails.FirstOffset); err != nil {
+			logger.Warnf("failed to set offset for partition %d: %s, continuing to next partition", partitionDetails.Partition, err)
+			return nil
+		}
+
+		messageCount := 0
+		// get 1000 messages for schema discovery
+		for messageCount < 1000 {
+			fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			message, err := reader.FetchMessage(fetchCtx)
+			if err != nil {
+				break
+			}
+
+			if message.Offset >= partitionDetails.LastOffset {
+				break
+			}
+
+			messageData := make(map[string]interface{})
+			if message.Value != nil {
+				if err := json.Unmarshal(message.Value, &messageData); err != nil {
+					// If message is not valid JSON, skip it but continue reading
+					continue
+				}
+			}
+
+			messageData[Partition] = message.Partition
+			messageData[Offset] = message.Offset
+			messageData[Key] = string(message.Key)
+			messageData[KafkaTimestamp] = message.Time.UTC().Format(time.RFC3339)
+
+			mu.Lock()
+			// add message for message schema through messageDetails
+			messagesDetails = append(messagesDetails, messageData)
+			mu.Unlock()
+			messageCount++
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
+	}
+
+	if len(messagesDetails) > 0 {
+		if err := typeutils.ResolveJSONMessages(stream, messagesDetails); err != nil {
+			return nil, fmt.Errorf("failed to resolve schema for topic %s: %s", streamName, err)
+		}
+	}
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
 	return stream, nil
 }
