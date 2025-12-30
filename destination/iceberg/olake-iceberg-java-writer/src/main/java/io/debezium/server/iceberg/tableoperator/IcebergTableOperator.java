@@ -9,6 +9,9 @@
 package io.debezium.server.iceberg.tableoperator;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -23,6 +26,7 @@ import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -33,6 +37,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
+import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Type;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -234,8 +240,7 @@ public class IcebergTableOperator {
     }
   }
 
-     public void accumulateDataFiles(String threadId, Table table, String filePath,
-               List<String> partitionValues) {
+     public void accumulateDataFiles(String threadId, Table table, String filePath, List<String> partitionValues) {
           if (table == null) {
                LOGGER.warn("No table found for thread: {}", threadId);
                return;
@@ -255,12 +260,9 @@ public class IcebergTableOperator {
                          .withMetrics(metrics);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                              table.spec(),
-                              partitionValues);
+                    PartitionData partitionData = createPartitionDataFromValues(table.spec(), partitionValues);
                     dataFileBuilder.withPartition(partitionData);
-                    LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId,
-                              partitionValues.size());
+                    LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId, partitionValues.size());
                } else {
                     LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
                }
@@ -270,8 +272,7 @@ public class IcebergTableOperator {
                LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
                          dataFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId,
-                         filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId, filePath, e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
@@ -298,9 +299,7 @@ public class IcebergTableOperator {
                          .withRecordCount(recordCount);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                              table.spec(),
-                              partitionValues);
+                    PartitionData partitionData = createPartitionDataFromValues(table.spec(), partitionValues);
                     deleteFileBuilder.withPartition(partitionData);
                     LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
                               partitionValues.size());
@@ -313,16 +312,14 @@ public class IcebergTableOperator {
                LOGGER.info("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
                          threadId, filePath, equalityFieldId, deleteFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId,
-                         filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId, filePath, e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
-     private org.apache.iceberg.PartitionData createPartitionDataFromValues(org.apache.iceberg.PartitionSpec spec,
-               List<String> partitionValues) {
-          PartitionData partitionData = new org.apache.iceberg.PartitionData(spec.partitionType());
+     private PartitionData createPartitionDataFromValues(PartitionSpec spec, List<String> partitionValues) {
+          PartitionData partitionData = new PartitionData(spec.partitionType());
           if (partitionValues == null || partitionValues.isEmpty()) {
                return partitionData;
           }
@@ -330,61 +327,43 @@ public class IcebergTableOperator {
           // Set each value in the PartitionData
           for (int i = 0; i < partitionValues.size() && i < spec.fields().size(); i++) {
                String stringValue = partitionValues.get(i);
-               org.apache.iceberg.types.Type fieldType = partitionData.getType(i);
+               Type fieldType = partitionData.getType(i);
                PartitionField partitionField = spec.fields().get(i);
                String transformName = partitionField.transform().toString().toLowerCase();
 
                // Convert string value to proper type, handling nulls
                Object typedValue = null;
                if (stringValue != null && !"null".equals(stringValue)) {
-                    try {
-                         typedValue = org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
-                    } catch (NumberFormatException | UnsupportedOperationException e) {
-                         try {
-                              if (transformName.equals("identity")
-                                        && fieldType.typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP) {
-                                   java.time.OffsetDateTime offsetDateTime = java.time.OffsetDateTime
-                                             .parse(stringValue);
-                                   java.time.Instant instant = offsetDateTime.toInstant();
-                                   typedValue = instant.toEpochMilli() * 1000;
-                              } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
-                                   typedValue = Integer.parseInt(stringValue);
-                              } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
-                                   String[] parts = stringValue.split("-");
-                                   int year = Integer.parseInt(parts[0]);
-                                   int month = Integer.parseInt(parts[1]);
-                                   typedValue = (year - 1970) * 12 + (month - 1);
-                              } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                                   java.time.LocalDate date = java.time.LocalDate.parse(stringValue);
-                                   java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
-                                   typedValue = (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
-                              } else if (transformName.contains("hour")
-                                        && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
-                                   String[] parts = stringValue.split("-");
-                                   java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
-                                             Integer.parseInt(parts[0]),
-                                             Integer.parseInt(parts[1]),
-                                             Integer.parseInt(parts[2]),
-                                             Integer.parseInt(parts[3]),
-                                             0);
-                                   java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
-                                   typedValue = (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
-                              } else {
-                                   throw new RuntimeException(
-                                             "Cannot parse partition value '" + stringValue + "' for transform "
-                                                       + transformName,
-                                             e);
-                              }
-                         } catch (Exception parseError) {
-                              LOGGER.warn("Failed to parse partition value '{}': {}", stringValue,
-                                        parseError.getMessage());
-                              throw new RuntimeException(
-                                        "Cannot parse partition value '" + stringValue + "' for transform "
-                                                  + transformName,
-                                        parseError);
-                         }
+                    if (transformName.equals("identity") && fieldType.typeId() == Type.TypeID.TIMESTAMP) {
+                         OffsetDateTime offsetDateTime = OffsetDateTime.parse(stringValue);
+                         Instant instant = offsetDateTime.toInstant();
+                         typedValue = instant.toEpochMilli() * 1000;
+                    } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
+                         typedValue = Integer.valueOf(stringValue);
+                    } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
+                         String[] parts = stringValue.split("-");
+                         int year = Integer.parseInt(parts[0]);
+                         int month = Integer.parseInt(parts[1]);
+                         typedValue = (year - 1970) * 12 + (month - 1);
+                    } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                         LocalDate date = java.time.LocalDate.parse(stringValue);
+                         java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
+                         typedValue = (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
+                    } else if (transformName.contains("hour") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
+                         String[] parts = stringValue.split("-");
+                         java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
+                                   Integer.parseInt(parts[0]),
+                                   Integer.parseInt(parts[1]),
+                                   Integer.parseInt(parts[2]),
+                                   Integer.parseInt(parts[3]),
+                                   0);
+                         java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
+                         typedValue = (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
+                    } else {
+                         typedValue = Conversions.fromPartitionString(fieldType, stringValue);
                     }
                }
+
                partitionData.set(i, typedValue);
           }
 
