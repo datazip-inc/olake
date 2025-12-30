@@ -22,7 +22,9 @@ func Resolve(stream *types.Stream, objects ...map[string]interface{}) error {
 	}
 
 	for column, field := range allfields {
-		stream.UpsertField(column, *field.dataType, field.isNullable())
+		// Use getType() instead of *dataType because Merge() sets dataType to nil
+		// when a field has multiple type occurrences across records
+		stream.UpsertField(column, field.getType(), field.isNullable())
 	}
 
 	return nil
