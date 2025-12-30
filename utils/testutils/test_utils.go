@@ -320,13 +320,13 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 }
 
 func (cfg *IntegrationTest) testIcebergWriter(
-	ctx context.Context, 
-	t *testing.T, 
-	c testcontainers.Container, 
-	testTable string, 
-	useArrowWriter bool, 
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+	useArrowWriter bool,
 	testFunc func(context.Context, *testing.T, testcontainers.Container, string) error,
-	) error {
+) error {
 	cmd := toggleArrowIcebergWrites(*cfg.TestConfig, useArrowWriter)
 	code, out, err := utils.ExecCommand(ctx, c, cmd)
 	if err != nil || code != 0 {
