@@ -39,73 +39,23 @@
       "type": "string",
       "title": "File Format",
       "description": "Format of files to process",
-      "enum": ["csv", "json", "parquet"],
+      "enum": [
+        "csv",
+        "json",
+        "parquet"
+      ],
       "default": "csv"
     },
     "compression": {
       "type": "string",
       "title": "Compression Type",
       "description": "Compression format of the files",
-      "enum": ["none", "gzip", "zip"],
+      "enum": [
+        "none",
+        "gzip",
+        "zip"
+      ],
       "default": "none"
-    },
-    "csv": {
-      "type": "object",
-      "title": "CSV Configuration",
-      "description": "CSV format-specific settings (only used when file_format is 'csv')",
-      "properties": {
-        "delimiter": {
-          "type": "string",
-          "title": "Delimiter",
-          "description": "Delimiter character for CSV files",
-          "default": ","
-        },
-        "has_header": {
-          "type": "boolean",
-          "title": "Has Header",
-          "description": "Whether CSV files contain a header row",
-          "default": true
-        },
-        "skip_rows": {
-          "type": "integer",
-          "title": "Skip Rows",
-          "description": "Number of rows to skip at the beginning of CSV files",
-          "default": 0,
-          "minimum": 0
-        },
-        "quote_character": {
-          "type": "string",
-          "title": "Quote Character",
-          "description": "Quote character for CSV fields",
-          "default": "\""
-        }
-      }
-    },
-    "json": {
-      "type": "object",
-      "title": "JSON Configuration",
-      "description": "JSON format-specific settings (only used when file_format is 'json')",
-      "properties": {
-        "line_delimited": {
-          "type": "boolean",
-          "title": "Line Delimited",
-          "description": "Use line-delimited JSON (JSONL) format instead of JSON array",
-          "default": true
-        }
-      }
-    },
-    "parquet": {
-      "type": "object",
-      "title": "Parquet Configuration",
-      "description": "Parquet format-specific settings (only used when file_format is 'parquet')",
-      "properties": {
-        "streaming_enabled": {
-          "type": "boolean",
-          "title": "Streaming Enabled",
-          "description": "Use S3 range requests for memory-efficient streaming (recommended for large files)",
-          "default": true
-        }
-      }
     },
     "file_pattern": {
       "type": "string",
@@ -133,5 +83,91 @@
   "required": [
     "bucket_name",
     "file_format"
-  ]
+  ],
+  "dependencies": {
+    "file_format": {
+      "oneOf": [
+        {
+          "properties": {
+            "file_format": {
+              "const": "csv"
+            },
+            "csv": {
+              "type": "object",
+              "title": "CSV Configuration",
+              "description": "CSV format-specific settings",
+              "properties": {
+                "delimiter": {
+                  "type": "string",
+                  "title": "Delimiter",
+                  "description": "Delimiter character for CSV files",
+                  "default": ","
+                },
+                "has_header": {
+                  "type": "boolean",
+                  "title": "Has Header",
+                  "description": "Whether CSV files contain a header row",
+                  "default": true
+                },
+                "skip_rows": {
+                  "type": "integer",
+                  "title": "Skip Rows",
+                  "description": "Number of rows to skip at the beginning of CSV files",
+                  "default": 0,
+                  "minimum": 0
+                },
+                "quote_character": {
+                  "type": "string",
+                  "title": "Quote Character",
+                  "description": "Quote character for CSV fields",
+                  "default": "\""
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "file_format": {
+              "const": "json"
+            },
+            "json": {
+              "type": "object",
+              "title": "JSON Configuration",
+              "description": "JSON format-specific settings",
+              "properties": {
+                "line_delimited": {
+                  "type": "boolean",
+                  "title": "Line Delimited",
+                  "description": "Use line-delimited JSON (JSONL) format instead of JSON array",
+                  "default": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "file_format": {
+              "const": "parquet"
+            },
+            "parquet": {
+              "type": "object",
+              "title": "Parquet Configuration",
+              "description": "Parquet format-specific settings",
+              "properties": {
+                "streaming_enabled": {
+                  "type": "boolean",
+                  "title": "Streaming Enabled",
+                  "description": "Use S3 range requests for memory-efficient streaming (recommended for large files)",
+                  "default": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
 }
+

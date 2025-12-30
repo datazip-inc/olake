@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 // JSONParser implements the Parser interface for JSON files
@@ -58,21 +59,18 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 		return nil, fmt.Errorf("no records found in JSON file")
 	}
 
-	// Collect all unique field names across samples
-	fieldTypes := make(map[string][]interface{})
-	for _, record := range sampleRecords {
-		for fieldName, value := range record {
-			fieldTypes[fieldName] = append(fieldTypes[fieldName], value)
-		}
+	if err := typeutils.Resolve(p.stream, sampleRecords...); err != nil {
+		return nil, fmt.Errorf("failed to resolve schema: %w", err)
 	}
 
-	// Infer type for each field
-	for fieldName, values := range fieldTypes {
-		dataType := inferJSONFieldType(values)
-		p.stream.UpsertField(fieldName, dataType, true) // Allow nulls by default
-	}
+	// Count resolved fields for logging
+	fieldCount := 0
+	p.stream.Schema.Properties.Range(func(_, _ interface{}) bool {
+		fieldCount++
+		return true
+	})
 
-	logger.Infof("Inferred schema with %d fields from JSON", len(fieldTypes))
+	logger.Infof("Inferred schema with %d fields from JSON", fieldCount)
 	return p.stream, nil
 }
 
@@ -259,82 +257,4 @@ func (p *JSONParser) tryParseJSONL(data []byte, maxSamples int) ([]map[string]in
 
 	// If we got multiple records, it's JSONL
 	return records, len(records) > 1, nil
-}
-
-// inferJSONFieldType infers the data type of a JSON field from sample values
-// FIXED: Always use Float64 for numeric values to avoid Int64/Float64 conflicts
-// since JSON doesn't distinguish between integers and floats
-func inferJSONFieldType(values []interface{}) types.DataType {
-	if len(values) == 0 {
-		return types.String
-	}
-
-	hasNumber := false
-	allBool := true
-	allObject := true
-	allArray := true
-	nonNullCount := 0
-
-	for _, value := range values {
-		if value == nil {
-			continue
-		}
-
-		nonNullCount++
-
-		switch value.(type) {
-		case bool:
-			hasNumber = false
-			allObject = false
-			allArray = false
-		case float64:
-			// JSON numbers are always decoded as float64
-			// Always treat as Float64 to avoid schema conflicts
-			hasNumber = true
-			allBool = false
-			allObject = false
-			allArray = false
-		case string:
-			hasNumber = false
-			allBool = false
-			allObject = false
-			allArray = false
-		case map[string]interface{}:
-			hasNumber = false
-			allBool = false
-			allArray = false
-		case []interface{}:
-			hasNumber = false
-			allBool = false
-			allObject = false
-		default:
-			// Unknown type, mark all as false
-			hasNumber = false
-			allBool = false
-			allObject = false
-			allArray = false
-		}
-	}
-
-	// If no non-null values found, default to string
-	if nonNullCount == 0 {
-		return types.String
-	}
-
-	// Determine type based on what values were seen
-	// Priority: Bool > Float64 (for any number) > Object/Array > String
-	if allBool {
-		return types.Bool
-	}
-	if hasNumber {
-		// Always use Float64 for JSON numbers to avoid Int64/Float64 conflicts
-		// This is safer because JSON doesn't distinguish between int and float
-		return types.Float64
-	}
-	if allObject || allArray {
-		return types.String // Complex types should be stored as JSON string
-	}
-
-	// Default to string
-	return types.String
 }
