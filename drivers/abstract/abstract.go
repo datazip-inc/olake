@@ -103,6 +103,8 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			convStream.SyncMode = types.INCREMENTAL
 		} else if convStream.SupportedSyncModes.Exists(types.STRICTCDC) {
 			convStream.SyncMode = types.STRICTCDC
+		} else {
+			convStream.SyncMode = types.FULLREFRESH
 		}
 
 		finalStreams = append(finalStreams, convStream)
