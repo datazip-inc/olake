@@ -27,27 +27,3 @@ func Resolve(stream *types.Stream, objects ...map[string]interface{}) error {
 
 	return nil
 }
-
-// infers the schema of JSON messages
-func ResolveJSONMessages(stream *types.Stream, messages []map[string]interface{}) error {
-	jsonMessageStats := make(map[string]*JSONTypeTrack)
-	for _, msg := range messages {
-		for key, val := range msg {
-			if _, ok := jsonMessageStats[key]; !ok {
-				jsonMessageStats[key] = &JSONTypeTrack{}
-			}
-			DetectJSONType(val, jsonMessageStats[key])
-		}
-	}
-
-	finalSchema := make(map[string]types.DataType)
-	for key, stats := range jsonMessageStats {
-		finalSchema[key] = InferJSONType(*stats)
-	}
-
-	for key, dataType := range finalSchema {
-		stream.UpsertField(key, dataType, true) // nullable true by default
-	}
-
-	return nil
-}

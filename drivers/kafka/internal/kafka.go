@@ -217,7 +217,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	}
 
 	if len(messagesDetails) > 0 {
-		if err := typeutils.ResolveJSONMessages(stream, messagesDetails); err != nil {
+		if err := typeutils.Resolve(stream, messagesDetails...); err != nil {
 			return nil, fmt.Errorf("failed to resolve schema for topic %s: %s", streamName, err)
 		}
 	}
