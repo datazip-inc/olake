@@ -57,3 +57,43 @@ message RecordIngestResponse {
   string result = 1;
   bool success = 2;  // Adding success boolean for better error handling
 }
+
+service ArrowIngestService {
+  rpc IcebergAPI(ArrowPayload) returns (ArrowIngestResponse);
+}
+
+message ArrowPayload {
+  enum PayloadType {
+    UPLOAD_FILE = 0;
+    REGISTER_AND_COMMIT = 1;
+    JSONSCHEMA = 2;
+  }
+
+  PayloadType type = 1;
+
+  message FileMetadata {
+    string file_type = 1;
+    string file_path = 2;
+    int64 record_count = 3;
+    repeated string partition_values = 5;
+  }
+
+  message FileUploadRequest {
+    bytes file_data = 1;
+    string partition_key = 2;
+  }
+
+  message Metadata {
+    string dest_table_name = 1;
+    string thread_id = 2;
+    repeated FileMetadata file_metadata = 3;
+    optional FileUploadRequest file_upload = 4;
+  }
+
+  Metadata metadata = 2;
+}
+
+message ArrowIngestResponse {
+  string result = 1;
+  map<string, string> icebergSchemas = 2;
+}

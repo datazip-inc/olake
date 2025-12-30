@@ -183,20 +183,53 @@ const KafkaUISchema = `{
     "ui:grid": [
       { "bootstrap_servers": 12, "consumer_group_id": 12 },
       { "threads_equal_total_partitions": 12, "max_threads": 12 },
-      { "protocol": 12, "backoff_retry_count": 12 }
+      { "backoff_retry_count": 12, "protocol": 12 }
     ],
     "protocol": {
       "ui:grid": [
-      { "sasl_mechanism": 12, "sasl_jaas_config": 12 }
+        { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
+        { "tls_skip_verify": 24 },
+        { "ssl": 24 }
       ],
       "sasl_jaas_config": {
-      "ui:widget": "textarea",
+        "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
         }
       },
+      "tls_skip_verify": {
+        "ui:widget": "boolean"
+      },
+      "ssl": {
+        "ui:options": {
+          "title": false,
+          "description": false
+        },
+        "ui:grid": [
+          { "server_ca": 12, "client_cert": 12 },
+          { "client_key": 12 }
+        ],
+        "server_ca": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        }
+      },
       "ui:options": {
-      "title": false
+        "title": false
       }
     },
     "threads_equal_total_partitions": {
@@ -237,7 +270,7 @@ const IcebergUISchema = `{
       { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12 }
+      { "aws_region": 12, "arrow_writes": 12 }
     ],
     "no_identifier_fields": {
       "ui:widget": "boolean"
@@ -252,6 +285,9 @@ const IcebergUISchema = `{
       "ui:widget": "boolean"
     },
     "s3_path_style": {
+      "ui:widget": "boolean"
+    },
+    "arrow_writes": {
       "ui:widget": "boolean"
     },
     "catalog_type": {
