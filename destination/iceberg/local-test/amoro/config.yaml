@@ -1,0 +1,37 @@
+ams:
+  admin-username: admin
+  admin-password: admin
+  server-bind-host: "0.0.0.0"
+  # Amoro validates this must not start with "0" (so it can't be 0.0.0.0).
+  server-expose-host: "127.0.0.1"
+
+  database:
+    type: postgres
+    jdbc-driver-class: org.postgresql.Driver
+    url: jdbc:postgresql://postgres:5432/amoro?ssl=false
+    username: iceberg
+    password: password
+    auto-create-tables: true
+
+  # Note: catalogs are bootstrapped via `amoro/init-catalog.sh` (see docker-compose `amoro-init-catalog`)
+  # so they appear automatically in the UI on `docker compose up`.
+
+  thrift-server:
+    table-service:
+      bind-port: 1260
+    optimizing-service:
+      bind-port: 1261
+
+  http-server:
+    bind-port: 1630
+    # Matches the UI behavior (which adds X-Request-Source: Web header)
+    rest-auth-type: token
+
+  terminal:
+    backend: local
+
+containers:
+  - name: localContainer
+    container-impl: org.apache.amoro.server.manager.LocalOptimizerContainer
+    properties:
+      export.JAVA_HOME: "/opt/java"

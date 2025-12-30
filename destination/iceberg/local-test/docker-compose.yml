@@ -1,6 +1,71 @@
 version: "3"
 
 services:
+  amoro:
+    image: apache/amoro
+    container_name: amoro
+    ports:
+      - 8081:8081
+      - 1630:1630
+      - 1260:1260
+    depends_on:
+      postgres-init-amoro:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      - JVM_XMS=1024
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - SPARK_CONF_DIR=/opt/spark/conf
+      - HADOOP_CONF_DIR=/etc/hadoop/conf
+    networks:
+      iceberg_net:
+    volumes:
+      # Persist Amoro warehouse/state across restarts
+      - ./data/amoro-data:/tmp/warehouse
+      # Provide the same JDBC Iceberg catalog defaults used by Spark in this local-test stack
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      # Custom configuration to auto-load catalogs
+      - ./amoro/config.yaml:/usr/local/amoro/conf/config.yaml:ro
+      # Hadoop S3A config so Amoro/Iceberg reads s3a://warehouse/... from MinIO without 403
+      - ./amoro/hadoop-conf:/etc/hadoop/conf:ro
+    command: ["/entrypoint.sh", "ams"]
+    tty: true
+    stdin_open: true
+
+  # Bootstrap a default local optimizer group + one optimizer on startup.
+  # This makes the Amoro UI show the group immediately after `docker compose up`.
+  amoro-init-optimizer:
+    image: apache/amoro
+    container_name: amoro-init-optimizer
+    restart: unless-stopped
+    networks:
+      iceberg_net:
+    depends_on:
+      amoro:
+        condition: service_started
+    volumes:
+      - ./amoro/init-optimizer.sh:/init-optimizer.sh:ro
+    entrypoint: ["/bin/sh", "/init-optimizer.sh"]
+
+  # Bootstrap the olake_iceberg catalog on startup (so it appears in the Catalogs UI automatically).
+  amoro-init-catalog:
+    image: apache/amoro
+    container_name: amoro-init-catalog
+    restart: "no"
+    networks:
+      iceberg_net:
+    depends_on:
+      amoro-init-optimizer:
+        condition: service_started
+    volumes:
+      - ./amoro/init-catalog.sh:/init-catalog.sh:ro
+    entrypoint: ["/bin/sh", "/init-catalog.sh"]
+
   lakekeeper:
     image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
     pull_policy: &lakekeeper-pull-policy always
@@ -132,6 +197,24 @@ services:
       - 5432:5432
     volumes:
       - ./data/postgres-data:/var/lib/postgresql/data
+      - ./init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql:ro
+
+  # Ensures the separate `amoro` database exists even when the Postgres data dir already exists
+  # (docker-entrypoint-initdb.d only runs on first boot of an empty data dir).
+  postgres-init-amoro:
+    image: postgres:15
+    container_name: postgres-init-amoro
+    restart: "no"
+    networks:
+      iceberg_net:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PGPASSWORD=password
+    volumes:
+      - ./postgres-init-amoro.sh:/postgres-init-amoro.sh:ro
+    entrypoint: ["/bin/sh", "/postgres-init-amoro.sh"]
 
   hive-metastore:
     image: apache/hive:4.0.0

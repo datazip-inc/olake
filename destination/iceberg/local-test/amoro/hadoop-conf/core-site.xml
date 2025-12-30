@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+  <!-- Force Hadoop S3A to use MinIO for s3a://warehouse/... paths -->
+  <property>
+    <name>fs.s3a.endpoint</name>
+    <value>http://minio:9000</value>
+  </property>
+  <property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+  </property>
+  <!-- MinIO commonly requires path-style access unless you explicitly configure virtual-host-style DNS -->
+  <property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+  </property>
+
+  <!-- Credentials (keeps Amoro able to read/write even if env provider chain changes) -->
+  <property>
+    <name>fs.s3a.aws.credentials.provider</name>
+    <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+  </property>
+  <property>
+    <name>fs.s3a.access.key</name>
+    <value>admin</value>
+  </property>
+  <property>
+    <name>fs.s3a.secret.key</name>
+    <value>password</value>
+  </property>
+
+  <!-- Region hints for AWS SDK v2 signer -->
+  <property>
+    <name>fs.s3a.endpoint.region</name>
+    <value>us-east-1</value>
+  </property>
+</configuration>
+
+
