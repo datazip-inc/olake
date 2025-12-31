@@ -58,13 +58,37 @@ func (o *Reader[T]) Capture(onCapture func(T) error) error {
 	return nil
 }
 
-func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error)) error {
+// getColumnMetadata extracts column names and types from sql.Rows
+func getColumnMetadata(rows *sql.Rows) ([]string, []*sql.ColumnType, error) {
 	columns, err := rows.Columns()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	types, err := rows.ColumnTypes()
+	colTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return columns, colTypes, nil
+}
+
+// normalizeDataTypeAndConvert normalizes the datatype and converts the raw value using the converter function
+func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter func(value interface{}, columnType string) (interface{}, error)) (any, error) {
+	datatype := colType.DatabaseTypeName()
+	precision, scale, hasPrecisionScale := colType.DecimalSize()
+	if datatype == "NUMBER" && hasPrecisionScale && scale == 0 {
+		datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
+	}
+	conv, err := converter(rawData, datatype)
+	if err != nil && err != typeutils.ErrNullValue {
+		return nil, err
+	}
+	return conv, nil
+}
+
+func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error)) error {
+	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {
 		return err
 	}
@@ -81,13 +105,8 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	for i, col := range columns {
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
-			datatype := types[i].DatabaseTypeName()
-			precision, scale, hasPrecisionScale := types[i].DecimalSize()
-			if datatype == "NUMBER" && hasPrecisionScale && scale == 0 {
-				datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
-			}
-			conv, err := converter(rawData, datatype)
-			if err != nil && err != typeutils.ErrNullValue {
+			conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
+			if err != nil {
 				return err
 			}
 			dest[col] = conv
@@ -115,13 +134,8 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 			record := make(map[string]any)
 			for i, col := range columns {
 				rawData := vals[i]
-				datatype := colTypes[i].DatabaseTypeName()
-				precision, scale, hasPrecisionScale := colTypes[i].DecimalSize()
-				if datatype == "NUMBER" && hasPrecisionScale && scale == 0 {
-					datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
-				}
-				conv, err := converter(rawData, datatype)
-				if err != nil && err != typeutils.ErrNullValue {
+				conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
+				if err != nil {
 					doneCh <- fmt.Errorf("failed to convert value for column %s: %w", col, err)
 					return
 				}
@@ -139,17 +153,12 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 	err := setter.Capture(func(rows *sql.Rows) error {
 		if columns == nil {
 			var metaErr error
-			columns, metaErr = rows.Columns()
-			if metaErr != nil {
-				return metaErr
-			}
-			colTypes, metaErr = rows.ColumnTypes()
+			columns, colTypes, metaErr = getColumnMetadata(rows)
 			if metaErr != nil {
 				return metaErr
 			}
 		}
 
-		// Prepare scan destinations
 		scanDests := make([]any, len(columns))
 		for i := range scanDests {
 			scanDests[i] = new(any)
@@ -158,7 +167,6 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 			return err
 		}
 
-		// Copy out dereferenced values so the next Scan can proceed safely
 		vals := make([]any, len(columns))
 		for i := range scanDests {
 			vals[i] = *(scanDests[i].(*any))
