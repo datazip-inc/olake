@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -69,63 +70,45 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 		}
 	}()
 
-	for {
-		message, err := reader.FetchMessage(ctx)
-		if err != nil {
-			return fmt.Errorf("error reading message in Kafka CDC sync: %s", err)
+	return k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+		if record.Data == nil {
+			logger.Warnf("received nil message value at offset %d for topic %s, partition %d", record.Message.Offset, record.Message.Topic, record.Message.Partition)
+			return false, nil
 		}
 
 		// get current partition metadata and key
-		currentPartitionKey := types.PartitionKey{Topic: message.Topic, Partition: message.Partition}
-		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", message.Topic, message.Partition))
+		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
+		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
 		if !exists {
-			return fmt.Errorf("missing partition index for topic %s partition %d", message.Topic, message.Partition)
+			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
 
-		// process message data
-		data := func() map[string]any {
-			var result map[string]any
-			if message.Value == nil {
-				logger.Warnf("received nil message value at offset %d for topic %s, partition %d", message.Offset, message.Topic, message.Partition)
-				return nil
-			}
-			if err := json.Unmarshal(message.Value, &result); err != nil {
-				logger.Errorf("failed to unmarshal message value: %s", err)
-				return nil
-			}
-			result[Partition] = message.Partition
-			result[Offset] = message.Offset
-			result[Key] = string(message.Key)
-			result[KafkaTimestamp] = message.Time.UTC().Format(time.RFC3339)
-			return result
-		}()
-		if data != nil {
-			// process the change
-			if err := processFn(ctx, abstract.CDCChange{
-				Stream:    currentPartitionMeta.Stream,
-				Timestamp: message.Time,
-				Kind:      "create",
-				Data:      data,
-			}); err != nil {
-				return err
-			}
+		// process the change
+		err := processFn(ctx, abstract.CDCChange{
+			Stream:    currentPartitionMeta.Stream,
+			Timestamp: record.Message.Time,
+			Kind:      "create",
+			Data:      record.Data,
+		})
+		if err != nil {
+			return false, err
 		}
 
-		// track last message
-		lastMessages[currentPartitionKey] = message
+		lastMessages[currentPartitionKey] = record.Message
 
 		// check if partition is complete
-		if message.Offset >= currentPartitionMeta.EndOffset-1 {
+		if record.Message.Offset >= currentPartitionMeta.EndOffset-1 {
 			// mark current partition as completed
 			completedPartitions[currentPartitionKey] = struct{}{}
 
 			// check for all other assigned partitions to see if they are also completed
 			shouldExit, err := k.checkPartitionCompletion(ctx, readerID, completedPartitions, observedPartitions)
 			if err != nil || shouldExit {
-				return err
+				return shouldExit, err
 			}
 		}
-	}
+		return false, nil
+	})
 }
 
 func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, readerID string) error {
@@ -185,6 +168,37 @@ func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 	logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
 
 	k.checkpointMessage.Delete(readerID)
+	return nil
+}
+
+// for processing messages from a Kafka reader.
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+	for {
+		message, err := reader.FetchMessage(ctx)
+		if err != nil {
+			return fmt.Errorf("error reading message in Kafka CDC sync: %s", err)
+		}
+
+		var data map[string]interface{}
+		if message.Value != nil {
+			if err := json.Unmarshal(message.Value, &data); err != nil {
+				logger.Errorf("failed to unmarshal message value: %s", err)
+				continue
+			}
+			data[Partition] = message.Partition
+			data[Offset] = message.Offset
+			data[Key] = string(message.Key)
+			data[KafkaTimestamp], _ = typeutils.ReformatDate(message.Time)
+		}
+
+		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
+		if err != nil {
+			return err
+		}
+		if stopProcessing {
+			break
+		}
+	}
 	return nil
 }
 
