@@ -45,7 +45,6 @@ type IntegrationTest struct {
 	DestinationDB                    string
 	CursorField                      string
 	PartitionRegex                   string
-	Normalization                    *bool
 }
 
 type PerformanceTest struct {
@@ -188,6 +187,17 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 	return fmt.Sprintf(
 		`jq --arg ns "%s" --arg name "%s" --arg mode "%s" --arg cursor "%s" '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = $mode | .stream.cursor_field = $cursor) else . end))' %s > %s && mv %s %s`,
 		namespace, streamName, syncMode, cursorField,
+		config.CatalogPath, tmpCatalog, tmpCatalog, config.CatalogPath,
+	)
+}
+
+func resetStreamToCDCCommand(config TestConfig, namespace, streamName string) string {
+	// in case of Oracle, the stream names are in uppercase in stream.json
+	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
+	tmpCatalog := fmt.Sprintf("/tmp/%s_reset_cdc_streams.json", config.Driver)
+	return fmt.Sprintf(
+		`jq --arg ns "%s" --arg name "%s" '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = "cdc" | del(.stream.cursor_field)) else . end))' %s > %s && mv %s %s`,
+		namespace, streamName,
 		config.CatalogPath, tmpCatalog, tmpCatalog, config.CatalogPath,
 	)
 }
@@ -778,59 +788,57 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 2. Query on test table
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 
-							// Snapshot baseline streams.json so each run starts from the same catalog state.
-							baseCatalog := fmt.Sprintf("/tmp/%s_streams_base.json", cfg.TestConfig.Driver)
-							if code, out, err := utils.ExecCommand(ctx, c, fmt.Sprintf("cp %s %s", cfg.TestConfig.CatalogPath, baseCatalog)); err != nil || code != 0 {
-								return fmt.Errorf("failed to snapshot streams.json (%d): %s\n%s", code, err, out)
+							type normalizationCase struct {
+								name           string
+								normalization  bool
+								partitionRegex string
+							}
+							cases := []normalizationCase{
+								{name: "Normalized", normalization: true, partitionRegex: cfg.PartitionRegex},
+								{name: "Denormalized", normalization: false, partitionRegex: ""},
 							}
 
-							modes := []bool{true, false}
-							if cfg.Normalization != nil {
-								modes = []bool{*cfg.Normalization}
-							}
-
-							for _, normalization := range modes {
-								modeName := utils.Ternary(normalization, "NormalizationOn", "NormalizationOff").(string)
-								partitionRegex := utils.Ternary(normalization, cfg.PartitionRegex, "").(string)
-
-								t.Run(modeName, func(t *testing.T) {
+							for _, tc := range cases {
+								tc := tc // capture
+								t.Run(tc.name, func(t *testing.T) {
 									// reset source table for deterministic runs
 									if err := cfg.resetTable(ctx, t, currentTestTable); err != nil {
 										t.Fatalf("failed to reset table: %v", err)
 									}
 
-									// restore baseline streams.json, then apply mode-specific mutation
-									if code, out, err := utils.ExecCommand(ctx, c, fmt.Sprintf("cp %s %s", baseCatalog, cfg.TestConfig.CatalogPath)); err != nil || code != 0 {
-										t.Fatalf("failed to restore baseline streams.json (%d): %s\n%s", code, err, out)
+									// reset stream back to CDC defaults before each mode run
+									resetCatalogCmd := resetStreamToCDCCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable)
+									if code, out, err := utils.ExecCommand(ctx, c, resetCatalogCmd); err != nil || code != 0 {
+										t.Fatalf("failed to reset streams.json for %s (%d): %s\n%s", tc.name, code, err, out)
 									}
 
-									streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true, normalization, partitionRegex)
+									streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true, tc.normalization, tc.partitionRegex)
 									if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
-										t.Fatalf("failed to update streams.json for %s (%d): %s\n%s", modeName, code, err, out)
+										t.Fatalf("failed to update streams.json for %s (%d): %s\n%s", tc.name, code, err, out)
 									}
 
 									if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
 										t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
-											if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable, partitionRegex, normalization); err != nil {
+											if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
 												t.Fatalf("Iceberg Full load + CDC tests failed: %v", err)
 											}
 										})
 
 										t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
-											if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable, partitionRegex, normalization); err != nil {
+											if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
 												t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
 											}
 										})
 									}
 
 									t.Run("Iceberg Full load + Incremental tests", func(t *testing.T) {
-										if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable, partitionRegex, normalization); err != nil {
+										if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
 											t.Fatalf("Iceberg Full load + Incremental tests failed: %v", err)
 										}
 									})
 
 									t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
-										if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable, partitionRegex, normalization); err != nil {
+										if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
 											t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
 										}
 									})
