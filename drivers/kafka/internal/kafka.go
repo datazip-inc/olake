@@ -152,6 +152,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", streamName, err)
 	}
 
+	var mu sync.Mutex
 	// get messages from partitions for schema discovery
 	err = utils.Concurrent(ctx, offsetsResp.Topics[streamName], len(offsetsResp.Topics[streamName]), func(ctx context.Context, partitionDetails kafka.PartitionOffsets, _ int) error {
 		// skip empty partitions
@@ -180,8 +181,10 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		defer cancel()
 		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
 			if record.Data != nil {
-				// add message for message schema through messageDetails
+				mu.Lock()
+				// resolve data for schema
 				err := typeutils.Resolve(stream, record.Data)
+				mu.Unlock()
 				if err != nil {
 					return true, err
 				}
