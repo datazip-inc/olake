@@ -152,8 +152,6 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", streamName, err)
 	}
 
-	var messagesDetails []map[string]interface{}
-	var mu sync.Mutex
 	// get messages from partitions for schema discovery
 	err = utils.Concurrent(ctx, offsetsResp.Topics[streamName], len(offsetsResp.Topics[streamName]), func(ctx context.Context, partitionDetails kafka.PartitionOffsets, _ int) error {
 		// skip empty partitions
@@ -182,10 +180,11 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		defer cancel()
 		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
 			if record.Data != nil {
-				mu.Lock()
 				// add message for message schema through messageDetails
-				messagesDetails = append(messagesDetails, record.Data)
-				mu.Unlock()
+				err := typeutils.Resolve(stream, record.Data)
+				if err != nil {
+					return true, err
+				}
 				messageCount++
 			}
 
@@ -195,16 +194,10 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		})
 		return nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
 	}
 
-	if len(messagesDetails) > 0 {
-		if err := typeutils.Resolve(stream, messagesDetails...); err != nil {
-			return nil, fmt.Errorf("failed to resolve schema for topic %s: %s", streamName, err)
-		}
-	}
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
 	return stream, nil
 }

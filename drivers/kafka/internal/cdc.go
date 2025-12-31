@@ -182,7 +182,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 		var data map[string]interface{}
 		if message.Value != nil {
 			if err := json.Unmarshal(message.Value, &data); err != nil {
-				logger.Errorf("failed to unmarshal message value: %s", err)
+				logger.Warnf("failed to unmarshal message value: %s", err)
 				continue
 			}
 			data[Partition] = message.Partition
