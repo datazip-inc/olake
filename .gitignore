@@ -7,7 +7,6 @@ go.sum
 go.work.sum
 # Ignore examples folders, but allow drivers/s3/examples for testing
 */**/examples
-!drivers/s3/examples
 olake-data/
 olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
 destination/iceberg/olake-iceberg-java-writer/target/

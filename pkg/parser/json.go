@@ -30,7 +30,7 @@ func NewJSONParser(config JSONConfig, stream *types.Stream) *JSONParser {
 // Supports JSONL (line-delimited), JSON Array, and single JSON object formats
 func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
 	logger.Debug("Inferring JSON schema from sample data")
-
+	//TODO : implement sampling of records from first and last files to get a more accurate schema
 	// Collect sample records using smart JSON format detection
 	maxSamples := 100
 
@@ -59,18 +59,14 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 		return nil, fmt.Errorf("no records found in JSON file")
 	}
 
-	if err := typeutils.Resolve(p.stream, sampleRecords...); err != nil {
-		return nil, fmt.Errorf("failed to resolve schema: %w", err)
+	// Resolve schema one record at a time similar to MongoDB driver
+	for i, record := range sampleRecords {
+		if err := typeutils.Resolve(p.stream, record); err != nil {
+			return nil, fmt.Errorf("failed to resolve schema for record %d: %w", i, err)
+		}
 	}
 
-	// Count resolved fields for logging
-	fieldCount := 0
-	p.stream.Schema.Properties.Range(func(_, _ interface{}) bool {
-		fieldCount++
-		return true
-	})
-
-	logger.Infof("Inferred schema with %d fields from JSON", fieldCount)
+	logger.Infof("Inferred schema from JSON file")
 	return p.stream, nil
 }
 
