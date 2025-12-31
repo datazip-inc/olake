@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,6 +15,10 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
+
+// errNullValue is a sentinel error indicating a null/empty value was encountered.
+// This is used instead of returning (nil, nil) to satisfy the nilnil linter.
+var errNullValue = errors.New("null value")
 
 // CSVParser implements the Parser interface for CSV files
 type CSVParser struct {
@@ -151,9 +156,15 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 				}
 				convertedValue, err := convertValue(value, fieldType)
 				if err != nil {
-					return fmt.Errorf("failed to convert value for field %s: %w", headers[i], err)
+					if errors.Is(err, errNullValue) {
+						// errNullValue indicates a valid null/empty value
+						record[headers[i]] = nil
+					} else {
+						return fmt.Errorf("failed to convert value for field %s: %w", headers[i], err)
+					}
+				} else {
+					record[headers[i]] = convertedValue
 				}
-				record[headers[i]] = convertedValue
 			}
 		}
 		if err := callback(ctx, record); err != nil {
@@ -190,9 +201,15 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 				}
 				convertedValue, err := convertValue(value, fieldType)
 				if err != nil {
-					return fmt.Errorf("failed to convert value for field %s in row %d: %w", headers[i], recordCount, err)
+					if errors.Is(err, errNullValue) {
+						// errNullValue indicates a valid null/empty value
+						record[headers[i]] = nil
+					} else {
+						return fmt.Errorf("failed to convert value for field %s in row %d: %w", headers[i], recordCount, err)
+					}
+				} else {
+					record[headers[i]] = convertedValue
 				}
-				record[headers[i]] = convertedValue
 			}
 		}
 
@@ -251,8 +268,7 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 
 	// Handle null/empty values
 	if trimmed == "" || strings.ToLower(trimmed) == "null" {
-		//nolint: nilnil // nil is a valid value for null/empty fields
-		return nil, nil
+		return nil, errNullValue
 	}
 
 	// Convert based on field type
@@ -276,7 +292,7 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 		}
 		// Handle NaN/Inf - JSON doesn't support these values, so convert to nil
 		if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
-			return nil, nil
+			return nil, errNullValue
 		}
 		return float32(floatVal), nil
 	case types.Float64:
@@ -286,7 +302,7 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 		}
 		// Handle NaN/Inf - JSON doesn't support these values, so convert to nil
 		if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
-			return nil, nil
+			return nil, errNullValue
 		}
 		return floatVal, nil
 	case types.Bool:
