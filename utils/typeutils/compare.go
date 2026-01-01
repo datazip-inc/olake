@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"time"
@@ -22,8 +23,8 @@ func Compare(a, b any) int {
 
 	switch aVal := a.(type) {
 	case uint, uint8, uint16, uint32, uint64:
-		aUint := reflect.ValueOf(a).Convert(reflect.TypeOf(uint64(0))).Uint()
-		bUint := reflect.ValueOf(b).Convert(reflect.TypeOf(uint64(0))).Uint()
+		aUint := reflect.ValueOf(a).Convert(reflect.TypeFor[uint64]()).Uint()
+		bUint := reflect.ValueOf(b).Convert(reflect.TypeFor[uint64]()).Uint()
 		if aUint < bUint {
 			return -1
 		} else if aUint > bUint {
@@ -31,8 +32,8 @@ func Compare(a, b any) int {
 		}
 		return 0
 	case int, int8, int16, int32, int64:
-		aInt := reflect.ValueOf(a).Convert(reflect.TypeOf(int64(0))).Int()
-		bInt := reflect.ValueOf(b).Convert(reflect.TypeOf(int64(0))).Int()
+		aInt := reflect.ValueOf(a).Convert(reflect.TypeFor[int64]()).Int()
+		bInt := reflect.ValueOf(b).Convert(reflect.TypeFor[int64]()).Int()
 		if aInt < bInt {
 			return -1
 		} else if aInt > bInt {
@@ -40,14 +41,27 @@ func Compare(a, b any) int {
 		}
 		return 0
 	case float32, float64:
-		aFloat := reflect.ValueOf(a).Convert(reflect.TypeOf(float64(0))).Float()
-		bFloat := reflect.ValueOf(b).Convert(reflect.TypeOf(float64(0))).Float()
-		if aFloat < bFloat {
+		aFloat := reflect.ValueOf(a).Convert(reflect.TypeFor[float64]()).Float()
+		bFloat := reflect.ValueOf(b).Convert(reflect.TypeFor[float64]()).Float()
+
+		if math.IsNaN(aFloat) {
+			if math.IsNaN(bFloat) {
+				return 0
+			}
 			return -1
-		} else if aFloat > bFloat {
+		}
+		if math.IsNaN(bFloat) {
 			return 1
 		}
-		return 0
+
+		const eps = 1e-6
+		diff := aFloat - bFloat
+		if math.Abs(diff) < eps {
+			return 0
+		} else if diff < 0 {
+			return -1
+		}
+		return 1
 	case time.Time:
 		bTime := b.(time.Time)
 		if aVal.Before(bTime) {
