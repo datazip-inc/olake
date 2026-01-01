@@ -24,11 +24,10 @@ import (
 )
 
 const (
-	_Message        = "message"
-	_Key            = "key"
-	_Offset         = "offset"
-	_Partition      = "partition"
-	_KafkaTimestamp = "kafka_timestamp"
+	_Key            = "_key"
+	_Offset         = "_offset"
+	_Partition      = "_partition"
+	_KafkaTimestamp = "_kafka_timestamp"
 )
 
 type Kafka struct {
