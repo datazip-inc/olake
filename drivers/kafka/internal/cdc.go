@@ -185,10 +185,10 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 				logger.Warnf("failed to unmarshal message value: %s", err)
 				continue
 			}
-			data[Partition] = message.Partition
-			data[Offset] = message.Offset
-			data[Key] = string(message.Key)
-			data[KafkaTimestamp], _ = typeutils.ReformatDate(message.Time)
+			data[_Partition] = message.Partition
+			data[_Offset] = message.Offset
+			data[_Key] = string(message.Key)
+			data[_KafkaTimestamp], _ = typeutils.ReformatDate(message.Time)
 		}
 
 		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})

@@ -24,11 +24,11 @@ import (
 )
 
 const (
-	Message        = "message"
-	Key            = "key"
-	Offset         = "offset"
-	Partition      = "partition"
-	KafkaTimestamp = "kafka_timestamp"
+	_Message        = "message"
+	_Key            = "key"
+	_Offset         = "offset"
+	_Partition      = "partition"
+	_KafkaTimestamp = "kafka_timestamp"
 )
 
 type Kafka struct {
@@ -177,7 +177,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		messageCount := 0
 
-		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
 			if record.Data != nil {
@@ -201,7 +201,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
 	}
 
-	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
+	stream.SourceDefinedPrimaryKey = types.NewSet(_Offset, _Partition)
 	return stream, nil
 }
 
