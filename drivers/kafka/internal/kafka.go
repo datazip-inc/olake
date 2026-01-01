@@ -24,10 +24,10 @@ import (
 )
 
 const (
-	_Key            = "_key"
-	_Offset         = "_offset"
-	_Partition      = "_partition"
-	_KafkaTimestamp = "_kafka_timestamp"
+	Key            = "_key"
+	Offset         = "_offset"
+	Partition      = "_partition"
+	KafkaTimestamp = "_kafka_timestamp"
 )
 
 type Kafka struct {
@@ -200,7 +200,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
 	}
 
-	stream.SourceDefinedPrimaryKey = types.NewSet(_Offset, _Partition)
+	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
 	return stream, nil
 }
 
