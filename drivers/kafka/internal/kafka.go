@@ -24,9 +24,9 @@ import (
 )
 
 const (
-	Key            = "_key"
-	Offset         = "_offset"
-	Partition      = "_partition"
+	Key            = "_kafka_key"
+	Offset         = "_kafka_offset"
+	Partition      = "_kafka_partition"
 	KafkaTimestamp = "_kafka_timestamp"
 )
 
