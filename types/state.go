@@ -189,6 +189,22 @@ func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
 	s.LogState()
 }
 
+func (s *State) DeleteCursor(stream *ConfiguredStream, key string) {
+	if key == "" {
+		return
+	}
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Delete(key)
+	}
+	s.LogState()
+}
+
 // GetStateChunks retrieves all chunks from the state.
 func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
 	s.RLock()
