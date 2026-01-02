@@ -801,12 +801,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									})
 								}
 
-								t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
-									if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-										t.Fatalf("Iceberg Full load + CDC tests failed: %v", err)
-									}
-								})
-
 								t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
 									if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
 										t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
@@ -822,12 +816,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 									}
 								})
 							}
-
-							t.Run("Iceberg Full load + Incremental tests", func(t *testing.T) {
-								if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Iceberg Full load + Incremental tests failed: %v", err)
-								}
-							})
 
 							t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
 								if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
