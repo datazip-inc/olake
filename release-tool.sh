@@ -131,6 +131,7 @@ setup_buildx
 
 # Release the driver
 platform="linux/amd64,linux/arm64"
+# if driver is db2, target_stage -> db2-stage else target_stage -> driver-stage
 target_stage="driver-stage"
 
 if [[ "$DRIVER" == "db2" ]]; then

@@ -28,6 +28,7 @@ var DateTimeFormats = []string{
 	"2006-01-02 15:04:05 -07:00",
 	"2006-01-02 15:04:05-07:00",
 	"2006-01-02 15:04:05 -0700 MST",
+	"2006-01-02-15.04.05.000000",
 	"2006-01-02T15:04:05",
 	"2006-01-02T15:04:05.000000",
 	"2006-01-02T15:04:05.999999999Z07:00",
@@ -35,6 +36,7 @@ var DateTimeFormats = []string{
 	"2020-08-17T05:50:22.895Z",
 	"2006-01-02 15:04:05.999999-07",
 	"2006-01-02 15:04:05.999999+00",
+	"2006-01-02T15:04:05.000000000Z",
 }
 
 var GeospatialTypes = []string{"geometry", "point", "polygon", "linestring", "multi"}
@@ -96,8 +98,9 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 			return v, nil
 		case bool:
 			return fmt.Sprintf("%t", v), nil
+		// in db2, char and varchar comes in byte format
 		case []byte: // byte slice
-			return string(v), nil
+			return strings.TrimSpace(string(v)), nil
 		default:
 			return fmt.Sprintf("%v", v), nil
 		}
@@ -219,6 +222,11 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		parsed = time.Unix(0, 0).UTC()
 	} else if parsed.Year() > 9999 {
 		parsed = parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
+	}
+
+	// for DB2, normallizing time cursor when year is 1 -> 1970-01-01
+	if parsed.Year() == 1 {
+		parsed = time.Date(1970, 1, 1, parsed.Hour(), parsed.Minute(), parsed.Second(), parsed.Nanosecond(), time.UTC)
 	}
 
 	return parsed, nil
@@ -538,13 +546,16 @@ func ReformatGeoType(v any) (any, error) {
 	}
 }
 
-// FormatCursorValue is used to make time format and object id format consistent to be saved in state
-func FormatCursorValue(cursorValue any) any {
-	if _, ok := cursorValue.(time.Time); ok {
-		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
+// ReformatTimeValue is used to make time format consistent as per db
+func ReformatTimeValue(value any) (any, error) {
+	switch t := value.(type) {
+	case time.Time:
+		return t.Format("15:04:05"), nil
+	case []byte:
+		return string(t), nil
+	case string:
+		return t, nil
+	default:
+		return fmt.Sprintf("%v", value), nil
 	}
-	if oid, ok := cursorValue.(primitive.ObjectID); ok {
-		return oid.Hex()
-	}
-	return cursorValue
 }

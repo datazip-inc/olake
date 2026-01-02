@@ -23,6 +23,7 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		Driver: constants.DB2,
 		Stream: stream,
 		State:  d.state,
+		Client: d.client,
 	}
 
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)

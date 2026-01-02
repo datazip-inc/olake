@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
@@ -545,16 +546,36 @@ func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentP
 		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %s", lastCursorValue, lastCursorValue, err)
 	}
 
-	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
-	err = opts.Client.QueryRowContext(ctx, query).Scan(&datatype)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+	quotedCol := QuoteIdentifier(cursorField, opts.Driver)
+	var dbDatatype string
+	switch opts.Driver {
+	case constants.Oracle:
+		query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+		err = opts.Client.QueryRowContext(ctx, query).Scan(&dbDatatype)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+		}
+		// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
+		if isTimestamp && !strings.Contains(dbDatatype, "TIME ZONE") {
+			return fmt.Sprintf("%s %s CAST(%s AS TIMESTAMP)", quotedCol, operator, argumentPlaceholder), formattedValue, nil
+		}
+	case constants.DB2:
+		query := "SELECT TYPENAME FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? AND TABNAME = ? AND COLNAME = ?"
+		err = opts.Client.QueryRowContext(ctx, query, stream.Namespace(), stream.Name(), cursorField).Scan(&dbDatatype)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get db2 column datatype: %s", err)
+		}
+
+		if isTimestamp && strings.Contains(strings.ToUpper(dbDatatype), "TIMESTAMP") {
+			db2Timestamp, ok := formattedValue.(time.Time)
+			if !ok {
+				return "", nil, fmt.Errorf("expected time.Time for DB2 timestamp, got %T", formattedValue)
+			}
+			timestampValue := db2Timestamp.Format("2006-01-02 15:04:05.000000")
+			return fmt.Sprintf("%s %s TIMESTAMP_FORMAT(%s, 'YYYY-MM-DD HH24:MI:SS.FF6')", quotedCol, operator, argumentPlaceholder), timestampValue, nil
+		}
 	}
-	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
-	quotedCol := QuoteIdentifier(cursorField, constants.Oracle)
-	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
-		return fmt.Sprintf("%s %s CAST(%s AS TIMESTAMP)", quotedCol, operator, argumentPlaceholder), formattedValue, nil
-	}
+
 	return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), formattedValue, nil
 }
 
