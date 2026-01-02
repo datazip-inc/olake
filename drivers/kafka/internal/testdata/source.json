@@ -1,0 +1,9 @@
+{
+    "bootstrap_servers": "host.docker.internal:9094",
+    "consumer_group_id": "olake_test_group",
+    "protocol": {
+        "security_protocol": "PLAINTEXT"
+    },
+    "max_threads": 1,
+    "backoff_retry_count": 1
+}
