@@ -32,19 +32,53 @@ func newConfiguredStream(name, namespace, cursor string, mode SyncMode) *Configu
 	return s.Wrap(0)
 }
 
-func TestIsZeroAndSetType_ResetStreams(t *testing.T) {
+func TestState_IsZero(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(*State)
+		wantZero bool
+	}{
+		{
+			name: "empty state",
+			setup: func(s *State) {},
+			wantZero: true,
+		},
+		{
+			name: "global state set",
+			setup: func(s *State) {
+				s.SetType(GlobalType)
+				s.SetGlobal(map[string]any{"k": "v"}, "")
+			},
+			wantZero: false,
+		},
+		{
+			name: "stream with cursor",
+			setup: func(s *State) {
+				cfg := newConfiguredStream("s1", "ns1", "id", SyncMode("incremental"))
+				s.SetCursor(cfg, "id", 123)
+			},
+			wantZero: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newState()
+			tt.setup(s)
+			assert.Equal(t, tt.wantZero, s.isZero())
+		})
+	}
+}
+
+func TestState_ResetStreams(t *testing.T) {
 	s := newState()
-	assert.True(t, s.isZero(), "new state without streams/global should be zero")
-
-	s.SetType(GlobalType)
-	assert.Equal(t, GlobalType, s.Type, "SetType should set the state type")
-
-	// add a stream then reset
 	cfg := newConfiguredStream("s1", "ns1", "id", SyncMode("incremental"))
 	s.SetCursor(cfg, "id", 123)
-	require.False(t, s.isZero(), "state should not be zero after adding cursor")
+	require.False(t, s.isZero())
+
 	s.ResetStreams()
-	assert.Equal(t, 0, len(s.Streams), "ResetStreams should clear stream slice")
+	assert.Equal(t, 0, len(s.Streams))
+}assert.Equal(t, 0, len(s.Streams), "ResetStreams should clear stream slice")
 }
 
 func TestCursorSetAndGet_ResetCursor(t *testing.T) {
@@ -190,3 +224,4 @@ func TestStreamState_MarshalUnmarshalJSON_WithChunks(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 1, gotChunks.Len())
 }
+
