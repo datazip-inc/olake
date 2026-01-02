@@ -148,13 +148,15 @@ services:
       - olake-network
 
   spark:
-    image: tabulario/spark-iceberg
+    image: olakego/spark-connect:v0.0.1
     container_name: olake-spark
     ports:
       - "8888:8888"
       - "8088:8080"
       - "10000:10000"
       - "10001:10001"
+    volumes:
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
     environment:
       AWS_ACCESS_KEY_ID: minio
       AWS_SECRET_ACCESS_KEY: minio123

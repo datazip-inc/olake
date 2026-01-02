@@ -9,7 +9,6 @@ This example demonstrates an end-to-end data lakehouse pipeline:
 * [Docker Compose](https://docs.docker.com/compose/) (comes with Docker Desktop)
 * **Port Availability:** The following ports must be available on your system:
    - **8000** - OLake UI (from separate stack)
-   - **8088** - Spark UI
    - **8888** - Jupyter Notebook (Spark)
    - **3306** - MySQL database
    - **8181** - Iceberg REST catalog API
@@ -98,10 +97,10 @@ docker compose up -d
    ```sql
    SHOW CATALOGS;
    ```
-   You will see the `demo` catalog available.
+   You will see the `olake_iceberg` catalog available.
 
    ```sql
-   SHOW NAMESPACES IN demo;
+   SHOW NAMESPACES IN olake_iceberg;
    ```
    You will be able to see the namespace created for your table as `{job_name}_weather`
 
@@ -112,7 +111,7 @@ docker compose up -d
 
    Now, query the iceberg table
    ```sql
-   SELECT * FROM demo.{job_name}_weather.weather LIMIT 10;
+   SELECT * FROM olake_iceberg.{job_name}_weather.weather LIMIT 10;
    ```
 
 #### Option 2: Using Jupyter Notebook
@@ -128,7 +127,7 @@ docker compose up -d
 
    ```python
    %%sql
-   SHOW NAMESPACES IN demo;
+   SHOW NAMESPACES IN olake_iceberg;
    ```
 
    ```python
@@ -138,7 +137,7 @@ docker compose up -d
 
    ```python
    %%sql
-   SELECT * FROM demo.{job_name}_weather.weather LIMIT 10;
+   SELECT * FROM olake_iceberg.{job_name}_weather.weather LIMIT 10;
    ```
 
 ### Common Issues
