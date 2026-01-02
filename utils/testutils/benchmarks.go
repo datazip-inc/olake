@@ -24,7 +24,7 @@ type BenchmarkStore struct {
 	FilePath string  `json:"-"`
 }
 
-func LoadBenchmarks(path string) (*BenchmarkStore, error) {
+func loadBenchmarks(path string) (*BenchmarkStore, error) {
 	store := &BenchmarkStore{
 		Backfill: history{
 			RPS:       make([]float64, 0, maxRPSHistorySize),
@@ -42,56 +42,56 @@ func LoadBenchmarks(path string) (*BenchmarkStore, error) {
 	return store, nil
 }
 
-func (store *BenchmarkStore) load() error {
-	if err := utils.UnmarshalFile(store.FilePath, store, false); err != nil {
-		if _, statErr := os.Stat(store.FilePath); os.IsNotExist(statErr) {
+func (s *BenchmarkStore) load() error {
+	if err := utils.UnmarshalFile(s.FilePath, s, false); err != nil {
+		if _, statErr := os.Stat(s.FilePath); os.IsNotExist(statErr) {
 			// Missing file is acceptable, it will be created when the first RPS is recorded.
 			return nil
 		}
-		return fmt.Errorf("failed to load rps benchmarks from file %s: %w", store.FilePath, err)
+		return fmt.Errorf("failed to load rps benchmarks from file %s: %w", s.FilePath, err)
 	}
 
 	return nil
 }
 
 // record records a new value for the given driver and mode, and persists it to the file.
-func (store *BenchmarkStore) record(
+func (s *BenchmarkStore) record(
 	isBackfill bool,
 	rps float64,
 ) error {
 	rpsValues := utils.Ternary(
 		isBackfill,
-		store.Backfill.RPS,
-		store.CDC.RPS,
+		s.Backfill.RPS,
+		s.CDC.RPS,
 	).([]float64)
 
 	rpsValues = append(rpsValues, rps)
 
 	// Truncate history to maintain a rolling window of the last maxRPSHistorySize values.
 	if len(rpsValues) > maxRPSHistorySize {
-		rpsValues = rpsValues[len(rpsValues)-maxRPSHistorySize:]
+		rpsValues = rpsValues[1:]
 	}
 
 	if isBackfill {
-		store.Backfill.RPS = rpsValues
-		store.Backfill.UpdatedAt = time.Now().UTC()
+		s.Backfill.RPS = rpsValues
+		s.Backfill.UpdatedAt = time.Now().UTC()
 	} else {
-		store.CDC.RPS = rpsValues
-		store.CDC.UpdatedAt = time.Now().UTC()
+		s.CDC.RPS = rpsValues
+		s.CDC.UpdatedAt = time.Now().UTC()
 	}
 
-	return logger.FileLoggerWithPath(store, store.FilePath)
+	return logger.FileLoggerWithPath(s, s.FilePath)
 }
 
 // stats returns the average RPS and count of past RPS values for the given driver and mode.
 // The count cannot exceed maxRPSHistorySize.
-func (store *BenchmarkStore) stats(
+func (s *BenchmarkStore) stats(
 	isBackfill bool,
 ) (averageRPS float64, observations int) {
 	rpsValues := utils.Ternary(
 		isBackfill,
-		store.Backfill.RPS,
-		store.CDC.RPS,
+		s.Backfill.RPS,
+		s.CDC.RPS,
 	).([]float64)
 
 	if len(rpsValues) == 0 {

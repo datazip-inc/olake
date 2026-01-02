@@ -75,15 +75,15 @@ func Ternary(cond bool, a, b any) any {
 	return b
 }
 
-func Average[T int | int8 | int16 | int32 | int64 | float32 | float64](values []T) T {
+func Average[T int | int8 | int16 | int32 | int64 | float32 | float64](values []T) float64 {
 	if len(values) == 0 {
-		return T(0)
+		return 0.0
 	}
-	sum := T(0)
+	sum := float64(0)
 	for _, v := range values {
-		sum += v
+		sum += float64(v)
 	}
-	return sum / T(len(values))
+	return sum / float64(len(values))
 }
 
 func ForEach[T any](set []T, action func(elem T) error) error {
