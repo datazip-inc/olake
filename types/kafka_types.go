@@ -1,5 +1,7 @@
 package types
 
+import "github.com/segmentio/kafka-go"
+
 // PartitionMetaData holds metadata about a Kafka partition for a specific stream reader
 type PartitionMetaData struct {
 	ReaderID    string
@@ -12,4 +14,10 @@ type PartitionMetaData struct {
 type PartitionKey struct {
 	Topic     string
 	Partition int
+}
+
+// KafkaRecord represents a record (data + message) from a Kafka partition
+type KafkaRecord struct {
+	Data    map[string]interface{}
+	Message kafka.Message
 }
