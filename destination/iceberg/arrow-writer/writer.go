@@ -70,7 +70,7 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 	return writer, nil
 }
 
-func (w *ArrowWriter) createPartitionKey(record types.RawRecord) (string, []string, error) {
+func (w *ArrowWriter) createPartitionKey(record types.RawRecord, olakeTimestamp time.Time) (string, []string, error) {
 	paths := make([]string, 0, len(w.partitionInfo))
 	transformedValues := make([]string, 0, len(w.partitionInfo))
 
@@ -82,7 +82,7 @@ func (w *ArrowWriter) createPartitionKey(record types.RawRecord) (string, []stri
 		}
 
 		// case: now() in partitionr regex
-		fieldValue := utils.Ternary(field == constants.OlakeTimestamp, record.OlakeTimestamp, record.Data[field])
+		fieldValue := utils.Ternary(field == constants.OlakeTimestamp, olakeTimestamp, record.Data[field])
 
 		value, err := TransformValue(fieldValue, transform, colType)
 		if err != nil {
@@ -99,7 +99,7 @@ func (w *ArrowWriter) createPartitionKey(record types.RawRecord) (string, []stri
 	return partitionKey, transformedValues, nil
 }
 
-func (w *ArrowWriter) extract(records []types.RawRecord) (map[string]*PartitionedRecords, map[string]*PartitionedRecords, error) {
+func (w *ArrowWriter) extract(records []types.RawRecord, olakeTimestamp time.Time) (map[string]*PartitionedRecords, map[string]*PartitionedRecords, error) {
 	data := make(map[string]*PartitionedRecords)
 	deletes := make(map[string]*PartitionedRecords)
 
@@ -107,7 +107,7 @@ func (w *ArrowWriter) extract(records []types.RawRecord) (map[string]*Partitione
 		pKey := ""
 		var pValues []string
 		if len(w.partitionInfo) != 0 {
-			key, values, err := w.createPartitionKey(rec)
+			key, values, err := w.createPartitionKey(rec, olakeTimestamp)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -139,7 +139,9 @@ func (w *ArrowWriter) extract(records []types.RawRecord) (map[string]*Partitione
 }
 
 func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
-	data, deletes, err := w.extract(records)
+	olakeTimestamp := time.Now().UTC() // for olake timestamp, set current timestamp
+
+	data, deletes, err := w.extract(records, olakeTimestamp)
 	if err != nil {
 		return fmt.Errorf("failed to partition data: %s", err)
 	}
@@ -170,7 +172,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 	}
 
 	for _, partitioned := range data {
-		record, err := createArrowRecord(partitioned.Records, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled())
+		record, err := createArrowRecord(partitioned.Records, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled(), olakeTimestamp)
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %s", err)
 		}
