@@ -70,26 +70,12 @@ func (f *FlattenerImpl) flatten(key string, value any, destination types.Record)
 
 	// Type switch is faster than reflection for known types
 	switch v := value.(type) {
-	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string:
-		destination[reformattedKey] = v
-	case time.Time:
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string, time.Time:
 		destination[reformattedKey] = v
 	case []byte:
 		destination[reformattedKey] = string(v)
-	case []any:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return err
-		}
-		destination[reformattedKey] = string(b)
-	case map[string]any:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return err
-		}
-		destination[reformattedKey] = string(b)
 	default:
-		// Fallback for other slice/map types
+		// Fallback for other types
 		b, err := json.Marshal(v)
 		if err != nil {
 			return err

@@ -129,24 +129,27 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 	)
 
 	go func() {
-		defer close(doneCh)
+		var procErr error
+		defer func() {
+			doneCh <- procErr
+			close(doneCh)
+		}()
 		for vals := range valuesCh {
 			record := make(map[string]any)
 			for i, col := range columns {
 				rawData := vals[i]
 				conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
 				if err != nil {
-					doneCh <- fmt.Errorf("failed to convert value for column %s: %w", col, err)
+					procErr = fmt.Errorf("failed to convert value for column %s: %s", col, err)
 					return
 				}
 				record[col] = conv
 			}
 			if err := OnMessage(ctx, record); err != nil {
-				doneCh <- err
+				procErr = err
 				return
 			}
 		}
-		doneCh <- nil
 	}()
 
 	// Capture rows: scan quickly and hand off raw values to the processor
