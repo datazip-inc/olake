@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
+
+// tlsConfigMutex ensures thread-safe registration of TLS configurations
+var tlsConfigMutex sync.Mutex
 
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
@@ -65,11 +70,18 @@ func (c *Config) URI() string {
 			if err != nil {
 				logger.Warnf("Failed to build TLS config, falling back to skip-verify: %v", err)
 				cfg.TLSConfig = "skip-verify"
-			} else if err := mysql.RegisterTLSConfig("custom", tlsConfig); err != nil {
-				logger.Warnf("Failed to register TLS config, falling back to skip-verify: %v", err)
-				cfg.TLSConfig = "skip-verify"
 			} else {
-				cfg.TLSConfig = "custom"
+				// Unique TLS config name to avoid conflicts with multiple connections
+				tlsConfigName := "mysql_" + uuid.New().String()
+				tlsConfigMutex.Lock()
+				if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
+					tlsConfigMutex.Unlock()
+					logger.Warnf("Failed to register TLS config, falling back to skip-verify: %v", err)
+					cfg.TLSConfig = "skip-verify"
+				} else {
+					tlsConfigMutex.Unlock()
+					cfg.TLSConfig = tlsConfigName
+				}
 			}
 		}
 	}
@@ -111,8 +123,17 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 				return fmt.Errorf("failed to parse server certificate: %w", err)
 			}
 
+			// Handle certificate chains with intermediate CAs
+			intermediates := x509.NewCertPool()
+			for i := 1; i < len(rawCerts); i++ {
+				if intermediateCert, err := x509.ParseCertificate(rawCerts[i]); err == nil {
+					intermediates.AddCert(intermediateCert)
+				}
+			}
+
 			opts := x509.VerifyOptions{
-				Roots: rootCertPool,
+				Roots:         rootCertPool,
+				Intermediates: intermediates,
 			}
 			if _, err := cert.Verify(opts); err != nil {
 				return fmt.Errorf("failed to verify server certificate against CA: %w", err)
@@ -172,6 +193,13 @@ func (c *Config) Validate() error {
 	if c.SSLConfiguration != nil {
 		if err := c.SSLConfiguration.Validate(); err != nil {
 			return fmt.Errorf("failed to validate SSL config: %s", err)
+		}
+
+		// MySQL-specific SSL validation: for verify-ca and verify-full, ensure ServerCA is present
+		if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA || c.SSLConfiguration.Mode == utils.SSLModeVerifyFull {
+			if c.SSLConfiguration.ServerCA == "" {
+				return fmt.Errorf("'ssl.server_ca' is required for verify-ca and verify-full modes")
+			}
 		}
 	}
 
