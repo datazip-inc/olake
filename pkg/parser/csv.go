@@ -77,7 +77,6 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	// Read a few sample rows to infer data types (max 100 samples)
 	// Process one record at a time similar to MongoDB driver
 	maxSamples := 100
-	recordCount := 0
 	for i := 0; i < maxSamples; i++ {
 		row, err := csvReader.Read()
 		if err == io.EOF {
@@ -102,13 +101,7 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 		if err := typeutils.Resolve(p.stream, record); err != nil {
 			return nil, fmt.Errorf("failed to resolve schema for record %d: %w", i, err)
 		}
-		recordCount++
 	}
-
-	if recordCount == 0 {
-		return nil, fmt.Errorf("no records found in CSV file for schema inference")
-	}
-
 	logger.Infof("Inferred schema with %d columns from CSV", len(headers))
 	return p.stream, nil
 }
