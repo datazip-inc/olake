@@ -15,12 +15,17 @@ type ReaderConfig struct {
 	AdminClient                 *kafka.Client
 }
 
+type kafkaReader struct {
+	id       string
+	clientID string
+	reader   *kafka.Reader
+}
+
 // ReaderManager manages Kafka readers and their metadata
 type ReaderManager struct {
-	config          ReaderConfig
-	readers         map[string]*kafka.Reader           // for fast reader access
-	partitionIndex  map[string]types.PartitionMetaData // get per-partition boundaries
-	readerClientIDs map[string]string                  // reader's client id mapping
+	config         ReaderConfig
+	readers        []*kafkaReader
+	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
 }
 
 // CustomGroupBalancer ensures proper consumer ID distribution according to requirements

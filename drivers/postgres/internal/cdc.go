@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
@@ -27,6 +28,10 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		Tables:              types.NewSet(streams...),
 		Publication:         p.cdcConfig.Publication,
 	}, nil
+}
+
+func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
+	return true, false, false // sequential change stream
 }
 
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
@@ -75,26 +80,28 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
 			// suggesting to proceed with clear destination
 			if parsed != socket.ConfirmedFlushLSN {
-				return fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
+				return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, socket.ConfirmedFlushLSN)
 			}
 		}
 	}
 	return nil
 }
 
-func (p *Postgres) StreamChanges(ctx context.Context, _ types.StreamInterface, callback abstract.CDCMsgFn) error {
+func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
 	return p.replicator.StreamChanges(ctx, p.client, callback)
 }
 
-func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool, _ string) error {
+func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	defer waljs.Cleanup(ctx, p.replicator.Socket())
-	if noErr {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 		socket := p.replicator.Socket()
 		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
 		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
-	return nil
 }
 
 func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string) (bool, error) {
