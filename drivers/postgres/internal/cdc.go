@@ -101,7 +101,12 @@ func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName stri
 	var exists bool
 	err := conn.QueryRowContext(
 		ctx,
-		"SELECT EXISTS(Select 1 from pg_replication_slots where slot_name = $1)",
+		`SELECT EXISTS (
+		   SELECT 1
+		   FROM pg_replication_slots
+		   WHERE slot_name = $1
+		     AND database = current_database()
+		 )`,
 		slotName,
 	).Scan(&exists)
 	if err != nil {
