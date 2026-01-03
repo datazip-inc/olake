@@ -26,12 +26,7 @@ We welcome all kinds of contributions — bug fixes, documentation improvements,
 👉 [Check our open issues here](../../issues)
 
 ---
-
-If your actual label name is just `swoc` (not `swoc-2026`), I can quickly swap that in.
-
-
-Let’s hack, learn, and grow together this Hacktoberfest. Happy contributing & happy engineering! ⚡
-
+Let’s hack, learn, and grow together this Hacktoberfest. Happy contributing & happy engineering! ⚡ 
 ---
 
 ## Getting Help
