@@ -2,6 +2,8 @@ package abstract
 
 import (
 	"context"
+	"fmt"
+	"testing"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -35,6 +37,10 @@ func (w *NoopWriter) Check(ctx context.Context) error {
 }
 
 func (w *NoopWriter) Setup(ctx context.Context, stream types.StreamInterface, schema any, opts *destination.Options) (any, error) {
+	// Return a minimal schema to avoid nil pointer issues
+	if schema == nil {
+		schema = map[string]any{"initialized": true}
+	}
 	return schema, nil
 }
 
@@ -48,6 +54,9 @@ func (w *NoopWriter) FlattenAndCleanData(ctx context.Context, records []types.Ra
 }
 
 func (w *NoopWriter) EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error) {
+	if globalSchema == nil {
+		return recordsSchema, nil
+	}
 	return globalSchema, nil
 }
 
@@ -67,12 +76,51 @@ func init() {
 }
 
 // createTestWriterPool creates a real WriterPool with noop writers for testing
+// This version is panic-safe and handles goroutine errors gracefully
 func createTestWriterPool(ctx context.Context, streams []string) (*destination.WriterPool, error) {
 	config := &types.WriterConfig{
 		Type:         "noop",
 		WriterConfig: map[string]any{},
 	}
-	return destination.NewWriterPool(ctx, config, streams, 100)
+	
+	// Create the pool with panic recovery
+	pool, err := func() (p *destination.WriterPool, e error) {
+		defer func() {
+			if r := recover(); r != nil {
+				e = fmt.Errorf("panic creating WriterPool: %v", r)
+			}
+		}()
+		return destination.NewWriterPool(ctx, config, streams, 100)
+	}()
+	
+	return pool, err
+}
+
+// runWithPanicRecovery runs a function with panic recovery for testing async operations
+// This allows goroutine panics to be caught and reported as test failures
+func runWithPanicRecovery(t *testing.T, name string, fn func() error) error {
+	var err error
+	var panicValue interface{}
+	
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicValue = r
+				err = fmt.Errorf("panic in %s: %v", name, r)
+			}
+			close(done)
+		}()
+		err = fn()
+	}()
+	
+	<-done
+	
+	if panicValue != nil {
+		t.Logf("Recovered panic in %s: %v", name, panicValue)
+	}
+	
+	return err
 }
 
 // Mock implementations for testing
