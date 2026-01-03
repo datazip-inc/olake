@@ -9,18 +9,26 @@ To ensure consistency, we follow a structured contribution process. All guidelin
 
 ---
 
-## 🎃 Hacktoberfest 2025 @ OLake
+## ❄️ Social Winter of Code (SWoC 2026) @OLake
 
-OLake is officially open for **Hacktoberfest contributions**! 🚀  
+OLake is officially open for **Social Winter of Code 2026 contributions**! 🚀
 
-If you’re participating in Hacktoberfest, look out for any issues labeled:
-- **`hacktoberfest`**
-- **`good first issue`**
+If you’re participating in SWoC 2026, look out for issues labeled:
 
-These are designed to help new contributors get started quickly.  
-We welcome everything — bug fixes, documentation updates, tests, or feature enhancements.  
+* **`swoc-2026`**
+* **`beginner`**
+* **`intermediate`**
+* **`advanced`**
+
+These labels help you choose issues based on your experience level.
+We welcome all kinds of contributions — bug fixes, documentation improvements, tests, and feature enhancements.
 
 👉 [Check our open issues here](../../issues)
+
+---
+
+If your actual label name is just `swoc` (not `swoc-2026`), I can quickly swap that in.
+
 
 Let’s hack, learn, and grow together this Hacktoberfest. Happy contributing & happy engineering! ⚡
 
