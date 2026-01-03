@@ -41,6 +41,7 @@ jobs:
           docker compose -f ./drivers/postgres/docker-compose.yml up -d
           docker compose -f ./drivers/mongodb/docker-compose.yml up -d
           docker compose -f ./drivers/oracle/docker-compose.yml up -d
+          docker compose -f ./drivers/kafka/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
@@ -79,6 +80,15 @@ jobs:
           command: |
             docker exec oracle-23c bash -c "echo 'SELECT 1 FROM dual;' | sqlplus -s system/secret1234@//localhost:1521/ORCL"
 
+      - name: Wait for Kafka
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec olake_kafka kafka-topics.sh --list --bootstrap-server localhost:9092
+
       - name: Set up Data Directories
         run: |
             sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
@@ -107,7 +117,7 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 4 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... -timeout 0 -run 'Integration'
+        run: go test -v -p 4 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/kafka/internal/... -timeout 0 -run 'Integration'
 
       - name: Cleanup
         if: always()
@@ -116,4 +126,5 @@ jobs:
           docker compose -f ./drivers/mysql/docker-compose.yml down
           docker compose -f ./drivers/postgres/docker-compose.yml down
           docker compose -f ./drivers/oracle/docker-compose.yml down
+          docker compose -f ./drivers/kafka/docker-compose.yml down
           docker compose -f ./drivers/mongodb/docker-compose.yml down
