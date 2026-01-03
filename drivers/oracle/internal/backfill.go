@@ -48,13 +48,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return setter.Capture(func(rows *sql.Rows) error {
-		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
-		}
-		return OnMessage(ctx, record)
-	})
+	return jdbc.MapScanConcurrent(setter, o.dataTypeConverter, OnMessage)
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
