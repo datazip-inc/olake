@@ -15,7 +15,7 @@ OLake is officially open for **Social Winter of Code 2026 contributions**! 🚀
 
 If you’re participating in SWoC 2026, look out for issues labeled:
 
-* **`swoc-2026`**
+* **`SWoC26`**
 * **`beginner`**
 * **`intermediate`**
 * **`advanced`**
