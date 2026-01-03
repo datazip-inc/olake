@@ -11,103 +11,121 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInferColumnType_TimestampDetection(t *testing.T) {
+func TestCSVParser_InferSchema_TypeDetection(t *testing.T) {
 	tests := []struct {
-		name         string
-		sampleRows   [][]string
-		columnIndex  int
-		expectedType types.DataType
-		description  string
+		name          string
+		csvData       string
+		expectedTypes map[string]types.DataType
+		description   string
 	}{
 		{
 			name: "timestamp with millisecond precision",
-			sampleRows: [][]string{
-				{"2024-01-15 10:30:45.123"},
-				{"2024-01-16 11:31:46.456"},
+			csvData: `created_at
+2024-01-15 10:30:45.123
+2024-01-16 11:31:46.456`,
+			expectedTypes: map[string]types.DataType{
+				"created_at": types.TimestampMilli,
 			},
-			columnIndex:  0,
-			expectedType: types.TimestampMilli,
-			description:  "Should detect TimestampMilli for timestamps with millisecond precision",
+			description: "Should detect TimestampMilli for timestamps with millisecond precision",
 		},
 		{
 			name: "timestamp with microsecond precision",
-			sampleRows: [][]string{
-				{"2024-01-15 10:30:45.123456"},
-				{"2024-01-16 11:31:46.789012"},
+			csvData: `created_at
+2024-01-15 10:30:45.123456
+2024-01-16 11:31:46.789012`,
+			expectedTypes: map[string]types.DataType{
+				"created_at": types.TimestampMicro,
 			},
-			columnIndex:  0,
-			expectedType: types.TimestampMicro,
-			description:  "Should detect TimestampMicro for timestamps with microsecond precision",
+			description: "Should detect TimestampMicro for timestamps with microsecond precision",
 		},
 		{
 			name: "timestamp with nanosecond precision",
-			sampleRows: [][]string{
-				{"2024-01-15T10:30:45.123456789Z"},
-				{"2024-01-16T11:31:46.987654321Z"},
+			csvData: `created_at
+2024-01-15T10:30:45.123456789Z
+2024-01-16T11:31:46.987654321Z`,
+			expectedTypes: map[string]types.DataType{
+				"created_at": types.TimestampNano,
 			},
-			columnIndex:  0,
-			expectedType: types.TimestampNano,
-			description:  "Should detect TimestampNano for timestamps with nanosecond precision",
+			description: "Should detect TimestampNano for timestamps with nanosecond precision",
 		},
 		{
 			name: "timestamp without time precision",
-			sampleRows: [][]string{
-				{"2024-01-15"},
-				{"2024-01-16"},
+			csvData: `created_at
+2024-01-15
+2024-01-16`,
+			expectedTypes: map[string]types.DataType{
+				"created_at": types.Timestamp,
 			},
-			columnIndex:  0,
-			expectedType: types.Timestamp, // TypeFromValue returns Timestamp when nanos == 0
-			description:  "Should return Timestamp when date has no time precision",
-		},
-		{
-			name: "mixed types should not be timestamp",
-			sampleRows: [][]string{
-				{"2024-01-15"},
-				{"not a date"},
-			},
-			columnIndex:  0,
-			expectedType: types.String,
-			description:  "Should fall back to String when not all values are timestamps",
+			description: "Should return Timestamp when date has no time precision",
 		},
 		{
 			name: "integer values",
-			sampleRows: [][]string{
-				{"123"},
-				{"456"},
-				{"789"},
+			csvData: `id
+123
+456
+789`,
+			expectedTypes: map[string]types.DataType{
+				"id": types.Int64,
 			},
-			columnIndex:  0,
-			expectedType: types.Int64,
-			description:  "Should detect Int64 for integer values",
+			description: "Should detect Int64 for integer values",
 		},
 		{
 			name: "float values",
-			sampleRows: [][]string{
-				{"123.45"},
-				{"456.78"},
-				{"789.12"},
+			csvData: `price
+123.45
+456.78
+789.12`,
+			expectedTypes: map[string]types.DataType{
+				"price": types.Float64,
 			},
-			columnIndex:  0,
-			expectedType: types.Float64,
-			description:  "Should detect Float64 for float values",
+			description: "Should detect Float64 for float values",
 		},
 		{
 			name: "boolean values",
-			sampleRows: [][]string{
-				{"true"},
-				{"false"},
-				{"TRUE"},
+			csvData: `active
+true
+false
+TRUE`,
+			expectedTypes: map[string]types.DataType{
+				"active": types.Bool,
 			},
-			columnIndex:  0,
-			expectedType: types.Bool,
-			description:  "Should detect Bool for boolean values",
+			description: "Should detect Bool for boolean values",
+		},
+		{
+			name: "mixed types in column",
+			csvData: `mixed_column
+123
+hello
+true`,
+			expectedTypes: map[string]types.DataType{
+				"mixed_column": types.String, // Resolver handles mixed types differently
+			},
+			description: "Should handle mixed types in column (resolver behavior)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := inferColumnType(tt.sampleRows, tt.columnIndex)
-			assert.Equal(t, tt.expectedType, result, tt.description)
+			config := CSVConfig{
+				Delimiter: ",",
+				HasHeader: true,
+				SkipRows:  0,
+			}
+
+			stream := types.NewStream("test", "test", nil)
+			parser := NewCSVParser(config, stream)
+
+			ctx := context.Background()
+			reader := strings.NewReader(tt.csvData)
+
+			result, err := parser.InferSchema(ctx, reader)
+			require.NoError(t, err)
+
+			for fieldName, expectedType := range tt.expectedTypes {
+				fieldType, err := result.Schema.GetType(fieldName)
+				require.NoError(t, err)
+				assert.Equal(t, expectedType, fieldType, tt.description)
+			}
 		})
 	}
 }

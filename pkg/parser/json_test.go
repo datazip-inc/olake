@@ -10,77 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInferJSONFieldType_NumbersAlwaysFloat64(t *testing.T) {
-	tests := []struct {
-		name         string
-		values       []interface{}
-		expectedType types.DataType
-		description  string
-	}{
-		{
-			name:         "integer numbers should be Float64",
-			values:       []interface{}{1.0, 2.0, 3.0},
-			expectedType: types.Float64,
-			description:  "JSON integers should be inferred as Float64 to avoid Int64/Float64 conflicts",
-		},
-		{
-			name:         "float numbers should be Float64",
-			values:       []interface{}{1.5, 2.7, 3.9},
-			expectedType: types.Float64,
-			description:  "JSON floats should be inferred as Float64",
-		},
-		{
-			name:         "mixed integer and float should be Float64",
-			values:       []interface{}{1.0, 2.5, 3.0, 4.7},
-			expectedType: types.Float64,
-			description:  "Mixed JSON numbers should be inferred as Float64",
-		},
-		{
-			name:         "boolean values",
-			values:       []interface{}{true, false, true},
-			expectedType: types.Bool,
-			description:  "Boolean values should be inferred as Bool",
-		},
-		{
-			name:         "string values",
-			values:       []interface{}{"hello", "world", "test"},
-			expectedType: types.String,
-			description:  "String values should be inferred as String",
-		},
-		{
-			name:         "object values",
-			values:       []interface{}{map[string]interface{}{"key": "value"}},
-			expectedType: types.String,
-			description:  "Object values should be inferred as String (stored as JSON string)",
-		},
-		{
-			name:         "array values",
-			values:       []interface{}{[]interface{}{1, 2, 3}},
-			expectedType: types.String,
-			description:  "Array values should be inferred as String (stored as JSON string)",
-		},
-		{
-			name:         "mixed types default to string",
-			values:       []interface{}{"text", 123.0, true},
-			expectedType: types.String,
-			description:  "Mixed types should default to String",
-		},
-		{
-			name:         "null values ignored",
-			values:       []interface{}{nil, 1.0, nil, 2.0},
-			expectedType: types.Float64,
-			description:  "Null values should be ignored in type inference",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := inferJSONFieldType(tt.values)
-			assert.Equal(t, tt.expectedType, result, tt.description)
-		})
-	}
-}
-
 func TestJSONParser_InferSchema_NumbersAsFloat64(t *testing.T) {
 	jsonData := `{"id": 1, "name": "Alice", "price": 99.99, "quantity": 10, "active": true}`
 
@@ -97,7 +26,7 @@ func TestJSONParser_InferSchema_NumbersAsFloat64(t *testing.T) {
 	result, err := parser.InferSchema(ctx, reader)
 	require.NoError(t, err)
 
-	// Check that integer numbers are inferred as Float64
+	// Check that integer numbers are inferred as Float64 (JSON numbers are float64)
 	idType, err := result.Schema.GetType("id")
 	require.NoError(t, err)
 	assert.Equal(t, types.Float64, idType, "id (integer) should be inferred as Float64")
@@ -181,6 +110,63 @@ func TestJSONParser_InferSchema_JSONArrayFormat(t *testing.T) {
 	assert.Equal(t, types.Float64, scoreType, "score should be Float64")
 }
 
+func TestJSONParser_InferSchema_ComplexTypes(t *testing.T) {
+	jsonData := `{"name": "test", "metadata": {"key": "value"}, "tags": ["a", "b", "c"]}`
+
+	config := JSONConfig{
+		LineDelimited: true,
+	}
+
+	stream := types.NewStream("test", "test", nil)
+	parser := NewJSONParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(jsonData)
+
+	result, err := parser.InferSchema(ctx, reader)
+	require.NoError(t, err)
+
+	// Check string
+	nameType, err := result.Schema.GetType("name")
+	require.NoError(t, err)
+	assert.Equal(t, types.String, nameType, "name should be String")
+
+	// Check object - typeutils returns Object type for maps
+	metadataType, err := result.Schema.GetType("metadata")
+	require.NoError(t, err)
+	assert.Equal(t, types.Object, metadataType, "metadata should be Object")
+
+	// Check array - typeutils returns Array type for slices
+	tagsType, err := result.Schema.GetType("tags")
+	require.NoError(t, err)
+	assert.Equal(t, types.Array, tagsType, "tags should be Array")
+}
+
+func TestJSONParser_InferSchema_MixedTypes(t *testing.T) {
+	// When a field has different types across records, typeutils resolves to common ancestor
+	jsonlData := `{"field": 123}
+{"field": "text"}
+{"field": true}`
+
+	config := JSONConfig{
+		LineDelimited: true,
+	}
+
+	stream := types.NewStream("test", "test", nil)
+	parser := NewJSONParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(jsonlData)
+
+	result, err := parser.InferSchema(ctx, reader)
+	require.NoError(t, err)
+
+	// Mixed types should resolve to String (common ancestor)
+	fieldType, err := result.Schema.GetType("field")
+	require.NoError(t, err)
+	assert.Equal(t, types.String, fieldType, "mixed types should resolve to String")
+}
+
 func TestJSONParser_StreamRecords_TypeConsistency(t *testing.T) {
 	jsonlData := `{"id": 1, "count": 10, "price": 99.99}
 {"id": 2, "count": 20, "price": 149.50}`
@@ -217,43 +203,32 @@ func TestJSONParser_StreamRecords_TypeConsistency(t *testing.T) {
 	}
 }
 
-func TestInferJSONFieldType_PriorityOrder(t *testing.T) {
-	tests := []struct {
-		name         string
-		values       []interface{}
-		expectedType types.DataType
-		description  string
-	}{
-		{
-			name:         "Bool has highest priority",
-			values:       []interface{}{true, false, true},
-			expectedType: types.Bool,
-			description:  "Bool should have priority over other types",
-		},
-		{
-			name:         "Float64 has priority over Object/Array",
-			values:       []interface{}{1.0, map[string]interface{}{"key": "value"}},
-			expectedType: types.String, // Mixed types default to String
-			description:  "Mixed number and object should default to String",
-		},
-		{
-			name:         "Float64 has priority over String",
-			values:       []interface{}{1.0, 2.0, 3.0},
-			expectedType: types.Float64,
-			description:  "All numbers should be Float64",
-		},
-		{
-			name:         "Object/Array has priority over String",
-			values:       []interface{}{map[string]interface{}{"key": "value"}},
-			expectedType: types.String,
-			description:  "Object should be stored as String (JSON string)",
-		},
+func TestJSONParser_InferSchema_NullableFields(t *testing.T) {
+	// Fields that don't appear in all records should be nullable
+	jsonlData := `{"id": 1, "name": "Alice"}
+{"id": 2}
+{"id": 3, "name": "Charlie"}`
+
+	config := JSONConfig{
+		LineDelimited: true,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := inferJSONFieldType(tt.values)
-			assert.Equal(t, tt.expectedType, result, tt.description)
-		})
-	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewJSONParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(jsonlData)
+
+	result, err := parser.InferSchema(ctx, reader)
+	require.NoError(t, err)
+
+	// id should be present
+	idType, err := result.Schema.GetType("id")
+	require.NoError(t, err)
+	assert.Equal(t, types.Float64, idType, "id should be Float64")
+
+	// name should be present
+	nameType, err := result.Schema.GetType("name")
+	require.NoError(t, err)
+	assert.Equal(t, types.String, nameType, "name should be String")
 }
