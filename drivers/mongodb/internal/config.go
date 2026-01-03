@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"go/parser"
 	"net/url"
 	"strings"
 
@@ -50,9 +51,9 @@ func (c *Config) URI() string {
 
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
-		if c.ReadPreference == "" {
-			c.ReadPreference = constants.DefaultReadPreference
-		}
+	}
+	setReadPreference(c)
+	if c.ReadPreference != "" {
 		query.Set("readPreference", c.ReadPreference)
 	}
 
@@ -71,6 +72,12 @@ func (c *Config) URI() string {
 	}
 
 	return u.String()
+}
+
+func setReadPreference(c *Config) {
+	if c.ReadPreference == "" {
+		c.ReadPreference = constants.DefaultReadPreference
+	}
 }
 
 // TODO: Add go struct validation in Config
