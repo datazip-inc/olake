@@ -30,10 +30,11 @@ func TypeFromValue(v interface{}) types.DataType {
 		return types.Null
 	case reflect.Bool:
 		return types.Bool
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
+	case reflect.Int8, reflect.Int16, reflect.Int32,
+		reflect.Uint8, reflect.Uint16, reflect.Uint32:
 		return types.Int32
-	case reflect.Int64, reflect.Uint64:
+	// on standard 64 bit systems, golang's int type is 64 bits
+	case reflect.Int, reflect.Int64, reflect.Uint, reflect.Uint64:
 		return types.Int64
 	case reflect.Float32:
 		return types.Float32
