@@ -27,13 +27,11 @@ type ActionRow struct {
 	// add truncate
 }
 
-// Log is a dto for airbyte logs serialization
 type Log struct {
 	Level   string `json:"level,omitempty"`
 	Message string `json:"message,omitempty"`
 }
 
-// StatusRow is a dto for airbyte result status serialization
 type StatusRow struct {
 	Status  ConnectionStatus `json:"status,omitempty"`
 	Message string           `json:"message,omitempty"`
@@ -49,22 +47,17 @@ type StreamMetadata struct {
 	SelectedColumns []string `json:"selected_columns"`
 	SyncNewColumns  bool     `json:"sync_new_columns"`
 }
-
-// ConfiguredCatalog is a dto for formatted airbyte catalog serialization
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
 func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
-	// Whether the source is a relational driver or not
-	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
-		return src == constants.DriverType(driver)
-	})
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
+
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
 		// Create ConfiguredStream and append to Streams
@@ -73,7 +66,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		})
 
 		// Collect selected columns from schema
-		selectedColumns := []string{}
+		var selectedColumns []string
 		stream.Schema.Properties.Range(func(key, _ any) bool {
 			if columnName, ok := key.(string); ok {
 				selectedColumns = append(selectedColumns, columnName)
@@ -83,9 +76,8 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:      stream.Name,
-			PartitionRegex:  "",
 			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:   isRelational,
+			Normalization:   IsDriverRelational(driver),
 			SelectedColumns: selectedColumns,
 			SyncNewColumns:  false,
 		})
@@ -173,6 +165,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			return nil
 		}
 
+		// NOTE: new streams are not added to selected_streams, user needs to manually enable them
 		// manipulate destination db in new streams according to old streams
 
 		// prefix == "" means old stream when db normalization feature not introduced
@@ -323,6 +316,13 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 	}
 
 	return diffStreams
+}
+
+func IsDriverRelational(driver string) bool {
+	_, isRelational := utils.ArrayContains(constants.RelationalDrivers, func(src constants.DriverType) bool {
+		return src == constants.DriverType(driver)
+	})
+	return isRelational
 }
 
 // getColumnsDelta compares oldSchema and newSchema to identify column differences.
