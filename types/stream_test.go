@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewStreamInitlization(t *testing.T) {
+func TestStream_NewStream(t *testing.T) {
 	stream := NewStream("users", "public", nil)
 
 	assert.Equal(t, "users", stream.Name)
@@ -19,109 +19,353 @@ func TestNewStreamInitlization(t *testing.T) {
 
 	assert.NotNil(t, stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
 	assert.NotNil(t, stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
-	assert.NotNil(t, stream.AvailableCursorFields, "AvailableCursorFields should be intialized")
-	assert.NotNil(t, stream.Schema, "Schema is not defined")
+	assert.NotNil(t, stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
+	assert.NotNil(t, stream.Schema, "Schema should be initialized")
 
 	assert.NotEmpty(t, stream.DestinationDatabase, "DestinationDatabase should be generated")
 	assert.NotEmpty(t, stream.DestinationTable, "DestinationTable should be generated")
 }
 
-func TestWithSyncMode(t *testing.T) {
-	stream := NewStream("users", "public", nil)
-
-	outputStream := stream.WithSyncMode(FULLREFRESH, INCREMENTAL)
-
-	// check if it returns the exact same pointer
-	assert.Same(t, stream, outputStream, "Should return the same instance")
-
-	// check if the set contains added modes
-	assert.True(t, outputStream.SupportedSyncModes.Exists(FULLREFRESH), "Should contain FULLREFRESH")
-	assert.True(t, outputStream.SupportedSyncModes.Exists(INCREMENTAL), "Should contain INCREMENTAL")
-
-	// check if the set contains other nodes
-	assert.False(t, outputStream.SupportedSyncModes.Exists(CDC), "Should no contain CDC")
-}
-
-func TestWithPrimaryKey(t *testing.T) {
-	stream := NewStream("users", "public", nil)
-
-	returnedStream := stream.WithPrimaryKey("id", "user_uuid")
-
-	assert.Same(t, stream, returnedStream, "Should return the same instance")
-
-	assert.True(t, stream.SourceDefinedPrimaryKey.Exists("id"), "Should contain 'id'")
-	assert.True(t, stream.SourceDefinedPrimaryKey.Exists("user_uuid"), "Should contain 'user_uuid'")
-
-	assert.False(t, stream.SourceDefinedPrimaryKey.Exists("created_at"), "Should not contain 'created_at'")
-
-}
-
-func TestWithCursorField(t *testing.T) {
-	stream := NewStream("users", "public", nil)
-
-	outputStream := stream.WithCursorField("updated_at", "inserted_at")
-
-	assert.Same(t, stream, outputStream, "Should return the same instance")
-
-	assert.True(t, stream.AvailableCursorFields.Exists("updated_at"), "Should contain 'updated_at'")
-	assert.True(t, stream.AvailableCursorFields.Exists("inserted_at"), "Should contain 'inserted_at'")
-
-	assert.False(t, stream.AvailableCursorFields.Exists("id"), "Should not contain 'id'")
-}
-
-func TestWithSchema(t *testing.T) {
-
-	stream := NewStream("users", "public", nil)
-	newSchema := NewTypeSchema()
-	returnedStream := stream.WithSchema(newSchema)
-
-	assert.Same(t, stream, returnedStream, "Should return the same stream instance")
-	assert.Same(t, newSchema, stream.Schema, "Stream.Schema should point to the input schema")
-}
-
-func TestWrap(t *testing.T) {
-	stream := NewStream("users", "public", nil)
-
-	configuredStream := stream.Wrap(1)
-
-	// check if it is existing
-	assert.NotNil(t, configuredStream, "Should return a configuredStream")
-
-	assert.Same(t, stream, configuredStream.Stream, "Should wrap the exact same stream instance")
-}
-
-func TestWithUpsertField(t *testing.T) {
-	stream := NewStream("products", "inventory", nil)
-
-	stream.UpsertField("type", String, false)
-	stream.UpsertField("price", Int64, false)
-
-	// For type
-	valType, okType := stream.Schema.Properties.Load("type")
-	assert.True(t, okType, "Schema should contain 'type'")
-
-	if okType {
-		prop, ok := valType.(*Property)
-		assert.True(t, ok, "Value should be of type *Property")
-
-		assert.True(t, prop.Type.Exists(String), "type should not contain String type")
-		assert.False(t, prop.Type.Exists(Null), "type should not contain NULL type")
+func TestStream_WithSyncMode(t *testing.T) {
+	tests := []struct {
+		name               string
+		modes              []SyncMode
+		expectedModes      []SyncMode
+		notExpectedModes   []SyncMode
+	}{
+		{
+			name:             "single mode",
+			modes:            []SyncMode{FULLREFRESH},
+			expectedModes:    []SyncMode{FULLREFRESH},
+			notExpectedModes: []SyncMode{INCREMENTAL, CDC},
+		},
+		{
+			name:             "multiple modes",
+			modes:            []SyncMode{FULLREFRESH, INCREMENTAL},
+			expectedModes:    []SyncMode{FULLREFRESH, INCREMENTAL},
+			notExpectedModes: []SyncMode{CDC},
+		},
+		{
+			name:             "all modes",
+			modes:            []SyncMode{FULLREFRESH, INCREMENTAL, CDC, STRICTCDC},
+			expectedModes:    []SyncMode{FULLREFRESH, INCREMENTAL, CDC, STRICTCDC},
+			notExpectedModes: []SyncMode{},
+		},
+		{
+			name:             "duplicate modes",
+			modes:            []SyncMode{FULLREFRESH, FULLREFRESH, INCREMENTAL},
+			expectedModes:    []SyncMode{FULLREFRESH, INCREMENTAL},
+			notExpectedModes: []SyncMode{CDC},
+		},
+		{
+			name:             "empty modes",
+			modes:            []SyncMode{},
+			expectedModes:    []SyncMode{},
+			notExpectedModes: []SyncMode{FULLREFRESH, INCREMENTAL, CDC},
+		},
 	}
 
-	// For price
-	valPrice, okPrice := stream.Schema.Properties.Load("price")
-	assert.True(t, okPrice, "Schem should contain 'price'")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := NewStream("users", "public", nil)
+			outputStream := stream.WithSyncMode(tt.modes...)
 
-	if okPrice {
-		prop, ok := valPrice.(*Property)
-		assert.True(t, ok, "Value should be of *Property")
+			// check if it returns the exact same pointer
+			assert.Same(t, stream, outputStream, "Should return the same instance")
 
-		assert.True(t, prop.Type.Exists(Int64), "price should contain Integer type")
-		assert.True(t, prop.Type.Exists(Null), "price should contain Null type because nullable=true")
+			// check if the set contains added modes
+			for _, mode := range tt.expectedModes {
+				assert.True(t, outputStream.SupportedSyncModes.Exists(mode), "Should contain %v", mode)
+			}
+
+			// check if the set does not contain other modes
+			for _, mode := range tt.notExpectedModes {
+				assert.False(t, outputStream.SupportedSyncModes.Exists(mode), "Should not contain %v", mode)
+			}
+		})
 	}
 }
 
-func TestUnmarshalJSON(t *testing.T) {
+func TestStream_WithPrimaryKey(t *testing.T) {
+	tests := []struct {
+		name               string
+		keys               []string
+		expectedKeys       []string
+		notExpectedKeys    []string
+	}{
+		{
+			name:            "single key",
+			keys:            []string{"id"},
+			expectedKeys:    []string{"id"},
+			notExpectedKeys: []string{"user_uuid", "created_at"},
+		},
+		{
+			name:            "multiple keys",
+			keys:            []string{"id", "user_uuid"},
+			expectedKeys:    []string{"id", "user_uuid"},
+			notExpectedKeys: []string{"created_at"},
+		},
+		{
+			name:            "composite key",
+			keys:            []string{"tenant_id", "user_id", "order_id"},
+			expectedKeys:    []string{"tenant_id", "user_id", "order_id"},
+			notExpectedKeys: []string{"id"},
+		},
+		{
+			name:            "duplicate keys",
+			keys:            []string{"id", "id", "user_uuid"},
+			expectedKeys:    []string{"id", "user_uuid"},
+			notExpectedKeys: []string{"created_at"},
+		},
+		{
+			name:            "empty keys",
+			keys:            []string{},
+			expectedKeys:    []string{},
+			notExpectedKeys: []string{"id", "user_uuid"},
+		},
+		{
+			name:            "keys with underscores",
+			keys:            []string{"user_id", "order_id"},
+			expectedKeys:    []string{"user_id", "order_id"},
+			notExpectedKeys: []string{"userid", "orderid"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := NewStream("users", "public", nil)
+			returnedStream := stream.WithPrimaryKey(tt.keys...)
+
+			assert.Same(t, stream, returnedStream, "Should return the same instance")
+
+			for _, key := range tt.expectedKeys {
+				assert.True(t, stream.SourceDefinedPrimaryKey.Exists(key), "Should contain '%s'", key)
+			}
+
+			for _, key := range tt.notExpectedKeys {
+				assert.False(t, stream.SourceDefinedPrimaryKey.Exists(key), "Should not contain '%s'", key)
+			}
+		})
+	}
+}
+
+func TestStream_WithCursorField(t *testing.T) {
+	tests := []struct {
+		name                string
+		fields              []string
+		expectedFields      []string
+		notExpectedFields   []string
+	}{
+		{
+			name:              "single field",
+			fields:            []string{"updated_at"},
+			expectedFields:    []string{"updated_at"},
+			notExpectedFields: []string{"inserted_at", "id"},
+		},
+		{
+			name:              "multiple fields",
+			fields:            []string{"updated_at", "inserted_at"},
+			expectedFields:    []string{"updated_at", "inserted_at"},
+			notExpectedFields: []string{"id"},
+		},
+		{
+			name:              "timestamp fields",
+			fields:            []string{"created_at", "updated_at", "deleted_at"},
+			expectedFields:    []string{"created_at", "updated_at", "deleted_at"},
+			notExpectedFields: []string{"id"},
+		},
+		{
+			name:              "duplicate fields",
+			fields:            []string{"updated_at", "updated_at", "inserted_at"},
+			expectedFields:    []string{"updated_at", "inserted_at"},
+			notExpectedFields: []string{"id"},
+		},
+		{
+			name:              "empty fields",
+			fields:            []string{},
+			expectedFields:    []string{},
+			notExpectedFields: []string{"updated_at", "inserted_at"},
+		},
+		{
+			name:              "fields with underscores",
+			fields:            []string{"last_modified", "date_created"},
+			expectedFields:    []string{"last_modified", "date_created"},
+			notExpectedFields: []string{"lastmodified", "datecreated"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := NewStream("users", "public", nil)
+			outputStream := stream.WithCursorField(tt.fields...)
+
+			assert.Same(t, stream, outputStream, "Should return the same instance")
+
+			for _, field := range tt.expectedFields {
+				assert.True(t, stream.AvailableCursorFields.Exists(field), "Should contain '%s'", field)
+			}
+
+			for _, field := range tt.notExpectedFields {
+				assert.False(t, stream.AvailableCursorFields.Exists(field), "Should not contain '%s'", field)
+			}
+		})
+	}
+}
+
+func TestStream_WithSchema(t *testing.T) {
+	t.Run("set new schema", func(t *testing.T) {
+		stream := NewStream("users", "public", nil)
+		newSchema := NewTypeSchema()
+		returnedStream := stream.WithSchema(newSchema)
+
+		assert.Same(t, stream, returnedStream, "Should return the same stream instance")
+		assert.Same(t, newSchema, stream.Schema, "Stream.Schema should point to the input schema")
+	})
+
+	t.Run("replace existing schema", func(t *testing.T) {
+		stream := NewStream("users", "public", nil)
+		firstSchema := NewTypeSchema()
+		secondSchema := NewTypeSchema()
+
+		stream.WithSchema(firstSchema)
+		assert.Same(t, firstSchema, stream.Schema, "First schema should be set")
+
+		returnedStream := stream.WithSchema(secondSchema)
+		assert.Same(t, stream, returnedStream, "Should return the same stream instance")
+		assert.Same(t, secondSchema, stream.Schema, "Second schema should replace first schema")
+		assert.NotSame(t, firstSchema, stream.Schema, "First schema should no longer be referenced")
+	})
+}
+
+func TestStream_Wrap(t *testing.T) {
+	tests := []struct {
+		name      string
+		syncIndex int
+	}{
+		{
+			name:      "wrap with index 0",
+			syncIndex: 0,
+		},
+		{
+			name:      "wrap with index 1",
+			syncIndex: 1,
+		},
+		{
+			name:      "wrap with negative index",
+			syncIndex: -1,
+		},
+		{
+			name:      "wrap with large index",
+			syncIndex: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := NewStream("users", "public", nil)
+			configuredStream := stream.Wrap(tt.syncIndex)
+
+			assert.NotNil(t, configuredStream, "Should return a configuredStream")
+			assert.Same(t, stream, configuredStream.Stream, "Should wrap the exact same stream instance")
+		})
+	}
+}
+
+func TestStream_WithUpsertField(t *testing.T) {
+	tests := []struct {
+		name     string
+		field    string
+		dataType DataType
+		nullable bool
+		check    func(t *testing.T, stream *Stream, fieldName string)
+	}{
+		{
+			name:     "non-nullable string field",
+			field:    "type",
+			dataType: String,
+			nullable: false,
+			check: func(t *testing.T, stream *Stream, fieldName string) {
+				val, ok := stream.Schema.Properties.Load(fieldName)
+				assert.True(t, ok, "Schema should contain '%s'", fieldName)
+				prop, ok := val.(*Property)
+				assert.True(t, ok, "Value should be of type *Property")
+				assert.True(t, prop.Type.Exists(String), "%s should contain String type", fieldName)
+				assert.False(t, prop.Type.Exists(Null), "%s should not contain NULL type", fieldName)
+			},
+		},
+		{
+			name:     "nullable integer field",
+			field:    "price",
+			dataType: Int64,
+			nullable: true,
+			check: func(t *testing.T, stream *Stream, fieldName string) {
+				val, ok := stream.Schema.Properties.Load(fieldName)
+				assert.True(t, ok, "Schema should contain '%s'", fieldName)
+				prop, ok := val.(*Property)
+				assert.True(t, ok, "Value should be of type *Property")
+				assert.True(t, prop.Type.Exists(Int64), "%s should contain Int64 type", fieldName)
+				assert.True(t, prop.Type.Exists(Null), "%s should contain Null type because nullable=true", fieldName)
+			},
+		},
+		{
+			name:     "non-nullable boolean field",
+			field:    "is_active",
+			dataType: Bool,
+			nullable: false,
+			check: func(t *testing.T, stream *Stream, fieldName string) {
+				val, ok := stream.Schema.Properties.Load(fieldName)
+				assert.True(t, ok, "Schema should contain '%s'", fieldName)
+				prop, ok := val.(*Property)
+				assert.True(t, ok, "Value should be of type *Property")
+				assert.True(t, prop.Type.Exists(Bool), "%s should contain Bool type", fieldName)
+				assert.False(t, prop.Type.Exists(Null), "%s should not contain NULL type", fieldName)
+			},
+		},
+		{
+			name:     "nullable timestamp field",
+			field:    "deleted_at",
+			dataType: Timestamp,
+			nullable: true,
+			check: func(t *testing.T, stream *Stream, fieldName string) {
+				val, ok := stream.Schema.Properties.Load(fieldName)
+				assert.True(t, ok, "Schema should contain '%s'", fieldName)
+				prop, ok := val.(*Property)
+				assert.True(t, ok, "Value should be of type *Property")
+				assert.True(t, prop.Type.Exists(Timestamp), "%s should contain Timestamp type", fieldName)
+				assert.True(t, prop.Type.Exists(Null), "%s should contain Null type because nullable=true", fieldName)
+			},
+		},
+		{
+			name:     "overwrite existing field",
+			field:    "status",
+			dataType: String,
+			nullable: false,
+			check: func(t *testing.T, stream *Stream, fieldName string) {
+				val, ok := stream.Schema.Properties.Load(fieldName)
+				assert.True(t, ok, "Schema should contain '%s'", fieldName)
+				prop, ok := val.(*Property)
+				assert.True(t, ok, "Value should be of type *Property")
+				assert.True(t, prop.Type.Exists(String), "%s should contain String type", fieldName)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := NewStream("products", "inventory", nil)
+
+			// For the overwrite test case, add the field first
+			if tt.name == "overwrite existing field" {
+				stream.UpsertField(tt.field, Int64, true)
+			}
+
+			stream.UpsertField(tt.field, tt.dataType, tt.nullable)
+			tt.check(t, stream, tt.field)
+		})
+	}
+}
+
+func TestStream_UnmarshalJSON(t *testing.T) {
 	t.Run("Safe intilization on Missing Fields", func(t *testing.T) {
 		jsonData := []byte(`{
 			"name":      "users",
@@ -165,7 +409,7 @@ func TestUnmarshalJSON(t *testing.T) {
 	})
 }
 
-func TestStreamToMap(t *testing.T) {
+func TestStreamsToMap(t *testing.T) {
 	stream1 := NewStream("users", "public", nil)
 	stream2 := NewStream("orders", "publc", nil)
 
