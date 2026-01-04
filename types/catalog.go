@@ -328,8 +328,10 @@ func IsDriverRelational(driver string) bool {
 // getColumnsDelta compares oldSchema and newSchema to identify column differences.
 // Returns common columns (present in both) and newly added columns (only in newSchema).
 func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
-	common := []string{}
-	newAdded := []string{}
+	var (
+		common   []string
+		newAdded []string
+	)
 
 	newSchema.Properties.Range(func(k, _ any) bool {
 		col := k.(string)
