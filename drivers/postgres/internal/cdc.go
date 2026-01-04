@@ -113,7 +113,15 @@ func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName stri
 		return false, err
 	}
 
-	return exists, validateReplicationSlot(ctx, conn, slotName, publication)
+	if !exists {
+		return false, fmt.Errorf(
+			"replication slot '%s' does not exist in the current database '%s'",
+			slotName,
+			conn.DriverName(), // or database name if available in config
+		)
+	}
+
+	return true, validateReplicationSlot(ctx, conn, slotName, publication)
 }
 
 func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string, publication string) error {
