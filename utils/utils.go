@@ -251,7 +251,7 @@ func genULID(t time.Time) string {
 // Returns a timestamped
 func TimestampedFileName(extension string) string {
 	now := time.Now().UTC()
-	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
+	return fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
 func IsJSON(str string) bool {
