@@ -18,14 +18,14 @@ type history struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type BenchmarkStore struct {
+type benchmarkStore struct {
 	Backfill history `json:"backfill"`
 	CDC      history `json:"cdc"`
 	FilePath string  `json:"-"`
 }
 
-func loadBenchmarks(path string) (*BenchmarkStore, error) {
-	store := &BenchmarkStore{
+func loadBenchmarks(path string) (*benchmarkStore, error) {
+	store := &benchmarkStore{
 		Backfill: history{
 			RPS:       make([]float64, 0, maxRPSHistorySize),
 			UpdatedAt: time.Now().UTC(),
@@ -42,7 +42,7 @@ func loadBenchmarks(path string) (*BenchmarkStore, error) {
 	return store, nil
 }
 
-func (s *BenchmarkStore) load() error {
+func (s *benchmarkStore) load() error {
 	if err := utils.UnmarshalFile(s.FilePath, s, false); err != nil {
 		if _, statErr := os.Stat(s.FilePath); os.IsNotExist(statErr) {
 			// Missing file is acceptable, it will be created when the first RPS is recorded.
@@ -55,7 +55,7 @@ func (s *BenchmarkStore) load() error {
 }
 
 // record records a new value for the given driver and mode, and persists it to the file.
-func (s *BenchmarkStore) record(
+func (s *benchmarkStore) record(
 	isBackfill bool,
 	rps float64,
 ) error {
@@ -85,7 +85,7 @@ func (s *BenchmarkStore) record(
 
 // stats returns the average RPS and count of past RPS values for the given driver and mode.
 // The count cannot exceed maxRPSHistorySize.
-func (s *BenchmarkStore) stats(
+func (s *benchmarkStore) stats(
 	isBackfill bool,
 ) (averageRPS float64, observations int) {
 	rpsValues := utils.Ternary(

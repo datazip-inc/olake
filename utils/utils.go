@@ -79,7 +79,8 @@ func Average[T int | int8 | int16 | int32 | int64 | float32 | float64](values []
 	if len(values) == 0 {
 		return 0.0
 	}
-	sum := float64(0)
+
+	var sum float64
 	for _, v := range values {
 		sum += float64(v)
 	}
