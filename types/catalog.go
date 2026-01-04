@@ -46,7 +46,7 @@ type StreamMetadata struct {
 	AppendMode      bool     `json:"append_mode,omitempty"`
 	Normalization   bool     `json:"normalization"`
 	Filter          string   `json:"filter,omitempty"`
-	SelectedColumns []string `json:"selected_columns,omitempty"`
+	SelectedColumns []string `json:"selected_columns"`
 	SyncNewColumns  bool     `json:"sync_new_columns"`
 }
 
@@ -71,11 +71,23 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
 		})
+
+		// Collect selected columns from schema
+		selectedColumns := []string{}
+		stream.Schema.Properties.Range(func(key, _ any) bool {
+			if columnName, ok := key.(string); ok {
+				selectedColumns = append(selectedColumns, columnName)
+			}
+			return true
+		})
+
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:     stream.Name,
-			PartitionRegex: "",
-			AppendMode:     utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:  isRelational,
+			StreamName:      stream.Name,
+			PartitionRegex:  "",
+			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			Normalization:   isRelational,
+			SelectedColumns: selectedColumns,
+			SyncNewColumns:  false,
 		})
 	}
 
@@ -84,8 +96,9 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
-// 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
-// 3. Everything else: Keep as new catalog
+// 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
+// 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
+// 4. Everything else: Keep as new catalog
 func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
@@ -99,14 +112,45 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return sm
 	}
 
+	createSelectedColumnsMap := func(columns []string) map[string]bool {
+		scm := make(map[string]bool)
+		for _, column := range columns {
+			scm[column] = true
+		}
+		return scm
+	}
+
+	oldStreams := createStreamMap(oldCatalog)
+
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
 		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
 			_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
-				_, exists := newStreams[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]
+				streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
+				_, exists := newStreams[streamID]
 				if exists {
+					// get common columns present in both old and new schemas
+					// get newly added columns from new schema
+					commonColumns, newAddedColumns := getColumnsDelta(oldStreams[streamID].Stream.Schema, newStreams[streamID].Stream.Schema)
+
+					commonColumnsMap := createSelectedColumnsMap(commonColumns)
+
+					// preserve old selected columns that still exist in the new schema
+					var preservedSelectedColumns []string
+					for _, previouslySelectedCol := range metadata.SelectedColumns {
+						if commonColumnsMap[previouslySelectedCol] {
+							preservedSelectedColumns = append(preservedSelectedColumns, previouslySelectedCol)
+						}
+					}
+					metadata.SelectedColumns = preservedSelectedColumns
+
+					// add new columns if sync_new_columns is true
+					if metadata.SyncNewColumns && len(newAddedColumns) > 0 {
+						metadata.SelectedColumns = append(metadata.SelectedColumns, newAddedColumns...)
+					}
+
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
 				return nil
@@ -118,7 +162,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	constantValue, prefix := getDestDBPrefix(oldCatalog.Streams)
 
 	// merge streams metadata
-	oldStreams := createStreamMap(oldCatalog)
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
 		if exists {
@@ -175,7 +218,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
-// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode
+// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, sync_new_columns
 // 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
@@ -251,6 +294,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
+					(oldMetadata.SyncNewColumns != newMetadata.SyncNewColumns) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
 					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
@@ -279,4 +323,24 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 	}
 
 	return diffStreams
+}
+
+// getColumnsDelta compares oldSchema and newSchema to identify column differences.
+// Returns common columns (present in both) and newly added columns (only in newSchema).
+func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
+	common := []string{}
+	newAdded := []string{}
+
+	newSchema.Properties.Range(func(k, _ any) bool {
+		col := k.(string)
+
+		if _, exists := oldSchema.Properties.Load(col); exists {
+			common = append(common, col)
+		} else {
+			newAdded = append(newAdded, col)
+		}
+		return true
+	})
+
+	return common, newAdded
 }
