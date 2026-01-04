@@ -66,18 +66,22 @@ func (c *Config) URI() string {
 		case utils.SSLModeRequire:
 			cfg.TLSConfig = "skip-verify"
 		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
+			// Note: verify-full (verify-identity) requires certificates with Subject Alternative Names (SAN).
+			// Certificates using only the legacy Common Name (CN) field will be rejected.
 			tlsConfig, err := c.buildTLSConfig()
 			if err != nil {
-				logger.Warnf("Failed to build TLS config, falling back to skip-verify: %v", err)
-				cfg.TLSConfig = "skip-verify"
+				logger.Errorf("Failed to build TLS config: %v", err)
+				cfg.Addr = "invalid-ssl-config:0"
+				cfg.TLSConfig = "false"
 			} else {
 				// Unique TLS config name to avoid conflicts with multiple connections
 				tlsConfigName := "mysql_" + uuid.New().String()
 				tlsConfigMutex.Lock()
 				if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
 					tlsConfigMutex.Unlock()
-					logger.Warnf("Failed to register TLS config, falling back to skip-verify: %v", err)
-					cfg.TLSConfig = "skip-verify"
+					logger.Errorf("Failed to register TLS config: %v", err)
+					cfg.Addr = "invalid-ssl-config:0"
+					cfg.TLSConfig = "false"
 				} else {
 					tlsConfigMutex.Unlock()
 					cfg.TLSConfig = tlsConfigName
