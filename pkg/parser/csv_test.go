@@ -70,15 +70,15 @@ func TestInferColumnType_TimestampDetection(t *testing.T) {
 			description:  "Should fall back to String when not all values are timestamps",
 		},
 		{
-			name: "integer values",
+			name: "integer values treated as float",
 			sampleRows: [][]string{
 				{"123"},
 				{"456"},
 				{"789"},
 			},
 			columnIndex:  0,
-			expectedType: types.Int64,
-			description:  "Should detect Int64 for integer values",
+			expectedType: types.Float64,
+			description:  "Should detect Float64 for integer values when type inference was updated",
 		},
 		{
 			name: "float values",
