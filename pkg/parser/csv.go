@@ -75,7 +75,7 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	}
 
 	// Read a few sample rows to infer data types (max 100 samples)
-	// Process one record at a time similar to MongoDB driver
+	sampleRows := [][]string{}
 	maxSamples := 100
 	for i := 0; i < maxSamples; i++ {
 		row, err := csvReader.Read()
@@ -86,22 +86,15 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 			logger.Warnf("Error reading sample row %d: %v", i, err)
 			break
 		}
-
-		// Convert row to record map for resolver
-		record := make(map[string]interface{})
-		for j, value := range row {
-			if j < len(headers) {
-				// Try to convert value to appropriate Go type for resolver inference
-				convertedValue := convertValueForInference(value)
-				record[headers[j]] = convertedValue
-			}
-		}
-
-		// Resolve schema one record at a time
-		if err := typeutils.Resolve(p.stream, record); err != nil {
-			return nil, fmt.Errorf("failed to resolve schema for record %d: %s", i, err)
-		}
+		sampleRows = append(sampleRows, row)
 	}
+
+	// Infer types for each column
+	for i, header := range headers {
+		dataType := inferColumnType(sampleRows, i)
+		p.stream.UpsertField(header, dataType, true) // Allow nulls by default
+	}
+
 	logger.Infof("Inferred schema with %d columns from CSV", len(headers))
 	return p.stream, nil
 }
@@ -216,43 +209,84 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 	return nil
 }
 
-// convertValueForInference converts a CSV string value to appropriate Go type for schema inference
-func convertValueForInference(value string) interface{} {
-	trimmed := strings.TrimSpace(value)
-
-	// Handle null/empty values
-	if trimmed == "" || strings.ToLower(trimmed) == "null" {
-		return nil
+// inferColumnType infers the data type of a CSV column from sample values
+func inferColumnType(sampleRows [][]string, columnIndex int) types.DataType {
+	if len(sampleRows) == 0 {
+		return types.String
 	}
 
-	// Try boolean first (highest priority in original logic)
-	if lowerValue := strings.ToLower(trimmed); lowerValue == "true" || lowerValue == "false" {
-		if boolVal, err := strconv.ParseBool(trimmed); err == nil {
-			return boolVal
+	allInt := true
+	allFloat := true
+	allBool := true
+	allTimestamp := true
+	nonNullCount := 0
+
+	for _, row := range sampleRows {
+		if columnIndex >= len(row) {
+			continue
+		}
+
+		value := strings.TrimSpace(row[columnIndex])
+		if value == "" || strings.ToLower(value) == "null" {
+			continue
+		}
+
+		nonNullCount++
+
+		// Check if this value can be parsed as each type
+		// If any value fails to parse, that type is ruled out
+		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
+			allInt = false
+		}
+
+		if _, err := strconv.ParseFloat(value, 64); err != nil {
+			allFloat = false
+		}
+
+		lowerValue := strings.ToLower(value)
+		if lowerValue != "true" && lowerValue != "false" {
+			allBool = false
+		}
+
+		// Check if value can be parsed as timestamp
+		if _, err := typeutils.ReformatDate(value); err != nil {
+			allTimestamp = false
 		}
 	}
 
-	// Try integer
-	if intVal, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
-		return intVal
+	// If no non-null values found, default to string
+	if nonNullCount == 0 {
+		return types.String
 	}
 
-	// Try float
-	if floatVal, err := strconv.ParseFloat(trimmed, 64); err == nil {
-		// Handle NaN - JSON doesn't support NaN, so convert to nil
-		if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
-			return nil
+	// Determine type based on what ALL values can be parsed as
+	// Priority: Bool > Float > Timestamp > String
+	if allBool {
+		return types.Bool
+	}
+	if allFloat || allInt {
+		return types.Float64
+	}
+	if allTimestamp {
+		// Try to detect timestamp precision from first non-null value
+		for _, row := range sampleRows {
+			if columnIndex >= len(row) {
+				continue
+			}
+			value := strings.TrimSpace(row[columnIndex])
+			if value == "" || strings.ToLower(value) == "null" {
+				continue
+			}
+			if t, err := typeutils.ReformatDate(value); err == nil {
+				return typeutils.TypeFromValue(t)
+			}
 		}
-		return floatVal
-	}
-
-	// Try timestamp
-	if timestampVal, err := typeutils.ReformatDate(trimmed); err == nil {
-		return timestampVal
+		// Default to TimestampMicro if we can't detect precision
+		return types.TimestampMicro
 	}
 
 	// Default to string
-	return trimmed
+	return types.String
 }
 
 // convertValue converts a string value to the appropriate type based on schema
