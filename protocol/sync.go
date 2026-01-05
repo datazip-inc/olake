@@ -63,8 +63,7 @@ var syncCmd = &cobra.Command{
 
 		// Initialize state
 		state = &types.State{
-			Type:    types.StreamType,
-			Version: 0, // Default to 0 if state file doesn't have version
+			Type: types.StreamType,
 		}
 		if statePath != "" {
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
