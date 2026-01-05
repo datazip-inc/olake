@@ -224,7 +224,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, err
 		}
 
-		// Get primary key columns using INFORMATION_SCHEMA (consistent with Postgres)
+		// Get primary key columns using INFORMATION_SCHEMA
 		pkQuery := jdbc.MSSQLPrimaryKeyQuery()
 		pkRows, err := m.client.QueryContext(ctx, pkQuery, schemaName, tableName)
 		if err != nil {
