@@ -112,7 +112,7 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 		// Process the file using the same logic as backfill
 		// Pass file.LastModified directly (already available) to avoid redundant lookup
 		if err := s.processFile(ctx, stream, file.FileKey, file.Size, file.LastModified, cb); err != nil {
-			return fmt.Errorf("failed to process incremental file %s: %w", file.FileKey, err)
+			return fmt.Errorf("failed to process incremental file %s: %s", file.FileKey, err)
 		}
 	}
 

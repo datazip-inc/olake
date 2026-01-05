@@ -41,7 +41,7 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 
 	data, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read JSON file: %w", err)
+		return nil, fmt.Errorf("failed to read JSON file: %s", err)
 	}
 
 	trimmed := bytes.TrimSpace(data)
@@ -52,7 +52,7 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 	// Parse JSON based on detected format
 	sampleRecords, err := p.parseJSONContent(trimmed, maxSamples)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+		return nil, fmt.Errorf("failed to parse JSON: %s", err)
 	}
 
 	if len(sampleRecords) == 0 {
@@ -62,7 +62,7 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 	// Resolve schema one record at a time similar to MongoDB driver
 	for i, record := range sampleRecords {
 		if err := typeutils.Resolve(p.stream, record); err != nil {
-			return nil, fmt.Errorf("failed to resolve schema for record %d: %w", i, err)
+			return nil, fmt.Errorf("failed to resolve schema for record %d: %s", i, err)
 		}
 	}
 
@@ -95,7 +95,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 			}
 
 			if err := callback(ctx, record); err != nil {
-				return fmt.Errorf("failed to process record: %w", err)
+				return fmt.Errorf("failed to process record: %s", err)
 			}
 			recordCount++
 		}
@@ -106,7 +106,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 		// Read opening bracket
 		token, err := decoder.Token()
 		if err != nil {
-			return fmt.Errorf("failed to read JSON array start: %w", err)
+			return fmt.Errorf("failed to read JSON array start: %s", err)
 		}
 
 		// Verify it's an array
@@ -130,7 +130,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 			}
 
 			if err := callback(ctx, record); err != nil {
-				return fmt.Errorf("failed to process record: %w", err)
+				return fmt.Errorf("failed to process record: %s", err)
 			}
 			recordCount++
 		}
@@ -171,7 +171,7 @@ func (p *JSONParser) parseJSONArray(data []byte, maxSamples int) ([]map[string]i
 	// Read opening bracket
 	token, err := decoder.Token()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read JSON array start: %w", err)
+		return nil, fmt.Errorf("failed to read JSON array start: %s", err)
 	}
 
 	// Verify it's an array
@@ -189,7 +189,7 @@ func (p *JSONParser) parseJSONArray(data []byte, maxSamples int) ([]map[string]i
 				logger.Warnf("Stopped reading JSON array after %d records due to error: %v", len(records), err)
 				break
 			}
-			return nil, fmt.Errorf("failed to decode JSON array element: %w", err)
+			return nil, fmt.Errorf("failed to decode JSON array element: %s", err)
 		}
 		records = append(records, record)
 	}
@@ -215,9 +215,9 @@ func (p *JSONParser) parseJSONLOrObject(data []byte, maxSamples int) ([]map[stri
 	if err := json.Unmarshal(data, &singleRecord); err != nil {
 		// If both failed, return a more helpful error
 		if isJSONL {
-			return nil, fmt.Errorf("failed to parse as JSONL: %w", err)
+			return nil, fmt.Errorf("failed to parse as JSONL: %s", err)
 		}
-		return nil, fmt.Errorf("failed to parse as single JSON object or JSONL: %w", err)
+		return nil, fmt.Errorf("failed to parse as single JSON object or JSONL: %s", err)
 	}
 
 	logger.Debug("Parsed single JSON object")

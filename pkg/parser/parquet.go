@@ -45,7 +45,7 @@ func (p *ParquetParser) InferSchema(_ context.Context, reader io.Reader) (*types
 	// Open Parquet file to read schema
 	pqFile, err := pq.OpenFile(readerAt, fileSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open parquet file: %w", err)
+		return nil, fmt.Errorf("failed to open parquet file: %s", err)
 	}
 
 	// Get the schema from parquet file
@@ -74,7 +74,7 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 	// Open Parquet file
 	pqFile, err := pq.OpenFile(readerAt, fileSize)
 	if err != nil {
-		return fmt.Errorf("failed to open parquet file: %w", err)
+		return fmt.Errorf("failed to open parquet file: %s", err)
 	}
 
 	// Get schema to know column names
@@ -111,14 +111,14 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 					break
 				}
 				if err != nil {
-					return fmt.Errorf("failed to read page in row group %d: %w", rgIdx, err)
+					return fmt.Errorf("failed to read page in row group %d: %s", rgIdx, err)
 				}
 
 				// Read values from the page
 				pageValues := make([]pq.Value, page.NumValues())
 				_, err = page.Values().ReadValues(pageValues)
 				if err != nil && err != io.EOF {
-					return fmt.Errorf("failed to read page values in row group %d: %w", rgIdx, err)
+					return fmt.Errorf("failed to read page values in row group %d: %s", rgIdx, err)
 				}
 
 				columnValues = append(columnValues, pageValues...)
@@ -149,7 +149,7 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 			}
 
 			if err := callback(ctx, record); err != nil {
-				return fmt.Errorf("failed to process record: %w", err)
+				return fmt.Errorf("failed to process record: %s", err)
 			}
 			recordCount++
 		}
@@ -399,12 +399,12 @@ func prepareParquetReader(reader io.Reader) (io.ReaderAt, int64, error) {
 	if seeker, ok := reader.(io.Seeker); ok {
 		size, err := seeker.Seek(0, io.SeekEnd)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to determine file size: %w", err)
+			return nil, 0, fmt.Errorf("failed to determine file size: %s", err)
 		}
 		// Seek back to beginning
 		_, err = seeker.Seek(0, io.SeekStart)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to seek to start: %w", err)
+			return nil, 0, fmt.Errorf("failed to seek to start: %s", err)
 		}
 		fileSize = size
 	} else {

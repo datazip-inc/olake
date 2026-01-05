@@ -61,7 +61,7 @@ func (r *S3RangeReader) ReadAt(p []byte, off int64) (n int, err error) {
 		Range:  aws.String(rangeHeader),
 	})
 	if err != nil {
-		return 0, fmt.Errorf("failed to read range %s: %w", rangeHeader, err)
+		return 0, fmt.Errorf("failed to read range %s: %s", rangeHeader, err)
 	}
 	defer result.Body.Close()
 
@@ -82,7 +82,7 @@ func (r *S3RangeReader) ReadAt(p []byte, off int64) (n int, err error) {
 		}
 
 		if err != nil {
-			return totalRead, fmt.Errorf("failed to read response body: %w", err)
+			return totalRead, fmt.Errorf("failed to read response body: %s", err)
 		}
 	}
 

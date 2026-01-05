@@ -158,7 +158,7 @@ func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, ch
 		fileSize := s.getFileSize(stream.Name(), key)
 		lastModified := s.getFileLastModified(stream.Name(), key)
 		if err := s.processFile(ctx, stream, key, fileSize, lastModified, processFn); err != nil {
-			return fmt.Errorf("failed to process file %s in chunk: %w", key, err)
+			return fmt.Errorf("failed to process file %s in chunk: %s", key, err)
 		}
 	}
 
@@ -189,7 +189,7 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 			logger.Warnf("File %s was deleted or not found, skipping", key)
 			return nil // Don't fail the entire sync for a missing file
 		}
-		return fmt.Errorf("failed to get reader: %w", err)
+		return fmt.Errorf("failed to get reader: %s", err)
 	}
 	defer func() {
 		if closer, ok := reader.(io.Closer); ok {
@@ -234,7 +234,7 @@ func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterfa
 	}
 
 	if parseErr != nil {
-		return fmt.Errorf("failed to process file %s: %w", key, parseErr)
+		return fmt.Errorf("failed to process file %s: %s", key, parseErr)
 	}
 
 	return nil

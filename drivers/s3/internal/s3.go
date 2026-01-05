@@ -53,14 +53,14 @@ func (s *S3) Type() string {
 func (s *S3) Setup(ctx context.Context) error {
 	// Validate configuration
 	if err := s.config.Validate(); err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
 	// Compile file pattern regex if provided
 	if s.config.FilePattern != "" {
 		pattern, err := regexp.Compile(s.config.FilePattern)
 		if err != nil {
-			return fmt.Errorf("failed to compile file_pattern regex: %w", err)
+			return fmt.Errorf("failed to compile file_pattern regex: %s", err)
 		}
 		s.filePattern = pattern
 		logger.Infof("Using file pattern filter: %s", s.config.FilePattern)
@@ -94,7 +94,7 @@ func (s *S3) Setup(ctx context.Context) error {
 	cfg, err = config.LoadDefaultConfig(ctx, configOpts...)
 
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to load AWS config: %s", err)
 	}
 
 	// Create S3 client
@@ -115,7 +115,7 @@ func (s *S3) Setup(ctx context.Context) error {
 		Bucket: aws.String(s.config.BucketName),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to access bucket %s: %w", s.config.BucketName, err)
+		return fmt.Errorf("failed to access bucket %s: %s", s.config.BucketName, err)
 	}
 
 	logger.Info("Successfully connected to S3")
@@ -167,7 +167,7 @@ func (s *S3) GetStreamNames(ctx context.Context) ([]string, error) {
 
 		result, err := s.client.ListObjectsV2(ctx, input)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list objects in bucket: %w", err)
+			return nil, fmt.Errorf("failed to list objects in bucket: %s", err)
 		}
 
 		logger.Debugf("Processing S3 list page %d (%d objects in this page)", pageCount, len(result.Contents))
@@ -311,7 +311,7 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to infer schema: %w", err)
+		return nil, fmt.Errorf("failed to infer schema: %s", err)
 	}
 
 	// Add _last_modified_time as a cursor field for incremental sync
@@ -326,7 +326,7 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 func (s *S3) withFileReader(ctx context.Context, fileKey string, callback func(io.Reader) (*types.Stream, error)) (*types.Stream, error) {
 	reader, _, err := s.getFileReader(ctx, fileKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file reader: %w", err)
+		return nil, fmt.Errorf("failed to get file reader: %s", err)
 	}
 	defer func() {
 		if closer, ok := reader.(io.Closer); ok {
@@ -342,7 +342,7 @@ func (s *S3) withFileReader(ctx context.Context, fileKey string, callback func(i
 func (s *S3) withParquetReader(ctx context.Context, fileKey string, fileSize int64, callback func(io.Reader) (*types.Stream, error)) (*types.Stream, error) {
 	parquetReader, parquetSize, err := s.getParquetReaderAt(ctx, fileKey, fileSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Parquet reader: %w", err)
+		return nil, fmt.Errorf("failed to get Parquet reader: %s", err)
 	}
 	defer func() {
 		if closer, ok := parquetReader.(io.Closer); ok {
@@ -408,7 +408,7 @@ func (s *S3) getFileReader(ctx context.Context, key string) (io.Reader, int64, e
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get object from S3: %w", err)
+		return nil, 0, fmt.Errorf("failed to get object from S3: %s", err)
 	}
 
 	// Get file size
@@ -421,7 +421,7 @@ func (s *S3) getFileReader(ctx context.Context, key string) (io.Reader, int64, e
 	reader, err := getDecompressedReader(result.Body, key)
 	if err != nil {
 		result.Body.Close()
-		return nil, 0, fmt.Errorf("failed to create decompressed reader: %w", err)
+		return nil, 0, fmt.Errorf("failed to create decompressed reader: %s", err)
 	}
 
 	return reader, fileSize, nil
@@ -447,13 +447,13 @@ func (s *S3) getParquetReaderAt(ctx context.Context, key string, fileSize int64)
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get object from S3: %w", err)
+		return nil, 0, fmt.Errorf("failed to get object from S3: %s", err)
 	}
 	defer result.Body.Close()
 
 	data, err := io.ReadAll(result.Body)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read Parquet file: %w", err)
+		return nil, 0, fmt.Errorf("failed to read Parquet file: %s", err)
 	}
 
 	return bytes.NewReader(data), int64(len(data)), nil
@@ -468,7 +468,7 @@ func getDecompressedReader(body io.Reader, key string) (io.Reader, error) {
 	if strings.HasSuffix(lowerKey, ".gz") {
 		gzipReader, err := gzip.NewReader(body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+			return nil, fmt.Errorf("failed to create gzip reader: %s", err)
 		}
 		logger.Debugf("Using gzip decompression for file: %s", key)
 		return gzipReader, nil
