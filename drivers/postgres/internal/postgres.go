@@ -114,8 +114,15 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		}
 
 		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
+		dbName := strings.TrimPrefix(p.config.Connection.Path, "/")
 
-		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication)
+		exists, err := doesReplicationSlotExists(
+			ctx,
+			pgClient,
+			cdc.ReplicationSlot,
+			cdc.Publication,
+			dbName,
+		)
 		if err != nil {
 			if strings.Contains(err.Error(), "sql: no rows in result set") {
 				err = fmt.Errorf("no record found")

@@ -97,7 +97,13 @@ func (p *Postgres) PostCDC(ctx context.Context, _ types.StreamInterface, noErr b
 	return nil
 }
 
-func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string) (bool, error) {
+func doesReplicationSlotExists(
+	ctx context.Context,
+	conn *sqlx.DB,
+	slotName string,
+	publication string,
+	database string,
+) (bool, error) {
 	var exists bool
 	err := conn.QueryRowContext(
 		ctx,
@@ -117,7 +123,7 @@ func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName stri
 		return false, fmt.Errorf(
 			"replication slot '%s' does not exist in the current database '%s'",
 			slotName,
-			conn.DriverName(), // or database name if available in config
+			database,
 		)
 	}
 
