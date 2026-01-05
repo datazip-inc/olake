@@ -77,8 +77,7 @@ func TestState_ResetStreams(t *testing.T) {
 	require.False(t, s.isZero())
 
 	s.ResetStreams()
-	assert.Equal(t, 0, len(s.Streams))
-}assert.Equal(t, 0, len(s.Streams), "ResetStreams should clear stream slice")
+	assert.Equal(t, 0, len(s.Streams), "ResetStreams should clear stream slice")
 }
 
 func TestCursorSetAndGet_ResetCursor(t *testing.T) {
@@ -165,63 +164,71 @@ func TestSetChunks_SkipsOnFullRefresh(t *testing.T) {
 	assert.Nil(t, s.GetChunks(cfg), "SetChunks should be no-op for FULLREFRESH mode")
 }
 
-func TestState_MarshalJSON_PopulatedStreamsOnly(t *testing.T) {
-	s := newState()
-	cfg1 := newConfiguredStream("a", "n", "id", SyncMode("incremental"))
-	cfg2 := newConfiguredStream("b", "n", "id", SyncMode("incremental"))
+func TestState_MarshalUnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() any
+		validate func(t *testing.T, v any)
+	}{
+		{
+			name: "only populated streams are marshalled",
+			setup: func() any {
+				s := newState()
+				cfg1 := newConfiguredStream("a", "n", "id", SyncMode("incremental"))
+				cfg2 := newConfiguredStream("b", "n", "id", SyncMode("incremental"))
 
-	// stream a: set cursor -> holds value
-	s.SetCursor(cfg1, "id", 1)
-	// stream b: create streamstate but not hold any value
-	// create internal streamstate without HoldsValue
-	ss := s.initStreamState(cfg2)
-	s.Streams = append(s.Streams, ss)
+				s.SetCursor(cfg1, "id", 1)
+				ss := s.initStreamState(cfg2)
+				s.Streams = append(s.Streams, ss)
+				return s
+			},
+			validate: func(t *testing.T, v any) {
+				var root map[string]any
+				require.NoError(t, json.Unmarshal(v.([]byte), &root))
+				streams, ok := root["streams"].([]any)
+				require.True(t, ok)
+				assert.Equal(t, 1, len(streams), "Only populated streams must be serialized")
+			},
+		},
+		{
+			name: "stream state with chunks survives marshal/unmarshal",
+			setup: func() any {
+				ss := &StreamState{
+					Stream:    "s",
+					Namespace: "ns",
+					State:     sync.Map{},
+				}
+				ss.State.Store("cursor", 55)
+				ss.State.Store(ChunksKey, NewSet[Chunk](Chunk{Min: 1, Max: 2}))
+				ss.HoldsValue.Store(true)
+				return ss
+			},
+			validate: func(t *testing.T, v any) {
+				var out StreamState
+				require.NoError(t, json.Unmarshal(v.([]byte), &out))
 
-	// marshal
-	b, err := json.Marshal(s)
-	require.NoError(t, err)
+				assert.True(t, out.HoldsValue.Load())
 
-	// unmarshal to generic map and assert only one stream present
-	var root map[string]any
-	require.NoError(t, json.Unmarshal(b, &root))
-	streams, ok := root["streams"].([]any)
-	require.True(t, ok)
-	assert.Equal(t, 1, len(streams), "Only populated streams must be serialized")
-}
+				val, _ := out.State.Load("cursor")
+				assert.Equal(t, float64(55), val.(float64))
 
-func TestStreamState_MarshalUnmarshalJSON_WithChunks(t *testing.T) {
-	// prepare stream state
-	ss := &StreamState{
-		Stream:    "s",
-		Namespace: "ns",
-		State:     sync.Map{},
+				chunksAny, ok := out.State.Load(ChunksKey)
+				require.True(t, ok)
+				gotChunks, ok := chunksAny.(*Set[Chunk])
+				require.True(t, ok)
+				assert.Equal(t, 1, gotChunks.Len())
+			},
+		},
 	}
-	// store a cursor and chunks
-	ss.State.Store("cursor", 55)
-	ss.State.Store(ChunksKey, NewSet[Chunk](Chunk{Min: 1, Max: 2}))
-	ss.HoldsValue.Store(true)
 
-	// marshal
-	b, err := json.Marshal(ss)
-	require.NoError(t, err)
-
-	// unmarshal back
-	var out StreamState
-	require.NoError(t, json.Unmarshal(b, &out))
-
-	// check holds value set
-	assert.True(t, out.HoldsValue.Load())
-
-	// check cursor restored
-	val, _ := out.State.Load("cursor")
-	assert.Equal(t, float64(55), val.(float64)) // json unmarshals numbers as float64
-
-	// chunks present and is *Set[Chunk]
-	chunksAny, ok := out.State.Load(ChunksKey)
-	require.True(t, ok)
-	// type assert to *Set[Chunk]
-	gotChunks, ok := chunksAny.(*Set[Chunk])
-	require.True(t, ok)
-	assert.Equal(t, 1, gotChunks.Len())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := tt.setup()
+			b, err := json.Marshal(obj)
+			require.NoError(t, err)
+			tt.validate(t, b)
+		})
+	}
 }
+
 
