@@ -188,7 +188,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 			data[Partition] = message.Partition
 			data[Offset] = message.Offset
 			data[Key] = string(message.Key)
-			data[KafkaTimestamp], _ = typeutils.ReformatDate(message.Time)
+			data[KafkaTimestamp], _ = typeutils.ReformatDate(message.Time, true)
 		}
 
 		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})

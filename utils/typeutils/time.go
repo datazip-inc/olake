@@ -13,7 +13,7 @@ type Time struct {
 func (ct *Time) UnmarshalJSON(b []byte) error {
 	// Remove the quotes around the date string
 	str := strings.Trim(string(b), "\"")
-	time, err := parseStringTimestamp(str, false)
+	time, err := parseStringTimestamp(str, true)
 	if err != nil {
 		return err
 	}

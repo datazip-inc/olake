@@ -150,20 +150,20 @@ func ReformatBool(v interface{}) (bool, error) {
 	return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 }
 
-// reformat date expects value and isTimestamp boolean which is used in parseStringTimestamp function
-func ReformatDate(v interface{}, isTimestamp bool) (time.Time, error) {
+// reformat date expects value and isTimestampInDB boolean which is used in parseStringTimestamp function
+func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 	parsed, err := func() (time.Time, error) {
 		switch v := v.(type) {
 		case []uint8:
 			strVal := string(v)
-			return parseStringTimestamp(strVal, isTimestamp)
+			return parseStringTimestamp(strVal, isTimestampInDB)
 		case []int8:
 			b := make([]byte, 0, len(v))
 			for _, i := range v {
 				b = append(b, byte(i))
 			}
 			strVal := string(b)
-			return parseStringTimestamp(strVal, isTimestamp)
+			return parseStringTimestamp(strVal, isTimestampInDB)
 		case int64:
 			return time.Unix(v, 0), nil
 		case *int64:
@@ -199,16 +199,16 @@ func ReformatDate(v interface{}, isTimestamp bool) (time.Time, error) {
 		case nil:
 			return time.Time{}, nil
 		case string:
-			return parseStringTimestamp(v, isTimestamp)
+			return parseStringTimestamp(v, isTimestampInDB)
 		case *string:
 			if v == nil || *v == "" {
 				return time.Time{}, fmt.Errorf("empty string passed")
 			}
-			return parseStringTimestamp(*v, isTimestamp)
+			return parseStringTimestamp(*v, isTimestampInDB)
 		case primitive.DateTime:
 			return v.Time(), nil
 		case *any:
-			return ReformatDate(*v, isTimestamp)
+			return ReformatDate(*v, isTimestampInDB)
 		}
 		return time.Time{}, fmt.Errorf("unhandled type[%T] passed: unable to parse into time", v)
 	}()
@@ -230,10 +230,10 @@ func ReformatDate(v interface{}, isTimestamp bool) (time.Time, error) {
 	return parsed, nil
 }
 
-// parseStringTimestamp expects value and isTimestamp boolean
+// parseStringTimestamp expects value and isTimestampInDB boolean
 // if this is a timestamp and unable to parse into correct format it will return epoch start time
 // if its a string and unable to parse into correct time format it will be returned as string
-func parseStringTimestamp(value string, isTimestamp bool) (time.Time, error) {
+func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error) {
 	// Check if the string starts with a date pattern (YYYY-MM-DD)
 	startsWithDatePattern := func(value string) bool {
 		if len(value) < 10 {
@@ -276,7 +276,7 @@ func parseStringTimestamp(value string, isTimestamp bool) (time.Time, error) {
 	}
 
 	// time unable to be parsed string will be returned as it is for state version != 0 (backward compatibility)
-	if !isTimestamp && constants.LoadedStateVersion != 0 {
+	if !isTimestampInDB && constants.LoadedStateVersion != 0 {
 		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
 
