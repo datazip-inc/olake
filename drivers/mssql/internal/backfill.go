@@ -72,8 +72,11 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 // GetOrSplitChunks splits a table into chunks using PK seek or %%physloc%% fallback.
 func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-	var approxRowCount int64
-	var avgRowSize any
+	var (
+		approxRowCount int64
+		avgRowSize     any
+	)
+
 	rowStatsQuery := jdbc.MSSQLTableRowStatsQuery()
 	err := m.client.QueryRowContext(ctx, rowStatsQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount, &avgRowSize)
 	if err != nil {
@@ -110,22 +113,23 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// Split via primary key when available
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk], pkCols []string) error {
 		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
-			pkColumns := pkCols
+			sort.Strings(pkCols)
 
-			sort.Strings(pkColumns)
-
-			if len(pkColumns) == 0 {
+			if len(pkCols) == 0 {
 				return nil
 			}
 
-			minVal, maxVal, err := m.getTableExtremesMSSQL(ctx, stream, pkColumns, tx)
+			// Get the minimum and maximum values for the primary key columns
+			minVal, maxVal, err := m.getTableExtremesMSSQL(ctx, stream, pkCols, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
 			}
+			// Skip if table is empty
 			if minVal == nil {
 				return nil
 			}
 
+			// Create the first chunk from the beginning up to the minimum value
 			chunks.Insert(types.Chunk{
 				Min: nil,
 				Max: utils.ConvertToString(minVal),
@@ -133,21 +137,26 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
 
-			query := jdbc.MSSQLNextChunkEndQuery(stream, pkColumns, chunkSize)
+			// Build query to find the next chunk boundary
+			query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
 			currentVal := minVal
 
 			for {
+				// Split the current composite key value into individual column parts
 				columns := strings.Split(utils.ConvertToString(currentVal), ",")
 
+				// Build query arguments for composite key comparison
 				args := make([]interface{}, 0)
-				for colIdx := 0; colIdx < len(pkColumns); colIdx++ {
+				for colIdx := 0; colIdx < len(pkCols); colIdx++ {
 					for partIdx := 0; partIdx <= colIdx && partIdx < len(columns); partIdx++ {
 						args = append(args, strings.TrimSpace(columns[partIdx]))
 					}
 				}
 
+				// Query for the next chunk boundary value
 				var nextValRaw interface{}
 				err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
+				// Stop if we've reached the end of the table
 				if err == sql.ErrNoRows || nextValRaw == nil {
 					break
 				}
@@ -155,15 +164,18 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 					return fmt.Errorf("failed to get next chunk end: %s", err)
 				}
 
+				// Create a chunk between current and next boundary
 				if currentVal != nil {
 					chunks.Insert(types.Chunk{
 						Min: utils.ConvertToString(currentVal),
 						Max: utils.ConvertToString(nextValRaw),
 					})
 				}
+
 				currentVal = nextValRaw
 			}
 
+			// Create the final chunk from the last value to the end
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
 					Min: utils.ConvertToString(currentVal),
@@ -175,19 +187,21 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 
-	// %%physloc%% based splitting when no PK is available
+	// Split using physical location when no primary key is available
 	splitViaPhysLoc := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		// SQL Server doesn't support read-only transactions
 		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
+			// Get the minimum and maximum physical location values
 			minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
 			}
+			// Skip if table is empty
 			if minVal == nil || maxVal == nil {
 				return nil
 			}
 
-			// %%physloc%% is binary, use next-boundary query pattern
+			// Split the table using physical location boundaries
 			if err := m.splitViaPhysLocNextQuery(ctx, tx, stream, minVal, chunks, chunkSize); err != nil {
 				return fmt.Errorf("failed to split via %%physloc%%: %s", err)
 			}

@@ -15,8 +15,7 @@ END;
 GO
 
 
--- 1) Sample table with primary key and identity (playground for snapshot,
---    incremental and CDC)
+-- 1) Sample table with primary key and identity (playground for snapshot, incremental and CDC)
 IF OBJECT_ID('dbo.users', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.users (
@@ -27,8 +26,7 @@ BEGIN
 END;
 GO
 
--- 2) Simple events table without primary key (ROW_NUMBER fallback for
---    snapshot/backfill tests)
+-- 2) Simple events table without primary key (ROW_NUMBER fallback for snapshot/backfill tests)
 IF OBJECT_ID('dbo.events', 'U') IS NULL
 BEGIN
     CREATE TABLE dbo.events (
