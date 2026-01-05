@@ -1073,8 +1073,257 @@ func TestReformat_ReformatFloat64(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.InDelta(t, tc.expected, result, 0.0001, "Float values should be approximately equal")
+				assert.InDelta(t, tc.expected, result, 0.0001)
 			}
+		})
+	}
+}
+
+func TestReformat_ReformatFloat32(t *testing.T) {
+	testCases := []struct {
+		name        string
+		value       any
+		expected    float32
+		expectError bool
+	}{
+		// Float types
+		{
+			name:        "float64 value",
+			value:       float64(3.14),
+			expected:    float32(3.14),
+			expectError: false,
+		},
+		{
+			name:        "float32 value",
+			value:       float32(3.14),
+			expected:    float32(3.14),
+			expectError: false,
+		},
+		// Integer types
+		{
+			name:        "int value",
+			value:       42,
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "int8 value",
+			value:       int8(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "int16 value",
+			value:       int16(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "int32 value",
+			value:       int32(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "int64 value",
+			value:       int64(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		// Unsigned integer types
+		{
+			name:        "uint value",
+			value:       uint(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "uint8 value",
+			value:       uint8(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "uint16 value",
+			value:       uint16(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "uint32 value",
+			value:       uint32(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "uint64 value",
+			value:       uint64(42),
+			expected:    float32(42),
+			expectError: false,
+		},
+		// Bool types
+		{
+			name:        "bool true",
+			value:       true,
+			expected:    float32(1.0),
+			expectError: false,
+		},
+		{
+			name:        "bool false",
+			value:       false,
+			expected:    float32(0.0),
+			expectError: false,
+		},
+		// String types
+		{
+			name:        "string positive number",
+			value:       "3.14",
+			expected:    float32(3.14),
+			expectError: false,
+		},
+		{
+			name:        "string negative number",
+			value:       "-3.14",
+			expected:    float32(-3.14),
+			expectError: false,
+		},
+		{
+			name:        "string integer",
+			value:       "42",
+			expected:    float32(42),
+			expectError: false,
+		},
+		{
+			name:        "string invalid",
+			value:       "not a number",
+			expectError: true,
+		},
+		// []uint8
+		{
+			name:        "[]uint8 number string",
+			value:       []uint8("3.14"),
+			expected:    float32(3.14),
+			expectError: false,
+		},
+		{
+			name:        "[]uint8 invalid",
+			value:       []uint8("invalid"),
+			expectError: true,
+		},
+		// Invalid types
+		{
+			name:        "nil",
+			value:       nil,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ReformatFloat64(tc.value)
+
+			if tc.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.InDelta(t, tc.expected, result, 0.0001)
+			}
+		})
+	}
+}
+
+func TestReformat_ByteArraysToString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    map[string]any
+		expected map[string]any
+	}{
+		{
+			name: "simple byte array",
+			input: map[string]any{
+				"data": []byte("hello"),
+			},
+			expected: map[string]any{
+				"data": "hello",
+			},
+		},
+		{
+			name: "nested with byte array",
+			input: map[string]any{
+				"nested": map[string]any{
+					"data": []byte("hello"),
+				},
+			},
+			expected: map[string]any{
+				"nested": map[string]any{
+					"data": "hello",
+				},
+			},
+		},
+		{
+			name: "array of maps with byte array",
+			input: map[string]any{
+				"items": []map[string]any{
+					{"data": []byte("item1")},
+					{"data": []byte("item2")},
+				},
+			},
+			expected: map[string]any{
+				"items": []map[string]any{
+					{"data": "item1"},
+					{"data": "item2"},
+				},
+			},
+		},
+		{
+			name: "array of any with byte array",
+			input: map[string]any{
+				"items": []any{
+					map[string]any{"data": []byte("item1")},
+					[]byte("item2"),
+					"item3",
+					42,
+				},
+			},
+			expected: map[string]any{
+				"items": []any{
+					map[string]any{"data": "item1"},
+					"item2",
+					"item3",
+					42,
+				},
+			},
+		},
+		{
+			name: "mixed types",
+			input: map[string]any{
+				"string": "hello",
+				"bytes":  []byte("hello"),
+				"number": 42,
+				"nested": map[string]any{
+					"bytes": []byte("world"),
+				},
+			},
+			expected: map[string]any{
+				"string": "hello",
+				"bytes":  "hello",
+				"number": 42,
+				"nested": map[string]any{
+					"bytes": "world",
+				},
+			},
+		},
+		{
+			name:     "empty map",
+			input:    map[string]any{},
+			expected: map[string]any{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ReformatByteArraysToString(tc.input)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
