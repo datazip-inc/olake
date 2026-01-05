@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetFirstNotNullType(t *testing.T) {
+func TestReformat_GetFirstNotNullType(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  []types.DataType
@@ -50,7 +50,7 @@ func TestGetFirstNotNullType(t *testing.T) {
 	}
 }
 
-func TestReformatValue(t *testing.T) {
+func TestReformat_ReformatValue(t *testing.T) {
 	tests := []struct {
 		name         string
 		datatypes    types.DataType
@@ -347,7 +347,7 @@ func TestReformatValue(t *testing.T) {
 	}
 }
 
-func TestReformatValueOnDataTypes(t *testing.T) {
+func TestReformat_ReformatValueOnDataTypes(t *testing.T) {
 	tests := []struct {
 		name      string
 		datatypes []types.DataType
@@ -388,7 +388,7 @@ func TestReformatValueOnDataTypes(t *testing.T) {
 	}
 }
 
-func TestReformatRecord(t *testing.T) {
+func TestReformat_ReformatRecord(t *testing.T) {
 	tests := []struct {
 		name         string
 		fields       Fields
@@ -466,3 +466,616 @@ func TestReformatRecord(t *testing.T) {
 		})
 	}
 }
+
+func TestReformat_ReformatBool(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       any
+		expected    any
+		expectedErr bool
+	}{
+		// Bool values
+		{
+			name:        "bool true",
+			value:       true,
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "bool false",
+			value:       false,
+			expected:    false,
+			expectedErr: false,
+		},
+		// String values
+		{
+			name:        "string TRUE",
+			value:       "TRUE",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string FALSE",
+			value:       "FALSE",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string True",
+			value:       "True",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string False",
+			value:       "False",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string true",
+			value:       "true",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string false",
+			value:       "false",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string 1",
+			value:       "1",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string 0",
+			value:       "0",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string t",
+			value:       "t",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string f",
+			value:       "f",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string T",
+			value:       "T",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string F",
+			value:       "F",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string YES",
+			value:       "YES",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string NO",
+			value:       "NO",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string yes",
+			value:       "yes",
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "string no",
+			value:       "no",
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "string invalid",
+			value:       "maybe",
+			expectedErr: true,
+		},
+		// Integer values
+		{
+			name:        "int 1",
+			value:       1,
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:        "int 0",
+			value:       0,
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:        "int 2",
+			value:       2,
+			expectedErr: true,
+		},
+		// Invalid types
+		{
+			name:        "float64",
+			value:       float64(1.0),
+			expectedErr: true,
+		},
+		{
+			name:        "nil",
+			value:       nil,
+			expectedErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ReformatBool(tc.value)
+			if tc.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestReformat_ReformatInt64(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     any
+		expected  int64
+		expectErr bool
+	}{
+		// Integer types
+		{
+			name:      "int64 value",
+			value:     int64(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "int32 value",
+			value:     int32(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "int8 value",
+			value:     int8(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "int value",
+			value:     42,
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "int16 value",
+			value:     int16(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		// unsigned int
+		{
+			name:      "uint16 value",
+			value:     uint16(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "uint32 value",
+			value:     uint32(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "uint64 value",
+			value:     uint64(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "uint8 value",
+			value:     uint8(42),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		// float types
+		{
+			name:      "float32 value",
+			value:     float32(42.3),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "float64 value",
+			value:     float64(42.3),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		// bool types
+		{
+			name:      "bool true",
+			value:     true,
+			expected:  int64(1),
+			expectErr: false,
+		},
+		{
+			name:      "bool false",
+			value:     false,
+			expected:  int64(0),
+			expectErr: false,
+		},
+		// string types
+		{
+			name:      "string positive numbers",
+			value:     "42",
+			expected:  int64(42),
+			expectErr: false,
+		},
+		{
+			name:      "string with negative numbers",
+			value:     "-42",
+			expected:  int64(-42),
+			expectErr: false,
+		},
+		{
+			name:      "string invalid",
+			value:     "no number",
+			expectErr: true,
+		},
+		// pointer types
+		{
+			name: "pointer to any",
+			value: func() *any {
+				v := any(42)
+				return &v
+			}(),
+			expected:  int64(42),
+			expectErr: false,
+		},
+		// invalid types
+		{
+			name:      "nil",
+			value:     nil,
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ReformatInt64(tc.value)
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestReformat_ReformatInt32(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     any
+		expected  int32
+		expectErr bool
+	}{
+		// Integer types
+		{
+			name:      "int32 value",
+			value:     int32(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "int64 value",
+			value:     int64(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "int8 value",
+			value:     int8(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "int value",
+			value:     42,
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "int16 value",
+			value:     int16(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		// unsigned int
+		{
+			name:      "uint value",
+			value:     uint(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "uint16 value",
+			value:     uint16(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "uint32 value",
+			value:     uint32(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "uint64 value",
+			value:     uint64(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "uint8 value",
+			value:     uint8(42),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		// float types
+		{
+			name:      "float32 value",
+			value:     float32(42.3),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "float64 value",
+			value:     float64(42.3),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		// bool types
+		{
+			name:      "bool true",
+			value:     true,
+			expected:  int32(1),
+			expectErr: false,
+		},
+		{
+			name:      "bool false",
+			value:     false,
+			expected:  int32(0),
+			expectErr: false,
+		},
+		// string types
+		{
+			name:      "string positive numbers",
+			value:     "42",
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "string with negative numbers",
+			value:     "-42",
+			expected:  int32(-42),
+			expectErr: false,
+		},
+		{
+			name:      "string invalid",
+			value:     "no number",
+			expectErr: true,
+		},
+		// []uint8
+		{
+			name:      "[]uint8 single byte",
+			value:     []uint8{42},
+			expected:  int32(42),
+			expectErr: false,
+		},
+		{
+			name:      "[]uint8 multiple bytes",
+			value:     []uint8{42, 43},
+			expectErr: true,
+		},
+		// pointer types
+		{
+			name: "pointer to any",
+			value: func() *any {
+				v := any(int32(42))
+				return &v
+			}(),
+			expected:  int32(42),
+			expectErr: false,
+		},
+		// invalid types
+		{
+			name:      "nil",
+			value:     nil,
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ReformatInt32(tc.value)
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestReformat_ReformatFloat64(t *testing.T) {
+	testCases := []struct {
+		name        string
+		value       any
+		expected    float64
+		expectError bool
+	}{
+		// Float types
+		{
+			name:        "float64 value",
+			value:       float64(3.14),
+			expected:    float64(3.14),
+			expectError: false,
+		},
+		{
+			name:        "float32 value",
+			value:       float32(3.14),
+			expected:    float64(3.14),
+			expectError: false,
+		},
+		// Integer types
+		{
+			name:        "int value",
+			value:       42,
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "int8 value",
+			value:       int8(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "int16 value",
+			value:       int16(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "int32 value",
+			value:       int32(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "int64 value",
+			value:       int64(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		// Unsigned integer types
+		{
+			name:        "uint value",
+			value:       uint(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "uint8 value",
+			value:       uint8(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "uint16 value",
+			value:       uint16(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "uint32 value",
+			value:       uint32(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "uint64 value",
+			value:       uint64(42),
+			expected:    float64(42),
+			expectError: false,
+		},
+		// Bool types
+		{
+			name:        "bool true",
+			value:       true,
+			expected:    float64(1.0),
+			expectError: false,
+		},
+		{
+			name:        "bool false",
+			value:       false,
+			expected:    float64(0.0),
+			expectError: false,
+		},
+		// String types
+		{
+			name:        "string positive number",
+			value:       "3.14",
+			expected:    float64(3.14),
+			expectError: false,
+		},
+		{
+			name:        "string negative number",
+			value:       "-3.14",
+			expected:    float64(-3.14),
+			expectError: false,
+		},
+		{
+			name:        "string integer",
+			value:       "42",
+			expected:    float64(42),
+			expectError: false,
+		},
+		{
+			name:        "string invalid",
+			value:       "not a number",
+			expectError: true,
+		},
+		// []uint8
+		{
+			name:        "[]uint8 number string",
+			value:       []uint8("3.14"),
+			expected:    float64(3.14),
+			expectError: false,
+		},
+		{
+			name:        "[]uint8 invalid",
+			value:       []uint8("invalid"),
+			expectError: true,
+		},
+		// Invalid types
+		{
+			name:        "nil",
+			value:       nil,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := ReformatFloat64(tc.value)
+
+			if tc.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.InDelta(t, tc.expected, result, 0.0001, "Float values should be approximately equal")
+			}
+		})
+	}
+}
+
