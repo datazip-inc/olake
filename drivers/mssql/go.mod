@@ -102,6 +102,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/sagikazarmark/locafero v0.8.0 // indirect
+	github.com/segmentio/kafka-go v0.4.49 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
