@@ -1047,7 +1047,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	ctx := context.Background()
 
 	// checks if the current rps (from stats.json) is at least 90% of the benchmark rps
-	checkRPSBenchmark := func(config TestConfig, isBackfill bool) (bool, float64, error) {
+	checkBenchmarkRPS := func(config TestConfig, isBackfill bool) (bool, float64, error) {
 		// get current RPS
 		var stats SyncSpeed
 		if err := utils.UnmarshalFile(filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
@@ -1072,8 +1072,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			t.Logf("No benchmarks exist yet for %s %s mode, skipping validation", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 			return true, rps, nil
 		}
-
-		t.Logf("CurrentRPS: %.2f, averageRPS: %.2f, observations: %d", rps, averageRPS, observations)
+		t.Logf("currentRPS: %.2f, averageRPS: %.2f, observations: %d", rps, averageRPS, observations)
 		if rps < BenchmarkThreshold*averageRPS {
 			return false, rps, nil
 		}
@@ -1151,7 +1150,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) sync completed")
 
-							checkRPS, currentRPS, err := checkRPSBenchmark(*cfg.TestConfig, true)
+							checkRPS, currentRPS, err := checkBenchmarkRPS(*cfg.TestConfig, true)
 							if err != nil {
 								return fmt.Errorf("failed to check RPS: %s", err)
 							}
@@ -1200,7 +1199,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) sync completed")
 
-								checkRPS, currentRPS, err := checkRPSBenchmark(*cfg.TestConfig, false)
+								checkRPS, currentRPS, err := checkBenchmarkRPS(*cfg.TestConfig, false)
 								if err != nil {
 									return fmt.Errorf("failed to check RPS: %s", err)
 								}
