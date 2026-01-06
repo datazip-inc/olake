@@ -259,121 +259,169 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 	return chunkCond
 }
 
-// buildChunkConditionMSSQL builds the condition for a chunk in MSSQL.
-func buildChunkConditionMSSQL(quotedCols []string, chunk types.Chunk, extraFilter string) string {
-	buildValues := func(val any) []string {
-		if val == nil {
+// buildChunkConditionMSSQL builds a WHERE condition for scanning a chunk in MSSQL.
+// It emulates lexicographic ranges for one or more ordering columns because SQL Server
+// does not support tuple comparisons like (col1, col2) >= (...).
+func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFilter string) string {
+	// splitBoundaryValues turns the chunk boundary string into a list of values
+	splitBoundaryValues := func(boundary any) []string {
+		if boundary == nil {
 			return nil
 		}
-		parts := strings.Split(val.(string), ",")
-		for i, part := range parts {
-			parts[i] = strings.TrimSpace(part)
+		values := strings.Split(boundary.(string), ",")
+		for idx, value := range values {
+			values[idx] = strings.TrimSpace(value)
 		}
-		return parts
+		return values
 	}
 
-	// formatValue formats a value for SQL comparison, avoiding quotes for numeric values
-	// to prevent type conversion errors in SQL Server
-	formatValue := func(val string) string {
-		if val == "" {
+	// formatSqlLiteral returns a SQL literal for the given boundary value.
+	// It avoids quoting numeric/boolean values (to prevent type conversion issues)
+	// and only quotes actual strings.
+	formatSqlLiteral := func(value string) string {
+		if value == "" {
 			return "''"
 		}
-		// Try to parse as integer - if successful, don't quote (let SQL Server handle type coercion)
-		if _, err := strconv.ParseInt(val, 10, 64); err == nil {
-			return val
+
+		// Integers stay unquoted.
+		if _, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return value
 		}
-		// Try to parse as float - if successful, don't quote
-		if _, err := strconv.ParseFloat(val, 64); err == nil {
-			return val
+
+		// Floats stay unquoted.
+		if _, err := strconv.ParseFloat(value, 64); err == nil {
+			return value
 		}
-		// Boolean values (though unlikely in PKs)
-		if val == "true" || val == "false" {
-			return val
+
+		// Boolean values stay unquoted.
+		if value == "true" || value == "false" {
+			return value
 		}
-		// For strings, quote and escape
-		escaped := strings.ReplaceAll(val, "'", "''")
+
+		// Everything else is treated as a string and escaped.
+		escaped := strings.ReplaceAll(value, "'", "''")
 		return fmt.Sprintf("'%s'", escaped)
 	}
 
-	// Build lexicographic >= condition for the lower bound.
-	buildGE := func(values []string) string {
-		if values == nil {
+	// buildLowerBoundCondition builds a lexicographic ">= lowerBound" condition.
+	// For columns (c1, c2, c3) and values (m1, m2, m3) it produces:
+	//   (c1 > m1) OR
+	//   (c1 = m1 AND c2 > m2) OR
+	//   (c1 = m1 AND c2 = m2 AND c3 >= m3)
+	buildLowerBoundCondition := func(lowerBoundValues []string) string {
+		if lowerBoundValues == nil {
 			return ""
 		}
-		clauses := make([]string, 0, len(quotedCols))
-		for i := range quotedCols {
-			preds := make([]string, 0, i+1)
-			for j := 0; j < i; j++ {
-				if j < len(values) {
-					preds = append(preds, fmt.Sprintf("%s = %s", quotedCols[j], formatValue(values[j])))
+
+		orGroups := make([]string, 0, len(quotedColumns))
+
+		for columnIndex := range quotedColumns {
+			andConditions := make([]string, 0, columnIndex+1)
+
+			// Prefix columns must match exactly: c1 = m1 AND c2 = m2 ...
+			for prefixIndex := 0; prefixIndex < columnIndex; prefixIndex++ {
+				if prefixIndex < len(lowerBoundValues) {
+					andConditions = append(
+						andConditions,
+						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSqlLiteral(lowerBoundValues[prefixIndex])),
+					)
 				}
 			}
-			op := ">"
-			if i == len(quotedCols)-1 {
-				op = ">="
+
+			// For the current column, use ">" except on the last column where we use ">=".
+			comparisonOp := ">"
+			if columnIndex == len(quotedColumns)-1 {
+				comparisonOp = ">="
 			}
-			if i < len(values) {
-				preds = append(preds, fmt.Sprintf("%s %s %s", quotedCols[i], op, formatValue(values[i])))
+
+			if columnIndex < len(lowerBoundValues) {
+				andConditions = append(
+					andConditions,
+					fmt.Sprintf("%s %s %s", quotedColumns[columnIndex], comparisonOp, formatSqlLiteral(lowerBoundValues[columnIndex])),
+				)
 			}
-			if len(preds) > 0 {
-				clauses = append(clauses, "("+strings.Join(preds, " AND ")+")")
+
+			if len(andConditions) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConditions, " AND ")+")")
 			}
 		}
-		if len(clauses) == 0 {
+
+		if len(orGroups) == 0 {
 			return ""
 		}
-		return "(" + strings.Join(clauses, " OR ") + ")"
+		return "(" + strings.Join(orGroups, " OR ") + ")"
 	}
 
-	// Build lexicographic < condition for the upper bound.
-	buildLT := func(values []string) string {
-		if values == nil {
+	// buildUpperBoundCondition builds a lexicographic "< upperBound" condition.
+	// For columns (c1, c2, c3) and values (M1, M2, M3) it produces:
+	//   (c1 < M1) OR
+	//   (c1 = M1 AND c2 < M2) OR
+	//   (c1 = M1 AND c2 = M2 AND c3 < M3)
+	buildUpperBoundCondition := func(upperBoundValues []string) string {
+		if upperBoundValues == nil {
 			return ""
 		}
-		clauses := make([]string, 0, len(quotedCols))
-		for i := range quotedCols {
-			preds := make([]string, 0, i+1)
-			for j := 0; j < i; j++ {
-				if j < len(values) {
-					preds = append(preds, fmt.Sprintf("%s = %s", quotedCols[j], formatValue(values[j])))
+
+		orGroups := make([]string, 0, len(quotedColumns))
+
+		for columnIndex := range quotedColumns {
+			andConditions := make([]string, 0, columnIndex+1)
+
+			// Prefix columns must match exactly: c1 = M1 AND c2 = M2 ...
+			for prefixIndex := 0; prefixIndex < columnIndex; prefixIndex++ {
+				if prefixIndex < len(upperBoundValues) {
+					andConditions = append(
+						andConditions,
+						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSqlLiteral(upperBoundValues[prefixIndex])),
+					)
 				}
 			}
-			if i < len(values) {
-				preds = append(preds, fmt.Sprintf("%s < %s", quotedCols[i], formatValue(values[i])))
+
+			// Current column uses strict "<" for the upper bound.
+			if columnIndex < len(upperBoundValues) {
+				andConditions = append(
+					andConditions,
+					fmt.Sprintf("%s < %s", quotedColumns[columnIndex], formatSqlLiteral(upperBoundValues[columnIndex])),
+				)
 			}
-			if len(preds) > 0 {
-				clauses = append(clauses, "("+strings.Join(preds, " AND ")+")")
+
+			if len(andConditions) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConditions, " AND ")+")")
 			}
 		}
-		if len(clauses) == 0 {
+
+		if len(orGroups) == 0 {
 			return ""
 		}
-		return "(" + strings.Join(clauses, " OR ") + ")"
+		return "(" + strings.Join(orGroups, " OR ") + ")"
 	}
 
-	var chunkCond string
-	minVals := buildValues(chunk.Min)
-	maxVals := buildValues(chunk.Max)
+	lowerBoundValues := splitBoundaryValues(chunk.Min)
+	upperBoundValues := splitBoundaryValues(chunk.Max)
+
+	var chunkCondition string
 
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		ge := buildGE(minVals)
-		lt := buildLT(maxVals)
-		if ge != "" && lt != "" {
-			chunkCond = fmt.Sprintf("(%s) AND (%s)", ge, lt)
+		lowerCondition := buildLowerBoundCondition(lowerBoundValues)
+		upperCondition := buildUpperBoundCondition(upperBoundValues)
+		if lowerCondition != "" && upperCondition != "" {
+			chunkCondition = fmt.Sprintf("(%s) AND (%s)", lowerCondition, upperCondition)
 		} else {
-			chunkCond = ge + lt
+			chunkCondition = lowerCondition + upperCondition
 		}
 	case chunk.Min != nil:
-		chunkCond = buildGE(minVals)
+		chunkCondition = buildLowerBoundCondition(lowerBoundValues)
 	case chunk.Max != nil:
-		chunkCond = buildLT(maxVals)
+		chunkCondition = buildUpperBoundCondition(upperBoundValues)
 	}
 
-	if extraFilter != "" && chunkCond != "" {
-		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
+	// Combine with any additional filter if present.
+	if extraFilter != "" && chunkCondition != "" {
+		return fmt.Sprintf("(%s) AND (%s)", chunkCondition, extraFilter)
 	}
-	return chunkCond
+
+	return chunkCondition
 }
 
 // MysqlLimitOffsetScanQuery is used to get the rows
@@ -585,16 +633,27 @@ func MSSQLDiscoverTablesQuery() string {
 	`
 }
 
-// MSSQLTableSchemaQuery returns the query to fetch schema information for a table in MSSQL
+// MSSQLTableSchemaQuery returns the query to fetch the column_name, data_type, nullable, and primary_key information of a table in MSSQL
 func MSSQLTableSchemaQuery() string {
 	return `
-		SELECT
-			c.COLUMN_NAME,
-			c.DATA_TYPE,
-			c.IS_NULLABLE
-		FROM INFORMATION_SCHEMA.COLUMNS c
-		WHERE c.TABLE_SCHEMA = @p1
-		AND c.TABLE_NAME = @p2
+		SELECT  c.COLUMN_NAME,
+		        c.DATA_TYPE,
+		        c.IS_NULLABLE,
+		        CAST(CASE WHEN tc.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN 1 ELSE 0 END AS BIT) AS IS_PRIMARY_KEY
+		FROM    INFORMATION_SCHEMA.COLUMNS AS c
+		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu
+		       ON  c.TABLE_CATALOG = kcu.TABLE_CATALOG
+		       AND c.TABLE_SCHEMA  = kcu.TABLE_SCHEMA
+		       AND c.TABLE_NAME    = kcu.TABLE_NAME
+		       AND c.COLUMN_NAME   = kcu.COLUMN_NAME
+		LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
+		       ON  kcu.TABLE_CATALOG = tc.TABLE_CATALOG
+		       AND kcu.TABLE_SCHEMA  = tc.TABLE_SCHEMA
+		       AND kcu.TABLE_NAME    = tc.TABLE_NAME
+		       AND kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+		       AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+		WHERE   c.TABLE_SCHEMA = @p1
+		  AND   c.TABLE_NAME   = @p2
 		ORDER BY c.ORDINAL_POSITION
 	`
 }
@@ -618,24 +677,6 @@ func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64
 		FROM ordered
 		WHERE rn = %d
 	`, quotedTable, chunkSize)
-}
-
-// MSSQLPrimaryKeyQuery returns the query to fetch primary key columns of a table in MSSQL
-func MSSQLPrimaryKeyQuery() string {
-	return `
-		SELECT COLUMN_NAME
-		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-		WHERE TABLE_SCHEMA = @p1
-		AND TABLE_NAME = @p2
-		AND CONSTRAINT_NAME IN (
-			SELECT CONSTRAINT_NAME
-			FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-			WHERE TABLE_SCHEMA = @p1
-			AND TABLE_NAME = @p2
-			AND CONSTRAINT_TYPE = 'PRIMARY KEY'
-		)
-		ORDER BY ORDINAL_POSITION
-	`
 }
 
 // MSSQLCDCSupportQuery returns the query to check if CDC is enabled for the current database
@@ -825,19 +866,19 @@ func MSSQLChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 // MSSQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MSSQL
 func MSSQLTableRowStatsQuery() string {
 	return `
-SELECT 
-    SUM(p.rows) AS row_count,
-    CEILING((SUM(a.total_pages) * 8.0 * 1024.0) / NULLIF(SUM(p.rows), 0)) AS avg_row_bytes
-FROM sys.tables t
-JOIN sys.indexes i ON t.object_id = i.object_id
-JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-JOIN sys.allocation_units a ON p.partition_id = a.container_id
-JOIN sys.schemas s ON t.schema_id = s.schema_id
-WHERE t.type = 'U'
-  AND i.index_id IN (0,1)
-  AND s.name = @p1
-  AND t.name = @p2
-`
+		SELECT 
+			SUM(p.rows) AS row_count,
+			CEILING((SUM(a.total_pages) * 8.0 * 1024.0) / NULLIF(SUM(p.rows), 0)) AS avg_row_bytes
+		FROM sys.tables t
+		JOIN sys.indexes i ON t.object_id = i.object_id
+		JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+		JOIN sys.allocation_units a ON p.partition_id = a.container_id
+		JOIN sys.schemas s ON t.schema_id = s.schema_id
+		WHERE t.type = 'U'
+		AND i.index_id IN (0,1)
+		AND s.name = @p1
+		AND t.name = @p2
+	`
 }
 
 // OracleDB Specific Queries

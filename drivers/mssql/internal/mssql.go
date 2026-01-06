@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strings"
@@ -114,7 +113,6 @@ func (m *MSSQL) buildConnectionString() string {
 	query.Add("database", m.config.Database)
 
 	// Set encrypt parameter based on SSL configuration
-	// MSSQL encrypt values: "disable", "true", "false"
 	// SSL modes: "disable" -> encrypt=disable, "require"/"verify-*" -> encrypt=true
 	if m.config.SSLConfiguration == nil {
 		query.Add("encrypt", "disable")
@@ -186,7 +184,13 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 		}
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
 	}
-	return tableNames, rows.Err()
+
+	// Check for any errors that occurred while iterating over the rows
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tableNames, nil
 }
 
 func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
@@ -207,59 +211,39 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		defer rows.Close()
 
 		type columnInfo struct {
-			name       string
-			dataType   string
-			isNullable string
+			name         string
+			dataType     string
+			isNullable   string
+			isPrimaryKey bool
 		}
 
-		var cols []columnInfo
+		var columns []columnInfo
 		for rows.Next() {
-			var ci columnInfo
-			if err := rows.Scan(&ci.name, &ci.dataType, &ci.isNullable); err != nil {
+			var colInfo columnInfo
+			if err := rows.Scan(&colInfo.name, &colInfo.dataType, &colInfo.isNullable, &colInfo.isPrimaryKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
-			cols = append(cols, ci)
+			columns = append(columns, colInfo)
 		}
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
 
-		// Get primary key columns using INFORMATION_SCHEMA (consistent with Postgres)
-		pkQuery := jdbc.MSSQLPrimaryKeyQuery()
-		pkRows, err := m.client.QueryContext(ctx, pkQuery, schemaName, tableName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve primary keys for table %s: %s", streamName, err)
-		}
-		defer pkRows.Close()
-
-		var pkCols []string
-		for pkRows.Next() {
-			var pkCol string
-			if err := pkRows.Scan(&pkCol); err != nil {
-				pkRows.Close()
-				return nil, fmt.Errorf("failed to scan primary key column: %s", err)
-			}
-			pkCols = append(pkCols, pkCol)
-		}
-		if err := pkRows.Err(); err != nil {
-			return nil, fmt.Errorf("failed to retrieve primary keys for table %s: %s", streamName, err)
-		}
-
-		for _, ci := range cols {
-			stream.WithCursorField(ci.name)
+		for _, column := range columns {
+			stream.WithCursorField(column.name)
 
 			datatype := types.Unknown
-			if val, found := mssqlTypeToDataTypes[strings.ToLower(ci.dataType)]; found {
+			if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
 				datatype = val
 			} else {
-				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", ci.dataType, streamName, ci.name)
+				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
 				datatype = types.String
 			}
-			stream.UpsertField(ci.name, datatype, strings.EqualFold(ci.isNullable, "YES"))
-		}
+			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"))
 
-		for _, pk := range pkCols {
-			stream.WithPrimaryKey(pk)
+			if column.isPrimaryKey {
+				stream.WithPrimaryKey(column.name)
+			}
 		}
 
 		return stream, nil
@@ -271,50 +255,9 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	return stream, nil
 }
 
-// isBinaryType checks if the column type is a binary type that needs hex encoding.
-func isBinaryType(columnType string) bool {
-	columnTypeLower := strings.ToLower(columnType)
-
-	// Exact matches for binary types
-	binaryTypes := map[string]bool{
-		"image":      true,
-		"rowversion": true,
-		"timestamp":  true,
-		"geometry":   true, // Spatial type stored as binary
-		"geography":  true, // Spatial type stored as binary
-	}
-	if binaryTypes[columnTypeLower] {
-		return true
-	}
-
-	// Prefix matches (check varbinary before binary since "varbinary" starts with "binary")
-	binaryPrefixes := []string{"varbinary", "binary"}
-	for _, prefix := range binaryPrefixes {
-		if strings.HasPrefix(columnTypeLower, prefix) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
 		return nil, typeutils.ErrNullValue
-	}
-
-	// Handle binary and spatial types: encode []byte to hex to ensure valid UTF-8
-	if isBinaryType(columnType) {
-		switch v := value.(type) {
-		case []byte:
-			// Encode binary data as hex to ensure valid UTF-8 string
-			return hex.EncodeToString(v), nil
-		case string:
-			return v, nil
-		default:
-			// For other types, convert to string representation
-			return fmt.Sprintf("%v", v), nil
-		}
 	}
 
 	// SQL Server stores UNIQUEIDENTIFIER values in a mixed-endian binary format:
@@ -323,6 +266,9 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	// reconstruct a proper RFC4122 UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
 	if strings.EqualFold(columnType, "uniqueidentifier") {
 		switch v := value.(type) {
+		case string:
+			// Already RFC4122 formatted
+			return v, nil
 		case []byte:
 			if len(v) == 16 {
 				// Format as UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -334,8 +280,6 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 					v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
 			}
 			// Fall through to string conversion if not 16 bytes
-		case string:
-			return v, nil
 		default:
 			// For other types, convert to string representation
 			return fmt.Sprintf("%v", v), nil

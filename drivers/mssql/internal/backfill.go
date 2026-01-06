@@ -187,40 +187,86 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 
-	// Split using physical location when no primary key is available
+	// Split using physical location when no primary key is available.
+	// %%physloc%% returns the physical location (file_id, page_id, slot_id) of a row as binary.
+	// We iteratively find chunk boundaries by querying for the N-th row (N = chunkSize) where
+	// physloc > current, creating evenly-sized chunks: [nil, min], [min, next1], ..., [last, nil]
 	splitViaPhysLoc := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		// SQL Server doesn't support read-only transactions
+		// Use repeatable read isolation without read-only flag
 		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
 			// Get the minimum and maximum physical location values
+			// These define the boundaries of our table for chunking
 			minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
 			}
-			// Skip if table is empty
+			// Skip if table is empty (no rows to chunk)
 			if minVal == nil || maxVal == nil {
 				return nil
 			}
 
-			// Split the table using physical location boundaries
-			if err := m.splitViaPhysLocNextQuery(ctx, tx, stream, minVal, chunks, chunkSize); err != nil {
-				return fmt.Errorf("failed to split via %%physloc%%: %s", err)
+			// Start from the minimum physloc value
+			current := minVal
+			chunks.Insert(types.Chunk{
+				Min: nil,
+				Max: utils.ConvertToString(current),
+			})
+
+			// Iteratively find chunk boundaries until we reach the end of the table
+			for {
+				var next any
+				// This gives us the next chunk boundary, ensuring each chunk has ~chunkSize rows
+				query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
+
+				err := tx.QueryRowContext(ctx, query, current).Scan(&next)
+				// End of table reached: no more rows with physloc > current
+				if err == sql.ErrNoRows || next == nil {
+					chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
+					break
+				}
+				if err != nil {
+					return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
+				}
+
+				// Safety check: Compare binary values to detect if we've reached the end
+				// This handles edge cases where the query might return the same value
+				//
+				// Note: physloc values are []byte (binary), so we use bytes.Equal for comparison
+				if currentBytes, ok := current.([]byte); ok {
+					if nextBytes, ok2 := next.([]byte); ok2 {
+						if bytes.Equal(currentBytes, nextBytes) {
+							// Reached maximum value, create final chunk
+							chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
+							break
+						}
+					}
+				}
+
+				// Create a chunk between current and next boundary
+				// This chunk will contain approximately chunkSize rows
+				// Example: If current = A and next = D, chunk [A, D) contains rows A, B, C
+				chunks.Insert(types.Chunk{
+					Min: utils.ConvertToString(current),
+					Max: utils.ConvertToString(next),
+				})
+				// Move to the next boundary for the next iteration
+				current = next
 			}
+
 			return nil
 		})
 	}
 
 	if len(pkColumns) > 0 {
 		logger.Debugf("Stream %s: Using PK-based chunking with columns: %v", stream.ID(), pkColumns)
-		if err := splitViaPrimaryKey(stream, chunks, pkColumns); err != nil {
-			return nil, fmt.Errorf("failed to split chunks via primary key for stream %s: %w", stream.ID(), err)
-		}
+		err = splitViaPrimaryKey(stream, chunks, pkColumns)
 	} else {
 		logger.Debugf("Stream %s: Using %%physloc%% chunking (no PK or chunkColumn available)", stream.ID())
-		if err := splitViaPhysLoc(stream, chunks); err != nil {
-			return nil, fmt.Errorf("failed to split chunks via %%physloc%% for stream %s: %w", stream.ID(), err)
-		}
+		err = splitViaPhysLoc(stream, chunks)
 	}
-	return chunks, nil
+
+	return chunks, err
 }
 
 // getTableExtremes returns MIN and MAX key values for the given PK columns
@@ -235,44 +281,4 @@ func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInter
 	query := jdbc.MSSQLPhysLocExtremesQuery(stream)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
-}
-
-// splitViaPhysLocNextQuery uses %%physloc%% to find next chunk boundaries.
-func (m *MSSQL) splitViaPhysLocNextQuery(ctx context.Context, tx *sql.Tx, stream types.StreamInterface, min interface{}, chunks *types.Set[types.Chunk], chunkSize int64) error {
-	current := min
-	chunks.Insert(types.Chunk{
-		Min: nil,
-		Max: utils.ConvertToString(current),
-	})
-
-	for {
-		var next any
-		query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
-
-		err := tx.QueryRowContext(ctx, query, current).Scan(&next)
-		if err == sql.ErrNoRows || next == nil {
-			chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
-		}
-
-		// Compare binary values
-		if currentBytes, ok := current.([]byte); ok {
-			if nextBytes, ok2 := next.([]byte); ok2 {
-				if bytes.Equal(currentBytes, nextBytes) {
-					chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
-					break
-				}
-			}
-		}
-
-		chunks.Insert(types.Chunk{
-			Min: utils.ConvertToString(current),
-			Max: utils.ConvertToString(next),
-		})
-		current = next
-	}
-	return nil
 }
