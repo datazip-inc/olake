@@ -102,19 +102,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "evolve-schema":
 		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int SET DATA TYPE BIGINT`, integrationTestTable)
 
+	case "populate-stats":
+		// if table exists, run stats for DB2
+		query = fmt.Sprintf(`RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL`, integrationTestTable)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
 
 	_, err = db.ExecContext(ctx, query)
 	require.NoError(t, err, "Failed to execute %s operation", operation)
-
-	// if table exists, run stats for DB2
-	if operation != "drop" {
-		runstatsQuery := fmt.Sprintf("RUNSTATS ON TABLE DB2INST1.DB2_TEST_TABLE_OLAKE WITH DISTRIBUTION AND DETAILED INDEXES ALL")
-		_, err := db.ExecContext(ctx, runstatsQuery)
-		require.NoError(t, err, "Failed to run RUNSTATS on table %s", integrationTestTable)
-	}
 }
 
 func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {
