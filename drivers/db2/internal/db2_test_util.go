@@ -104,10 +104,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "populate-stats":
 		// if table exists, run stats for DB2 to populate stats
-		runstatsQuery := fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL')`, integrationTestTable)
-		_, err = db.ExecContext(ctx, runstatsQuery)
-		require.NoError(t, err, "Failed to execute RUNSTATS")
+		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL')`, integrationTestTable)
 
+	case "reorg":
 		// without REORG, UPDATE operation will fail with SQL error code 7
 		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
 
