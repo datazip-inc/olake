@@ -39,6 +39,10 @@ jobs:
         run: |
           go run github.com/ibmdb/go_ibm_db/installer@v0.5.4
           echo "IBM_DB_HOME=$(go env GOPATH)/pkg/mod/github.com/ibmdb/clidriver" >> $GITHUB_ENV
+          export IBM_DB_HOME=/home/runner/go/pkg/mod/github.com/ibmdb/clidriver
+          export CGO_CFLAGS="-I$IBM_DB_HOME/include"
+          export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
+          export LD_LIBRARY_PATH=$IBM_DB_HOME/lib
 
       - name: Start Test Infrastructure
         run: |
@@ -106,11 +110,7 @@ jobs:
         run: go mod download
 
       - name: Build Project
-        run: |
-          export CGO_CFLAGS="-I$IBM_DB_HOME/include"
-          export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
-          export LD_LIBRARY_PATH=$IBM_DB_HOME/lib
-          go build -v ./...
+        run: go build -v ./...
 
       - name: Cache Maven dependencies
         uses: actions/cache@v4
