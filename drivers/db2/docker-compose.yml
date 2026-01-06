@@ -9,4 +9,3 @@ services:
       - "50000:50000"
     volumes:
       - /data/db2:/database
-      - ./docker-entrypoint-initdb.d:/var/custom
