@@ -200,6 +200,10 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "drop", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "create", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false)
+	// to populate stats for DB2
+	if cfg.TestConfig.Driver == string(constants.DB2) {
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false)
+	}
 	return nil
 }
 
@@ -682,17 +686,17 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
 							}
 
-							// 2. Query on test table
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
-
-							// 2b. Install DB2 CLI driver if needed
+							// 1b. Install DB2 CLI driver if needed
 							if cfg.TestConfig.Driver == string(constants.DB2) {
 								if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
 									return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
 								}
 							}
+
+							// 2. Query on test table
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// 3. Run discover command
 							discoverCmd := discoverCommand(*cfg.TestConfig)
@@ -772,18 +776,17 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
 							}
 
-							// 2. Query on test table
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
-
-							// 2b. Install DB2 CLI driver if needed
+							// 1b. Install DB2 CLI driver if needed
 							if cfg.TestConfig.Driver == string(constants.DB2) {
 								if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
 									return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
 								}
-								cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "populate-stats", false)
 							}
+
+							// 2. Query on test table
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// streamUpdateCmd := fmt.Sprintf(
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
