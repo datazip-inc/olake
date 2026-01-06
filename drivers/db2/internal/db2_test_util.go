@@ -104,7 +104,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "populate-stats":
 		// if table exists, run stats for DB2
-		query = fmt.Sprintf(`RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL`, integrationTestTable)
+		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL')`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
