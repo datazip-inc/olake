@@ -275,10 +275,10 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 		return values
 	}
 
-	// formatSqlLiteral returns a SQL literal for the given boundary value.
+	// formatSQLLiteral returns a SQL literal for the given boundary value.
 	// It avoids quoting numeric/boolean values (to prevent type conversion issues)
 	// and only quotes actual strings.
-	formatSqlLiteral := func(value string) string {
+	formatSQLLiteral := func(value string) string {
 		if value == "" {
 			return "''"
 		}
@@ -323,7 +323,7 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 				if prefixIndex < len(lowerBoundValues) {
 					andConditions = append(
 						andConditions,
-						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSqlLiteral(lowerBoundValues[prefixIndex])),
+						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSQLLiteral(lowerBoundValues[prefixIndex])),
 					)
 				}
 			}
@@ -337,7 +337,7 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 			if columnIndex < len(lowerBoundValues) {
 				andConditions = append(
 					andConditions,
-					fmt.Sprintf("%s %s %s", quotedColumns[columnIndex], comparisonOp, formatSqlLiteral(lowerBoundValues[columnIndex])),
+					fmt.Sprintf("%s %s %s", quotedColumns[columnIndex], comparisonOp, formatSQLLiteral(lowerBoundValues[columnIndex])),
 				)
 			}
 
@@ -372,7 +372,7 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 				if prefixIndex < len(upperBoundValues) {
 					andConditions = append(
 						andConditions,
-						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSqlLiteral(upperBoundValues[prefixIndex])),
+						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSQLLiteral(upperBoundValues[prefixIndex])),
 					)
 				}
 			}
@@ -381,7 +381,7 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 			if columnIndex < len(upperBoundValues) {
 				andConditions = append(
 					andConditions,
-					fmt.Sprintf("%s < %s", quotedColumns[columnIndex], formatSqlLiteral(upperBoundValues[columnIndex])),
+					fmt.Sprintf("%s < %s", quotedColumns[columnIndex], formatSQLLiteral(upperBoundValues[columnIndex])),
 				)
 			}
 
