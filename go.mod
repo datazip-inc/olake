@@ -7,7 +7,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.17
 	github.com/aws/aws-sdk-go-v2/service/kms v1.41.1
 	github.com/go-mysql-org/go-mysql v1.11.0
-	github.com/microsoft/go-mssqldb v1.7.0
 	github.com/go-playground/locales v0.14.1
 	github.com/go-playground/universal-translator v0.18.1
 	github.com/go-playground/validator/v10 v10.25.0

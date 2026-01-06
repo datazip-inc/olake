@@ -761,40 +761,92 @@ func MinMaxQueryMSSQL(stream types.StreamInterface, columns []string) string {
 	)
 }
 
-// MSSQLNextChunkEndQuery returns the query to calculate the next chunk boundary
-func MSSQLNextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
-	quotedCols := QuoteColumns(columns, constants.MSSQL)
-	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+// MSSQLNextChunkEndQuery returns the query to calculate the next chunk boundary.
+//
+// Example:
+//
+//	stream.Namespace()   = "dbo"
+//	stream.Name()        = "orders"
+//	orderingColumns      = []string{"order_id", "item_id"}
+//	chunkSize            = 1000
+//
+// Conceptual output:
+//
+//	WITH ordered AS (
+//	  SELECT
+//	    <concat(order_id, item_id)> AS key_str,
+//	    ROW_NUMBER() OVER (ORDER BY [order_id], [item_id]) AS rn
+//	  FROM [dbo].[orders]
+//	  WHERE
+//	    ([order_id] > @p1)
+//	     OR ([order_id] = @p1 AND [item_id] > @p2)
+//	)
+//	SELECT key_str FROM ordered WHERE rn = 1000;
+func MSSQLNextChunkEndQuery(stream types.StreamInterface, orderingColumns []string, chunkSize int64) string {
+	// Quote table and column names for MSSQL.
+	quotedColumns := QuoteColumns(orderingColumns, constants.MSSQL)
+	quotedTableName := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	var query strings.Builder
+	var sqlBuilder strings.Builder
 
-	keyStrExpr := buildMSSQLConcat(quotedCols)
+	// Expression that concatenates the ordering columns into a single key string.
+	concatenatedKeyExpression := buildMSSQLConcat(quotedColumns)
 
-	fmt.Fprintf(&query, "WITH ordered AS (SELECT %s AS key_str, ROW_NUMBER() OVER (ORDER BY %s) AS rn FROM %s",
-		keyStrExpr,
-		strings.Join(quotedCols, ", "),
-		quotedTable)
+	// Start CTE: select key_str and row number over the ordering columns.
+	fmt.Fprintf(
+		&sqlBuilder,
+		"WITH ordered AS (SELECT %s AS key_str, ROW_NUMBER() OVER (ORDER BY %s) AS rn FROM %s",
+		concatenatedKeyExpression,
+		strings.Join(quotedColumns, ", "),
+		quotedTableName,
+	)
 
-	// WHERE clause for lexicographic \"greater than\" using parameter placeholders (@pN).
-	query.WriteString(" WHERE ")
-	paramIndex := 1
-	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
-		if currentColIndex > 0 {
-			query.WriteString(" OR ")
+	// Build WHERE clause: lexicographic "greater than" using parameter placeholders (@p1, @p2, ...).
+	// For columns (c1, c2, c3) and parameters (@p1, @p2, @p3), this becomes:
+	//   (c1 > @p1)
+	//   OR (c1 = @p1 AND c2 > @p2)
+	//   OR (c1 = @p1 AND c2 = @p2 AND c3 > @p3)
+	sqlBuilder.WriteString(" WHERE ")
+
+	nextParameterIndex := 1
+	for columnIndex := 0; columnIndex < len(orderingColumns); columnIndex++ {
+		if columnIndex > 0 {
+			sqlBuilder.WriteString(" OR ")
 		}
-		query.WriteString("(")
-		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
-			fmt.Fprintf(&query, "%s = @p%d AND ", quotedCols[equalityColIndex], paramIndex)
-			paramIndex++
+
+		sqlBuilder.WriteString("(")
+
+		// Prefix columns must match exactly: c1 = @p1 AND c2 = @p2 ...
+		for prefixColumnIndex := 0; prefixColumnIndex < columnIndex; prefixColumnIndex++ {
+			fmt.Fprintf(
+				&sqlBuilder,
+				"%s = @p%d AND ",
+				quotedColumns[prefixColumnIndex],
+				nextParameterIndex,
+			)
+			nextParameterIndex++
 		}
-		fmt.Fprintf(&query, "%s > @p%d", quotedCols[currentColIndex], paramIndex)
-		paramIndex++
-		query.WriteString(")")
+
+		// Current column must be strictly greater than its parameter.
+		fmt.Fprintf(
+			&sqlBuilder,
+			"%s > @p%d",
+			quotedColumns[columnIndex],
+			nextParameterIndex,
+		)
+		nextParameterIndex++
+
+		sqlBuilder.WriteString(")")
 	}
 
-	// Close CTE and pick the row at position = chunkSize.
-	fmt.Fprintf(&query, ") SELECT key_str FROM ordered WHERE rn = %d", chunkSize)
-	return query.String()
+	// Close CTE and select the row at position = chunkSize.
+	fmt.Fprintf(
+		&sqlBuilder,
+		") SELECT key_str FROM ordered WHERE rn = %d",
+		chunkSize,
+	)
+
+	return sqlBuilder.String()
 }
 
 // MSSQLPhysLocChunkScanQuery returns the SQL query for scanning a chunk using %%physloc%% in MSSQL
@@ -840,12 +892,11 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 		chunkCond = "1 = 1"
 	}
 
-	where := chunkCond
 	if filter != "" {
-		where = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
+		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
 	}
 
-	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, where)
+	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, chunkCond)
 }
 
 // MSSQLChunkScanQuery returns the SQL query for scanning a chunk in MSSQL
@@ -854,11 +905,9 @@ func MSSQLChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 	quotedCols := QuoteColumns(filterColumns, constants.MSSQL)
 	condition := buildChunkConditionMSSQL(quotedCols, chunk, filter)
 	if condition == "" {
-		condition = "1 = 1"
-		if filter != "" {
-			condition = filter
-		}
+		condition = utils.Ternary(filter != "", filter, "1 = 1").(string)
 	}
+
 	orderBy := strings.Join(quotedCols, ", ")
 	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %s", tableName, condition, orderBy)
 }

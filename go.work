@@ -4,10 +4,10 @@ toolchain go1.23.7
 
 use (
 	.
-	./drivers/kafka
 	./drivers/mongodb
-	./drivers/mssql
 	./drivers/mysql
-	./drivers/oracle
 	./drivers/postgres
+	./drivers/oracle
+	./drivers/kafka
+	./drivers/mssql
 )
