@@ -127,7 +127,11 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v  ./drivers/db2/internal/... -timeout 0 -run 'Integration'
+        run: |  
+          export CGO_CFLAGS="-I$IBM_DB_HOME/include"
+          export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
+          export LD_LIBRARY_PATH=$IBM_DB_HOME/lib
+          go test -v  ./drivers/db2/internal/... -timeout 0 -run 'Integration'
       
       - name: Cleanup
         if: always()
