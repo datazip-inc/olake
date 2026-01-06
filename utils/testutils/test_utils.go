@@ -202,8 +202,8 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false)
 	// to populate stats for DB2
 	if cfg.TestConfig.Driver == string(constants.DB2) {
-		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false)
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, "reorg", false)
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false)
 	}
 	return nil
 }
