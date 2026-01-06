@@ -233,6 +233,8 @@ func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 // parseStringTimestamp expects value and isTimestampInDB boolean
 // if this is a timestamp and unable to parse into correct format it will return epoch start time
 // if its a string and unable to parse into correct time format it will be returned as string
+// TODO: for MongoDB currently the string in timestamp format is being passed in parseStringTimestamp
+// this can lead to sync failure if further-on in the database the string is of invalid timestamp format
 func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error) {
 	// Check if the string starts with a date pattern (YYYY-MM-DD)
 	startsWithDatePattern := func(value string) bool {

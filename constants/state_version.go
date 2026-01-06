@@ -15,7 +15,7 @@ package constants
 //
 //   - Version 1: Current format (introduced stricter validation)
 //     * Stricter date/timestamp parsing validation
-//     * When a string cannot be parsed as a timestamp (and isTimestampInDB is false), it will be returned as string
+//     * When a string cannot be parsed as a timestamp, it will be returned as string. Earlier it was returning epoch time (1970-01-01)
 //     * This prevents data corruption by failing fast on invalid date strings
 
 const (

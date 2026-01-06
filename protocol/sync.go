@@ -72,6 +72,9 @@ var syncCmd = &cobra.Command{
 		} else {
 			state.Version = constants.LatestStateVersion
 		}
+		// Loaded state version is used during the sync process to maintain backward compatibility
+		// if the state file dosen't exists it's created with latest version
+		// if state file dosen't have version it's set as 0
 		constants.LoadedStateVersion = state.Version
 
 		state.RWMutex = &sync.RWMutex{}
