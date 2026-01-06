@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -28,7 +27,7 @@ type ArrowWriter struct {
 	server           internal.ServerClient
 	partitionInfo    []internal.PartitionInfo
 	createdFilePaths []*proto.ArrowPayload_FileMetadata
-	writers          sync.Map
+	writers          map[string]*RollingWriter
 	upsertMode       bool
 }
 
@@ -36,20 +35,20 @@ type RollingWriter struct {
 	currentWriter   *pqarrow.FileWriter
 	currentBuffer   *bytes.Buffer
 	currentRowCount int64
-	partitionValues []string
+	partitionValues []any
 }
 
 type PartitionedRecords struct {
 	Records         []types.RawRecord
 	PartitionKey    string
-	PartitionValues []string
+	PartitionValues []any
 }
 
 type FileUploadData struct {
 	FileType        string
 	FileData        []byte
 	PartitionKey    string
-	PartitionValues []string
+	PartitionValues []any
 	RecordCount     int64
 }
 
@@ -60,6 +59,7 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		stream:        stream,
 		server:        server,
 		arrowSchema:   make(map[string]*arrow.Schema),
+		writers:       make(map[string]*RollingWriter),
 		upsertMode:    upsertMode,
 	}
 
@@ -70,33 +70,51 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 	return writer, nil
 }
 
-func (w *ArrowWriter) createPartitionKey(record types.RawRecord, olakeTimestamp time.Time) (string, []string, error) {
+func (w *ArrowWriter) getRecordPartitionKey(record types.RawRecord, olakeTimestamp time.Time) (string, error) {
 	paths := make([]string, 0, len(w.partitionInfo))
-	transformedValues := make([]string, 0, len(w.partitionInfo))
 
 	for _, partition := range w.partitionInfo {
 		field, transform := partition.Field, partition.Transform
 		colType, ok := w.schema[field]
 		if !ok {
-			return "", nil, fmt.Errorf("partition field %q does not exist in schema", field)
+			return "", fmt.Errorf("partition field %q does not exist in schema", field)
 		}
 
-		// case: now() in partitionr regex
 		fieldValue := utils.Ternary(field == constants.OlakeTimestamp, olakeTimestamp, record.Data[field])
 
-		value, err := TransformValue(fieldValue, transform, colType)
+		pathStr, _, err := TransformValue(fieldValue, transform, colType)
 		if err != nil {
-			return "", nil, err
+			return "", err
 		}
 
-		colPath := ConstructColPath(value, field, transform)
+		colPath := ConstructColPath(pathStr, field, transform)
 		paths = append(paths, colPath)
-		transformedValues = append(transformedValues, value)
 	}
 
-	partitionKey := strings.Join(paths, "/")
+	return strings.Join(paths, "/"), nil
+}
 
-	return partitionKey, transformedValues, nil
+func (w *ArrowWriter) getRecordPartitionValues(record types.RawRecord, olakeTimestamp time.Time) ([]any, error) {
+	typedValues := make([]any, 0, len(w.partitionInfo))
+
+	for _, partition := range w.partitionInfo {
+		field, transform := partition.Field, partition.Transform
+		colType, ok := w.schema[field]
+		if !ok {
+			return nil, fmt.Errorf("partition field %q does not exist in schema", field)
+		}
+
+		fieldValue := utils.Ternary(field == constants.OlakeTimestamp, olakeTimestamp, record.Data[field])
+
+		_, typedVal, err := TransformValue(fieldValue, transform, colType)
+		if err != nil {
+			return nil, err
+		}
+
+		typedValues = append(typedValues, typedVal)
+	}
+
+	return typedValues, nil
 }
 
 func (w *ArrowWriter) extract(records []types.RawRecord, olakeTimestamp time.Time) (map[string]*PartitionedRecords, map[string]*PartitionedRecords, error) {
@@ -105,19 +123,25 @@ func (w *ArrowWriter) extract(records []types.RawRecord, olakeTimestamp time.Tim
 
 	for _, rec := range records {
 		pKey := ""
-		var pValues []string
 		if len(w.partitionInfo) != 0 {
-			key, values, err := w.createPartitionKey(rec, olakeTimestamp)
+			key, err := w.getRecordPartitionKey(rec, olakeTimestamp)
 			if err != nil {
 				return nil, nil, err
 			}
 			pKey = key
-			pValues = values
 		}
 
 		if rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c" {
 			del := types.RawRecord{OlakeID: rec.OlakeID}
 			if deletes[pKey] == nil {
+				var pValues []any
+				if len(w.partitionInfo) != 0 {
+					values, err := w.getRecordPartitionValues(rec, olakeTimestamp)
+					if err != nil {
+						return nil, nil, err
+					}
+					pValues = values
+				}
 				deletes[pKey] = &PartitionedRecords{
 					PartitionKey:    pKey,
 					PartitionValues: pValues,
@@ -127,6 +151,14 @@ func (w *ArrowWriter) extract(records []types.RawRecord, olakeTimestamp time.Tim
 		}
 
 		if data[pKey] == nil {
+			var pValues []any
+			if len(w.partitionInfo) != 0 {
+				values, err := w.getRecordPartitionValues(rec, olakeTimestamp)
+				if err != nil {
+					return nil, nil, err
+				}
+				pValues = values
+			}
 			data[pKey] = &PartitionedRecords{
 				PartitionKey:    pKey,
 				PartitionValues: pValues,
@@ -220,7 +252,7 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 			return fmt.Errorf("failed to upload parquet during flush: %s", err)
 		}
 
-		w.writers.Delete(fileType + ":" + partitionKey)
+		delete(w.writers, fileType+":"+partitionKey)
 	}
 
 	return nil
@@ -267,14 +299,9 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {
-	var err error
-
-	w.writers.Range(func(key, value interface{}) bool {
-		mapKey := key.(string)
-		writer, _ := value.(*RollingWriter)
-		if closeErr := writer.currentWriter.Close(); closeErr != nil {
-			err = fmt.Errorf("failed to close writer: %s", closeErr)
-			return false
+	for mapKey, writer := range w.writers {
+		if err := writer.currentWriter.Close(); err != nil {
+			return fmt.Errorf("failed to close writer: %s", err)
 		}
 
 		parts := strings.SplitN(mapKey, ":", 2)
@@ -292,22 +319,13 @@ func (w *ArrowWriter) completeWriters(ctx context.Context) error {
 			RecordCount:     writer.currentRowCount,
 		}
 
-		if uploadErr := w.uploadFile(ctx, uploadData); uploadErr != nil {
-			err = fmt.Errorf("failed to upload parquet: %s", uploadErr)
-			return false
+		if err := w.uploadFile(ctx, uploadData); err != nil {
+			return fmt.Errorf("failed to upload parquet: %s", err)
 		}
-
-		return true
-	})
-
-	if err == nil {
-		w.writers.Range(func(key, _ interface{}) bool {
-			w.writers.Delete(key)
-			return true
-		})
 	}
 
-	return err
+	w.writers = make(map[string]*RollingWriter)
+	return nil
 }
 
 func (w *ArrowWriter) initialize(ctx context.Context) error {
@@ -351,12 +369,11 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 	return nil
 }
 
-func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema, fileType string, partitionValues []string) (*RollingWriter, error) {
-	// differentiating data and delete file writers, "data:pk" : *writer, "delete:pk" : *writer
+func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema, fileType string, partitionValues []any) (*RollingWriter, error) {
 	key := fileType + ":" + partitionKey
 
-	if existing, ok := w.writers.Load(key); ok {
-		return existing.(*RollingWriter), nil
+	if writer, exists := w.writers[key]; exists {
+		return writer, nil
 	}
 
 	writer, err := w.createWriter(schema, fileType, partitionValues)
@@ -364,15 +381,11 @@ func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema
 		return nil, fmt.Errorf("failed to create rolling writer: %s", err)
 	}
 
-	ww, ok := w.writers.LoadOrStore(key, writer)
-	if ok {
-		return ww.(*RollingWriter), nil
-	}
-
+	w.writers[key] = writer
 	return writer, nil
 }
 
-func (w *ArrowWriter) createWriter(schema arrow.Schema, fileType string, partitionValues []string) (*RollingWriter, error) {
+func (w *ArrowWriter) createWriter(schema arrow.Schema, fileType string, partitionValues []any) (*RollingWriter, error) {
 	baseProps := getDefaultWriterProps()
 	baseProps = append(baseProps, parquet.WithAllocator(w.allocator))
 
@@ -437,11 +450,16 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, uploadData *FileUploadData
 	}
 
 	arrowResponse := resp.(*proto.ArrowIngestResponse)
+	protoPartitionValues, err := toProtoPartitionValues(uploadData.PartitionValues)
+	if err != nil {
+		return fmt.Errorf("failed to convert partition values: %s", err)
+	}
+
 	fileMeta := &proto.ArrowPayload_FileMetadata{
 		FileType:        uploadData.FileType,
 		FilePath:        arrowResponse.GetResult(),
 		RecordCount:     uploadData.RecordCount,
-		PartitionValues: uploadData.PartitionValues,
+		PartitionValues: protoPartitionValues,
 	}
 
 	w.createdFilePaths = append(w.createdFilePaths, fileMeta)

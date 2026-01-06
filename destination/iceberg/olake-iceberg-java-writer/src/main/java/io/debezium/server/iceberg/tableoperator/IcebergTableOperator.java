@@ -9,11 +9,6 @@
 package io.debezium.server.iceberg.tableoperator;
 
 import java.io.IOException;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -27,7 +22,6 @@ import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionData;
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
@@ -39,14 +33,13 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
-import org.apache.iceberg.types.Conversions;
-import org.apache.iceberg.types.Type;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
 
+import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 
@@ -242,12 +235,8 @@ public class IcebergTableOperator {
     }
   }
 
-     public void accumulateDataFiles(String threadId, Table table, String filePath, List<String> partitionValues) {
-          if (table == null) {
-               LOGGER.warn("No table found for thread: {}", threadId);
-               return;
-          }
-
+     public void accumulateDataFiles(String threadId, Table table, String filePath,
+               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
                MetricsConfig metricsConfig = MetricsConfig.forTable(table);
@@ -262,34 +251,29 @@ public class IcebergTableOperator {
                          .withMetrics(metrics);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    PartitionData partitionData = createPartitionDataFromValues(table.spec(), partitionValues);
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
                     dataFileBuilder.withPartition(partitionData);
-                    LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId, partitionValues.size());
+                    LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId,
+                              partitionValues.size());
                } else {
                     LOGGER.debug("Thread {}: data file created as global (unpartitioned)", threadId);
                }
 
                DataFile dataFile = dataFileBuilder.build();
                dataFiles.add(dataFile);
-               LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
-                         dataFiles.size());
+               LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath, dataFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId, filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId, filePath,
+                         e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
      public void accumulateDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
-               long recordCount, List<String> partitionValues) {
-          if (table == null) {
-               LOGGER.warn("No table found for thread: {}", threadId);
-               return;
-          }
-
+               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
-
                InputFile inputFile = fileIO.newInputFile(filePath);
                long fileSize = inputFile.getLength();
 
@@ -301,7 +285,7 @@ public class IcebergTableOperator {
                          .withRecordCount(recordCount);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    PartitionData partitionData = createPartitionDataFromValues(table.spec(), partitionValues);
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
                     deleteFileBuilder.withPartition(partitionData);
                     LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
                               partitionValues.size());
@@ -314,59 +298,31 @@ public class IcebergTableOperator {
                LOGGER.info("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
                          threadId, filePath, equalityFieldId, deleteFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId, filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId, filePath,
+                         e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
-     private PartitionData createPartitionDataFromValues(PartitionSpec spec, List<String> partitionValues) {
+     private PartitionData partitionDataFromTypedValues(PartitionSpec spec,
+               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           PartitionData partitionData = new PartitionData(spec.partitionType());
           if (partitionValues == null || partitionValues.isEmpty()) {
                return partitionData;
           }
 
-          // Set each value in the PartitionData
           for (int i = 0; i < partitionValues.size() && i < spec.fields().size(); i++) {
-               String stringValue = partitionValues.get(i);
-               Type fieldType = partitionData.getType(i);
-               PartitionField partitionField = spec.fields().get(i);
-               String transformName = partitionField.transform().toString().toLowerCase();
-
-               // Convert string value to proper type, handling nulls
-               Object typedValue = null;
-               if (stringValue != null && !"null".equals(stringValue)) {
-                    if (transformName.equals("identity") && fieldType.typeId() == Type.TypeID.TIMESTAMP) {
-                         OffsetDateTime offsetDateTime = OffsetDateTime.parse(stringValue);
-                         Instant instant = offsetDateTime.toInstant();
-                         typedValue = instant.toEpochMilli() * 1000;
-                    } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
-                         typedValue = Integer.valueOf(stringValue);
-                    } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
-                         String[] parts = stringValue.split("-");
-                         int year = Integer.parseInt(parts[0]);
-                         int month = Integer.parseInt(parts[1]);
-                         typedValue = (year - 1970) * 12 + (month - 1);
-                    } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                         LocalDate date = LocalDate.parse(stringValue);
-                         LocalDate epoch = LocalDate.of(1970, 1, 1);
-                         typedValue = (int) ChronoUnit.DAYS.between(epoch, date);
-                    } else if (transformName.contains("hour") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
-                         String[] parts = stringValue.split("-");
-                         LocalDateTime dateTime = LocalDateTime.of(
-                                   Integer.parseInt(parts[0]),
-                                   Integer.parseInt(parts[1]),
-                                   Integer.parseInt(parts[2]),
-                                   Integer.parseInt(parts[3]),
-                                   0);
-                         LocalDateTime epoch = LocalDateTime.of(1970, 1, 1, 0, 0);
-                         typedValue = (int) ChronoUnit.HOURS.between(epoch, dateTime);
-                    } else {
-                         typedValue = Conversions.fromPartitionString(fieldType, stringValue);
-                    }
-               }
-
-               partitionData.set(i, typedValue);
+               ArrowPayload.FileMetadata.PartitionValue protoValue = partitionValues.get(i);
+               Object value = switch (protoValue.getValueCase()) {
+                    case INT_VALUE -> protoValue.getIntValue();
+                    case LONG_VALUE -> protoValue.getLongValue();
+                    case FLOAT_VALUE -> protoValue.getFloatValue();
+                    case DOUBLE_VALUE -> protoValue.getDoubleValue();
+                    case STRING_VALUE -> protoValue.getStringValue();
+                    case VALUE_NOT_SET -> null;
+               };
+               partitionData.set(i, value);
           }
 
           return partitionData;
