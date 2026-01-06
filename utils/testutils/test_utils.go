@@ -147,7 +147,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
-		s = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(s), s).(string)
+		s = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
@@ -169,7 +169,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	// in case of Oracle, the stream names are in uppercase in stream.json
-	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
+	streamName = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(

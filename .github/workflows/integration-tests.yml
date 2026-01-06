@@ -35,12 +35,18 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Install DB2 CLI Driver
+        run: |
+          go run github.com/ibmdb/go_ibm_db/installer@v0.5.4
+          echo "IBM_DB_HOME=/go/pkg/mod/github.com/ibmdb/clidriver" >> $GITHUB_ENV
+
       - name: Start Test Infrastructure
         run: |
           docker compose -f ./drivers/mysql/docker-compose.yml up -d
           docker compose -f ./drivers/postgres/docker-compose.yml up -d
           docker compose -f ./drivers/mongodb/docker-compose.yml up -d
           docker compose -f ./drivers/oracle/docker-compose.yml up -d
+          docker compose -f ./drivers/db2/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
@@ -78,7 +84,16 @@ jobs:
           retry_wait_seconds: 5
           command: |
             docker exec oracle-23c bash -c "echo 'SELECT 1 FROM dual;' | sqlplus -s system/secret1234@//localhost:1521/ORCL"
-
+      
+      - name: Wait for DB2
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 10
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec db2-test bash -c "su - db2inst1 -c 'db2 connect to TESTDB'"
+      
       - name: Set up Data Directories
         run: |
             sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
@@ -91,7 +106,11 @@ jobs:
         run: go mod download
 
       - name: Build Project
-        run: go build -v ./...
+        run: |
+          export CGO_CFLAGS="-I$IBM_DB_HOME/include"
+          export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
+          export LD_LIBRARY_PATH=$IBM_DB_HOME/lib
+          go build -v ./...
 
       - name: Cache Maven dependencies
         uses: actions/cache@v4
@@ -107,8 +126,12 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 4 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... -timeout 0 -run 'Integration'
-
+        run: |
+          export CGO_CFLAGS="-I$IBM_DB_HOME/include"
+          export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
+          export LD_LIBRARY_PATH=$IBM_DB_HOME/lib
+          go test -v -p ./drivers/db2/internal/... -timeout 0 -run 'Integration'
+      
       - name: Cleanup
         if: always()
         run: |
@@ -117,3 +140,4 @@ jobs:
           docker compose -f ./drivers/postgres/docker-compose.yml down
           docker compose -f ./drivers/oracle/docker-compose.yml down
           docker compose -f ./drivers/mongodb/docker-compose.yml down
+          docker compose -f ./drivers/db2/docker-compose.yml down
