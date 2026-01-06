@@ -103,10 +103,10 @@ func timeTransform(val any, unit string, colType string) (pathStr string, typedV
 	switch unit {
 	case "year":
 		year := v.Year()
-		yearsFrom1970 := int32(year - 1970)
+		yearsFrom1970 := int32(year - 1970) // #nosec G115 -- year range is bounded and safe for int32
 		return strconv.Itoa(year), yearsFrom1970, nil
 	case "month":
-		monthsFrom1970 := int32((v.Year()-1970)*12 + int(v.Month()-1))
+		monthsFrom1970 := int32((v.Year()-1970)*12 + int(v.Month()-1)) // #nosec G115 -- month calculation is bounded and safe for int32
 		return v.Format("2006-01"), monthsFrom1970, nil
 	case "day":
 		daysFrom1970 := int32(v.Sub(epoch).Hours() / 24)
@@ -149,7 +149,7 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 	}
 
 	masked := int(h & 0x7FFFFFFF)
-	bucket := int32(masked % num)
+	bucket := int32(masked % num) // #nosec G115 -- modulo result is bounded by num parameter
 	return strconv.Itoa(int(bucket)), bucket, nil
 }
 
