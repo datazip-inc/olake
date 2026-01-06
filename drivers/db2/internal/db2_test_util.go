@@ -111,7 +111,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	// if table exists, run stats for DB2
 	if operation != "drop" {
-		runstatsQuery := fmt.Sprintf("RUNSTATS ON TABLE %s WITH DISTRIBUTION AND DETAILED INDEXES ALL", integrationTestTable)
+		runstatsQuery := fmt.Sprintf("RUNSTATS ON TABLE DB2INST1.DB2_TEST_TABLE_OLAKE WITH DISTRIBUTION AND DETAILED INDEXES ALL")
 		_, err := db.ExecContext(ctx, runstatsQuery)
 		require.NoError(t, err, "Failed to run RUNSTATS on table %s", integrationTestTable)
 	}

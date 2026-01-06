@@ -44,7 +44,6 @@ jobs:
           export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
           export LD_LIBRARY_PATH=$IBM_DB_HOME/lib
 
-
       - name: Start Test Infrastructure
         run: |
           docker compose -f ./drivers/mysql/docker-compose.yml up -d
