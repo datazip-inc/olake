@@ -90,9 +90,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			)`, integrationTestTable)
 
 	case "update":
-		reorgQuery := fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s INPLACE ALLOW WRITE ACCESS')`, integrationTestTable)
-		_, _ = db.ExecContext(ctx, reorgQuery)
-
 		query = fmt.Sprintf(`
         UPDATE %s SET
             col_cursor = NULL,
@@ -110,8 +107,32 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL')`, integrationTestTable)
 
 	case "reorg":
-		// without REORG, UPDATE operation will fail with SQL error code 7
+		// // without REORG, UPDATE operation will fail with SQL error code 7
+		// query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
+
 		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute REORG operation")
+
+		// Verify REORG cleared the pending state
+		checkQuery := fmt.Sprintf(`
+			SELECT 
+				STATUS
+			FROM 
+				SYSCAT.TABLESPACES 
+			WHERE 
+				TBSPACE IN (
+				SELECT TBSPACE 
+				FROM SYSCAT.TABLES 
+				WHERE TABSCHEMA = 'DB2INST1' 
+				AND TABNAME = '%s'
+			)
+		`, integrationTestTable)
+
+		var status string
+		err = db.QueryRowContext(ctx, checkQuery).Scan(&status)
+		require.NoError(t, err)
+		t.Logf("Tablespace status after REORG: %s", status)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
