@@ -54,8 +54,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_blob BLOB(1M),
 				col_timestamp TIMESTAMP,
 				col_time TIME,
-				col_graphic GRAPHIC(10),
-				col_vargraphic VARGRAPHIC(10)
+				col_graphic GRAPHIC(11),
+				col_vargraphic VARGRAPHIC(14)
 			)`, integrationTestTable)
 
 	case "drop":
