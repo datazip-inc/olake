@@ -694,8 +694,8 @@ func MSSQLCDCMaxLSNQuery() string {
 	return "SELECT sys.fn_cdc_get_max_lsn()"
 }
 
-// MSSQLCDCIncrementLSNQuery returns the query to increment an LSN for CDC
-func MSSQLCDCIncrementLSNQuery() string {
+// MSSQLCDCAdvanceLSNQuery returns the query to increment an LSN for CDC
+func MSSQLCDCAdvanceLSNQuery() string {
 	return "SELECT sys.fn_cdc_increment_lsn(@p1)"
 }
 
@@ -863,8 +863,8 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 			if len(b) == 0 {
 				return "0x"
 			}
-			hexStr := fmt.Sprintf("%X", b)
-			return "0x" + hexStr
+			hexString := fmt.Sprintf("%X", b)
+			return "0x" + hexString
 		}
 		// If it's a string (from utils.ConvertToString on []byte), convert bytes to hex
 		if s, ok := val.(string); ok {
@@ -873,8 +873,8 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 				return s
 			}
 			// Convert string of bytes to hex (utils.ConvertToString converts []byte to string of bytes)
-			hexStr := fmt.Sprintf("%X", []byte(s))
-			return "0x" + hexStr
+			hexString := fmt.Sprintf("%X", []byte(s))
+			return "0x" + hexString
 		}
 		return fmt.Sprintf("%v", val)
 	}

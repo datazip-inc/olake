@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // MSSQLGlobalState keeps last processed LSN for CDC
@@ -153,28 +152,24 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, schema, table, 
 		return fmt.Errorf("CDC capture instance discovered for unselected stream %s", streamID)
 	}
 
-	// we increment `fromLSN` before querying because SQL Server CDC functions treat the lower bound as inclusive,
-	// and we persist `lastProcessedLSN` as the last completed window end.
-	effectiveFromLSN, err := m.incrementLSN(ctx, fromLSN)
+	// Move the lower bound forward by one LSN to avoid re-emitting the last processed row.
+	effectiveFromLSN, err := m.advanceLSN(ctx, fromLSN)
 	if err != nil {
 		return err
 	}
 
-	// Convert hex LSN back to binary for function call.
-	from, err := hex.DecodeString(effectiveFromLSN)
+	// SQL Server expects LSN parameters as binary; state stores them as hex strings.
+	fromLSNBytes, err := hex.DecodeString(effectiveFromLSN)
 	if err != nil {
 		return fmt.Errorf("failed to parse fromLSN: %s", err)
 	}
-	to, err := hex.DecodeString(toLSN)
+	toLSNBytes, err := hex.DecodeString(toLSN)
 	if err != nil {
 		return fmt.Errorf("failed to parse toLSN: %s", err)
 	}
 
-	query := jdbc.MSSQLCDCGetChangesQuery(captureInstance)
-
-	logger.Infof("Fetching MSSQL CDC changes for table %s.%s between LSN %s and %s", schema, table, fromLSN, toLSN)
-
-	rows, err := m.client.QueryContext(ctx, query, from, to)
+	// Query CDC rows for this capture instance between the two LSNs.
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCGetChangesQuery(captureInstance), fromLSNBytes, toLSNBytes)
 	if err != nil {
 		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
 	}
@@ -187,72 +182,79 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, schema, table, 
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
 		}
 
-		var opKind string
-		// SQL Server CDC returns two rows for updates:
-		// - 3 = update (before image) - skip this
-		// - 4 = update (after image) - process this
-		if opVal, ok := record["__$operation"]; ok {
-			switch v := opVal.(type) {
+		// Determine operation type from SQL Server CDC operation codes.
+		// For updates, CDC emits "before" (3) and "after" (4); we skip "before".
+		var operationType string
+		if operation, ok := record["__$operation"]; ok {
+			switch v := operation.(type) {
 			case int32:
 				if int(v) == 3 {
 					continue
 				}
-				opKind = operationFromCode(int(v))
+				operationType = operationTypeFromCDCCode(int(v))
 			case int64:
 				if int(v) == 3 {
 					continue
 				}
-				opKind = operationFromCode(int(v))
+				operationType = operationTypeFromCDCCode(int(v))
 			case int:
 				if v == 3 {
 					continue
 				}
-				opKind = operationFromCode(v)
+				operationType = operationTypeFromCDCCode(v)
 			default:
-				opKind = "update"
+				// Fallback: treat unknown types as update.
+				operationType = "update"
 			}
 		}
 
-		// Remove technical columns from payload
+		// Remove CDC metadata columns so only real table columns remain in the payload.
 		delete(record, "__$operation")
 		delete(record, "__$start_lsn")
 		delete(record, "__$seqval")
 		delete(record, "__$update_mask")
 
+		// Emit one normalized CDC change event.
 		if err := processFn(ctx, abstract.CDCChange{
 			Stream:    cfgStream,
 			Timestamp: time.Now().UTC(),
-			Kind:      opKind,
+			Kind:      operationType,
 			Data:      record,
 		}); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
 	}
+
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *MSSQL) incrementLSN(ctx context.Context, hexLSN string) (string, error) {
-	lsnBytes, err := hex.DecodeString(hexLSN)
+// advanceLSN returns the next valid LSN after the given LSN.
+func (m *MSSQL) advanceLSN(ctx context.Context, lsnHex string) (string, error) {
+	// Decode the hex string into raw bytes because SQL Server LSN functions use binary values.
+	lsnBytes, err := hex.DecodeString(lsnHex)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse LSN for increment: %s", err)
+		return "", fmt.Errorf("failed to parse LSN for advance: %s", err)
 	}
 
-	var next []byte
-	if err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCIncrementLSNQuery(), lsnBytes).Scan(&next); err != nil {
-		return "", fmt.Errorf("failed to increment LSN: %s", err)
+	// Compute the next LSN.
+	var nextLSNBytes []byte
+	if err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCAdvanceLSNQuery(), lsnBytes).Scan(&nextLSNBytes); err != nil {
+		return "", fmt.Errorf("failed to advance LSN: %s", err)
 	}
-	if len(next) == 0 {
-		return "", fmt.Errorf("incremented LSN is empty")
+
+	if len(nextLSNBytes) == 0 {
+		return "", fmt.Errorf("advanced LSN is empty")
 	}
-	return hex.EncodeToString(next), nil
+
+	return hex.EncodeToString(nextLSNBytes), nil
 }
 
-func operationFromCode(code int) string {
-	// SQL Server CDC operation codes:
-	// 1 = delete, 2 = insert, 3/4 = update (before/after)
+// operationTypeFromCDCCode converts SQL Server CDC __$operation codes to our operationType string.
+// Codes: 1=delete, 2=insert, 3/4=update (before/after).
+func operationTypeFromCDCCode(code int) string {
 	switch code {
 	case 1:
 		return "delete"
