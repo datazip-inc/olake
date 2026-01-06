@@ -103,8 +103,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int SET DATA TYPE BIGINT`, integrationTestTable)
 
 	case "populate-stats":
-		// if table exists, run stats for DB2
-		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL')`, integrationTestTable)
+		// if table exists, run stats for DB2 to populate stats
+		runstatsQuery := fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL')`, integrationTestTable)
+		_, err = db.ExecContext(ctx, runstatsQuery)
+		require.NoError(t, err, "Failed to execute RUNSTATS")
+
+		// without REORG, UPDATE operation will fail with SQL error code 7
+		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
