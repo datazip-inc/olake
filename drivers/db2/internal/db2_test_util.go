@@ -90,6 +90,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			)`, integrationTestTable)
 
 	case "update":
+		reorgQuery := fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s INPLACE ALLOW WRITE ACCESS')`, integrationTestTable)
+		_, _ = db.ExecContext(ctx, reorgQuery)
+
 		query = fmt.Sprintf(`
         UPDATE %s SET
             col_cursor = NULL,
