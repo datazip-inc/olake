@@ -29,7 +29,7 @@ type MSSQL struct {
 
 	state            *types.State
 	streams          map[string]types.StreamInterface
-	lastProcessedLSN string // Track the last LSN that was actually processed
+	lastProcessedLSN string
 }
 
 // GetConfigRef implements abstract.DriverInterface.

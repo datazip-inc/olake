@@ -18,20 +18,27 @@ type MSSQLGlobalState struct {
 	LSN string `json:"lsn"`
 }
 
+// CDC capture instance for a table
+type captureInstance struct {
+	schema       string
+	table        string
+	instanceName string
+}
+
 // PreCDC initialises global CDC state and starting LSN.
 func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	if !m.CDCSupport {
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	// Index streams by ID for CDC routing
 	if m.streams == nil {
 		m.streams = make(map[string]types.StreamInterface, len(streams))
 	}
-	for _, s := range streams {
-		m.streams[s.ID()] = s
+	for _, stream := range streams {
+		m.streams[stream.ID()] = stream
 	}
 
+	// Initialize CDC state if needed
 	initializeCDCState := func(ctx context.Context) error {
 		lsn, err := m.currentMaxLSN(ctx)
 		if err != nil {
@@ -39,6 +46,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		}
 		m.state.SetGlobal(MSSQLGlobalState{LSN: lsn})
 		m.state.ResetStreams()
+		m.lastProcessedLSN = lsn
 		return nil
 	}
 
@@ -51,27 +59,25 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	if err := utils.Unmarshal(globalState.State, &mssqlState); err != nil {
 		return fmt.Errorf("failed to unmarshal MSSQL global state: %s", err)
 	}
+
 	if mssqlState.LSN == "" {
 		return initializeCDCState(ctx)
 	}
+
+	m.lastProcessedLSN = mssqlState.LSN
 	return nil
 }
 
 // StreamChanges polls changes via fn_cdc_get_all_changes_* for each table.
 func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, processFn abstract.CDCMsgFn) error {
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return fmt.Errorf("global CDC state not initialised")
+	fromLSN := m.lastProcessedLSN
+	targetLSN, err := m.currentMaxLSN(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
 	}
 
-	var mssqlState MSSQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mssqlState); err != nil {
-		return fmt.Errorf("failed to unmarshal MSSQL global state: %s", err)
-	}
-
-	fromLSN := mssqlState.LSN // we get this from the state file
-	startTime := time.Now()
-	changesReceived := false // we set this to true when we receive at least one change
+	cdcStartTime := time.Now()
+	changesReceived := false
 
 	for {
 		select {
@@ -79,31 +85,22 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 			return ctx.Err()
 		default:
 			// Check if no changes received within initial wait time
-			if !changesReceived && m.cdcConfig.InitialWaitTime > 0 && time.Since(startTime) > time.Duration(m.cdcConfig.InitialWaitTime)*time.Second {
+			if !changesReceived && m.cdcConfig.InitialWaitTime > 0 && time.Since(cdcStartTime) > time.Duration(m.cdcConfig.InitialWaitTime)*time.Second {
 				logger.Warnf("no records found in given initial wait time, try increasing it")
-				// Ensure current LSN is persisted even when exiting early
-				toLSN, err := m.currentMaxLSN(ctx)
-				if err == nil {
-					m.state.SetGlobal(MSSQLGlobalState{LSN: toLSN})
-				}
 				return nil
 			}
 
-			toLSN, err := m.currentMaxLSN(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
-			}
-
-			// If caught up to latest position
-			if fromLSN >= toLSN {
+			// If caught up to target position
+			if fromLSN >= targetLSN {
 				if changesReceived {
+					m.lastProcessedLSN = fromLSN
 					return nil
 				}
 				continue
 			}
 
-			// Process changes between fromLSN and toLSN
-			recordsProcessed, err := m.streamChangesOnce(ctx, fromLSN, toLSN, processFn)
+			// Process changes between fromLSN and targetLSN
+			recordsProcessed, err := m.streamChangesOnce(ctx, fromLSN, targetLSN, processFn)
 			if err != nil {
 				return err
 			}
@@ -111,11 +108,9 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 			// Only set changesReceived if records were actually processed
 			if recordsProcessed > 0 {
 				changesReceived = true
+				fromLSN = targetLSN
+				m.lastProcessedLSN = fromLSN
 			}
-
-			fromLSN = toLSN
-			m.lastProcessedLSN = fromLSN
-			m.state.SetGlobal(MSSQLGlobalState{LSN: fromLSN})
 		}
 	}
 }
@@ -149,25 +144,19 @@ func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, pr
 	}
 	defer rows.Close()
 
-	type capture struct {
-		schema string
-		table  string
-		inst   string
-	}
-
-	var captures []capture
+	var captures []captureInstance
 	for rows.Next() {
-		var c capture
-		if err := rows.Scan(&c.schema, &c.table, &c.inst); err != nil {
+		var capture captureInstance
+		if err := rows.Scan(&capture.schema, &capture.table, &capture.instanceName); err != nil {
 			return 0, fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
 		}
 
-		streamID := fmt.Sprintf("%s.%s", c.schema, c.table)
+		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
 		if _, selected := m.streams[streamID]; !selected {
 			continue
 		}
 
-		captures = append(captures, c)
+		captures = append(captures, capture)
 	}
 	if err := rows.Err(); err != nil {
 		return 0, err
@@ -175,7 +164,7 @@ func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, pr
 
 	totalRecords := 0
 	for _, capture := range captures {
-		records, err := m.streamTableChanges(ctx, capture.schema, capture.table, capture.inst, fromLSN, toLSN, processFn)
+		records, err := m.streamTableChanges(ctx, capture.schema, capture.table, capture.instanceName, fromLSN, toLSN, processFn)
 		if err != nil {
 			return totalRecords, err
 		}
