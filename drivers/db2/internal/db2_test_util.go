@@ -79,7 +79,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_clob, col_blob, col_timestamp, col_time,
 				col_graphic, col_vargraphic
 			) VALUES (
-				6, 123456789012345, 'c', 'char_val',
+				6, 12345678901234, 'c', 'char_val',
 				'varchar_val', DATE('2023-01-01'), 123.45,
 				123.456789, 123.5, 123, 123,
 				CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
@@ -126,7 +126,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_clob, col_blob, col_timestamp, col_time,
 			col_graphic, col_vargraphic
 		) VALUES (
-			%d, 123456789012345, 'c', 'char_val',
+			%d, 12345678901234, 'c', 'char_val',
 			'varchar_val', DATE('2023-01-01'), 123.45,
 			123.456789, 123.5, 123, 123,
 			CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
