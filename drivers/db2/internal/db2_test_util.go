@@ -102,17 +102,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "evolve-schema":
 		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int SET DATA TYPE BIGINT`, integrationTestTable)
 
+		// to clear REORG pending state of DB2 after schema evolution
+		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
+
 	case "populate-stats":
 		// if table exists, run stats for DB2 to populate stats
 		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('RUNSTATS ON TABLE DB2INST1.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL')`, integrationTestTable)
-
-	case "reorg":
-		// Without REORG, UPDATE operation will fail with SQL0668N reason code 7
-		reorgQuery := fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
-		_, err = db.ExecContext(ctx, reorgQuery)
-		require.NoError(t, err, "Failed to execute REORG operation")
-
-		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG INDEXES ALL FOR TABLE DB2INST1.%s')`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
