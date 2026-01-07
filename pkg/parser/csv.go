@@ -249,7 +249,7 @@ func inferColumnType(sampleRows [][]string, columnIndex int) types.DataType {
 		}
 
 		// Check if value can be parsed as timestamp
-		if _, err := typeutils.ReformatDate(value); err != nil {
+		if _, err := typeutils.ReformatDate(value, true); err != nil {
 			allTimestamp = false
 		}
 	}
@@ -277,7 +277,7 @@ func inferColumnType(sampleRows [][]string, columnIndex int) types.DataType {
 			if value == "" || strings.ToLower(value) == "null" {
 				continue
 			}
-			if t, err := typeutils.ReformatDate(value); err == nil {
+			if t, err := typeutils.ReformatDate(value, true); err == nil {
 				return typeutils.TypeFromValue(t)
 			}
 		}
@@ -340,7 +340,7 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 		return boolVal, nil
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		// Parse timestamp string using ReformatDate which handles multiple formats
-		timestampVal, err := typeutils.ReformatDate(trimmed)
+		timestampVal, err := typeutils.ReformatDate(trimmed, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert '%s' to timestamp: %s", trimmed, err)
 		}
