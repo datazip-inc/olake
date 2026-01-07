@@ -101,7 +101,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_INT SET DATA TYPE BIGINT`, integrationTestTable)
+		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_INT SET DATA TYPE BIGINT`, integrationTestTable)
+		_, err = db.ExecContext(ctx, evolveQuery)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 		// to clear REORG pending state of DB2 after schema evolution
 		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
