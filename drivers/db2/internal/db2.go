@@ -24,7 +24,7 @@ type DB2 struct {
 }
 
 func (d *DB2) CDCSupported() bool {
-	return false
+	return false // CDC is not supported for db2 yet
 }
 
 func (d *DB2) Setup(ctx context.Context) error {

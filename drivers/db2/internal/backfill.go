@@ -187,18 +187,16 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		nPages = utils.Ternary(nPages <= 0, int64(1), nPages).(int64)
 
 		// number of chunks
-		targetChunkCount := int64(math.Ceil(float64(nPages) / float64(pagesPerChunk)))
-		targetChunkCount = utils.Ternary(targetChunkCount <= 0, int64(1), targetChunkCount).(int64)
+		numberOfChunks := int64(math.Ceil(float64(nPages) / float64(pagesPerChunk)))
+		numberOfChunks = utils.Ternary(numberOfChunks <= 0, int64(1), numberOfChunks).(int64)
 
 		totalRidRange := maxRID - minRID
 		// distance between start and end RID of a chunk
-		ridInterval := int64(math.Ceil(float64(totalRidRange) / float64(targetChunkCount)))
+		ridInterval := int64(math.Ceil(float64(totalRidRange) / float64(numberOfChunks)))
 		chunks := types.NewSet[types.Chunk]()
 		for start := minRID; start <= maxRID; start += ridInterval {
 			end := start + ridInterval
-			if end > maxRID+1 {
-				end = maxRID + 1
-			}
+			end = utils.Ternary(end > maxRID+1, maxRID+1, end).(int64)
 			chunks.Insert(types.Chunk{Min: start, Max: end})
 		}
 
