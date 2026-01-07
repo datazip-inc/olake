@@ -40,7 +40,8 @@ func TypeFromValue(v interface{}) types.DataType {
 	case reflect.Float64:
 		return types.Float64
 	case reflect.String:
-		t, err := ReformatDate(v)
+		// NOTE: If the string is in correct datetime format, it will be detected as timestamp and returned as timestamp datatype
+		t, err := ReformatDate(v, false)
 		if err == nil {
 			return detectTimestampPrecision(t)
 		}
@@ -62,11 +63,11 @@ func TypeFromValue(v interface{}) types.DataType {
 func MaximumOnDataType[T any](typ types.DataType, a, b T) (T, error) {
 	switch typ {
 	case types.Timestamp:
-		adate, err := ReformatDate(a)
+		adate, err := ReformatDate(a, true)
 		if err != nil {
 			return a, fmt.Errorf("failed to reformat[%v] while comparing: %s", a, err)
 		}
-		bdate, err := ReformatDate(b)
+		bdate, err := ReformatDate(b, true)
 		if err != nil {
 			return a, fmt.Errorf("failed to reformat[%v] while comparing: %s", b, err)
 		}
