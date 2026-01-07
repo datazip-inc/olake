@@ -415,7 +415,7 @@ func buildMongoCondition(cond types.Condition) bson.D {
 		if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
 			return strings.ToLower(val) == "true"
 		}
-		if timeVal, err := typeutils.ReformatDate(val); err == nil {
+		if timeVal, err := typeutils.ReformatDate(val, false); err == nil {
 			return timeVal
 		}
 		if intVal, err := typeutils.ReformatInt64(val); err == nil {
