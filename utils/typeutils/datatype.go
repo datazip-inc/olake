@@ -29,7 +29,7 @@ func TypeFromValue(v interface{}) types.DataType {
 	case float64:
 		return types.Float64
 	case string:
-		t, err := ReformatDate(v)
+		t, err := ReformatDate(v, false)
 		if err == nil {
 			return detectTimestampPrecision(t)
 		}
