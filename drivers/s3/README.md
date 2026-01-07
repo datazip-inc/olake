@@ -133,4 +133,4 @@ The `state.json` structure mirrors the catalog streams and records the latest `_
 ```
 Use this file when re-running syncs to resume from the last `_last_modified_time` per stream.
 
-Find more at [Postgres Docs](https://olake.io/docs/category/s3)
+Find more at [S3 Docs](https://olake.io/docs/category/s3)
