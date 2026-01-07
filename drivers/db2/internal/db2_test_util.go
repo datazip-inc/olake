@@ -108,10 +108,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "reorg":
 		// Without REORG, UPDATE operation will fail with SQL0668N reason code 7
-		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
+		reorgQuery := fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG TABLE DB2INST1.%s')`, integrationTestTable)
+		_, err = db.ExecContext(ctx, reorgQuery)
 		require.NoError(t, err, "Failed to execute REORG operation")
-		return
+
+		query = fmt.Sprintf(`CALL SYSPROC.ADMIN_CMD('REORG INDEXES ALL FOR TABLE DB2INST1.%s')`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
