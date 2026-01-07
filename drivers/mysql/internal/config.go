@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/google/uuid"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
@@ -75,7 +74,7 @@ func (c *Config) URI() string {
 				cfg.TLSConfig = "false"
 			} else {
 				// Unique TLS config name to avoid conflicts with multiple connections
-				tlsConfigName := "mysql_" + uuid.New().String()
+				tlsConfigName := "mysql_" + utils.ULID()
 				tlsConfigMutex.Lock()
 				if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
 					tlsConfigMutex.Unlock()
