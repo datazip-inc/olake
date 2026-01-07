@@ -110,6 +110,12 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
 		}
 
+		// add default stream properties
+		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
+			Normalization: types.IsDriverRelational(a.driver.Type()),
+			AppendMode:    a.driver.Type() == string(constants.Kafka),
+		}
+
 		finalStreams = append(finalStreams, convStream)
 		return true
 	})
@@ -135,10 +141,6 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 	if a.state.Global != nil && a.state.Global.Streams != nil {
 		for streamID := range dropStreams {
 			a.state.Global.Streams.Remove(streamID)
-		}
-		// if all global streams are dropped, no point for global state itself, making it null
-		if len(a.state.Global.Streams.Array()) == 0 {
-			a.state.Global.State = nil
 		}
 	}
 
