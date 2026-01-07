@@ -172,6 +172,11 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	return nil
 }
 
+// GetComputedColumnsSchema returns nil (legacy writer doesn't support transforms)
+func (w *LegacyWriter) GetComputedColumnsSchema() map[string]string {
+	return nil
+}
+
 func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
 	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
 	protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))

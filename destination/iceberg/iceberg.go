@@ -425,6 +425,14 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		},
 	}
 
+	// Include computed columns from transform config
+	computedCols := i.writer.GetComputedColumnsSchema()
+	for colName, colType := range computedCols {
+		if _, exists := recordsSchema[colName]; !exists {
+			recordsSchema[colName] = colType
+		}
+	}
+
 	if differentSchema(globalSchemaMap, recordsSchema) {
 		logger.Infof("Thread[%s]: evolving schema in iceberg table", i.options.ThreadID)
 		for field, fieldType := range recordsSchema {

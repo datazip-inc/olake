@@ -1,6 +1,7 @@
 # Build Stage
 FROM golang:1.24-alpine AS base
 
+ENV CGO_ENABLED=1
 WORKDIR /home/app
 COPY . .
 

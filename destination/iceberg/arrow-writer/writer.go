@@ -20,16 +20,18 @@ import (
 )
 
 type ArrowWriter struct {
-	fileschemajson   map[string]string
-	schema           map[string]string
-	arrowSchema      map[string]*arrow.Schema
-	allocator        memory.Allocator
-	stream           types.StreamInterface
-	server           internal.ServerClient
-	partitionInfo    []internal.PartitionInfo
-	createdFilePaths []*proto.ArrowPayload_FileMetadata
-	writers          sync.Map
-	upsertMode       bool
+	fileschemajson       map[string]string
+	schema               map[string]string
+	arrowSchema          map[string]*arrow.Schema
+	allocator            memory.Allocator
+	stream               types.StreamInterface
+	server               internal.ServerClient
+	partitionInfo        []internal.PartitionInfo
+	createdFilePaths     []*proto.ArrowPayload_FileMetadata
+	writers              sync.Map
+	upsertMode           bool
+	arrowTransformEngine *ArrowTransformEngine // Arrow-based transforms
+	transformConfig      *TransformConfig
 }
 
 type RollingWriter struct {
@@ -54,18 +56,26 @@ type FileUploadData struct {
 }
 
 func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+	return NewWithTransforms(ctx, partitionInfo, schema, stream, server, upsertMode, nil)
+}
+
+func NewWithTransforms(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, transformConfig *TransformConfig) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
-		partitionInfo: partitionInfo,
-		schema:        schema,
-		stream:        stream,
-		server:        server,
-		arrowSchema:   make(map[string]*arrow.Schema),
-		upsertMode:    upsertMode,
+		partitionInfo:   partitionInfo,
+		schema:          schema,
+		stream:          stream,
+		server:          server,
+		arrowSchema:     make(map[string]*arrow.Schema),
+		upsertMode:      upsertMode,
+		transformConfig: transformConfig,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize fields: %s", err)
 	}
+
+	// Initialize Arrow transform engine after allocator is set
+	writer.arrowTransformEngine = NewArrowTransformEngine(transformConfig)
 
 	return writer, nil
 }
@@ -172,6 +182,23 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			return fmt.Errorf("failed to create arrow record: %s", err)
 		}
 
+		// Apply Arrow-level transforms (filter rows, add computed columns)
+		if w.arrowTransformEngine != nil {
+			transformedRecord, err := w.arrowTransformEngine.TransformRecord(ctx, record)
+			if err != nil {
+				record.Release()
+				return fmt.Errorf("failed to apply arrow transforms: %s", err)
+			}
+			record.Release()
+			record = transformedRecord
+		}
+
+		// Skip if all rows were filtered out
+		if record.NumRows() == 0 {
+			record.Release()
+			continue
+		}
+
 		writer, err := w.getOrCreateWriter(partitioned.PartitionKey, *record.Schema(), fileTypeData, partitioned.PartitionValues)
 		if err != nil {
 			record.Release()
@@ -233,6 +260,14 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 	}
 
 	return nil
+}
+
+// GetComputedColumnsSchema returns schema of computed columns (for schema evolution)
+func (w *ArrowWriter) GetComputedColumnsSchema() map[string]string {
+	if w.transformConfig == nil {
+		return nil
+	}
+	return w.transformConfig.GetComputedColumnsSchema()
 }
 
 func (w *ArrowWriter) Close(ctx context.Context) error {
@@ -308,6 +343,15 @@ func (w *ArrowWriter) completeWriters(ctx context.Context) error {
 func (w *ArrowWriter) initialize(ctx context.Context) error {
 	if err := w.fetchAndUpdateIcebergSchema(ctx); err != nil {
 		return err
+	}
+
+	// Add computed columns to schema if transform config exists
+	if w.transformConfig != nil {
+		for _, cc := range w.transformConfig.ComputedColumns {
+			if _, exists := w.schema[cc.Name]; !exists {
+				w.schema[cc.Name] = cc.Type
+			}
+		}
 	}
 
 	dataFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeData])

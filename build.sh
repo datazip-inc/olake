@@ -96,7 +96,7 @@ function build_and_run() {
     cd $path || fail "Failed to navigate to path: $path"
     
     go mod tidy
-    go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
+    go build -tags=duckdb_arrow -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
     echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
     ./olake $joined_arguments
 }
