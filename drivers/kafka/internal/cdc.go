@@ -188,7 +188,10 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 			data[Partition] = message.Partition
 			data[Offset] = message.Offset
 			data[Key] = string(message.Key)
-			data[KafkaTimestamp], _ = typeutils.ReformatDate(message.Time)
+			data[KafkaTimestamp], err = typeutils.ReformatDate(message.Time, true)
+			if err != nil {
+				return fmt.Errorf("failed to reformat date: %s", err)
+			}
 		}
 
 		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})

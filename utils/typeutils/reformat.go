@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/paulmach/orb/encoding/wkb"
@@ -83,7 +84,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	case types.Int32:
 		return ReformatInt32(v)
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
-		return ReformatDate(v)
+		return ReformatDate(v, true)
 	case types.String:
 		switch v := v.(type) {
 		case int, int8, int16, int32, int64:
@@ -109,7 +110,10 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		if value, isArray := v.([]any); isArray {
 			return value, nil
 		}
-
+		// Handle byte arrays, convert to string
+		if byteArray, ok := v.([]byte); ok {
+			return string(byteArray), nil
+		}
 		// make it an array
 		return []any{v}, nil
 	default:
@@ -137,6 +141,8 @@ func ReformatBool(v interface{}) (bool, error) {
 		default:
 			return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 		}
+	case []uint8:
+		return string(booleanValue) == "t", nil
 	default:
 		return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 	}
@@ -144,20 +150,20 @@ func ReformatBool(v interface{}) (bool, error) {
 	return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 }
 
-// reformat date
-func ReformatDate(v interface{}) (time.Time, error) {
+// reformat date expects value and isTimestampInDB boolean which is used in parseStringTimestamp function
+func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 	parsed, err := func() (time.Time, error) {
 		switch v := v.(type) {
 		case []uint8:
 			strVal := string(v)
-			return parseStringTimestamp(strVal)
+			return parseStringTimestamp(strVal, isTimestampInDB)
 		case []int8:
 			b := make([]byte, 0, len(v))
 			for _, i := range v {
 				b = append(b, byte(i))
 			}
 			strVal := string(b)
-			return parseStringTimestamp(strVal)
+			return parseStringTimestamp(strVal, isTimestampInDB)
 		case int64:
 			return time.Unix(v, 0), nil
 		case *int64:
@@ -193,16 +199,16 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		case nil:
 			return time.Time{}, nil
 		case string:
-			return parseStringTimestamp(v)
+			return parseStringTimestamp(v, isTimestampInDB)
 		case *string:
 			if v == nil || *v == "" {
 				return time.Time{}, fmt.Errorf("empty string passed")
 			}
-			return parseStringTimestamp(*v)
+			return parseStringTimestamp(*v, isTimestampInDB)
 		case primitive.DateTime:
 			return v.Time(), nil
 		case *any:
-			return ReformatDate(*v)
+			return ReformatDate(*v, isTimestampInDB)
 		}
 		return time.Time{}, fmt.Errorf("unhandled type[%T] passed: unable to parse into time", v)
 	}()
@@ -224,7 +230,10 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	return parsed, nil
 }
 
-func parseStringTimestamp(value string) (time.Time, error) {
+// parseStringTimestamp expects value and isTimestampInDB boolean
+// if this is a timestamp and unable to parse into correct format it will return epoch start time
+// if its a string and unable to parse into correct time format it will be returned as string
+func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error) {
 	// Check if the string starts with a date pattern (YYYY-MM-DD)
 	startsWithDatePattern := func(value string) bool {
 		if len(value) < 10 {
@@ -264,6 +273,11 @@ func parseStringTimestamp(value string) (time.Time, error) {
 				tv.Year(), tv.Month(), tv.Day(), tv.Hour(), tv.Minute(), tv.Second(), tv.Nanosecond(), tv.Location(),
 			), nil
 		}
+	}
+
+	// time unable to be parsed string will be returned as it is for state version != 0 (backward compatibility)
+	if !isTimestampInDB && constants.LoadedStateVersion != 0 {
+		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
 
 	return time.Unix(0, 0).UTC(), nil
@@ -306,6 +320,13 @@ func ReformatInt64(v any) (int64, error) {
 		intValue, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return int64(0), fmt.Errorf("failed to change string %v to int64: %v", v, err)
+		}
+		return intValue, nil
+	case []uint8:
+		strVal := string(v)
+		intValue, err := strconv.ParseInt(strVal, 10, 64)
+		if err != nil {
+			return int64(0), fmt.Errorf("failed to change []byte %v to int64: %v", v, err)
 		}
 		return intValue, nil
 	case *any:
@@ -358,10 +379,12 @@ func ReformatInt32(v any) (int32, error) {
 		}
 		return int32(intValue), nil
 	case []uint8:
-		if len(v) == 1 {
-			return int32(v[0]), nil
+		strVal := string(v)
+		intValue, err := strconv.ParseInt(strVal, 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("failed to change []byte %v to int32: %v", v, err)
 		}
-		return 0, fmt.Errorf("unsupported []uint8 of length %d: %v", len(v), v)
+		return int32(intValue), nil
 	case *any:
 		return ReformatInt32(*v)
 	}
