@@ -12,7 +12,8 @@ type Config struct {
 	SecretKey string `json:"s3_secret_key,omitempty"`
 	Prefix    string `json:"s3_path,omitempty"`
 	// S3 endpoint for custom S3-compatible services (like MinIO)
-	S3Endpoint string `json:"s3_endpoint,omitempty"`
+	S3Endpoint         string `json:"s3_endpoint,omitempty"`
+	S3DisableSSLVerify bool   `json:"s3_disable_ssl_verify,omitempty"` // Disable SSL certificate verification
 }
 
 func (c *Config) Validate() error {

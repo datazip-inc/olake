@@ -2,7 +2,9 @@ package parquet
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -73,6 +75,20 @@ func (p *Parquet) initS3Writer() error {
 	if p.config.AccessKey != "" && p.config.SecretKey != "" {
 		s3Config.Credentials = credentials.NewStaticCredentials(p.config.AccessKey, p.config.SecretKey, "")
 	}
+
+	// Configure HTTP client with SSL verification disabled if requested
+	if p.config.S3DisableSSLVerify {
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+		httpClient := &http.Client{
+			Transport: tr,
+		}
+		s3Config.HTTPClient = httpClient
+	}
+
 	sess, err := session.NewSession(&s3Config)
 	if err != nil {
 		return fmt.Errorf("failed to create AWS session: %s", err)

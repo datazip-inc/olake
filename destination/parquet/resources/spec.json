@@ -42,6 +42,12 @@
           "type": "string",
           "title": "S3 Endpoint",
           "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
+        },
+        "s3_disable_ssl_verify": {
+          "type": "string",
+          "title": "Disable SSL Verification",
+          "description": "Disable SSL verification for S3 requests",
+          "default": false
         }
       },
       "required": [
