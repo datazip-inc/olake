@@ -30,9 +30,16 @@ Production-ready S3 source connector for Olake that enables ingesting data from 
 |-------|------|-------------|
 | `bucket_name` | string | S3 bucket name |
 | `region` | string | AWS region (e.g., "us-east-1") |
-| `access_key_id` | string | AWS access key ID |
-| `secret_access_key` | string | AWS secret access key |
 | `file_format` | string | File format: `csv`, `json`, or `parquet` |
+
+### Authentication Fields (Optional)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `access_key_id` | string | AWS access key ID (optional - see note below) |
+| `secret_access_key` | string | AWS secret access key (optional - see note below) |
+
+**Authentication Note**: Both `access_key_id` and `secret_access_key` are **optional**. If omitted, the driver uses AWS default credential chain (IAM roles, environment variables, instance profiles, ECS task roles, etc.). If you provide one, you must provide both.
 
 ### Optional Fields
 
@@ -129,19 +136,40 @@ cd drivers/s3/examples
 
 ## Example Configurations
 
-### AWS S3 with Parquet (Folder Grouping)
+### AWS S3 with Parquet (IAM Role Authentication)
 
 ```json
 {
   "bucket_name": "my-data-warehouse",
   "region": "us-east-1",
   "path_prefix": "data/",
-  "access_key_id": "YOUR_ACCESS_KEY",
-  "secret_access_key": "YOUR_SECRET_KEY",
   "file_format": "parquet",
   "max_threads": 10
 }
 ```
+
+**Note**: No credentials needed when using IAM roles, environment variables, or instance profiles.
+
+### AWS S3 with Static Credentials
+
+```json
+{
+  "bucket_name": "my-data-warehouse",
+  "region": "us-east-1",
+  "path_prefix": "data/",
+  "access_key_id": "<YOUR_AWS_ACCESS_KEY_ID>",
+  "secret_access_key": "<YOUR_AWS_SECRET_ACCESS_KEY>",
+  "file_format": "parquet",
+  "max_threads": 10
+}
+```
+
+**Alternative**: Use environment variables:
+```bash
+export AWS_ACCESS_KEY_ID="your_access_key"
+export AWS_SECRET_ACCESS_KEY="your_secret_key"
+```
+Then omit credentials from config - the driver uses environment variables automatically.
 
 **Folder Structure**:
 ```
@@ -181,8 +209,8 @@ Handles both `.csv` and `.csv.gz` files automatically!
   "bucket_name": "event-logs",
   "region": "us-west-2",
   "path_prefix": "events/",
-  "access_key_id": "YOUR_ACCESS_KEY",
-  "secret_access_key": "YOUR_SECRET_KEY",
+  "access_key_id": "<YOUR_AWS_ACCESS_KEY_ID>",
+  "secret_access_key": "<YOUR_AWS_SECRET_ACCESS_KEY>",
   "file_format": "json",
   "max_threads": 5
 }
@@ -305,9 +333,8 @@ Configure in `streams.json`:
 ## Known Limitations
 
 1. **Schema Evolution**: Manual re-discovery needed if file schema changes
-2. **Authentication**: Only access key/secret key (no IAM roles yet)
-3. **Compression**: Only gzip supported (no zip/bzip2)
-4. **Stream Grouping**: Fixed at level 1 (first folder only)
+2. **Compression**: Only gzip supported (no zip/bzip2)
+3. **Stream Grouping**: Fixed at level 1 (first folder only)
 
 ## Troubleshooting
 
