@@ -1,6 +1,7 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -23,6 +24,15 @@ func TypeFromValue(v interface{}) types.DataType {
 			return types.Null
 		}
 		return TypeFromValue(val.Elem().Interface())
+	}
+
+	// handle json.Number (in case of kafka json messages)
+	if num, ok := v.(json.Number); ok {
+		// json.Number with . is float64
+		if strings.Contains(string(num), ".") {
+			return types.Float64
+		}
+		return types.Int64
 	}
 
 	switch valType.Kind() {
