@@ -90,11 +90,11 @@ func compareStreams() error {
 	if err := logger.FileLoggerWithPath(diffCatalog, viper.GetString(constants.DifferencePath)); err != nil {
 		return fmt.Errorf("failed to write difference streams: %s", err)
 	}
+	logger.Infof("Successfully wrote stream differences")
 	message := types.Message{
 		Type:    types.CatalogMessage,
 		Catalog: diffCatalog,
 	}
 	logger.Info(message)
-	logger.Infof("Successfully wrote stream differences")
 	return nil
 }

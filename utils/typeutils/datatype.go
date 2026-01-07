@@ -40,6 +40,7 @@ func TypeFromValue(v interface{}) types.DataType {
 	case reflect.Float64:
 		return types.Float64
 	case reflect.String:
+		// NOTE: If the string is in correct datetime format, it will be detected as timestamp and returned as timestamp datatype
 		t, err := ReformatDate(v, false)
 		if err == nil {
 			return detectTimestampPrecision(t)
