@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -293,6 +294,8 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
+	case json.Number:
+		return v.Int64()
 	case float32:
 		return int64(v), nil
 	case float64:
@@ -386,6 +389,13 @@ func ReformatInt32(v any) (int32, error) {
 			return 0, fmt.Errorf("failed to change string %v to int32: %v", v, err)
 		}
 		return int32(intValue), nil
+	case json.Number:
+		intValue, err := v.Int64()
+		if err != nil {
+			return 0, err
+		}
+		//nolint:gosec,G115
+		return int32(intValue), nil
 	case []uint8:
 		strVal := string(v)
 		intValue, err := strconv.ParseInt(strVal, 10, 32)
@@ -402,6 +412,8 @@ func ReformatInt32(v any) (int32, error) {
 
 func ReformatFloat64(v interface{}) (float64, error) {
 	switch v := v.(type) {
+	case json.Number:
+		return v.Float64()
 	case []uint8:
 		// Convert byte slice to string first
 		strVal := string(v)
@@ -452,6 +464,12 @@ func ReformatFloat64(v interface{}) (float64, error) {
 
 func ReformatFloat32(v interface{}) (float32, error) {
 	switch v := v.(type) {
+	case json.Number:
+		f64, err := v.Float64()
+		if err != nil {
+			return 0, err
+		}
+		return float32(f64), nil
 	case []uint8:
 		// Convert byte slice to string first
 		strVal := string(v)

@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -181,7 +182,11 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 
 		var data map[string]interface{}
 		if message.Value != nil {
-			if err := json.Unmarshal(message.Value, &data); err != nil {
+			// decode message value
+			decoder := json.NewDecoder(bytes.NewReader(message.Value))
+			// to avoid automatic conversion of numbers to float64
+			decoder.UseNumber()
+			if err := decoder.Decode(&data); err != nil {
 				logger.Warnf("failed to unmarshal message value: %s", err)
 				continue
 			}
