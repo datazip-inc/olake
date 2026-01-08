@@ -129,9 +129,12 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 			// Handle certificate chains with intermediate CAs
 			intermediates := x509.NewCertPool()
 			for i := 1; i < len(rawCerts); i++ {
-				if intermediateCert, err := x509.ParseCertificate(rawCerts[i]); err == nil {
-					intermediates.AddCert(intermediateCert)
+				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
+				if err != nil {
+					logger.Warnf("Failed to parse intermediate certificate at position %d: %v", i, err)
+					continue
 				}
+				intermediates.AddCert(intermediateCert)
 			}
 
 			opts := x509.VerifyOptions{

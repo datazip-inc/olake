@@ -53,7 +53,12 @@
           "type": "string",
           "title": "SSL Mode",
           "description": "The SSL/TLS mode to use for the connection",
-          "enum": ["disable", "require", "verify-ca", "verify-full"],
+          "enum": [
+            "disable",
+            "require",
+            "verify-ca",
+            "verify-full"
+          ],
           "default": "disable"
         },
         "server_ca": {
@@ -72,7 +77,9 @@
           "description": "Client private key content (PEM format) for mutual TLS authentication"
         }
       },
-      "required": ["mode"]
+      "required": [
+        "mode"
+      ]
     },
     "update_method": {
       "title": "Update Method",
@@ -86,7 +93,9 @@
               "const": "Standalone"
             }
           },
-          "required": ["type"]
+          "required": [
+            "type"
+          ]
         },
         {
           "type": "object",
@@ -101,7 +110,10 @@
               "const": "CDC"
             }
           },
-          "required": ["type", "initial_wait_time"],
+          "required": [
+            "type",
+            "initial_wait_time"
+          ],
           "additionalProperties": false
         }
       ]
@@ -118,7 +130,9 @@
               "const": "no_tunnel"
             }
           },
-          "required": ["type"]
+          "required": [
+            "type"
+          ]
         },
         {
           "type": "object",
@@ -154,7 +168,13 @@
               "format": "password"
             }
           },
-          "required": ["host", "port", "username", "private_key", "type"]
+          "required": [
+            "host",
+            "port",
+            "username",
+            "private_key",
+            "type"
+          ]
         },
         {
           "type": "object",
@@ -186,7 +206,13 @@
               "minLength": 1
             }
           },
-          "required": ["host", "port", "username", "password", "type"]
+          "required": [
+            "host",
+            "port",
+            "username",
+            "password",
+            "type"
+          ]
         }
       ]
     },
@@ -196,5 +222,11 @@
       "description": "Username used to authenticate with the database"
     }
   },
-  "required": ["hosts", "username", "password", "database", "port"]
+  "required": [
+    "hosts",
+    "username",
+    "password",
+    "database",
+    "port"
+  ]
 }

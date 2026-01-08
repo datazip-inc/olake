@@ -22,6 +22,7 @@ var (
 	certOnce       sync.Once
 )
 
+// generateTestCerts creates self-signed test certificates for SSL testing
 func generateTestCerts() *testCerts {
 	certOnce.Do(func() {
 		caKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -29,6 +30,7 @@ func generateTestCerts() *testCerts {
 			panic("failed to generate CA key: " + err.Error())
 		}
 
+		// CA certificate template
 		caTemplate := &x509.Certificate{
 			SerialNumber: big.NewInt(1),
 			Subject: pkix.Name{
@@ -54,6 +56,7 @@ func generateTestCerts() *testCerts {
 			Bytes: caCertDER,
 		})
 
+		// Client certificate for mutual TLS
 		clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			panic("failed to generate client key: " + err.Error())
