@@ -26,13 +26,14 @@ func TypeFromValue(v interface{}) types.DataType {
 		return TypeFromValue(val.Elem().Interface())
 	}
 
-	// handle json.Number (in case of kafka json messages)
+	// Handle json.Number type (when using json.Decoder with UseNumber())
+	// in case of reflect, json.Number is detected as string so we need to handle it for integer and float
 	if num, ok := v.(json.Number); ok {
-		// json.Number with . is float64
-		if strings.Contains(string(num), ".") {
-			return types.Float64
+		// If the number is an integer then -> int64
+		if _, err := num.Int64(); err == nil {
+			return types.Int64
 		}
-		return types.Int64
+		return types.Float64
 	}
 
 	switch valType.Kind() {
