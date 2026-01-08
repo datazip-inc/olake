@@ -128,5 +128,8 @@ func detectTimestampPrecision(t time.Time) types.DataType {
 func ExtractAndMapColumnType(columnType string, typeMapping map[string]types.DataType) types.DataType {
 	// extracts the base type (e.g., varchar(50) -> varchar)
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
-	return typeMapping[baseType]
+	if t, ok := typeMapping[baseType]; ok {
+		return t
+	}
+	return types.Unknown
 }
