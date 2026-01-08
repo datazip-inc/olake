@@ -10,6 +10,7 @@ var uiSchemaMap = map[string]string{
 	"postgres": PostgresUISchema,
 	"mysql":    MySQLUISchema,
 	"oracle":   OracleUISchema,
+	"s3":       S3UISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
 	"db2":      DB2UISchema,
@@ -176,6 +177,62 @@ const OracleUISchema = `{
       "ui:options": {
         "rows": 1
       }
+    }
+  }
+}`
+
+const S3UISchema = `{
+  "ui:grid": [
+    { "bucket_name": 12, "region": 12 },
+    { "access_key_id": 12, "secret_access_key": 12 },
+    { "path_prefix": 12, "endpoint": 12 },
+    { "file_pattern": 12, "compression": 12 },
+    { "retry_count": 12, "max_threads": 12 },
+    { "file_format": 12},
+    { "csv": 12, "parquet": 12, "json": 12 }
+  ],
+  "file_format": {
+    "ui:enumNames": [
+      "CSV",
+      "JSON",
+      "Parquet"
+    ]
+  },
+  "csv": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "delimiter": 12, "has_header": 12 },
+      { "skip_rows": 12, "quote_character": 12 }
+    ],
+    "has_header": {
+      "ui:widget": "boolean"
+    }
+  },
+  "json": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "line_delimited": 12 }
+    ],
+    "line_delimited": {
+      "ui:widget": "boolean"
+    }
+  },
+  "parquet": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "streaming_enabled": 12 }
+    ],
+    "streaming_enabled": {
+      "ui:widget": "boolean"
     }
   }
 }`

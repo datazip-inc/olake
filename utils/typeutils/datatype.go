@@ -1,6 +1,7 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -23,6 +24,16 @@ func TypeFromValue(v interface{}) types.DataType {
 			return types.Null
 		}
 		return TypeFromValue(val.Elem().Interface())
+	}
+
+	// Handle json.Number type (when using json.Decoder with UseNumber())
+	// in case of reflect, json.Number is detected as string so we need to handle it for integer and float
+	if num, ok := v.(json.Number); ok {
+		// If the number is an integer then -> int64
+		if _, err := num.Int64(); err == nil {
+			return types.Int64
+		}
+		return types.Float64
 	}
 
 	switch valType.Kind() {
