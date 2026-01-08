@@ -113,7 +113,7 @@ func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName stri
 
 func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string, publication string) error {
 	slot := waljs.ReplicationSlot{}
-	err := conn.GetContext(ctx, &slot, fmt.Sprintf(waljs.ReplicationSlotTempl, slotName))
+	err := conn.GetContext(ctx, &slot, waljs.ReplicationSlotQuery, slotName)
 	if err != nil {
 		return err
 	}
