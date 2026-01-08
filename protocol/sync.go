@@ -61,7 +61,7 @@ var syncCmd = &cobra.Command{
 
 		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
-		// default state
+		// Initialize state
 		state = &types.State{
 			Type: types.StreamType,
 		}
@@ -69,7 +69,11 @@ var syncCmd = &cobra.Command{
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
+		} else {
+			state.Version = constants.LatestStateVersion
 		}
+		// set state version to global variable to use throughout olake cli instance
+		constants.LoadedStateVersion = state.Version
 
 		state.RWMutex = &sync.RWMutex{}
 		stateBytes, _ := state.MarshalJSON()

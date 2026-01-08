@@ -39,6 +39,7 @@ const (
 	Postgres DriverType = "postgres"
 	MySQL    DriverType = "mysql"
 	Oracle   DriverType = "oracle"
+	S3       DriverType = "s3"
 	Kafka    DriverType = "kafka"
 )
 

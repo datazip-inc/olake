@@ -1,6 +1,7 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -25,6 +26,16 @@ func TypeFromValue(v interface{}) types.DataType {
 		return TypeFromValue(val.Elem().Interface())
 	}
 
+	// Handle json.Number type (when using json.Decoder with UseNumber())
+	// in case of reflect, json.Number is detected as string so we need to handle it for integer and float
+	if num, ok := v.(json.Number); ok {
+		// If the number is an integer then -> int64
+		if _, err := num.Int64(); err == nil {
+			return types.Int64
+		}
+		return types.Float64
+	}
+
 	switch valType.Kind() {
 	case reflect.Invalid:
 		return types.Null
@@ -40,7 +51,8 @@ func TypeFromValue(v interface{}) types.DataType {
 	case reflect.Float64:
 		return types.Float64
 	case reflect.String:
-		t, err := ReformatDate(v)
+		// NOTE: If the string is in correct datetime format, it will be detected as timestamp and returned as timestamp datatype
+		t, err := ReformatDate(v, false)
 		if err == nil {
 			return detectTimestampPrecision(t)
 		}
@@ -62,11 +74,11 @@ func TypeFromValue(v interface{}) types.DataType {
 func MaximumOnDataType[T any](typ types.DataType, a, b T) (T, error) {
 	switch typ {
 	case types.Timestamp:
-		adate, err := ReformatDate(a)
+		adate, err := ReformatDate(a, true)
 		if err != nil {
 			return a, fmt.Errorf("failed to reformat[%v] while comparing: %s", a, err)
 		}
-		bdate, err := ReformatDate(b)
+		bdate, err := ReformatDate(b, true)
 		if err != nil {
 			return a, fmt.Errorf("failed to reformat[%v] while comparing: %s", b, err)
 		}
