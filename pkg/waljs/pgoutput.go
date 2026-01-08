@@ -32,7 +32,7 @@ func (p *pgoutputReplicator) Socket() *Socket {
 
 func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	var slot ReplicationSlot
-	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, p.socket.ReplicationSlot)); err != nil {
+	if err := db.GetContext(ctx, &slot, ReplicationSlotQuery, p.socket.ReplicationSlot); err != nil {
 		return fmt.Errorf("failed to get replication slot: %s", err)
 	}
 	p.socket.CurrentWalPosition = slot.CurrentLSN

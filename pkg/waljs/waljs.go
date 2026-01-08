@@ -14,7 +14,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const AdvanceLSNTemplate = "SELECT * FROM pg_replication_slot_advance('%s', '%s')"
+const AdvanceLSNQuery = "SELECT * FROM pg_replication_slot_advance($1, $2)"
 
 var pluginArguments = []string{
 	"\"include-lsn\" 'on'",
@@ -34,7 +34,7 @@ func (w *wal2jsonReplicator) Socket() *Socket {
 func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, callback abstract.CDCMsgFn) error {
 	// update current lsn information
 	var slot ReplicationSlot
-	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, w.socket.ReplicationSlot)); err != nil {
+	if err := db.GetContext(ctx, &slot, ReplicationSlotQuery, w.socket.ReplicationSlot); err != nil {
 		return fmt.Errorf("failed to get replication slot: %s", err)
 	}
 

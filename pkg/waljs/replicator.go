@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn, pg_current_wal_lsn() as current_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	ReplicationSlotQuery = "SELECT plugin, slot_type, confirmed_flush_lsn, pg_current_wal_lsn() as current_lsn FROM pg_replication_slots WHERE slot_name = $1"
 )
 
 // Socket represents a connection to PostgreSQL's logical replication stream
@@ -125,14 +125,14 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 func getSlotPosition(ctx context.Context, db *sqlx.DB, replicationSlotName string) (ReplicationSlot, error) {
 	// Get replication slot position
 	var slot ReplicationSlot
-	err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, replicationSlotName))
+	err := db.GetContext(ctx, &slot, ReplicationSlotQuery, replicationSlotName)
 	return slot, err
 }
 
 // advanceLSN advances the logical replication position to the current WAL position.
 func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) error {
 	// Get replication slot position
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(AdvanceLSNTemplate, slot, currentWalPos)); err != nil {
+	if _, err := db.ExecContext(ctx, AdvanceLSNQuery, slot, currentWalPos); err != nil {
 		return fmt.Errorf("failed to advance replication slot: %s", err)
 	}
 	logger.Debugf("advanced LSN to %s", currentWalPos)
