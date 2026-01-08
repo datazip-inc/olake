@@ -40,10 +40,10 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 
 	var stmt string
-	if len(pkColumns) > 0 {
-		stmt = jdbc.DB2PKChunkScanQuery(stream, pkColumns, chunk, filter)
-	} else if stream.Self().StreamMetadata.ChunkColumn != "" {
+	if stream.Self().StreamMetadata.ChunkColumn != "" {
 		stmt = jdbc.DB2PKChunkScanQuery(stream, []string{stream.Self().StreamMetadata.ChunkColumn}, chunk, filter)
+	} else if len(pkColumns) > 0 {
+		stmt = jdbc.DB2PKChunkScanQuery(stream, pkColumns, chunk, filter)
 	} else {
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
