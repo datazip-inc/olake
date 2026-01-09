@@ -89,18 +89,15 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	defer cursor.Close(ctx)
 
 	for {
-		if !cursor.TryNext(ctx) {
-			if err := cursor.Err(); err != nil {
-				return fmt.Errorf("change stream error: %s", err)
-			}
-
-			// Wait before for a brief pause before the next iteration of the loop
-			time.Sleep(changeStreamRetryDelay)
-			continue
+		hasNext := cursor.TryNext(ctx)
+		if err := cursor.Err(); err != nil {
+			return fmt.Errorf("change stream error: %s", err)
 		}
 
-		if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
-			return err
+		if hasNext {
+			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
+				return err
+			}
 		}
 
 		// Check boundary AFTER emitting
@@ -111,6 +108,11 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 				return nil
 			}
 			return err
+		}
+
+		if !hasNext {
+			// Wait before for a brief pause before the next iteration of the loop
+			time.Sleep(changeStreamRetryDelay)
 		}
 	}
 }
