@@ -133,7 +133,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 					metadata.SelectedColumns = preservedSelectedColumns
 
-					// add new columns if sync_new_columns is true
+					// add new discovered columns if sync_new_columns is true
 					if metadata.SyncNewColumns {
 						_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
 
