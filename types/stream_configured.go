@@ -156,9 +156,12 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	// Add mandatory columns to SelectedColumns
-	s.EnsureMandatoryColumns()
+	err := s.EnsureMandatoryColumns()
+	if err != nil {
+		return fmt.Errorf("failed to add mandatory columns: %s", err)
+	}
 
-	_, err := s.GetFilter()
+	_, err = s.GetFilter()
 	if err != nil {
 		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
 	}
@@ -171,9 +174,12 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 }
 
 // EnsureMandatoryColumns ensures cursor fields and CDC columns are always in SelectedColumns
-func (s *ConfiguredStream) EnsureMandatoryColumns() {
+func (s *ConfiguredStream) EnsureMandatoryColumns() error {
 	selectedMap := make(map[string]struct{})
 	for _, col := range s.StreamMetadata.SelectedColumns {
+		if _, exists := selectedMap[col]; exists {
+			return fmt.Errorf("duplicate column %s", col)
+		}
 		selectedMap[col] = struct{}{}
 	}
 
@@ -208,4 +214,6 @@ func (s *ConfiguredStream) EnsureMandatoryColumns() {
 			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, constants.CdcTimestamp)
 		}
 	}
+
+	return nil
 }
