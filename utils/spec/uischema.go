@@ -102,11 +102,39 @@ const MySQLUISchema = `{
     { "hosts": 12, "database": 12 },
     { "username": 12, "password": 12 },
     { "port": 12, "max_threads": 12 },
-    { "backoff_retry_count": 12, "tls_skip_verify": 12 },
-    { "ssh_config": 12 , "update_method": 12 }
+    { "backoff_retry_count": 12, "jdbc_url_params": 12 },
+    { "ssl": 12, "update_method": 12 },
+    { "ssh_config": 12 }
   ],
-  "tls_skip_verify": {
-    "ui:widget": "boolean"
+  "ssl": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "mode": 12 },
+      { "server_ca": 12 },
+      { "client_cert": 12 },
+      { "client_key": 12 }
+    ],
+    "server_ca": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    },
+    "client_cert": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    },
+    "client_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    }
   },
   "update_method": {
     "ui:widget": "radio",
@@ -136,7 +164,6 @@ const MySQLUISchema = `{
     }
   }
 }`
-
 const OracleUISchema = `{
   "ui:grid": [
     { "host": 12, "connection_type": 12 },
