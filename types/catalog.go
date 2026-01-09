@@ -110,16 +110,18 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog.SelectedStreams != nil {
 		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
+
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
 			_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
 				streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
 				_, exists := newStreams[streamID]
-				if exists {
-					_, newAddedColumns := getColumnsDelta(oldStreams[streamID].Stream.Schema, newStreams[streamID].Stream.Schema)
 
+				if exists {
 					var preservedSelectedColumns []string
+
 					oldSchema := oldStreams[streamID].Stream.Schema
 					newSchema := newStreams[streamID].Stream.Schema
+
 					for _, previouslySelectedCol := range metadata.SelectedColumns {
 						// Check if column exists in both old and new schemas (i.e., is a common column)
 						_, existsInOld := oldSchema.Properties.Load(previouslySelectedCol)
@@ -132,8 +134,12 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					metadata.SelectedColumns = preservedSelectedColumns
 
 					// add new columns if sync_new_columns is true
-					if metadata.SyncNewColumns && len(newAddedColumns) > 0 {
-						metadata.SelectedColumns = append(metadata.SelectedColumns, newAddedColumns...)
+					if metadata.SyncNewColumns {
+						_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
+
+						if len(newAddedColumns) > 0 {
+							metadata.SelectedColumns = append(metadata.SelectedColumns, newAddedColumns...)
+						}
 					}
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
