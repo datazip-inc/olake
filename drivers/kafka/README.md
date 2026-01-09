@@ -29,9 +29,30 @@ Add Kafka credentials in following format in `source.json` file. To check more a
         "max_threads": 3
     }
 ```
-- There are 3 security protocols:<br>
+- There are 4 security protocols:<br>
     - `PLAINTEXT`
         - Kafka cluster without any authentication and encryption.
+    - `SSL`
+        - Kafka cluster with TLS encryption (no SASL authentication).
+        - Supports external certificates for custom CA or mTLS.
+        - All certificate fields are optional (useful for AWS MSK where broker certificates are managed).
+        ```json
+        "protocol": {
+            "security_protocol": "SSL",
+            "tls_skip_verify": false,
+            "ssl": {
+                "server_ca": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                "client_cert": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                "client_key": "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
+            }
+        }
+        ```
+        - For AWS MSK (no custom certificates needed):
+        ```json
+        "protocol": {
+            "security_protocol": "SSL"
+        }
+        ```
     - `SASL_PLAINTEXT`
         - Kafka cluster with Simple Authentication and Security Layer i.e. authentication but no encription.
         - Requires SASL mechanism and SASL JAAS Configuration string. Supported are: 
@@ -53,6 +74,7 @@ Add Kafka credentials in following format in `source.json` file. To check more a
             ```
     - `SASL_SSL`
         - Kafka cluster with Simple Authentication and Security Layer i.e. authentication and encryption using Secure Sockets Layer.
+        - Supports external certificates for custom CA or TLS/SSL (optional).
         - Requires SASL mechanism and SASL JAAS Configuration string. Supported are: 
             - PLAIN
             ```json
@@ -68,6 +90,20 @@ Add Kafka credentials in following format in `source.json` file. To check more a
                 "security_protocol": "SASL_SSL",
                 "sasl_mechanism": "SCRAM-SHA-512",
                 "sasl_jaas_config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"TEST-PASS\" password=\"TEST-PASS\";"
+            },
+            ```
+            - With external certificates (TLS/SSL):
+            ```json
+            "protocol": {
+                "security_protocol": "SASL_SSL",
+                "sasl_mechanism": "PLAIN",
+                "sasl_jaas_config": "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"TEST-USER\" password=\"TEST-PASS\";",
+                "tls_skip_verify": false,
+                "ssl": {
+                    "server_ca": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                    "client_cert": "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+                    "client_key": "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----"
+                }
             },
             ```
 

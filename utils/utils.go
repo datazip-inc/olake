@@ -240,7 +240,7 @@ func genULID(t time.Time) string {
 // Returns a timestamped
 func TimestampedFileName(extension string) string {
 	now := time.Now().UTC()
-	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
+	return fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
 func IsJSON(str string) bool {
@@ -435,4 +435,28 @@ func SplitAndTrim(s string) []string {
 		}
 	}
 	return result
+}
+
+// ExtractColumnName extracts a column name from regex capture groups.
+// It returns the first non-empty group from the provided groups.
+// This is used when parsing filter expressions where column names can be:
+//   - Quoted (for special characters): "user-name", "email@domain", "column.with.dots"
+//   - Unquoted (for normal identifiers): age, status, count
+//
+// Example usage:
+//
+//	// For filter: \"user-name\" = \"John\"
+//	// matches[1] = "user-name" (quoted column), matches[2] = "" (unquoted column)
+//	columnName := ExtractColumnName(matches[1], matches[2]) // Returns: "user-name"
+//
+//	// For filter: age > 18
+//	// matches[1] = "" (quoted column), matches[2] = "age" (unquoted column)
+//	columnName := ExtractColumnName(matches[1], matches[2]) // Returns: "age"
+func ExtractColumnName(groups ...string) string {
+	for _, group := range groups {
+		if group != "" {
+			return group
+		}
+	}
+	return ""
 }

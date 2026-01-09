@@ -28,8 +28,8 @@ var GlobalTypeMapping = map[string]string{
 	// Floating Point Types
 	"float":   "float",
 	"real":    "float",
-	"decimal": "float",
-	"numeric": "float",
+	"decimal": "double",
+	"numeric": "double",
 	"float4":  "float",
 	"money":   "float",
 
@@ -42,6 +42,7 @@ var GlobalTypeMapping = map[string]string{
 	"boolean": "boolean",
 
 	// String Types
+	"string":            "string",
 	"char":              "string",
 	"varchar":           "string",
 	"tinytext":          "string",

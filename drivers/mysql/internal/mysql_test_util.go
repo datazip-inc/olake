@@ -48,6 +48,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 				id_bigint BIGINT,
 				id_int INT,
+				id_cursor INT,
 				id_int_unsigned INT UNSIGNED,
 				id_integer INT,
 				id_integer_unsigned INT UNSIGNED,
@@ -58,6 +59,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				id_tinyint TINYINT,
 				id_tinyint_unsigned TINYINT UNSIGNED,
 				price_decimal DECIMAL(10,2),
+				amount_decimal_9_2 DECIMAL(9,2),
 				price_double DOUBLE,
 				price_double_precision DOUBLE,
 				price_float FLOAT,
@@ -74,6 +76,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				is_active TINYINT(1),
 				long_varchar MEDIUMTEXT,
 				name_bool TINYINT(1) DEFAULT '1',
+				status ENUM('active','inactive','pending') DEFAULT NULL,
+				priority ENUM('low','medium','high') DEFAULT 'low',
 				PRIMARY KEY (id)
 			)`, integrationTestTable)
 
@@ -90,38 +94,39 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "insert":
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
-			id, id_bigint,
+			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned, price_decimal, price_double,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
-			long_varchar, name_bool
+			long_varchar, name_bool, status, priority
 		) VALUES (
-			6, 123456789012345,
+			6, 6, 123456789012345,
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
-			123.45, 123.456,
+			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
-			'long_varchar_val', 1
+			'long_varchar_val', 1, 'active', 'high'
 		)`, integrationTestTable)
 
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
+				id_cursor = NULL,
 				id_bigint = 987654321098765,
 				id_int = 200, id_int_unsigned = 201,
 				id_integer = 202, id_integer_unsigned = 203,
 				id_mediumint = 6001, id_mediumint_unsigned = 6002,
 				id_smallint = 201, id_smallint_unsigned = 202,
 				id_tinyint = 60, id_tinyint_unsigned = 61,
-				price_decimal = 543.21, price_double = 654.321,
+				price_decimal = 543.21, amount_decimal_9_2 = 1234567.89, price_double = 654.321,
 				price_double_precision = 654.321, price_float = 543.21,
 				price_numeric = 543.21, price_real = 654.321,
 				name_char = 'X', name_varchar = 'updated varchar',
@@ -129,8 +134,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				name_mediumtext = 'upd medium', name_longtext = 'upd long',
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
-				long_varchar = 'updated long...', name_bool = 0
-			WHERE id = 1`, integrationTestTable)
+				long_varchar = 'updated long...', name_bool = 0,
+				status = 'pending', priority = 'low'
+			WHERE id = 6`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
@@ -160,6 +166,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		return
 
+	case "evolve-schema":
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE;", integrationTestTable)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
@@ -175,25 +184,25 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
-			id, id_bigint,
+			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned, price_decimal, price_double,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool
+			created_timestamp, is_active, long_varchar, name_bool, status, priority
 		) VALUES (
-			%d, 123456789012345,
+			%d, %d, 123456789012345,
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
-			123.45, 123.456,
+			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1
-		)`, tableName, i)
+			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high'
+		)`, tableName, i, i)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
@@ -212,11 +221,12 @@ var ExpectedMySQLData = map[string]interface{}{
 	"id_smallint_unsigned":   int32(102),
 	"id_tinyint":             int32(50),
 	"id_tinyint_unsigned":    int32(51),
-	"price_decimal":          float32(123.45),
+	"price_decimal":          float64(123.45),
+	"amount_decimal_9_2":     float64(5330197.27),
 	"price_double":           float64(123.456),
 	"price_double_precision": float64(123.456),
 	"price_float":            float32(123.45),
-	"price_numeric":          float32(123.45),
+	"price_numeric":          float64(123.45),
 	"price_real":             float64(123.456),
 	"name_char":              "c",
 	"name_varchar":           "varchar_val",
@@ -229,11 +239,13 @@ var ExpectedMySQLData = map[string]interface{}{
 	"is_active":              int32(1),
 	"long_varchar":           "long_varchar_val",
 	"name_bool":              int32(1),
+	"status":                 "active",
+	"priority":               "high",
 }
 
-var ExpectedUpdatedMySQLData = map[string]interface{}{
+var ExpectedUpdatedData = map[string]interface{}{
 	"id_bigint":              int64(987654321098765),
-	"id_int":                 int32(200),
+	"id_int":                 int64(200),
 	"id_int_unsigned":        int32(201),
 	"id_integer":             int32(202),
 	"id_integer_unsigned":    int32(203),
@@ -243,11 +255,12 @@ var ExpectedUpdatedMySQLData = map[string]interface{}{
 	"id_smallint_unsigned":   int32(202),
 	"id_tinyint":             int32(60),
 	"id_tinyint_unsigned":    int32(61),
-	"price_decimal":          float32(543.21),
+	"price_decimal":          float64(543.21),
+	"amount_decimal_9_2":     float64(1234567.89),
 	"price_double":           float64(654.321),
 	"price_double_precision": float64(654.321),
-	"price_float":            float32(543.21),
-	"price_numeric":          float32(543.21),
+	"price_float":            float64(543.21),
+	"price_numeric":          float64(543.21),
 	"price_real":             float64(654.321),
 	"name_char":              "X",
 	"name_varchar":           "updated varchar",
@@ -260,9 +273,11 @@ var ExpectedUpdatedMySQLData = map[string]interface{}{
 	"is_active":              int32(0),
 	"long_varchar":           "updated long...",
 	"name_bool":              int32(0),
+	"status":                 "pending",
+	"priority":               "low",
 }
 
-var MySQLToIcebergSchema = map[string]string{
+var MySQLToDestinationSchema = map[string]string{
 	"id":                     "unsigned int",
 	"id_bigint":              "bigint",
 	"id_int":                 "int",
@@ -292,4 +307,41 @@ var MySQLToIcebergSchema = map[string]string{
 	"is_active":              "tinyint",
 	"long_varchar":           "mediumtext",
 	"name_bool":              "tinyint",
+	"status":                 "enum",
+	"priority":               "enum",
+}
+
+var EvolvedMySQLToDestinationSchema = map[string]string{
+	"id":                     "unsigned int",
+	"id_bigint":              "bigint",
+	"id_int":                 "bigint",
+	"id_int_unsigned":        "unsigned int",
+	"id_integer":             "int",
+	"id_integer_unsigned":    "unsigned int",
+	"id_mediumint":           "mediumint",
+	"id_mediumint_unsigned":  "unsigned mediumint",
+	"id_smallint":            "smallint",
+	"id_smallint_unsigned":   "unsigned smallint",
+	"id_tinyint":             "tinyint",
+	"id_tinyint_unsigned":    "unsigned tinyint",
+	"price_decimal":          "decimal",
+	"amount_decimal_9_2":     "decimal",
+	"price_double":           "double",
+	"price_double_precision": "double",
+	"price_float":            "double",
+	"price_numeric":          "decimal",
+	"price_real":             "double",
+	"name_char":              "char",
+	"name_varchar":           "varchar",
+	"name_text":              "text",
+	"name_tinytext":          "tinytext",
+	"name_mediumtext":        "mediumtext",
+	"name_longtext":          "longtext",
+	"created_date":           "datetime",
+	"created_timestamp":      "timestamp",
+	"is_active":              "tinyint",
+	"long_varchar":           "mediumtext",
+	"name_bool":              "tinyint",
+	"status":                 "enum",
+	"priority":               "enum",
 }
