@@ -67,7 +67,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 		// Collect selected columns from schema
 		var selectedColumns []string
-		stream.Schema.Properties.Range(func(key, _ any) bool {
+		stream.Schema.Properties.Range(func(key, _ interface{}) bool {
 			if columnName, ok := key.(string); ok {
 				selectedColumns = append(selectedColumns, columnName)
 			}
@@ -104,10 +104,10 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return sm
 	}
 
-	createSelectedColumnsMap := func(columns []string) map[string]bool {
-		scm := make(map[string]bool)
+	createSelectedColumnsMap := func(columns []string) map[string]struct{} {
+		scm := make(map[string]struct{})
 		for _, column := range columns {
-			scm[column] = true
+			scm[column] = struct{}{}
 		}
 		return scm
 	}
@@ -129,10 +129,10 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 					commonColumnsMap := createSelectedColumnsMap(commonColumns)
 
-					// preserve old selected columns that still exist in the new schema
+					// merge old selected columns that still exist in the new schema
 					var preservedSelectedColumns []string
 					for _, previouslySelectedCol := range metadata.SelectedColumns {
-						if commonColumnsMap[previouslySelectedCol] {
+						if _, exists := commonColumnsMap[previouslySelectedCol]; exists {
 							preservedSelectedColumns = append(preservedSelectedColumns, previouslySelectedCol)
 						}
 					}
@@ -333,7 +333,7 @@ func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
 		newAdded []string
 	)
 
-	newSchema.Properties.Range(func(k, _ any) bool {
+	newSchema.Properties.Range(func(k, _ interface{}) bool {
 		col := k.(string)
 
 		if _, exists := oldSchema.Properties.Load(col); exists {

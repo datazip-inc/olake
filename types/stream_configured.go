@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
 
@@ -154,6 +155,9 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
 	}
 
+	// Add mandatory columns to SelectedColumns
+	s.EnsureMandatoryColumns()
+
 	_, err := s.GetFilter()
 	if err != nil {
 		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
@@ -164,4 +168,44 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
+}
+
+// EnsureMandatoryColumns ensures cursor fields and CDC columns are always in SelectedColumns
+func (s *ConfiguredStream) EnsureMandatoryColumns() {
+	selectedMap := make(map[string]struct{})
+	for _, col := range s.StreamMetadata.SelectedColumns {
+		selectedMap[col] = struct{}{}
+	}
+
+	// Add system generated fields
+	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
+	for _, sysField := range systemFields {
+		if _, exists := selectedMap[sysField]; !exists {
+			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, sysField)
+		}
+	}
+
+	// Add cursor fields for incremental sync
+	if s.Stream.SyncMode == INCREMENTAL && s.Stream.CursorField != "" {
+		primaryCursor, secondaryCursor := s.Cursor()
+		if primaryCursor != "" {
+			if _, exists := selectedMap[primaryCursor]; !exists {
+				s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, primaryCursor)
+				// Add to selectedMap to avoid duplicates if primaryCursor == secondaryCursor
+				selectedMap[primaryCursor] = struct{}{}
+			}
+		}
+		if secondaryCursor != "" {
+			if _, exists := selectedMap[secondaryCursor]; !exists {
+				s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, secondaryCursor)
+			}
+		}
+	}
+
+	// Add CDC columns if CDC sync mode
+	if s.Stream.SyncMode == CDC || s.Stream.SyncMode == STRICTCDC {
+		if _, exists := selectedMap[constants.CdcTimestamp]; !exists {
+			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, constants.CdcTimestamp)
+		}
+	}
 }
