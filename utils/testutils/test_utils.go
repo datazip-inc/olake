@@ -791,12 +791,19 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
+							writerTypes := []struct {
+								name      string
+								useArrow  bool
+							}{
+								{"Legacy", false},
+								{"Arrow", true},
+							}
+
 							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
-								for _, useArrowWriter := range []bool{false, true} {
-									writerType := utils.Ternary(useArrowWriter, "Arrow", "Legacy").(string)
-									t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", writerType), func(t *testing.T) {
-										if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, useArrowWriter, cfg.testIcebergFullLoadAndCDC); err != nil {
-											t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", writerType, err)
+								for _, wt := range writerTypes {
+									t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", wt.name), func(t *testing.T) {
+										if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndCDC); err != nil {
+											t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
 										}
 									})
 								}
@@ -808,11 +815,10 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								})
 							}
 
-							for _, useArrowWriter := range []bool{false, true} {
-								writerType := utils.Ternary(useArrowWriter, "Arrow", "Legacy").(string)
-								t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", writerType), func(t *testing.T) {
-									if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, useArrowWriter, cfg.testIcebergFullLoadAndIncremental); err != nil {
-										t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", writerType, err)
+							for _, wt := range writerTypes {
+								t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
+									if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
+										t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
 									}
 								})
 							}

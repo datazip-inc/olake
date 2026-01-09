@@ -184,18 +184,16 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			if err != nil {
 				return fmt.Errorf("failed to create arrow record: %s", err)
 			}
+			defer record.Release()
 
 			writer, err := w.getOrCreateWriter(partitioned.PartitionKey, *record.Schema(), fileTypeDelete, partitioned.PartitionValues)
 			if err != nil {
-				record.Release()
 				return fmt.Errorf("failed to get or create writer for %s: %s", fileTypeDelete, err)
 			}
 			if err := writer.currentWriter.WriteBuffered(record); err != nil {
-				record.Release()
 				return fmt.Errorf("failed to write delete record: %s", err)
 			}
 			writer.currentRowCount += record.NumRows()
-			record.Release()
 
 			if err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeDelete); err != nil {
 				return err
@@ -208,18 +206,16 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %s", err)
 		}
+		defer record.Release()
 
 		writer, err := w.getOrCreateWriter(partitioned.PartitionKey, *record.Schema(), fileTypeData, partitioned.PartitionValues)
 		if err != nil {
-			record.Release()
 			return fmt.Errorf("failed to get or create writer for data: %s", err)
 		}
 		if err := writer.currentWriter.WriteBuffered(record); err != nil {
-			record.Release()
 			return fmt.Errorf("failed to write data record: %s", err)
 		}
 		writer.currentRowCount += record.NumRows()
-		record.Release()
 
 		if err := w.checkAndFlush(ctx, writer, partitioned.PartitionKey, fileTypeData); err != nil {
 			return err
@@ -252,7 +248,8 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, writer *RollingWriter, 
 			return fmt.Errorf("failed to upload parquet during flush: %s", err)
 		}
 
-		delete(w.writers, fileType+":"+partitionKey)
+		key := getPartitionKey(fileType, partitionKey)
+		delete(w.writers, key)
 	}
 
 	return nil
@@ -299,12 +296,12 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {
-	for mapKey, writer := range w.writers {
+	for pKey, writer := range w.writers {
 		if err := writer.currentWriter.Close(); err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
 		}
 
-		parts := strings.SplitN(mapKey, ":", 2)
+		parts := strings.SplitN(pKey, ":", 2)
 		fileType := parts[0]
 		partitionKey := parts[1]
 
@@ -370,7 +367,7 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 }
 
 func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema, fileType string, partitionValues []any) (*RollingWriter, error) {
-	key := fileType + ":" + partitionKey
+	key := getPartitionKey(fileType, partitionKey)
 
 	if writer, exists := w.writers[key]; exists {
 		return writer, nil
