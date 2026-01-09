@@ -528,8 +528,8 @@ func OracleChunkRetrievalQuery(taskName string) string {
 	return fmt.Sprintf(`SELECT chunk_id, start_rowid, end_rowid FROM user_parallel_execute_chunks WHERE task_name = '%s' ORDER BY chunk_id`, taskName)
 }
 
-// OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
+// IncrementalValueFormatter is used to format the value of the cursor field for incremental sync, mainly because of the various timestamp formats
+func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// in case of incremental sync mode, during backfill to avoid duplicate records we need to use '<=', otherwise use '>'
@@ -682,8 +682,8 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
-		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
 		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
@@ -765,8 +765,8 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	placeholder := GetPlaceholder(opts.Driver)
 
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
-		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil
@@ -822,7 +822,7 @@ func DB2TableSchemaAndPrimaryKeysQuery() string {
 	`
 }
 
-// DB2RowCountQuery uses generic CARD from SYSCAT.TABLES (CARD is approx).
+// DB2ApproxRowCountQuery uses generic CARD from SYSCAT.TABLES (CARD is approx).
 func DB2ApproxRowCountQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT CARD FROM SYSCAT.TABLES WHERE TABSCHEMA = '%s' AND TABNAME = '%s'`, stream.Namespace(), stream.Name())
 }
@@ -887,7 +887,7 @@ func DB2AvgRowSizeQuery(stream types.StreamInterface) string {
     `, stream.Namespace(), stream.Name())
 }
 
-// DB2MinMaxQuery returns the query to fetch min/max values of a column
+// DB2MinMaxPKQuery returns the query to fetch min/max values of a column
 func DB2MinMaxPKQuery(stream types.StreamInterface, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.DB2)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)

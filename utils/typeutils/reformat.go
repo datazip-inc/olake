@@ -231,11 +231,6 @@ func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 		parsed = parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
 	}
 
-	// for DB2, normallizing time cursor when year is 1 -> 1970-01-01
-	if parsed.Year() == 1 {
-		parsed = time.Date(1970, 1, 1, parsed.Hour(), parsed.Minute(), parsed.Second(), parsed.Nanosecond(), time.UTC)
-	}
-
 	return parsed, nil
 }
 

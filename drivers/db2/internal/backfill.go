@@ -40,10 +40,10 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 
 	var stmt string
-	if len(pkColumns) > 0 {
-		stmt = jdbc.DB2PKChunkScanQuery(stream, pkColumns, chunk, filter)
-	} else if stream.Self().StreamMetadata.ChunkColumn != "" {
+	if stream.Self().StreamMetadata.ChunkColumn != "" {
 		stmt = jdbc.DB2PKChunkScanQuery(stream, []string{stream.Self().StreamMetadata.ChunkColumn}, chunk, filter)
+	} else if len(pkColumns) > 0 {
+		stmt = jdbc.DB2PKChunkScanQuery(stream, pkColumns, chunk, filter)
 	} else {
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
@@ -187,18 +187,16 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		nPages = utils.Ternary(nPages <= 0, int64(1), nPages).(int64)
 
 		// number of chunks
-		targetChunkCount := int64(math.Ceil(float64(nPages) / float64(pagesPerChunk)))
-		targetChunkCount = utils.Ternary(targetChunkCount <= 0, int64(1), targetChunkCount).(int64)
+		numberOfChunks := int64(math.Ceil(float64(nPages) / float64(pagesPerChunk)))
+		numberOfChunks = utils.Ternary(numberOfChunks <= 0, int64(1), numberOfChunks).(int64)
 
 		totalRidRange := maxRID - minRID
 		// distance between start and end RID of a chunk
-		ridInterval := int64(math.Ceil(float64(totalRidRange) / float64(targetChunkCount)))
+		ridInterval := int64(math.Ceil(float64(totalRidRange) / float64(numberOfChunks)))
 		chunks := types.NewSet[types.Chunk]()
 		for start := minRID; start <= maxRID; start += ridInterval {
 			end := start + ridInterval
-			if end > maxRID+1 {
-				end = maxRID + 1
-			}
+			end = utils.Ternary(end > maxRID+1, maxRID+1, end).(int64)
 			chunks.Insert(types.Chunk{Min: start, Max: end})
 		}
 
