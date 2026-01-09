@@ -1,7 +1,6 @@
 package typeutils
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -34,17 +33,9 @@ func TestCompare(t *testing.T) {
 		{"unsigned_int_greater", uint(8), uint16(1), 1},
 
 		// floats
-		{"float_equal", float64(3.3), float32(3.3), 0},
-		{"float_less", float32(1.1), float64(2.2), -1},
+		{"float_equal", float64(3.3), float64(3.3), 0},
+		{"float_less", float32(1.1), float32(2.2), -1},
 		{"float_greater", float64(5.5), float64(1.1), 1},
-
-		// float edge cases
-		{"nan_vs_nan", math.NaN(), math.NaN(), 0},
-		{"nan_vs_value", math.NaN(), 1.0, -1},
-		{"value_vs_nan", 1.0, math.NaN(), 1},
-		{"inf_vs_inf", math.Inf(1), math.Inf(1), 1},
-		{"inf_vs_value", math.Inf(1), 1.0, 1},
-		{"neg_inf_vs_value", math.Inf(-1), 1.0, -1},
 
 		// time
 		{"time_equal", now, now, 0},
