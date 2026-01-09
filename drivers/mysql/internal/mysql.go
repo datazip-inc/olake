@@ -226,6 +226,22 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 			return typeutils.ReformatGeoType(value)
 		}
 	}
+	
+	//enforce MySQL FLOAT (float32) semantics for binlog values
+	if strings.EqualFold(columnType, "FLOAT") {
+       	v, ok := value.(float64)
+            if !ok {
+                return value, nil
+            }
+      	f32 := float32(v)
+     	str := strconv.FormatFloat(float64(f32), 'f', -1, 32)
+
+		finalVal, err := strconv.ParseFloat(str, 64)
+           if err != nil {
+               return nil, err
+           }
+		return finalVal, nil
+   	}
 
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
