@@ -792,8 +792,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
 							writerTypes := []struct {
-								name      string
-								useArrow  bool
+								name     string
+								useArrow bool
 							}{
 								{"Legacy", false},
 								{"Arrow", true},

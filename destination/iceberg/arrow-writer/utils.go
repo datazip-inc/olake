@@ -238,5 +238,5 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 }
 
 func getPartitionKey(fileType string, partitionKey string) string {
-	return fileType + ":" + partitionKey 
+	return fileType + ":" + partitionKey
 }
