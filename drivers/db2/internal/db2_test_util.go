@@ -100,7 +100,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_REAL SET DATA TYPE DOUBLE`, integrationTestTable)
+		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_CHAR SET DATA TYPE VARCHAR(50)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, evolveQuery)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 
@@ -167,13 +167,13 @@ var ExpectedDB2Data = map[string]interface{}{
 
 var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_bigint":     int64(12345678901234),
-	"col_char":       "c",
+	"col_char":       "new_char_val",
 	"col_character":  "char_val",
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":    float64(123.45),
 	"col_double":     123.456789,
-	"col_real":       float64(123.5),
+	"col_real":       float32(123.5),
 	"col_int":        int32(123),
 	"col_smallint":   int32(321),
 	"col_clob":       "sample text",
@@ -215,7 +215,7 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_date":       "timestamp",
 	"col_decimal":    "double",
 	"col_double":     "double",
-	"col_real":       "double",
+	"col_real":       "float",
 	"col_int":        "integer",
 	"col_smallint":   "integer",
 	"col_clob":       "string",
