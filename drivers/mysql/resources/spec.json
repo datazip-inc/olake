@@ -39,10 +39,9 @@
     "jdbc_url_params": {
       "type": "object",
       "title": "JDBC URL Parameters",
-      "description": "Additional connection parameters to pass to the MySQL JDBC driver",
-      "additionalProperties": {
-        "type": "string"
-      }
+      "description": "Additional connection parameters for the Go MySQL driver",
+      "additionalProperties": true,
+      "default": {}
     },
     "ssl": {
       "type": "object",
