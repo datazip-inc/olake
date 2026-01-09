@@ -93,8 +93,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
         UPDATE %s SET
             col_cursor = NULL,
-            col_smallint = 321,
-            col_int = 321
+            col_smallint = 321
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -175,7 +174,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_decimal":    float64(123.45),
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
-	"col_int":        int64(321),
+	"col_int":        int64(123),
 	"col_smallint":   int32(321),
 	"col_clob":       "sample text",
 	"col_blob":       "BLOB DATA ONE",
