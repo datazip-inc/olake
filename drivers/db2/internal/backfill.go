@@ -70,7 +70,7 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 	if err := d.client.QueryRowContext(ctx, rowCountQuery).Scan(&approxRowCount); err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
-	if approxRowCount == -1 {
+	if approxRowCount == -1 || approxRowCount == 0 {
 		var hasRows bool
 		existsQuery := jdbc.DB2TableExistQuery(stream)
 		err := d.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
@@ -79,7 +79,7 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 		}
 
 		if hasRows {
-			return nil, fmt.Errorf("stats not populated for table[%s]. Please run command:\tRUNSTATS ON TABLE %s.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run CLP command:\tRUNSTATS ON TABLE %s.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
 		}
 
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
