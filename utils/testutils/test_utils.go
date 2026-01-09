@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -140,10 +141,14 @@ func discoverCommand(config TestConfig, flags ...string) string {
 	return baseCmd
 }
 
-// update normalization=true for selected streams under selected_streams.<namespace> by name
-func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool) string {
+// updateSelectedStreamsCommand mutates streams.json for the given streams under selected_streams.<namespace>.
+func updateSelectedStreamsCommand(config TestConfig, namespace string, stream []string, isBackfill bool, normalization bool, partitionRegex string) string {
 	if len(stream) == 0 {
 		return ""
+	}
+	// Escape for single quotes in `/bin/sh -c`.
+	shellEscapeSingleQuotes := func(s string) string {
+		return strings.ReplaceAll(s, `'`, `'"'"'`)
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
@@ -152,18 +157,25 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	}
 	condition := strings.Join(streamConditions, " or ")
 	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
-	jqExpr := fmt.Sprintf(
-		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s")) }' %s > %s && mv %s %s`,
+
+	partitionRegexEsc := shellEscapeSingleQuotes(partitionRegex)
+	jqProgram := fmt.Sprintf(
+		`.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = %t | .partition_regex = $partition_regex)) }`,
 		namespace,
 		namespace,
 		condition,
-		partitionRegex,
+		normalization,
+	)
+
+	return fmt.Sprintf(
+		`jq --arg partition_regex '%s' '%s' %s > %s && mv %s %s`,
+		partitionRegexEsc,
+		jqProgram,
 		config.CatalogPath,
 		tmpCatalog,
 		tmpCatalog,
 		config.CatalogPath,
 	)
-	return jqExpr
 }
 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
@@ -175,6 +187,17 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 	return fmt.Sprintf(
 		`jq --arg ns "%s" --arg name "%s" --arg mode "%s" --arg cursor "%s" '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = $mode | .stream.cursor_field = $cursor) else . end))' %s > %s && mv %s %s`,
 		namespace, streamName, syncMode, cursorField,
+		config.CatalogPath, tmpCatalog, tmpCatalog, config.CatalogPath,
+	)
+}
+
+func resetStreamToCDCCommand(config TestConfig, namespace, streamName string) string {
+	// in case of Oracle, the stream names are in uppercase in stream.json
+	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
+	tmpCatalog := fmt.Sprintf("/tmp/%s_reset_cdc_streams.json", config.Driver)
+	return fmt.Sprintf(
+		`jq --arg ns "%s" --arg name "%s" '.streams = (.streams | map(if .stream.namespace == $ns and .stream.name == $name then (.stream.sync_mode = "cdc" | del(.stream.cursor_field)) else . end))' %s > %s && mv %s %s`,
+		namespace, streamName,
 		config.CatalogPath, tmpCatalog, tmpCatalog, config.CatalogPath,
 	)
 }
@@ -268,6 +291,8 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	operation string,
 	opSymbol string,
 	schema map[string]interface{},
+	partitionRegex string,
+	normalization bool,
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
@@ -293,17 +318,17 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, partitionRegex, cfg.TestConfig.Driver, normalization)
 			} else {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, partitionRegex, cfg.TestConfig.Driver, normalization)
 			}
 		}
 	case "parquet":
 		{
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver, normalization)
 			} else {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver, normalization)
 			}
 		}
 	}
@@ -317,6 +342,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	t *testing.T,
 	c testcontainers.Container,
 	testTable string,
+	partitionRegex string,
+	normalization bool,
 ) error {
 	t.Log("Starting Iceberg Full load + CDC tests")
 
@@ -371,6 +398,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				partitionRegex,
+				normalization,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -392,6 +421,8 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	t *testing.T,
 	c testcontainers.Container,
 	testTable string,
+	partitionRegex string,
+	normalization bool,
 ) error {
 	t.Log("Starting Parquet Full load + CDC tests")
 
@@ -455,6 +486,8 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				partitionRegex,
+				normalization,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -472,6 +505,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	t *testing.T,
 	c testcontainers.Container,
 	testTable string,
+	partitionRegex string,
+	normalization bool,
 ) error {
 	t.Log("Starting Iceberg Full load + Incremental tests")
 
@@ -542,6 +577,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				partitionRegex,
+				normalization,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -558,6 +595,8 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	t *testing.T,
 	c testcontainers.Container,
 	testTable string,
+	partitionRegex string,
+	normalization bool,
 ) error {
 	t.Log("Starting Parquet Full load + Incremental tests")
 
@@ -629,6 +668,8 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				partitionRegex,
+				normalization,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -746,47 +787,69 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							// 2. Query on test table
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
-							// streamUpdateCmd := fmt.Sprintf(
-							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
-							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
-							// )
-							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
-							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
-								return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
-									code, err, out,
-								)
+							type normalizationCase struct {
+								name           string
+								normalization  bool
+								partitionRegex string
+							}
+							cases := []normalizationCase{
+								{name: "Normalized", normalization: true, partitionRegex: cfg.PartitionRegex},
+								{name: "Denormalized", normalization: false, partitionRegex: ""},
 							}
 
-							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
-
-							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
-								t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
-									if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-										t.Fatalf("Iceberg Full load + CDC tests failed: %v", err)
+							for _, tc := range cases {
+								tc := tc // capture
+								t.Run(tc.name, func(t *testing.T) {
+									// reset source table for deterministic runs
+									if err := cfg.resetTable(ctx, t, currentTestTable); err != nil {
+										t.Fatalf("failed to reset table: %v", err)
 									}
-								})
 
-								t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
-									if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-										t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
+									// reset stream back to CDC defaults before each mode run
+									resetCatalogCmd := resetStreamToCDCCommand(*cfg.TestConfig, cfg.Namespace, currentTestTable)
+									if code, out, err := utils.ExecCommand(ctx, c, resetCatalogCmd); err != nil || code != 0 {
+										t.Fatalf("failed to reset streams.json for %s (%d): %s\n%s", tc.name, code, err, out)
+									}
+
+									streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, []string{currentTestTable}, true, tc.normalization, tc.partitionRegex)
+									if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
+										t.Fatalf("failed to update streams.json for %s (%d): %s\n%s", tc.name, code, err, out)
+									}
+
+									if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
+										t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
+											if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
+												t.Fatalf("Iceberg Full load + CDC tests failed: %v", err)
+											}
+										})
+
+										t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
+											if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
+												t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
+											}
+										})
+									}
+
+									t.Run("Iceberg Full load + Incremental tests", func(t *testing.T) {
+										if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
+											t.Fatalf("Iceberg Full load + Incremental tests failed: %v", err)
+										}
+									})
+
+									t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
+										if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable, tc.partitionRegex, tc.normalization); err != nil {
+											t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
+										}
+									})
+
+									// cleanup between modes
+									dropIcebergTable(t, currentTestTable, cfg.DestinationDB)
+									if err := DeleteParquetFiles(t, cfg.DestinationDB, currentTestTable); err != nil {
+										t.Fatalf("failed to cleanup parquet files: %v", err)
 									}
 								})
 							}
-
-							t.Run("Iceberg Full load + Incremental tests", func(t *testing.T) {
-								if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Iceberg Full load + Incremental tests failed: %v", err)
-								}
-							})
-
-							t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
-								if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
-								}
-							})
 
 							// 5. Clean up
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
@@ -839,9 +902,65 @@ func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
 	t.Logf("Successfully dropped Iceberg table: %s", fullTableName)
 }
 
+func normalizeKeysLower(v any) any {
+	switch vv := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(vv))
+		for k, val := range vv {
+			out[strings.ToLower(k)] = normalizeKeysLower(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, 0, len(vv))
+		for _, item := range vv {
+			out = append(out, normalizeKeysLower(item))
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func assertDenormValueEqual(t *testing.T, key string, expected any, actual any) {
+	t.Helper()
+
+	// Compare JSON-ish strings by parsing and deep-equal (lowercasing keys).
+	if expStr, ok := expected.(string); ok && utils.IsJSON(expStr) {
+		var expAny any
+		require.NoError(t, json.Unmarshal([]byte(expStr), &expAny), "Failed to unmarshal expected JSON for key %s", key)
+		expAny = normalizeKeysLower(expAny)
+
+		switch act := actual.(type) {
+		case string:
+			if utils.IsJSON(act) {
+				var actAny any
+				require.NoError(t, json.Unmarshal([]byte(act), &actAny), "Failed to unmarshal actual JSON string for key %s", key)
+				actAny = normalizeKeysLower(actAny)
+				require.EqualValues(t, expAny, actAny, "Value mismatch for key %s", key)
+				return
+			}
+		case map[string]interface{}, []interface{}:
+			actAny := normalizeKeysLower(actual)
+			require.EqualValues(t, expAny, actAny, "Value mismatch for key %s", key)
+			return
+		}
+	}
+
+	// If actual is an RFC3339 timestamp string, compare by epoch micros.
+	if actStr, ok := actual.(string); ok {
+		if tm, err := time.Parse(time.RFC3339Nano, actStr); err == nil {
+			actualMicros := tm.UnixNano() / int64(time.Microsecond)
+			require.EqualValues(t, expected, actualMicros, "Timestamp mismatch for key %s", key)
+			return
+		}
+	}
+
+	require.EqualValues(t, expected, actual, "Value mismatch for key %s", key)
+}
+
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, normalization bool) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -903,14 +1022,31 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 
 	for rowIdx, row := range selectRows {
-		icebergMap := make(map[string]interface{}, len(schema)+1)
-		for _, col := range row.FieldNames() {
-			icebergMap[col] = row.Value(col)
-		}
-		for key, expected := range schema {
-			icebergValue, ok := icebergMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+		if !normalization {
+			rawJSON, ok := row.Value(constants.StringifiedData).(string)
+			require.True(t, ok, "Column 'data' should be a string in denormalized mode")
+
+			var actualData map[string]interface{}
+			require.NoError(t, json.Unmarshal([]byte(rawJSON), &actualData), "Failed to unmarshal JSON 'data' column")
+			normalizedAny := normalizeKeysLower(actualData)
+			normalizedMap, ok := normalizedAny.(map[string]interface{})
+			require.True(t, ok, "Failed to normalize denormalized JSON data for comparison")
+
+			for key, expected := range schema {
+				val, exists := normalizedMap[key]
+				require.Truef(t, exists, "Key %s not found in actual data", key)
+				assertDenormValueEqual(t, key, expected, val)
+			}
+		} else {
+			icebergMap := make(map[string]interface{}, len(schema)+1)
+			for _, col := range row.FieldNames() {
+				icebergMap[col] = row.Value(col)
+			}
+			for key, expected := range schema {
+				icebergValue, ok := icebergMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
+				require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+			}
 		}
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
@@ -930,40 +1066,51 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		}
 	}
 
-	for col, dbType := range datatypeSchema {
-		iceType, found := icebergSchema[col]
-		require.True(t, found, "Column %s not found in Iceberg schema", col)
+	if normalization {
+		for col, dbType := range datatypeSchema {
+			iceType, found := icebergSchema[col]
+			require.True(t, found, "Column %s not found in Iceberg schema", col)
 
-		expectedIceType, mapped := GlobalTypeMapping[dbType]
-		if !mapped {
-			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
+			expectedIceType, mapped := GlobalTypeMapping[dbType]
+			if !mapped {
+				t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
+			}
+			require.Equal(t, expectedIceType, iceType,
+				"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 		}
-		require.Equal(t, expectedIceType, iceType,
-			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
-	}
-	t.Logf("Verified datatypes in Iceberg after sync")
+		t.Logf("Verified datatypes in Iceberg after sync")
 
-	// Partition verification using only metadata tables
-	if partitionRegex == "" {
-		t.Log("No partitionRegex provided, skipping partition verification")
-		return
-	}
-	// Extract partition columns from describe rows
-	partitionCols := extractFirstPartitionColFromRows(describeRows)
-	require.NotEmpty(t, partitionCols, "Partition columns not found in Iceberg metadata")
+		// Partition verification using only metadata tables
+		if partitionRegex == "" {
+			t.Log("No partitionRegex provided, skipping partition verification")
+			return
+		}
+		partitionCols := extractFirstPartitionColFromRows(describeRows)
+		require.NotEmpty(t, partitionCols, "Partition columns not found in Iceberg metadata")
 
-	// Parse expected partition columns from pattern like "/{col,identity}"
-	// Supports multiple entries like "/{col1,identity}" by taking the first token as the source column
-	clean := strings.TrimPrefix(partitionRegex, "/{")
-	clean = strings.TrimSuffix(clean, "}")
-	toks := strings.Split(clean, ",")
-	expectedCol := strings.TrimSpace(toks[0])
-	require.Equal(t, expectedCol, partitionCols, "Partition column does not match expected '%s'", expectedCol)
-	t.Logf("Verified partition column: %s", expectedCol)
+		clean := strings.TrimPrefix(partitionRegex, "/{")
+		clean = strings.TrimSuffix(clean, "}")
+		toks := strings.Split(clean, ",")
+		expectedCol := strings.TrimSpace(toks[0])
+		require.Equal(t, expectedCol, partitionCols, "Partition column does not match expected '%s'", expectedCol)
+		t.Logf("Verified partition column: %s", expectedCol)
+	} else {
+		rawCols := []string{
+			constants.StringifiedData,
+			constants.OlakeID,
+			constants.OpType,
+			constants.OlakeTimestamp,
+			constants.CdcTimestamp,
+		}
+		for _, col := range rawCols {
+			_, found := icebergSchema[col]
+			require.True(t, found, "Column %s not found in Iceberg schema (denormalized)", col)
+		}
+	}
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, normalization bool) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -1011,15 +1158,41 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	}
 
 	for rowIdx, row := range rows {
-		parquetMap := make(map[string]interface{}, len(schema)+1)
-		for _, col := range row.FieldNames() {
-			parquetMap[col] = row.Value(col)
-		}
-		for key, expected := range schema {
-			val, ok := parquetMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-			require.Equal(t, expected, val,
-				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
+		if !normalization {
+			rawVal := row.Value(constants.StringifiedData)
+			var actualData map[string]interface{}
+			switch v := rawVal.(type) {
+			case string:
+				require.NoError(t, json.Unmarshal([]byte(v), &actualData), "Failed to unmarshal Parquet JSON 'data' column")
+			case map[string]interface{}:
+				actualData = v
+			default:
+				// fall back to stringifying and parsing
+				b, err := json.Marshal(v)
+				require.NoError(t, err, "Failed to marshal Parquet 'data' column for parsing")
+				require.NoError(t, json.Unmarshal(b, &actualData), "Failed to unmarshal Parquet 'data' column")
+			}
+
+			normalizedAny := normalizeKeysLower(actualData)
+			normalizedMap, ok := normalizedAny.(map[string]interface{})
+			require.True(t, ok, "Failed to normalize denormalized Parquet JSON data for comparison")
+
+			for key, expected := range schema {
+				val, exists := normalizedMap[key]
+				require.Truef(t, exists, "Key %s not found in actual data", key)
+				assertDenormValueEqual(t, key, expected, val)
+			}
+		} else {
+			parquetMap := make(map[string]interface{}, len(schema)+1)
+			for _, col := range row.FieldNames() {
+				parquetMap[col] = row.Value(col)
+			}
+			for key, expected := range schema {
+				val, ok := parquetMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
+				require.Equal(t, expected, val,
+					"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
+			}
 		}
 	}
 	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
@@ -1040,18 +1213,32 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		}
 	}
 
-	for col, dbType := range datatypeSchema {
-		pqType, found := parquetSchema[col]
-		require.True(t, found, "Column %s not found in Parquet schema", col)
+	if normalization {
+		for col, dbType := range datatypeSchema {
+			pqType, found := parquetSchema[col]
+			require.True(t, found, "Column %s not found in Parquet schema", col)
 
-		expectedType, mapped := GlobalTypeMapping[dbType]
-		if !mapped {
-			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
+			expectedType, mapped := GlobalTypeMapping[dbType]
+			if !mapped {
+				t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
+			}
+			require.Equal(t, expectedType, pqType,
+				"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
 		}
-		require.Equal(t, expectedType, pqType,
-			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
+		t.Logf("Verified datatypes in Parquet after sync")
+	} else {
+		rawCols := []string{
+			constants.StringifiedData,
+			constants.OlakeID,
+			constants.OpType,
+			constants.OlakeTimestamp,
+			constants.CdcTimestamp,
+		}
+		for _, col := range rawCols {
+			_, found := parquetSchema[col]
+			require.True(t, found, "Column %s not found in Parquet schema (denormalized)", col)
+		}
 	}
-	t.Logf("Verified datatypes in Parquet after sync")
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
@@ -1130,7 +1317,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.BackfillStreams, true)
+							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.BackfillStreams, true, true, "")
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -1164,7 +1351,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.CDCStreams, false)
+								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.CDCStreams, false, true, "")
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
