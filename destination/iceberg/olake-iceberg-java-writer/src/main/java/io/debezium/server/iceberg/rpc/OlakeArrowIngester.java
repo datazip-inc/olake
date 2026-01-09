@@ -1,15 +1,22 @@
 package io.debezium.server.iceberg.rpc;
 
 import java.io.OutputStream;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.OutputFileFactory;
+import org.apache.iceberg.types.Types.NestedField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +36,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
      private final Catalog icebergCatalog;
      private final IcebergTableOperator icebergTableOperator;
      private Table icebergTable;
-     private org.apache.iceberg.io.OutputFileFactory outputFileFactory;
+     private OutputFileFactory outputFileFactory;
 
      public OlakeArrowIngester(boolean upsertRecords, String icebergNamespace, Catalog icebergCatalog) {
           this.icebergNamespace = icebergNamespace;
@@ -42,7 +49,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
      @Override
      public void icebergAPI(ArrowPayload request, StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver) {
           String requestId = String.format("[Arrow-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
-          long startTime = System.currentTimeMillis();
 
           try {
                ArrowPayload.Metadata metadata = request.getMetadata();
@@ -62,31 +68,28 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                }
 
                switch (request.getType()) {
-                    case JSONSCHEMA:
-                         this.icebergTable.refresh();
+                    case JSONSCHEMA -> {
+                         this.icebergTable.refresh(); // important for the case of schema evolution
 
-                         java.util.Map<String, String> schemaMap = new java.util.HashMap<>();
+                         Map<String, String> schemaMap = new HashMap<>();
 
-                         org.apache.iceberg.Schema tableSchema = this.icebergTable.schema();
-                         String dataSchemaJson = org.apache.iceberg.SchemaParser.toJson(tableSchema);
+                         Schema tableSchema = this.icebergTable.schema();
+                         String dataSchemaJson = SchemaParser.toJson(tableSchema);
                          schemaMap.put(FILE_TYPE_DATA, dataSchemaJson);
 
-                         org.apache.iceberg.types.Types.NestedField olakeIdField = tableSchema.findField("_olake_id");
-                         if (olakeIdField != null) {
-                              org.apache.iceberg.Schema deleteSchema = new org.apache.iceberg.Schema(
-                                        tableSchema.schemaId(),
-                                        java.util.Collections.singletonList(olakeIdField),
-                                        tableSchema.identifierFieldIds());
-                              String deleteSchemaJson = org.apache.iceberg.SchemaParser.toJson(deleteSchema);
-                              schemaMap.put(FILE_TYPE_DELETE, deleteSchemaJson);
-                         } else {
-                              throw new Exception("OlakeID field not found in table schema");
-                         }
+                         NestedField olakeIdField = tableSchema.findField("_olake_id");
+                         Schema deleteSchema = new Schema(
+                                   tableSchema.schemaId(),
+                                   Collections.singletonList(olakeIdField),
+                                   tableSchema.identifierFieldIds());
+                         String deleteSchemaJson = SchemaParser.toJson(deleteSchema);
+                         schemaMap.put(FILE_TYPE_DELETE, deleteSchemaJson);
 
                          sendSchemaResponse(responseObserver, "Schema JSON retrieved successfully", schemaMap);
                          break;
+                    }
 
-                    case REGISTER_AND_COMMIT:
+                    case REGISTER_AND_COMMIT -> {
                          List<ArrowPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
                          int dataFileCount = 0;
                          int deleteFileCount = 0;
@@ -97,40 +100,34 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                               long recordCount = fileMeta.getRecordCount();
 
                               switch (fileType) {
-                                   case FILE_TYPE_DELETE:
-                                        org.apache.iceberg.types.Types.NestedField olakeIdFieldForDelete = icebergTable
-                                                  .schema().findField("_olake_id");
-                                        if (olakeIdFieldForDelete == null) {
-                                             throw new IllegalArgumentException(
-                                                       "_olake_id field not found in table schema for delete files");
-                                        }
+                                   case FILE_TYPE_DELETE -> {
+                                        NestedField olakeIdFieldForDelete = icebergTable.schema().findField("_olake_id");
                                         int fieldId = olakeIdFieldForDelete.fieldId();
-                                        List<String> deletePartitionValues = fileMeta
-                                                  .getPartitionValuesList();
                                         icebergTableOperator.accumulateDeleteFiles(
                                                   threadId,
                                                   icebergTable,
                                                   filePath,
                                                   fieldId,
                                                   recordCount,
-                                                  deletePartitionValues);
+                                                  fileMeta.getPartitionValuesList());
                                         deleteFileCount++;
                                         break;
+                                   }
 
-                                   case FILE_TYPE_DATA:
-                                        List<String> dataPartitionValues = fileMeta.getPartitionValuesList();
+                                   case FILE_TYPE_DATA -> {
                                         icebergTableOperator.accumulateDataFiles(
                                                   threadId,
                                                   icebergTable,
                                                   filePath,
-                                                  dataPartitionValues);
+                                                  fileMeta.getPartitionValuesList());
                                         dataFileCount++;
                                         break;
+                                   }
 
-                                   default:
-                                        LOGGER.warn("{} Unknown file type '{}' for path: {}", requestId, fileType,
-                                                  filePath);
+                                   default -> {
+                                        LOGGER.warn("{} Unknown file type '{}' for path: {}", requestId, fileType, filePath);
                                         break;
+                                   }
                               }
                          }
 
@@ -140,18 +137,17 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                              "Successfully committed %d data files and %d delete files for thread %s",
                                              dataFileCount, deleteFileCount, threadId));
                          break;
+                    }
 
-                    case UPLOAD_FILE:
+                    case UPLOAD_FILE -> {
                          ArrowPayload.FileUploadRequest uploadReq = metadata.getFileUpload();
 
                          byte[] fileData = uploadReq.getFileData().toByteArray();
                          String partitionKey = uploadReq.getPartitionKey();
 
                          if (this.outputFileFactory == null) {
-                              FileFormat fileFormat = IcebergUtil
-                                        .getTableFileFormat(this.icebergTable);
-                              this.outputFileFactory = IcebergUtil.getTableOutputFileFactory(this.icebergTable,
-                                        fileFormat);
+                              FileFormat fileFormat = IcebergUtil.getTableFileFormat(this.icebergTable);
+                              this.outputFileFactory = IcebergUtil.getTableOutputFileFactory(this.icebergTable, fileFormat);
                          }
 
                          EncryptedOutputFile encryptedFile = this.outputFileFactory.newOutputFile();
@@ -188,11 +184,10 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          sendResponse(responseObserver, icebergLocation);
                          break;
 
-                    default:
-                         throw new IllegalArgumentException("Unknown payload type: " + request.getType());
-               }
+                    }
 
-               LOGGER.info("{} Total time taken: {} ms", requestId, (System.currentTimeMillis() - startTime));
+                    default -> throw new IllegalArgumentException("Unknown payload type: " + request.getType());
+               }
           } catch (Exception e) {
                String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
                LOGGER.error(errorMessage, e);
@@ -209,7 +204,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
      }
 
      private void sendSchemaResponse(StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver, String message,
-               java.util.Map<String, String> schemaMap) {
+               Map<String, String> schemaMap) {
           RecordIngest.ArrowIngestResponse response = RecordIngest.ArrowIngestResponse.newBuilder()
                     .setResult(message)
                     .putAllIcebergSchemas(schemaMap)

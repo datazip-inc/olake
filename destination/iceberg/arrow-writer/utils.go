@@ -136,7 +136,7 @@ func createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocat
 	return arrowRec, nil
 }
 
-func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool) (arrow.Record, error) {
+func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool, olakeTimestamp time.Time) (arrow.Record, error) {
 	if len(records) == 0 {
 		return nil, fmt.Errorf("no records provided")
 	}
@@ -144,7 +144,6 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
-	olakeTimestamp := time.Now().UTC()
 	for _, record := range records {
 		for idx, field := range schema.Fields() {
 			var val any
@@ -152,7 +151,6 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 			case constants.OlakeID:
 				val = record.OlakeID
 			case constants.OlakeTimestamp:
-				// for olake timestamp, set current timestamp
 				val = olakeTimestamp
 			case constants.OpType:
 				val = record.OperationType
@@ -237,4 +235,8 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
 	return nil
+}
+
+func getPartitionKey(fileType string, partitionKey string) string {
+	return fileType + ":" + partitionKey
 }
