@@ -70,7 +70,7 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 	if err := d.client.QueryRowContext(ctx, rowCountQuery).Scan(&approxRowCount); err != nil {
 		return nil, fmt.Errorf("failed to get approx row count: %s", err)
 	}
-	if approxRowCount == -1 {
+	if approxRowCount == -1 || approxRowCount == 0 {
 		var hasRows bool
 		existsQuery := jdbc.DB2TableExistQuery(stream)
 		err := d.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
@@ -79,7 +79,7 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 		}
 
 		if hasRows {
-			return nil, fmt.Errorf("stats not populated for table[%s]. Please run command:\tRUNSTATS ON TABLE %s.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run CLP command:\tRUNSTATS ON TABLE %s.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
 		}
 
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
@@ -170,10 +170,19 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 	}
 	// split chunks via physical identifier RID()
 	splitViaRID := func(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-		var minRID, maxRID int64
+		var minRID, maxRID sql.NullInt64
 		if err := d.client.QueryRowContext(ctx, jdbc.DB2MinMaxRidQuery(stream)).Scan(&minRID, &maxRID); err != nil {
 			return nil, fmt.Errorf("failed to get the min and max rid: %s", err)
 		}
+
+		// Handle empty table case - MIN/MAX return NULL when no rows exist
+		if !minRID.Valid || !maxRID.Valid {
+			logger.Warnf("Invalid RIDs, table %s might be empty, skipping chunking", stream.ID())
+			return types.NewSet[types.Chunk](), nil
+		}
+
+		// int64 values from NullInt64 after validation
+		minRIDVal, maxRIDVal := minRID.Int64, maxRID.Int64
 
 		// pages size and number of pages
 		var pageSize, nPages int64
@@ -190,13 +199,13 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		numberOfChunks := int64(math.Ceil(float64(nPages) / float64(pagesPerChunk)))
 		numberOfChunks = utils.Ternary(numberOfChunks <= 0, int64(1), numberOfChunks).(int64)
 
-		totalRidRange := maxRID - minRID
+		totalRidRange := maxRIDVal - minRIDVal
 		// distance between start and end RID of a chunk
 		ridInterval := int64(math.Ceil(float64(totalRidRange) / float64(numberOfChunks)))
 		chunks := types.NewSet[types.Chunk]()
-		for start := minRID; start <= maxRID; start += ridInterval {
+		for start := minRIDVal; start <= maxRIDVal; start += ridInterval {
 			end := start + ridInterval
-			end = utils.Ternary(end > maxRID+1, maxRID+1, end).(int64)
+			end = utils.Ternary(end > maxRIDVal+1, maxRIDVal+1, end).(int64)
 			chunks.Insert(types.Chunk{Min: start, Max: end})
 		}
 
