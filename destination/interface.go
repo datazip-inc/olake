@@ -33,5 +33,7 @@ type Writer interface {
 	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
 	// DropStreams is used to clear the destination before re-writing the stream
 	DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error
+	// IsThreadCommitted checks if the chunk associated with the threadID is already committed
+	ThreadStatus(ctx context.Context, threadID string) (bool, error)
 	Close(ctx context.Context) error
 }
