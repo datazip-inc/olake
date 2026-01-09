@@ -9,7 +9,7 @@ function fail() {
 joined_arguments=""
 
 # Function to download DB2 clidriver using curl as fallback
-function download_clidriver_curl() {
+function download_db2_clidriver() {
     local install_dir="$1"
     local os_type=$(uname -s)
     local arch_type=$(uname -m)
@@ -90,23 +90,8 @@ function setup_db2_clidriver() {
         # Installation directory
         local install_dir="$HOME"
         
-        # Try using go_ibm_db installer first
-        echo "Attempting to download using go_ibm_db installer..."
-        cd "$install_dir" || fail "Failed to navigate to $install_dir"
-        
-        if go run github.com/ibmdb/go_ibm_db/installer@v0.5.4 2>/dev/null; then
-            echo "go_ibm_db installer succeeded"
-        else
-            echo "go_ibm_db installer failed, falling back to direct download..."
-            
-            # Clean up any partial downloads from the failed go installer
-            rm -rf "$install_dir/clidriver" 2>/dev/null
-            rm -f "$install_dir"/*.tar.gz 2>/dev/null
-            rm -f "$install_dir"/*.zip 2>/dev/null
-            
-            # Fallback to curl download
-            download_clidriver_curl "$install_dir"
-        fi
+        # Download clidriver using curl
+        download_db2_clidriver "$install_dir"
         
         # Return to original directory
         cd "$current_dir"
