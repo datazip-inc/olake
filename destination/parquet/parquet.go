@@ -330,7 +330,9 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
 
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+		flattener := typeutils.NewFlattener()
+		flattenedRecord, err := flattener.Flatten(record.Data)
+		typeutils.ReleaseFlattener(flattener)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
