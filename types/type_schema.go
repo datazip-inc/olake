@@ -144,6 +144,32 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 
 	return icebergFields
 }
+
+// FilterSchemaBySelectedColumns filters a schema to only include selected columns.
+// Used for filtering destination table schemas during table creation.
+// Returns filtered schema if some columns are selected, otherwise returns the original schema if all columns are selected or no selection is provided.
+func FilterSchemaBySelectedColumns(schema *TypeSchema, selectedMap map[string]struct{}, allSelected bool) *TypeSchema {
+	if len(selectedMap) == 0 {
+		return schema
+	}
+	if allSelected {
+		return schema
+	}
+
+	filtered := NewTypeSchema()
+	schema.Properties.Range(func(key, value interface{}) bool {
+		colName, ok := key.(string)
+		if !ok {
+			return true
+		}
+		if _, exists := selectedMap[colName]; exists {
+			filtered.Properties.Store(colName, value)
+		}
+		return true
+	})
+	return filtered
+}
+
 func (t *TypeSchema) HasDestinationColumnName() bool {
 	found := false
 	t.Properties.Range(func(_, value interface{}) bool {

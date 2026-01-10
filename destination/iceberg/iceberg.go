@@ -83,8 +83,14 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	if globalSchema == nil {
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
+		filteredSchema := types.FilterSchemaBySelectedColumns(
+			stream.Schema(),
+			stream.Self().StreamMetadata.SelectedColumns.Map,
+			stream.Self().StreamMetadata.SelectedColumns.AllSelected,
+		)
+
 		var requestPayload proto.IcebergPayload
-		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
+		iceSchema := utils.Ternary(stream.NormalizationEnabled(), filteredSchema.ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{

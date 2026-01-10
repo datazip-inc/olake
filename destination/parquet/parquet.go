@@ -148,8 +148,14 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 		return fields, nil
 	}
 
+	filteredSchema := types.FilterSchemaBySelectedColumns(
+		stream.Schema(),
+		stream.Self().StreamMetadata.SelectedColumns.Map,
+		stream.Self().StreamMetadata.SelectedColumns.AllSelected,
+	)
+
 	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
+	fields.FromSchema(filteredSchema)
 	p.schema = fields.Clone() // update schema
 	return fields, nil
 }
