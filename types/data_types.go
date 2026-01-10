@@ -71,6 +71,9 @@ type RawRecord struct {
 }
 
 func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
+	if data == nil {
+		data = make(map[string]any)
+	}
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
