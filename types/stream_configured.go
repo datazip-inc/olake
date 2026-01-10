@@ -264,28 +264,21 @@ func (s *ConfiguredStream) AreAllColumnsSelected() bool {
 	}
 
 	schemaColumnCount := 0
-	s.Stream.Schema.Properties.Range(func(_, _ interface{}) bool {
-		schemaColumnCount++
-		return true
-	})
 
-	if len(selectedMap) != schemaColumnCount {
-		return false
-	}
-
-	allSelected := true
 	s.Stream.Schema.Properties.Range(func(key, _ interface{}) bool {
+		schemaColumnCount++
+
 		colName, ok := key.(string)
 		if !ok {
-			allSelected = false
 			return false
 		}
+
 		if _, exists := selectedMap[colName]; !exists {
-			allSelected = false
 			return false
 		}
+
 		return true
 	})
 
-	return allSelected
+	return len(selectedMap) == schemaColumnCount
 }
