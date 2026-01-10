@@ -223,7 +223,9 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 	}
 
 	chunkCond = utils.Ternary(filter != "" && chunkCond != "", fmt.Sprintf("(%s) AND (%s)", chunkCond, filter), chunkCond).(string)
-	return fmt.Sprintf(`SELECT * FROM %s WHERE %s`, quotedTable, chunkCond)
+
+	columnList := BuildColumnList(stream, constants.Postgres)
+	return fmt.Sprintf(`SELECT %s FROM %s WHERE %s`, columnList, quotedTable, chunkCond)
 }
 
 // MySQL-Specific Queries
@@ -258,7 +260,10 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 // MysqlLimitOffsetScanQuery is used to get the rows
 func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	query := fmt.Sprintf("SELECT * FROM %s", quotedTable)
+
+	columnList := BuildColumnList(stream, constants.MySQL)
+	query := fmt.Sprintf("SELECT %s FROM %s", columnList, quotedTable)
+
 	query = utils.Ternary(filter == "", query, fmt.Sprintf("%s WHERE %s", query, filter)).(string)
 	if chunk.Min == nil {
 		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
@@ -279,7 +284,8 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
+	columnList := BuildColumnList(stream, constants.MySQL)
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", columnList, quotedTable, condition)
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
@@ -474,13 +480,15 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 
 	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
+	columnList := BuildColumnList(stream, constants.Oracle)
+
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
-		return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
-			quotedTable, chunkMin, chunkMax, filterClause)
+		return fmt.Sprintf("SELECT %s FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
+			columnList, quotedTable, chunkMin, chunkMax, filterClause)
 	}
-	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
-		quotedTable, chunkMin, filterClause)
+	return fmt.Sprintf("SELECT %s FROM %s WHERE ROWID >= '%v' %s",
+		columnList, quotedTable, chunkMin, filterClause)
 }
 
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
@@ -691,7 +699,9 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 
 	// Use QuoteTable helper function for consistent table quoting
 	quotedTable := QuoteTable(opts.Stream.Namespace(), opts.Stream.Name(), opts.Driver)
-	incrementalQuery := fmt.Sprintf("SELECT * FROM %s WHERE (%s)", quotedTable, incrementalCondition)
+
+	columnList := BuildColumnList(opts.Stream, opts.Driver)
+	incrementalQuery := fmt.Sprintf("SELECT %s FROM %s WHERE (%s)", columnList, quotedTable, incrementalCondition)
 
 	return incrementalQuery, queryArgs, nil
 }
@@ -769,4 +779,19 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 		arguments = append(arguments, argument)
 	}
 	return thresholdFilter, arguments, nil
+}
+
+// BuildColumnList builds a comma-separated list of quoted column names for SQL queries
+// If selectedCols is empty, returns "*"
+func BuildColumnList(stream types.StreamInterface, driver constants.DriverType) string {
+	selectedCols := stream.Self().GetSelectedColumns()
+	if len(selectedCols) == 0 {
+		return "*"
+	}
+
+	quotedCols := make([]string, len(selectedCols))
+	for i, col := range selectedCols {
+		quotedCols[i] = QuoteIdentifier(col, driver)
+	}
+	return strings.Join(quotedCols, ", ")
 }

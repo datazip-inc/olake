@@ -60,6 +60,29 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
 }
 
+func (s *ConfiguredStream) GetSelectedColumns() []string {
+	return s.StreamMetadata.SelectedColumns
+}
+
+func (s *ConfiguredStream) GetSelectedColumnsMap() map[string]struct{} {
+	return s.StreamMetadata.SelectedColumnsMap
+}
+
+func (s *ConfiguredStream) FilterDataBySelectedColumns(data map[string]interface{}) map[string]interface{} {
+	selectedMap := s.GetSelectedColumnsMap()
+	if len(selectedMap) == 0 {
+		return data
+	}
+
+	filtered := make(map[string]interface{})
+	for key, value := range data {
+		if _, exists := selectedMap[key]; exists {
+			filtered[key] = value
+		}
+	}
+	return filtered
+}
+
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 	if s.Stream.DestinationDatabase != "" {
 		return utils.Reformat(s.Stream.DestinationDatabase)
@@ -173,21 +196,20 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
 }
 
-// ensureMandatoryColumns ensures cursor fields and CDC columns are always in SelectedColumns
+// ensureMandatoryColumns ensures that the following columns are always in SelectedColumns:
+// 1. cursor fields,
+// 2. CDC columns,
+// 3. source defined primary key columns,
+// 4. system generated fields
 func (s *ConfiguredStream) ensureMandatoryColumns() error {
-	selectedMap := make(map[string]struct{})
-	for _, col := range s.StreamMetadata.SelectedColumns {
-		if _, exists := selectedMap[col]; exists {
-			return fmt.Errorf("duplicate column %s", col)
-		}
-		selectedMap[col] = struct{}{}
-	}
+	selectedMap := s.StreamMetadata.SelectedColumnsMap
 
 	// Add system generated fields
 	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
 	for _, sysField := range systemFields {
 		if _, exists := selectedMap[sysField]; !exists {
 			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, sysField)
+			selectedMap[sysField] = struct{}{}
 		}
 	}
 
@@ -197,13 +219,13 @@ func (s *ConfiguredStream) ensureMandatoryColumns() error {
 		if primaryCursor != "" {
 			if _, exists := selectedMap[primaryCursor]; !exists {
 				s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, primaryCursor)
-				// Add to selectedMap to avoid duplicates if primaryCursor == secondaryCursor
 				selectedMap[primaryCursor] = struct{}{}
 			}
 		}
 		if secondaryCursor != "" {
 			if _, exists := selectedMap[secondaryCursor]; !exists {
 				s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, secondaryCursor)
+				selectedMap[secondaryCursor] = struct{}{}
 			}
 		}
 	}
@@ -212,6 +234,15 @@ func (s *ConfiguredStream) ensureMandatoryColumns() error {
 	if s.Stream.SyncMode == CDC || s.Stream.SyncMode == STRICTCDC {
 		if _, exists := selectedMap[constants.CdcTimestamp]; !exists {
 			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, constants.CdcTimestamp)
+			selectedMap[constants.CdcTimestamp] = struct{}{}
+		}
+	}
+
+	// Add source defined primary key columns
+	for _, pk := range s.Stream.SourceDefinedPrimaryKey.Array() {
+		if _, exists := selectedMap[pk]; !exists {
+			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, pk)
+			selectedMap[pk] = struct{}{}
 		}
 	}
 

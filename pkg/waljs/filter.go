@@ -75,6 +75,8 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 			return nil, rowsCount, fmt.Errorf("failed to convert change data: %s", err)
 		}
 
+		changesMap = stream.Self().FilterDataBySelectedColumns(changesMap)
+
 		if err := OnFiltered(ctx, abstract.CDCChange{
 			Stream:    stream,
 			Kind:      ch.Kind,

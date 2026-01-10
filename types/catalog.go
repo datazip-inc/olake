@@ -38,14 +38,15 @@ type StatusRow struct {
 }
 
 type StreamMetadata struct {
-	ChunkColumn     string   `json:"chunk_column,omitempty"`
-	PartitionRegex  string   `json:"partition_regex"`
-	StreamName      string   `json:"stream_name"`
-	AppendMode      bool     `json:"append_mode,omitempty"`
-	Normalization   bool     `json:"normalization"`
-	Filter          string   `json:"filter,omitempty"`
-	SelectedColumns []string `json:"selected_columns"`
-	SyncNewColumns  bool     `json:"sync_new_columns"`
+	ChunkColumn        string              `json:"chunk_column,omitempty"`
+	PartitionRegex     string              `json:"partition_regex"`
+	StreamName         string              `json:"stream_name"`
+	AppendMode         bool                `json:"append_mode,omitempty"`
+	Normalization      bool                `json:"normalization"`
+	Filter             string              `json:"filter,omitempty"`
+	SelectedColumns    []string            `json:"selected_columns"`
+	SelectedColumnsMap map[string]struct{} `json:"-"`
+	SyncNewColumns     bool                `json:"sync_new_columns"`
 }
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
@@ -140,6 +141,15 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 						if len(newAddedColumns) > 0 {
 							metadata.SelectedColumns = append(metadata.SelectedColumns, newAddedColumns...)
 						}
+					}
+
+					metadata.SelectedColumnsMap = make(map[string]struct{})
+					for _, col := range metadata.SelectedColumns {
+						// if column already exists, skip
+						if _, exists := metadata.SelectedColumnsMap[col]; exists {
+							continue
+						}
+						metadata.SelectedColumnsMap[col] = struct{}{}
 					}
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
