@@ -156,7 +156,7 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	// Add mandatory columns to SelectedColumns
-	err := s.EnsureMandatoryColumns()
+	err := s.ensureMandatoryColumns()
 	if err != nil {
 		return fmt.Errorf("failed to add mandatory columns: %s", err)
 	}
@@ -173,8 +173,8 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
 }
 
-// EnsureMandatoryColumns ensures cursor fields and CDC columns are always in SelectedColumns
-func (s *ConfiguredStream) EnsureMandatoryColumns() error {
+// ensureMandatoryColumns ensures cursor fields and CDC columns are always in SelectedColumns
+func (s *ConfiguredStream) ensureMandatoryColumns() error {
 	selectedMap := make(map[string]struct{})
 	for _, col := range s.StreamMetadata.SelectedColumns {
 		if _, exists := selectedMap[col]; exists {
