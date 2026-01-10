@@ -61,16 +61,20 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 }
 
 func (s *ConfiguredStream) GetSelectedColumns() []string {
-	return s.StreamMetadata.SelectedColumns
+	return s.StreamMetadata.SelectedColumns.Columns
 }
 
 func (s *ConfiguredStream) GetSelectedColumnsMap() map[string]struct{} {
-	return s.StreamMetadata.SelectedColumnsMap
+	return s.StreamMetadata.SelectedColumns.Map
 }
 
 func (s *ConfiguredStream) FilterDataBySelectedColumns(data map[string]interface{}) map[string]interface{} {
 	selectedMap := s.GetSelectedColumnsMap()
 	if len(selectedMap) == 0 {
+		return data
+	}
+
+	if s.StreamMetadata.SelectedColumns != nil && s.StreamMetadata.SelectedColumns.AllSelected {
 		return data
 	}
 
@@ -184,6 +188,9 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("failed to add mandatory columns: %s", err)
 	}
 
+	// set all columns selected flag
+	s.StreamMetadata.SelectedColumns.AllSelected = s.AreAllColumnsSelected()
+
 	_, err = s.GetFilter()
 	if err != nil {
 		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
@@ -202,13 +209,13 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 // 3. source defined primary key columns,
 // 4. system generated fields
 func (s *ConfiguredStream) ensureMandatoryColumns() error {
-	selectedMap := s.StreamMetadata.SelectedColumnsMap
+	selectedMap := s.StreamMetadata.SelectedColumns.Map
 
 	// Add system generated fields
 	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
 	for _, sysField := range systemFields {
 		if _, exists := selectedMap[sysField]; !exists {
-			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, sysField)
+			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, sysField)
 			selectedMap[sysField] = struct{}{}
 		}
 	}
@@ -218,13 +225,13 @@ func (s *ConfiguredStream) ensureMandatoryColumns() error {
 		primaryCursor, secondaryCursor := s.Cursor()
 		if primaryCursor != "" {
 			if _, exists := selectedMap[primaryCursor]; !exists {
-				s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, primaryCursor)
+				s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, primaryCursor)
 				selectedMap[primaryCursor] = struct{}{}
 			}
 		}
 		if secondaryCursor != "" {
 			if _, exists := selectedMap[secondaryCursor]; !exists {
-				s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, secondaryCursor)
+				s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, secondaryCursor)
 				selectedMap[secondaryCursor] = struct{}{}
 			}
 		}
@@ -233,7 +240,7 @@ func (s *ConfiguredStream) ensureMandatoryColumns() error {
 	// Add CDC columns if CDC sync mode
 	if s.Stream.SyncMode == CDC || s.Stream.SyncMode == STRICTCDC {
 		if _, exists := selectedMap[constants.CdcTimestamp]; !exists {
-			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, constants.CdcTimestamp)
+			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, constants.CdcTimestamp)
 			selectedMap[constants.CdcTimestamp] = struct{}{}
 		}
 	}
@@ -241,10 +248,44 @@ func (s *ConfiguredStream) ensureMandatoryColumns() error {
 	// Add source defined primary key columns
 	for _, pk := range s.Stream.SourceDefinedPrimaryKey.Array() {
 		if _, exists := selectedMap[pk]; !exists {
-			s.StreamMetadata.SelectedColumns = append(s.StreamMetadata.SelectedColumns, pk)
+			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, pk)
 			selectedMap[pk] = struct{}{}
 		}
 	}
 
 	return nil
+}
+
+// AreAllColumnsSelected checks if all columns in the schema are selected by the user
+func (s *ConfiguredStream) AreAllColumnsSelected() bool {
+	selectedMap := s.GetSelectedColumnsMap()
+	if len(selectedMap) == 0 {
+		return true
+	}
+
+	schemaColumnCount := 0
+	s.Stream.Schema.Properties.Range(func(_, _ interface{}) bool {
+		schemaColumnCount++
+		return true
+	})
+
+	if len(selectedMap) != schemaColumnCount {
+		return false
+	}
+
+	allSelected := true
+	s.Stream.Schema.Properties.Range(func(key, _ interface{}) bool {
+		colName, ok := key.(string)
+		if !ok {
+			allSelected = false
+			return false
+		}
+		if _, exists := selectedMap[colName]; !exists {
+			allSelected = false
+			return false
+		}
+		return true
+	})
+
+	return allSelected
 }

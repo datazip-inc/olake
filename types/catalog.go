@@ -38,19 +38,24 @@ type StatusRow struct {
 }
 
 type StreamMetadata struct {
-	ChunkColumn        string              `json:"chunk_column,omitempty"`
-	PartitionRegex     string              `json:"partition_regex"`
-	StreamName         string              `json:"stream_name"`
-	AppendMode         bool                `json:"append_mode,omitempty"`
-	Normalization      bool                `json:"normalization"`
-	Filter             string              `json:"filter,omitempty"`
-	SelectedColumns    []string            `json:"selected_columns"`
-	SelectedColumnsMap map[string]struct{} `json:"-"`
-	SyncNewColumns     bool                `json:"sync_new_columns"`
+	ChunkColumn     string           `json:"chunk_column,omitempty"`
+	PartitionRegex  string           `json:"partition_regex"`
+	StreamName      string           `json:"stream_name"`
+	AppendMode      bool             `json:"append_mode,omitempty"`
+	Normalization   bool             `json:"normalization"`
+	Filter          string           `json:"filter,omitempty"`
+	SelectedColumns *SelectedColumns `json:"selected_columns"`
+	SyncNewColumns  bool             `json:"sync_new_columns"`
 }
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
+}
+
+type SelectedColumns struct {
+	Columns     []string            `json:"columns"`
+	Map         map[string]struct{} `json:"-"`
+	AllSelected bool                `json:"-"`
 }
 
 func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
@@ -76,11 +81,15 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		})
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:      stream.Name,
-			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:   IsDriverRelational(driver),
-			SelectedColumns: selectedColumns,
-			SyncNewColumns:  false,
+			StreamName:    stream.Name,
+			AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			Normalization: IsDriverRelational(driver),
+			SelectedColumns: &SelectedColumns{
+				Columns:     selectedColumns,
+				Map:         make(map[string]struct{}),
+				AllSelected: false, // set false by default, will be set to its correct value later
+			},
+			SyncNewColumns: false,
 		})
 	}
 
@@ -118,12 +127,11 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 				_, exists := newStreams[streamID]
 
 				if exists {
-					var preservedSelectedColumns []string
-
 					oldSchema := oldStreams[streamID].Stream.Schema
 					newSchema := newStreams[streamID].Stream.Schema
 
-					for _, previouslySelectedCol := range metadata.SelectedColumns {
+					var preservedSelectedColumns []string
+					for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
 						// Check if column exists in both old and new schemas (i.e., is a common column)
 						_, existsInOld := oldSchema.Properties.Load(previouslySelectedCol)
 						_, existsInNew := newSchema.Properties.Load(previouslySelectedCol)
@@ -132,24 +140,23 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 						}
 					}
 
-					metadata.SelectedColumns = preservedSelectedColumns
+					metadata.SelectedColumns.Columns = preservedSelectedColumns
 
 					// add new discovered columns if sync_new_columns is true
 					if metadata.SyncNewColumns {
 						_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
 
 						if len(newAddedColumns) > 0 {
-							metadata.SelectedColumns = append(metadata.SelectedColumns, newAddedColumns...)
+							metadata.SelectedColumns.Columns = append(metadata.SelectedColumns.Columns, newAddedColumns...)
 						}
 					}
 
-					metadata.SelectedColumnsMap = make(map[string]struct{})
-					for _, col := range metadata.SelectedColumns {
+					for _, col := range metadata.SelectedColumns.Columns {
 						// if column already exists, skip
-						if _, exists := metadata.SelectedColumnsMap[col]; exists {
+						if _, exists := metadata.SelectedColumns.Map[col]; exists {
 							continue
 						}
-						metadata.SelectedColumnsMap[col] = struct{}{}
+						metadata.SelectedColumns.Map[col] = struct{}{}
 					}
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
