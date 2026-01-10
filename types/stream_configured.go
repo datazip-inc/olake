@@ -64,25 +64,6 @@ func (s *ConfiguredStream) GetSelectedColumns() []string {
 	return s.StreamMetadata.SelectedColumns.Columns
 }
 
-func (s *ConfiguredStream) FilterDataBySelectedColumns(data map[string]interface{}) map[string]interface{} {
-	selectedMap := s.StreamMetadata.SelectedColumns.Map
-	if len(selectedMap) == 0 {
-		return data
-	}
-
-	if s.StreamMetadata.SelectedColumns != nil && s.StreamMetadata.SelectedColumns.AllSelected {
-		return data
-	}
-
-	filtered := make(map[string]interface{})
-	for key, value := range data {
-		if _, exists := selectedMap[key]; exists {
-			filtered[key] = value
-		}
-	}
-	return filtered
-}
-
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 	if s.Stream.DestinationDatabase != "" {
 		return utils.Reformat(s.Stream.DestinationDatabase)
