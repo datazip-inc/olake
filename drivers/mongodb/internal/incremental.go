@@ -24,6 +24,11 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
 
+	projection := BuildMongoProjection(stream)
+	if projection != nil {
+		findOpts.SetProjection(projection)
+	}
+
 	logger.Infof("Starting incremental sync for stream[%s] with filter: %v", stream.ID(), incrementalCondition)
 
 	cursor, err := collection.Find(ctx, incrementalCondition, findOpts)

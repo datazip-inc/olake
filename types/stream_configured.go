@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 )
 
@@ -57,6 +58,18 @@ func (s *ConfiguredStream) SupportedSyncModes() *Set[SyncMode] {
 
 func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return s.Stream.SyncMode
+}
+
+func (s *ConfiguredStream) GetSelectedColumns() []string {
+	return s.StreamMetadata.SelectedColumns.Columns
+}
+
+func (s *ConfiguredStream) GetSelectedColumnsMap() map[string]struct{} {
+	return s.StreamMetadata.SelectedColumns.Map
+}
+
+func (s *ConfiguredStream) GetSelectedColumnsAllSelected() bool {
+	return s.StreamMetadata.SelectedColumns.AllSelected
 }
 
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
@@ -154,7 +167,16 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
 	}
 
-	_, err := s.GetFilter()
+	// Add mandatory columns to SelectedColumns
+	err := s.ensureMandatoryColumns()
+	if err != nil {
+		return fmt.Errorf("failed to add mandatory columns: %s", err)
+	}
+
+	// set all columns selected flag
+	s.StreamMetadata.SelectedColumns.AllSelected = s.CheckAllColumnsSelected()
+
+	_, err = s.GetFilter()
 	if err != nil {
 		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
 	}
@@ -164,4 +186,106 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
+}
+
+// ensureMandatoryColumns ensures that the following columns are always in SelectedColumns:
+// 1. cursor fields,
+// 2. CDC columns,
+// 3. source defined primary key columns,
+// 4. system generated fields
+func (s *ConfiguredStream) ensureMandatoryColumns() error {
+	selectedMap := s.StreamMetadata.SelectedColumns.Map
+
+	// Add system generated fields
+	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
+	for _, sysField := range systemFields {
+		if _, exists := selectedMap[sysField]; !exists {
+			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, sysField)
+			selectedMap[sysField] = struct{}{}
+		}
+	}
+
+	// Add cursor fields for incremental sync
+	if s.Stream.SyncMode == INCREMENTAL && s.Stream.CursorField != "" {
+		primaryCursor, secondaryCursor := s.Cursor()
+		if primaryCursor != "" {
+			if _, exists := selectedMap[primaryCursor]; !exists {
+				s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, primaryCursor)
+				selectedMap[primaryCursor] = struct{}{}
+			}
+		}
+		if secondaryCursor != "" {
+			if _, exists := selectedMap[secondaryCursor]; !exists {
+				s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, secondaryCursor)
+				selectedMap[secondaryCursor] = struct{}{}
+			}
+		}
+	}
+
+	// Add CDC columns if CDC sync mode
+	if s.Stream.SyncMode == CDC || s.Stream.SyncMode == STRICTCDC {
+		if _, exists := selectedMap[constants.CdcTimestamp]; !exists {
+			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, constants.CdcTimestamp)
+			selectedMap[constants.CdcTimestamp] = struct{}{}
+		}
+	}
+
+	// Add source defined primary key columns
+	for _, pk := range s.Stream.SourceDefinedPrimaryKey.Array() {
+		if _, exists := selectedMap[pk]; !exists {
+			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, pk)
+			selectedMap[pk] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+// CheckAllColumnsSelected checks if all columns in the schema are selected by the user
+func (s *ConfiguredStream) CheckAllColumnsSelected() bool {
+	selectedMap := s.StreamMetadata.SelectedColumns.Map
+	if len(selectedMap) == 0 {
+		return true
+	}
+
+	var (
+		schemaColumnCount int
+		allSelected       bool
+	)
+
+	s.Stream.Schema.Properties.Range(func(key, _ interface{}) bool {
+		schemaColumnCount++
+
+		colName, ok := key.(string)
+		if !ok {
+			allSelected = false
+			return false
+		}
+
+		if _, exists := selectedMap[colName]; !exists {
+			allSelected = false
+			return false
+		}
+
+		return true
+	})
+
+	return allSelected && len(selectedMap) == schemaColumnCount
+}
+
+func FilterDataBySelectedColumns(data map[string]interface{}, selectedMap map[string]struct{}, allSelected bool) map[string]interface{} {
+	if len(selectedMap) == 0 {
+		return data
+	}
+	if allSelected {
+		return data
+	}
+
+	filtered := make(map[string]interface{})
+	for key, value := range data {
+		if _, exists := selectedMap[key]; exists {
+			filtered[key] = value
+		}
+	}
+	return filtered
 }

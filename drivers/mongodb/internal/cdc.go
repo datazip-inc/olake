@@ -158,6 +158,12 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 
 	filterMongoObject(record.FullDocument)
 
+	record.FullDocument = types.FilterDataBySelectedColumns(
+		record.FullDocument,
+		stream.Self().GetSelectedColumnsMap(),
+		stream.Self().GetSelectedColumnsAllSelected(),
+	)
+
 	ts := utils.Ternary(record.WallTime != 0,
 		record.WallTime.Time(), // millisecond precision
 		time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
