@@ -1,0 +1,62 @@
+{
+    "selected_streams": {
+        "olake_kafka": [
+            {
+                "partition_regex": "",
+                "stream_name": "test_topic",
+                "normalization": true
+            }
+        ]
+    },
+    "streams": [
+        {
+            "stream": {
+                "name": "test_topic",
+                "namespace": "olake_kafka",
+                "type_schema": {
+                    "properties": {
+                        "id": {
+                            "type": [
+                                "integer"
+                            ],
+                            "destination_column_name": "id"
+                        },
+                        "name": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "name"
+                        },
+                        "price": {
+                            "type": [
+                                "number"
+                            ],
+                            "destination_column_name": "price"
+                        },
+                        "timestamp": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "timestamp"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental"
+                ],
+                "source_defined_primary_key": [
+                    [
+                        "id"
+                    ]
+                ],
+                "available_cursor_fields": [
+                    "id"
+                ],
+                "sync_mode": "full_refresh",
+                "destination_database": "kafka_olake_kafka",
+                "destination_table": "test_topic"
+            }
+        }
+    ]
+}
