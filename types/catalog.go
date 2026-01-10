@@ -87,7 +87,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			SelectedColumns: &SelectedColumns{
 				Columns:     selectedColumns,
 				Map:         make(map[string]struct{}),
-				AllSelected: false, // set false by default, will be set to its correct value later
+				AllSelected: true, // set true by default, will be set to its correct value later
 			},
 			SyncNewColumns: false,
 		})
