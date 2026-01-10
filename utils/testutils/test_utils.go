@@ -43,6 +43,7 @@ type IntegrationTest struct {
 	ExecuteQuery                     func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 	DestinationDB                    string
 	CursorField                      string
+	CursorFieldsToTest               []string
 	PartitionRegex                   string
 }
 
@@ -466,34 +467,26 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 }
 
 // TODO: add incremntal test for string time, timestamp with timezone, datetime, float, int as cursor field
-// testIcebergFullLoadAndIncremental tests Full load and Incremental operations
-func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
+func (cfg *IntegrationTest) runIncrementalTestsForCursorField(
 	ctx context.Context,
 	t *testing.T,
 	c testcontainers.Container,
 	testTable string,
+	cursorField string,
+	destinationType string,
 ) error {
-	t.Log("Starting Iceberg Full load + Incremental tests")
-
-	if err := cfg.resetTable(ctx, t, testTable); err != nil {
-		return fmt.Errorf("failed to reset table: %w", err)
-	}
-
-	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
+	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cursorField)
 	code, out, err := utils.ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
-		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
+		return fmt.Errorf("failed to patch streams.json for incremental with cursor %s (%d): %s\n%s", cursorField, code, err, out)
 	}
 
-	// Reset state so initial incremental behaves like a first full incremental load
 	resetState := resetStateFileCommand(*cfg.TestConfig)
 	code, out, err = utils.ExecCommand(ctx, c, resetState)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
 	}
 
-	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
@@ -518,19 +511,22 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		},
 	}
 
-	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// schema evolution
 			if tc.operation == "update" {
 				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
 
-			// drop iceberg table before sync
-			dropIcebergTable(t, testTable, cfg.DestinationDB)
-			t.Logf("Dropped Iceberg table: %s", testTable)
+			if destinationType == "iceberg" {
+				dropIcebergTable(t, testTable, cfg.DestinationDB)
+				t.Logf("Dropped Iceberg table: %s", testTable)
+			} else if destinationType == "parquet" {
+				if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
+					t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
+				}
+			}
 
 			if err := cfg.runSyncAndVerify(
 				ctx,
@@ -538,12 +534,52 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				c,
 				testTable,
 				tc.useState,
-				"iceberg",
+				destinationType,
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
 			); err != nil {
-				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
+				t.Fatalf("Incremental test %s failed with cursor %s: %v", tc.name, cursorField, err)
+			}
+		})
+	}
+	return nil
+}
+
+// testIcebergFullLoadAndIncremental tests Full load and Incremental operations
+func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+) error {
+	t.Log("Starting Iceberg Full load + Incremental tests")
+
+	cursorFields := cfg.CursorFieldsToTest
+	if len(cursorFields) == 0 {
+		cursorFields = []string{cfg.CursorField}
+	}
+
+	for _, cursorField := range cursorFields {
+		cursorTypeName := cursorField
+		if strings.Contains(cursorField, ":") {
+			parts := strings.Split(cursorField, ":")
+			cursorTypeName = parts[len(parts)-1]
+		}
+		t.Run(fmt.Sprintf("cursor_type_%s", cursorTypeName), func(t *testing.T) {
+			if err := cfg.resetTable(ctx, t, testTable); err != nil {
+				t.Fatalf("failed to reset table for cursor %s: %v", cursorField, err)
+			}
+
+			if err := cfg.runIncrementalTestsForCursorField(
+				ctx,
+				t,
+				c,
+				testTable,
+				cursorField,
+				"iceberg",
+			); err != nil {
+				t.Fatalf("Iceberg incremental tests failed for cursor %s: %v", cursorField, err)
 			}
 		})
 	}
