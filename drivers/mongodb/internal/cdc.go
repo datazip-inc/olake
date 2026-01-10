@@ -34,6 +34,10 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
+func (m *Mongo) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, true // concurrent change streams supported, stream can start after finishing full load
+}
+
 func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
@@ -64,11 +68,12 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 		return err
 	}
 	m.LastOplogTime = lastOplogTime
-
+	m.streams = streams
 	return nil
 }
 
-func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
+	stream := m.streams[streamIndex]
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
@@ -176,16 +181,19 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	return OnMessage(ctx, change)
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
-	if noErr {
-		val, ok := m.cdcCursor.Load(stream.ID())
+func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
 		if ok {
-			m.state.SetCursor(stream.Self(), cdcCursorField, val)
+			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
 		} else {
-			logger.Warnf("no resume token found for stream: %s", stream.ID())
+			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
 		}
+		return nil
 	}
-	return nil
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
