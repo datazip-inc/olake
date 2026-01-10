@@ -132,7 +132,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 					var preservedSelectedColumns []string
 					for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
-						// Check if column exists in both old and new schemas (i.e., is a common column)
+						// Check if column exists in both old and new schemas
 						_, existsInOld := oldSchema.Properties.Load(previouslySelectedCol)
 						_, existsInNew := newSchema.Properties.Load(previouslySelectedCol)
 						if existsInOld && existsInNew {
