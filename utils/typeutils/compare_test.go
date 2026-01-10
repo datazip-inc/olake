@@ -42,6 +42,11 @@ func TestCompare(t *testing.T) {
 		{"time_less", now, later, -1},
 		{"time_greater", later, now, 1},
 
+		// custom time
+		{"custom_time_equal", Time{Time: now}, Time{Time: now}, 0},
+		{"custom_time_less", Time{Time: now}, Time{Time: later}, -1},
+		{"custom_time_greater", Time{Time: later}, Time{Time: now}, 1},
+
 		// bool
 		{"bool_false_vs_false", false, false, 0},
 		{"bool_true_vs_true", true, true, 0},
