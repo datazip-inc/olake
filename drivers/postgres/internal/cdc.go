@@ -26,6 +26,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet(streams...),
 		Publication:         p.cdcConfig.Publication,
+		WorkerCount:         p.cdcConfig.WALWorkerCount,
 	}, nil
 }
 
