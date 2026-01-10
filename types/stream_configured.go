@@ -64,12 +64,8 @@ func (s *ConfiguredStream) GetSelectedColumns() []string {
 	return s.StreamMetadata.SelectedColumns.Columns
 }
 
-func (s *ConfiguredStream) GetSelectedColumnsMap() map[string]struct{} {
-	return s.StreamMetadata.SelectedColumns.Map
-}
-
 func (s *ConfiguredStream) FilterDataBySelectedColumns(data map[string]interface{}) map[string]interface{} {
-	selectedMap := s.GetSelectedColumnsMap()
+	selectedMap := s.StreamMetadata.SelectedColumns.Map
 	if len(selectedMap) == 0 {
 		return data
 	}
@@ -189,7 +185,7 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	}
 
 	// set all columns selected flag
-	s.StreamMetadata.SelectedColumns.AllSelected = s.AreAllColumnsSelected()
+	s.StreamMetadata.SelectedColumns.AllSelected = s.CheckAllColumnsSelected()
 
 	_, err = s.GetFilter()
 	if err != nil {
@@ -256,29 +252,34 @@ func (s *ConfiguredStream) ensureMandatoryColumns() error {
 	return nil
 }
 
-// AreAllColumnsSelected checks if all columns in the schema are selected by the user
-func (s *ConfiguredStream) AreAllColumnsSelected() bool {
-	selectedMap := s.GetSelectedColumnsMap()
+// CheckAllColumnsSelected checks if all columns in the schema are selected by the user
+func (s *ConfiguredStream) CheckAllColumnsSelected() bool {
+	selectedMap := s.StreamMetadata.SelectedColumns.Map
 	if len(selectedMap) == 0 {
 		return true
 	}
 
-	schemaColumnCount := 0
+	var (
+		schemaColumnCount int
+		allSelected       bool
+	)
 
 	s.Stream.Schema.Properties.Range(func(key, _ interface{}) bool {
 		schemaColumnCount++
 
 		colName, ok := key.(string)
 		if !ok {
+			allSelected = false
 			return false
 		}
 
 		if _, exists := selectedMap[colName]; !exists {
+			allSelected = false
 			return false
 		}
 
 		return true
 	})
 
-	return len(selectedMap) == schemaColumnCount
+	return allSelected && len(selectedMap) == schemaColumnCount
 }
