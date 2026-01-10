@@ -94,7 +94,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
         UPDATE %s SET
             col_cursor = NULL,
             col_smallint = 321,
-			col_char = 'new_char_val',
+			col_char = 'new_char_val'
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
