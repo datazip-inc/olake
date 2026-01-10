@@ -85,8 +85,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 		filteredSchema := types.FilterSchemaBySelectedColumns(
 			stream.Schema(),
-			stream.Self().StreamMetadata.SelectedColumns.Map,
-			stream.Self().StreamMetadata.SelectedColumns.AllSelected,
+			stream.Self().GetSelectedColumnsMap(),
+			stream.Self().GetSelectedColumnsAllSelected(),
 		)
 
 		var requestPayload proto.IcebergPayload

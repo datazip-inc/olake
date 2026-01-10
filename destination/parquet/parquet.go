@@ -150,8 +150,8 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 
 	filteredSchema := types.FilterSchemaBySelectedColumns(
 		stream.Schema(),
-		stream.Self().StreamMetadata.SelectedColumns.Map,
-		stream.Self().StreamMetadata.SelectedColumns.AllSelected,
+		stream.Self().GetSelectedColumnsMap(),
+		stream.Self().GetSelectedColumnsAllSelected(),
 	)
 
 	fields := make(typeutils.Fields)

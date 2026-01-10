@@ -64,6 +64,14 @@ func (s *ConfiguredStream) GetSelectedColumns() []string {
 	return s.StreamMetadata.SelectedColumns.Columns
 }
 
+func (s *ConfiguredStream) GetSelectedColumnsMap() map[string]struct{} {
+	return s.StreamMetadata.SelectedColumns.Map
+}
+
+func (s *ConfiguredStream) GetSelectedColumnsAllSelected() bool {
+	return s.StreamMetadata.SelectedColumns.AllSelected
+}
+
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 	if s.Stream.DestinationDatabase != "" {
 		return utils.Reformat(s.Stream.DestinationDatabase)

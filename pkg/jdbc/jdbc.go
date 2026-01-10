@@ -785,7 +785,7 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 // If selectedCols is empty, returns "*"
 func BuildColumnList(stream types.StreamInterface, driver constants.DriverType) string {
 	selectedCols := stream.Self().GetSelectedColumns()
-	if len(selectedCols) == 0 || stream.Self().StreamMetadata.SelectedColumns.AllSelected {
+	if len(selectedCols) == 0 || stream.Self().GetSelectedColumnsAllSelected() {
 		return "*"
 	}
 
