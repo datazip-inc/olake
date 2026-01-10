@@ -9,7 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
@@ -187,7 +187,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return err
 	}
 
-	values = utils.FilterDataBySelectedColumns(values, stream.Self().StreamMetadata.SelectedColumns.Map, stream.Self().StreamMetadata.SelectedColumns.AllSelected)
+	values = types.FilterDataBySelectedColumns(values, stream.Self().StreamMetadata.SelectedColumns.Map, stream.Self().StreamMetadata.SelectedColumns.AllSelected)
 
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "insert", Data: values})
 }
@@ -208,7 +208,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return err
 	}
 
-	values = utils.FilterDataBySelectedColumns(values, stream.Self().StreamMetadata.SelectedColumns.Map, stream.Self().StreamMetadata.SelectedColumns.AllSelected)
+	values = types.FilterDataBySelectedColumns(values, stream.Self().StreamMetadata.SelectedColumns.Map, stream.Self().StreamMetadata.SelectedColumns.AllSelected)
 
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "update", Data: values})
 }
@@ -229,7 +229,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return err
 	}
 
-	values = utils.FilterDataBySelectedColumns(values, stream.Self().StreamMetadata.SelectedColumns.Map, stream.Self().StreamMetadata.SelectedColumns.AllSelected)
+	values = types.FilterDataBySelectedColumns(values, stream.Self().StreamMetadata.SelectedColumns.Map, stream.Self().StreamMetadata.SelectedColumns.AllSelected)
 
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})
 }
