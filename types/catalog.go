@@ -286,6 +286,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// partition regex difference
 			// filter difference
 			// append mode change
+			// selected columns change
 			// destination database change
 			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
