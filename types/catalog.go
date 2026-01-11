@@ -85,9 +85,8 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
 			Normalization: IsDriverRelational(driver),
 			SelectedColumns: &SelectedColumns{
-				Columns:     selectedColumns,
-				Map:         make(map[string]struct{}),
-				AllSelected: true,
+				Columns: selectedColumns,
+				Map:     make(map[string]struct{}),
 			},
 			SyncNewColumns: false,
 		})
