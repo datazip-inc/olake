@@ -150,6 +150,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 						}
 					}
 
+					// construct map of selected columns
 					for _, col := range metadata.SelectedColumns.Columns {
 						// if column already exists, skip
 						if _, exists := metadata.SelectedColumns.Map[col]; exists {
