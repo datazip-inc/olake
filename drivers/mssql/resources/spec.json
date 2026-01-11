@@ -60,41 +60,6 @@
             "required": [
                 "mode"
             ]
-        },
-        "update_method": {
-            "title": "Update Method",
-            "description": "Define how OLake captures data updates from your source",
-            "oneOf": [
-                {
-                    "type": "object",
-                    "title": "Standalone",
-                    "properties": {
-                        "type": {
-                            "const": "Standalone"
-                        }
-                    },
-                    "required": [
-                        "type"
-                    ]
-                },
-                {
-                    "type": "object",
-                    "title": "CDC",
-                    "properties": {
-                        "type": {
-                            "const": "CDC"
-                        },
-                        "initial_wait_time": {
-                            "type": "integer",
-                            "title": "Initial Wait Time",
-                            "description": "Idle timeout (seconds) while polling CDC changes"
-                        }
-                    },
-                    "required": [
-                        "type"
-                    ]
-                }
-            ]
         }
     },
     "required": [

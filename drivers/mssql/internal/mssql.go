@@ -25,7 +25,6 @@ type MSSQL struct {
 	config *Config
 
 	CDCSupport bool
-	cdcConfig  CDC
 
 	state            *types.State
 	streams          map[string]types.StreamInterface
@@ -77,18 +76,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
 
-	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
-	if found {
-		logger.Info("Found CDC Configuration")
-		cdc := &CDC{}
-		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
-			return err
-		}
-		if cdc.InitialWaitTime == 0 {
-			cdc.InitialWaitTime = 10
-		}
-		m.cdcConfig = *cdc
-	}
 	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if database-level CDC is enabled

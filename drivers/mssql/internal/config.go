@@ -15,15 +15,9 @@ type Config struct {
 	Database         string           `json:"database"`
 	Username         string           `json:"username"`
 	Password         string           `json:"password"`
-	UpdateMethod     interface{}      `json:"update_method"`
 	MaxThreads       int              `json:"max_threads"`
 	RetryCount       int              `json:"retry_count"`
 	SSLConfiguration *utils.SSLConfig `json:"ssl"`
-}
-
-// CDC configuration for SQL Server.
-type CDC struct {
-	InitialWaitTime int `json:"initial_wait_time"`
 }
 
 // Validate checks and normalises MSSQL configuration.
