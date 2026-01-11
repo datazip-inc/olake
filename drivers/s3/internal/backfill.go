@@ -207,6 +207,13 @@ func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterfa
 	callback := func(ctx context.Context, record map[string]any) error {
 		// Inject LastModified timestamp into each record
 		record[lastModifiedField] = lastModified
+
+		record = types.FilterDataBySelectedColumns(
+			record,
+			stream.Self().GetSelectedColumnsMap(),
+			stream.Self().GetSelectedColumnsAllSelected(),
+		)
+
 		return processFn(ctx, record)
 	}
 
