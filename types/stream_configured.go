@@ -86,15 +86,21 @@ func (s *ConfiguredStream) GetDestinationTable() string {
 	return utils.Ternary(s.Stream.DestinationTable == "", s.Stream.Name, s.Stream.DestinationTable).(string)
 }
 
-// returns primary and secondary cursor
-func (s *ConfiguredStream) Cursor() (string, string) {
-	cursorFields := strings.Split(s.Stream.CursorField, ":")
+// parseCursorField parses a cursor field string and returns primary and secondary cursor fields
+// Format: "primary_cursor" or "primary_cursor:secondary_cursor"
+func parseCursorField(cursorField string) (string, string) {
+	cursorFields := strings.Split(cursorField, ":")
 	primaryCursor := cursorFields[0]
 	secondaryCursor := ""
 	if len(cursorFields) > 1 {
 		secondaryCursor = cursorFields[1]
 	}
 	return primaryCursor, secondaryCursor
+}
+
+// returns primary and secondary cursor
+func (s *ConfiguredStream) Cursor() (string, string) {
+	return parseCursorField(s.Stream.CursorField)
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
@@ -170,14 +176,7 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	if len(s.StreamMetadata.SelectedColumns.Columns) == 0 {
 		s.StreamMetadata.SelectedColumns.AllSelected = true
 	} else {
-		s.setSelectedColumnsMap()
-
-		// Add mandatory columns to SelectedColumns
-		err := s.ensureMandatoryColumns()
-		if err != nil {
-			return fmt.Errorf("failed to add mandatory columns: %s", err)
-		}
-
+		setSelectedColumnsMap(s.StreamMetadata.SelectedColumns)
 		// set all columns selected flag
 		s.StreamMetadata.SelectedColumns.AllSelected = s.checkAllColumnsSelected()
 	}
@@ -192,59 +191,6 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
-}
-
-// ensureMandatoryColumns ensures that the following columns are always in SelectedColumns:
-// 1. cursor fields,
-// 2. CDC columns,
-// 3. source defined primary key columns,
-// 4. system generated fields
-func (s *ConfiguredStream) ensureMandatoryColumns() error {
-	selectedMap := s.StreamMetadata.SelectedColumns.Map
-
-	// Add system generated fields
-	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
-	for _, sysField := range systemFields {
-		if _, exists := selectedMap[sysField]; !exists {
-			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, sysField)
-			selectedMap[sysField] = struct{}{}
-		}
-	}
-
-	// Add cursor fields for incremental sync
-	if s.Stream.SyncMode == INCREMENTAL && s.Stream.CursorField != "" {
-		primaryCursor, secondaryCursor := s.Cursor()
-		if primaryCursor != "" {
-			if _, exists := selectedMap[primaryCursor]; !exists {
-				s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, primaryCursor)
-				selectedMap[primaryCursor] = struct{}{}
-			}
-		}
-		if secondaryCursor != "" {
-			if _, exists := selectedMap[secondaryCursor]; !exists {
-				s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, secondaryCursor)
-				selectedMap[secondaryCursor] = struct{}{}
-			}
-		}
-	}
-
-	// Add CDC columns if CDC sync mode
-	if s.Stream.SyncMode == CDC || s.Stream.SyncMode == STRICTCDC {
-		if _, exists := selectedMap[constants.CdcTimestamp]; !exists {
-			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, constants.CdcTimestamp)
-			selectedMap[constants.CdcTimestamp] = struct{}{}
-		}
-	}
-
-	// Add source defined primary key columns
-	for _, pk := range s.Stream.SourceDefinedPrimaryKey.Array() {
-		if _, exists := selectedMap[pk]; !exists {
-			s.StreamMetadata.SelectedColumns.Columns = append(s.StreamMetadata.SelectedColumns.Columns, pk)
-			selectedMap[pk] = struct{}{}
-		}
-	}
-
-	return nil
 }
 
 // checkAllColumnsSelected checks if all columns in the schema are selected by the user
@@ -281,16 +227,16 @@ func (s *ConfiguredStream) checkAllColumnsSelected() bool {
 	return allSelected && len(selectedMap) == schemaColumnCount
 }
 
-func (s *ConfiguredStream) setSelectedColumnsMap() {
+func setSelectedColumnsMap(selectedColumns *SelectedColumns) {
 	selectedMap := make(map[string]struct{})
-	for _, col := range s.StreamMetadata.SelectedColumns.Columns {
+	for _, col := range selectedColumns.Columns {
 		// if column already exists, skip
 		if _, exists := selectedMap[col]; exists {
 			continue
 		}
 		selectedMap[col] = struct{}{}
 	}
-	s.StreamMetadata.SelectedColumns.Map = selectedMap
+	selectedColumns.Map = selectedMap
 }
 
 // FilterDataBySelectedColumns filters the data based on the selected columns
@@ -307,4 +253,57 @@ func FilterDataBySelectedColumns(data map[string]interface{}, selectedMap map[st
 		}
 	}
 	return filtered
+}
+
+// ensureMandatoryColumns ensures that mandatory columns are always in SelectedColumns:
+// 1. cursor fields,
+// 2. CDC columns,
+// 3. source defined primary key columns,
+// 4. system generated fields
+func ensureMandatoryColumns(streamMetadata *StreamMetadata, stream *Stream) {
+	setSelectedColumnsMap(streamMetadata.SelectedColumns)
+
+	selectedMap := streamMetadata.SelectedColumns.Map
+
+	// Add system generated fields
+	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
+	for _, sysField := range systemFields {
+		if _, exists := selectedMap[sysField]; !exists {
+			streamMetadata.SelectedColumns.Columns = append(streamMetadata.SelectedColumns.Columns, sysField)
+			selectedMap[sysField] = struct{}{}
+		}
+	}
+
+	// Add cursor fields for incremental sync
+	if stream.SyncMode == INCREMENTAL && stream.CursorField != "" {
+		primaryCursor, secondaryCursor := parseCursorField(stream.CursorField)
+		if primaryCursor != "" {
+			if _, exists := selectedMap[primaryCursor]; !exists {
+				streamMetadata.SelectedColumns.Columns = append(streamMetadata.SelectedColumns.Columns, primaryCursor)
+				selectedMap[primaryCursor] = struct{}{}
+			}
+		}
+		if secondaryCursor != "" {
+			if _, exists := selectedMap[secondaryCursor]; !exists {
+				streamMetadata.SelectedColumns.Columns = append(streamMetadata.SelectedColumns.Columns, secondaryCursor)
+				selectedMap[secondaryCursor] = struct{}{}
+			}
+		}
+	}
+
+	// Add CDC columns if CDC sync mode
+	if stream.SyncMode == CDC || stream.SyncMode == STRICTCDC {
+		if _, exists := selectedMap[constants.CdcTimestamp]; !exists {
+			streamMetadata.SelectedColumns.Columns = append(streamMetadata.SelectedColumns.Columns, constants.CdcTimestamp)
+			selectedMap[constants.CdcTimestamp] = struct{}{}
+		}
+	}
+
+	// Add source defined primary key columns
+	for _, pk := range stream.SourceDefinedPrimaryKey.Array() {
+		if _, exists := selectedMap[pk]; !exists {
+			streamMetadata.SelectedColumns.Columns = append(streamMetadata.SelectedColumns.Columns, pk)
+			selectedMap[pk] = struct{}{}
+		}
+	}
 }

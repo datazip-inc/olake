@@ -96,7 +96,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
-// 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
+// 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true, add mandatory columns if not present
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 4. Everything else: Keep as new catalog
 func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
@@ -154,6 +154,8 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 							metadata.SelectedColumns.Columns = append(metadata.SelectedColumns.Columns, newAddedColumns...)
 						}
 					}
+
+					ensureMandatoryColumns(&metadata, newStreams[streamID].Stream)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
