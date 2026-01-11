@@ -137,6 +137,7 @@ func (m *MSSQL) fetchAllTableChangesInLSNRange(ctx context.Context, fromLSN, toL
 			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
 		}
 
+		// the query returns all tables, so we need to filter out the ones that are not selected
 		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
 		if _, selected := m.streams[streamID]; !selected {
 			continue
