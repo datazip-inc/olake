@@ -167,11 +167,11 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
 	}
 
-	isSelectedColumnEmpty := len(s.StreamMetadata.SelectedColumns.Columns) == 0
-
-	if isSelectedColumnEmpty {
+	if len(s.StreamMetadata.SelectedColumns.Columns) == 0 {
 		s.StreamMetadata.SelectedColumns.AllSelected = true
 	} else {
+		s.setSelectedColumnsMap()
+
 		// Add mandatory columns to SelectedColumns
 		err := s.ensureMandatoryColumns()
 		if err != nil {
@@ -179,7 +179,7 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		}
 
 		// set all columns selected flag
-		s.StreamMetadata.SelectedColumns.AllSelected = s.CheckAllColumnsSelected()
+		s.StreamMetadata.SelectedColumns.AllSelected = s.checkAllColumnsSelected()
 	}
 
 	_, err := s.GetFilter()
@@ -247,8 +247,8 @@ func (s *ConfiguredStream) ensureMandatoryColumns() error {
 	return nil
 }
 
-// CheckAllColumnsSelected checks if all columns in the schema are selected by the user
-func (s *ConfiguredStream) CheckAllColumnsSelected() bool {
+// checkAllColumnsSelected checks if all columns in the schema are selected by the user
+func (s *ConfiguredStream) checkAllColumnsSelected() bool {
 	selectedMap := s.StreamMetadata.SelectedColumns.Map
 	if len(selectedMap) == 0 {
 		return true
@@ -258,6 +258,8 @@ func (s *ConfiguredStream) CheckAllColumnsSelected() bool {
 		schemaColumnCount int
 		allSelected       bool
 	)
+
+	allSelected = true
 
 	s.Stream.Schema.Properties.Range(func(key, _ interface{}) bool {
 		schemaColumnCount++
@@ -277,6 +279,18 @@ func (s *ConfiguredStream) CheckAllColumnsSelected() bool {
 	})
 
 	return allSelected && len(selectedMap) == schemaColumnCount
+}
+
+func (s *ConfiguredStream) setSelectedColumnsMap() {
+	selectedMap := make(map[string]struct{})
+	for _, col := range s.StreamMetadata.SelectedColumns.Columns {
+		// if column already exists, skip
+		if _, exists := selectedMap[col]; exists {
+			continue
+		}
+		selectedMap[col] = struct{}{}
+	}
+	s.StreamMetadata.SelectedColumns.Map = selectedMap
 }
 
 // FilterDataBySelectedColumns filters the data based on the selected columns

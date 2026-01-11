@@ -86,7 +86,6 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			Normalization: IsDriverRelational(driver),
 			SelectedColumns: &SelectedColumns{
 				Columns: selectedColumns,
-				Map:     make(map[string]struct{}),
 			},
 			SyncNewColumns: false,
 		})
@@ -131,9 +130,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 					if metadata.SelectedColumns == nil {
 						metadata.SelectedColumns = &SelectedColumns{
-							Columns:     []string{},
-							Map:         make(map[string]struct{}),
-							AllSelected: false,
+							Columns: []string{},
 						}
 					}
 
@@ -156,15 +153,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 						if len(newAddedColumns) > 0 {
 							metadata.SelectedColumns.Columns = append(metadata.SelectedColumns.Columns, newAddedColumns...)
 						}
-					}
-
-					// construct map of selected columns
-					for _, col := range metadata.SelectedColumns.Columns {
-						// if column already exists, skip
-						if _, exists := metadata.SelectedColumns.Map[col]; exists {
-							continue
-						}
-						metadata.SelectedColumns.Map[col] = struct{}{}
 					}
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
