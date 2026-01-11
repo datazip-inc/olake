@@ -513,6 +513,8 @@ func BuildMongoProjection(stream types.StreamInterface) bson.D {
 		projection = append(projection, bson.E{Key: col, Value: 1})
 	}
 
-	projection = append(projection, bson.E{Key: "_id", Value: 1})
+	if _, exists := stream.Self().GetSelectedColumnsMap()["_id"]; !exists {
+		projection = append(projection, bson.E{Key: "_id", Value: 1})
+	}
 	return projection
 }
