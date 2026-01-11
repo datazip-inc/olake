@@ -84,6 +84,17 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	if approxRowCount == 0 {
+		var hasRows bool
+		existsQuery := jdbc.MSSQLTableExistsQuery(stream)
+		err := m.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
+		}
+
+		if hasRows {
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run UPDATE STATISTICS to update table statistics", stream.ID())
+		}
+
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
 		return types.NewSet[types.Chunk](), nil
 	}

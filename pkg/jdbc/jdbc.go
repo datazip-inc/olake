@@ -730,6 +730,12 @@ func MSSQLCDCGetChangesQuery(captureInstance string) string {
 	`, captureInstance)
 }
 
+// MSSQLTableExistsQuery returns the query to check if a table has any rows
+func MSSQLTableExistsQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+	return fmt.Sprintf("SELECT CAST(CASE WHEN EXISTS(SELECT TOP 1 1 FROM %s) THEN 1 ELSE 0 END AS BIT)", quotedTable)
+}
+
 // buildMSSQLConcat builds a CONCAT expression for SQL Server (2012+)
 // Uses CONCAT instead of CONCAT_WS for maximum compatibility:
 // - CONCAT works on SQL Server 2012+ (vs CONCAT_WS which requires 2017+)
