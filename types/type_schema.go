@@ -149,10 +149,7 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 // Used for filtering destination table schemas during table creation.
 // Returns filtered schema if some columns are selected, otherwise returns the original schema if all columns are selected or no selection is provided.
 func FilterSchemaBySelectedColumns(schema *TypeSchema, selectedMap map[string]struct{}, allSelected bool) *TypeSchema {
-	if len(selectedMap) == 0 {
-		return schema
-	}
-	if allSelected {
+	if len(selectedMap) == 0 || allSelected {
 		return schema
 	}
 

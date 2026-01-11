@@ -167,16 +167,22 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
 	}
 
-	// Add mandatory columns to SelectedColumns
-	err := s.ensureMandatoryColumns()
-	if err != nil {
-		return fmt.Errorf("failed to add mandatory columns: %s", err)
+	isSelectedColumnEmpty := len(s.StreamMetadata.SelectedColumns.Columns) == 0
+
+	if isSelectedColumnEmpty {
+		s.StreamMetadata.SelectedColumns.AllSelected = true
+	} else {
+		// Add mandatory columns to SelectedColumns
+		err := s.ensureMandatoryColumns()
+		if err != nil {
+			return fmt.Errorf("failed to add mandatory columns: %s", err)
+		}
+
+		// set all columns selected flag
+		s.StreamMetadata.SelectedColumns.AllSelected = s.CheckAllColumnsSelected()
 	}
 
-	// set all columns selected flag
-	s.StreamMetadata.SelectedColumns.AllSelected = s.CheckAllColumnsSelected()
-
-	_, err = s.GetFilter()
+	_, err := s.GetFilter()
 	if err != nil {
 		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
 	}
@@ -273,11 +279,10 @@ func (s *ConfiguredStream) CheckAllColumnsSelected() bool {
 	return allSelected && len(selectedMap) == schemaColumnCount
 }
 
+// FilterDataBySelectedColumns filters the data based on the selected columns
+// Returns the original data if no columns are selected or all columns are selected
 func FilterDataBySelectedColumns(data map[string]interface{}, selectedMap map[string]struct{}, allSelected bool) map[string]interface{} {
-	if len(selectedMap) == 0 {
-		return data
-	}
-	if allSelected {
+	if len(selectedMap) == 0 || allSelected {
 		return data
 	}
 
