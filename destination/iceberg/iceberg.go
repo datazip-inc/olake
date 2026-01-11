@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -303,6 +304,10 @@ func (i *Iceberg) extractSchemaFromRecords(ctx context.Context, records []types.
 	now := time.Now().UTC()
 	diffThreadSchema := atomic.Bool{}
 
+	var mu sync.Mutex
+	newColumns := make(map[string]string) // columns not in threadSchema
+	promotions := make(map[string]string) // columns requiring promotion
+
 	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		records[idx].Data[constants.OlakeID] = record.OlakeID
 		records[idx].Data[constants.OlakeTimestamp] = now
@@ -319,70 +324,70 @@ func (i *Iceberg) extractSchemaFromRecords(ctx context.Context, records []types.
 		}
 		records[idx].Data = flattenedRecord
 
-		// if schema difference is not detected, detect schema difference
-		if !diffThreadSchema.Load() {
-			for key, value := range flattenedRecord {
-				detectedType := typeutils.TypeFromValue(value)
+		localNewCols := make(map[string]string)
+		localPromotions := make(map[string]string)
+		hasChanges := false
 
-				if detectedType == types.Null {
-					delete(records[idx].Data, key)
-					continue
+		for key, value := range flattenedRecord {
+			detectedType := typeutils.TypeFromValue(value)
+
+			if detectedType == types.Null {
+				delete(records[idx].Data, key)
+				continue
+			}
+
+			detectedIcebergType := detectedType.ToIceberg()
+
+			if existingType, existInSchema := i.schema[key]; existInSchema {
+				// Check if promotion is required using lookup table
+				if isPromotionRequired(existingType, detectedIcebergType) {
+					localPromotions[key] = detectedIcebergType
+					hasChanges = true
+				} else if !isValidTransition(existingType, detectedIcebergType) {
+					return fmt.Errorf(
+						"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
+						key, existingType, detectedIcebergType,
+					)
 				}
-
-				detectedIcebergType := detectedType.ToIceberg()
-
-				if existingType, existInSchema := i.schema[key]; existInSchema {
-					// Check if promotion is required or invalid transition
-					if isPromotionRequired(existingType, detectedIcebergType) {
-						diffThreadSchema.Store(true)
-						break
-					} else if !isValidTransition(existingType, detectedIcebergType) {
-						return fmt.Errorf(
-							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
-							key, existingType, detectedIcebergType,
-						)
-					}
-				} else {
-					// New column detected
-					diffThreadSchema.Store(true)
-					break
-				}
+			} else {
+				localNewCols[key] = detectedIcebergType
+				hasChanges = true
 			}
 		}
 
+		// If changes detected, merge into shared state
+		if hasChanges {
+			diffThreadSchema.Store(true)
+			mu.Lock()
+			for k, v := range localNewCols {
+				if existing, ok := newColumns[k]; ok {
+					newColumns[k] = getCommonAncestorType(existing, v)
+				} else {
+					newColumns[k] = v
+				}
+			}
+			for k, v := range localPromotions {
+				promotions[k] = v
+			}
+			mu.Unlock()
+		}
 		return nil
 	})
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to flatten schema concurrently and detect change in records: %s", err)
 	}
-
-	// if schema difference is detected, update schemaMap with the new schema
+	// Build final schema
 	schemaMap := copySchema(i.schema)
 	if diffThreadSchema.Load() {
-		for _, record := range records {
-			for key, value := range record.Data {
-				detectedType := typeutils.TypeFromValue(value)
-
-				if detectedType == types.Null {
-					continue
-				}
-
-				detectedIcebergType := detectedType.ToIceberg()
-
-				if existingType, existInSchema := i.schema[key]; existInSchema {
-					// Check if promotion is required
-					if isPromotionRequired(existingType, detectedIcebergType) {
-						schemaMap[key] = detectedIcebergType
-					}
-				} else {
-					// New column: converge to common ancestor
-					if existingType, exists := schemaMap[key]; exists {
-						schemaMap[key] = getCommonAncestorType(existingType, detectedIcebergType)
-					} else {
-						schemaMap[key] = detectedIcebergType
-					}
-				}
+		for k, v := range newColumns {
+			if existing, ok := schemaMap[k]; ok {
+				schemaMap[k] = getCommonAncestorType(existing, v)
+			} else {
+				schemaMap[k] = v
 			}
+		}
+		for k, v := range promotions {
+			schemaMap[k] = v
 		}
 	}
 	return diffThreadSchema.Load(), schemaMap, nil
