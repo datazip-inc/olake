@@ -104,19 +104,31 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return newCatalog
 	}
 
-	createStreamMap := func(catalog *Catalog) map[string]*ConfiguredStream {
-		sm := make(map[string]*ConfiguredStream)
+	createStreamAndMetadataMaps := func(catalog *Catalog) (map[string]*ConfiguredStream, map[string]*StreamMetadata) {
+		streamMap := make(map[string]*ConfiguredStream)
+		metadataMap := make(map[string]*StreamMetadata)
+
 		for _, st := range catalog.Streams {
-			sm[st.Stream.ID()] = st
+			streamID := st.Stream.ID()
+			streamMap[streamID] = st
+
+			if metadataList, exists := catalog.SelectedStreams[st.Stream.Namespace]; exists {
+				for i := range metadataList {
+					if metadataList[i].StreamName == st.Stream.Name {
+						metadataMap[streamID] = &metadataList[i]
+						break
+					}
+				}
+			}
 		}
-		return sm
+		return streamMap, metadataMap
 	}
 
-	oldStreams := createStreamMap(oldCatalog)
+	oldStreams, _ := createStreamAndMetadataMaps(oldCatalog)
 
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
-		newStreams := createStreamMap(newCatalog)
+		newStreams, newMetadataMap := createStreamAndMetadataMaps(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
 
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
@@ -128,35 +140,36 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					oldSchema := oldStreams[streamID].Stream.Schema
 					newSchema := newStreams[streamID].Stream.Schema
 
-					if metadata.SelectedColumns == nil {
+					// when selectedColumns property is not present or empty, use all columns from new schema
+					if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
+						columns := newMetadataMap[streamID].SelectedColumns.Columns
 						metadata.SelectedColumns = &SelectedColumns{
-							Columns: []string{},
+							Columns: columns,
 						}
-					}
-
-					var preservedSelectedColumns []string
-					for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
-						// Check if column exists in both old and new schemas
-						_, existsInOld := oldSchema.Properties.Load(previouslySelectedCol)
-						_, existsInNew := newSchema.Properties.Load(previouslySelectedCol)
-						if existsInOld && existsInNew {
-							preservedSelectedColumns = append(preservedSelectedColumns, previouslySelectedCol)
+					} else {
+						var preservedSelectedColumns []string
+						for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
+							// Check if column exists in both old and new schemas
+							_, existsInOld := oldSchema.Properties.Load(previouslySelectedCol)
+							_, existsInNew := newSchema.Properties.Load(previouslySelectedCol)
+							if existsInOld && existsInNew {
+								preservedSelectedColumns = append(preservedSelectedColumns, previouslySelectedCol)
+							}
 						}
-					}
 
-					metadata.SelectedColumns.Columns = preservedSelectedColumns
+						metadata.SelectedColumns.Columns = preservedSelectedColumns
 
-					// add new discovered columns if sync_new_columns is true
-					if metadata.SyncNewColumns {
-						_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
+						// add new discovered columns if sync_new_columns is true
+						if metadata.SyncNewColumns {
+							_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
 
-						if len(newAddedColumns) > 0 {
-							metadata.SelectedColumns.Columns = append(metadata.SelectedColumns.Columns, newAddedColumns...)
+							if len(newAddedColumns) > 0 {
+								metadata.SelectedColumns.Columns = append(metadata.SelectedColumns.Columns, newAddedColumns...)
+							}
 						}
+
+						ensureMandatoryColumns(&metadata, newStreams[streamID].Stream)
 					}
-
-					ensureMandatoryColumns(&metadata, newStreams[streamID].Stream)
-
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
 				return nil
