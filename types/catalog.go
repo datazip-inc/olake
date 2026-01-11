@@ -129,6 +129,14 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					oldSchema := oldStreams[streamID].Stream.Schema
 					newSchema := newStreams[streamID].Stream.Schema
 
+					if metadata.SelectedColumns == nil {
+						metadata.SelectedColumns = &SelectedColumns{
+							Columns:     []string{},
+							Map:         make(map[string]struct{}),
+							AllSelected: false,
+						}
+					}
+
 					var preservedSelectedColumns []string
 					for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
 						// Check if column exists in both old and new schemas
