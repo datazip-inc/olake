@@ -3,7 +3,6 @@ package abstract
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -161,27 +160,8 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	// run cdc sync
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {
-			err := utils.RetryOnBackoff(ctx, a.driver.MaxRetries(), constants.DefaultRetryTimeout, func(ctx context.Context) error {
-				if a.GlobalConnGroup.Ctx().Err() != nil {
-					// reset global conn group if it is stuck in error
-					a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
-				}
-
-				if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-					return err
-				}
-
-				// note: checking global conn group for errors in cdc
-				err := a.GlobalConnGroup.Block()
-				if err != nil && strings.Contains(err.Error(), constants.ErrorBackfillFailed.Error()) {
-					// skipping retry for backfill err as they already retried
-					return nil
-				}
-
-				return err
-			})
-			if err != nil {
-				return fmt.Errorf("failed to run cdc sync: %s", err)
+			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
+				return fmt.Errorf("failed to run change stream: %s", err)
 			}
 		} else {
 			return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())

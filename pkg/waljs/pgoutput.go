@@ -30,13 +30,7 @@ func (p *pgoutputReplicator) Socket() *Socket {
 	return p.socket
 }
 
-func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
-	var slot ReplicationSlot
-	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, p.socket.ReplicationSlot)); err != nil {
-		return fmt.Errorf("failed to get replication slot: %s", err)
-	}
-	p.socket.CurrentWalPosition = slot.CurrentLSN
-
+func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, slot ReplicationSlot, insertFn abstract.CDCMsgFn) error {
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {

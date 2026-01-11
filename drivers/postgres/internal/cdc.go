@@ -35,61 +35,47 @@ func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
 }
 
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
-	config, err := p.prepareWALJSConfig(streams...)
+	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get slot position: %s", err)
+	}
+
+	globalState := p.state.GetGlobal()
+	if globalState == nil || globalState.State == nil {
+		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
+		p.state.ResetStreams()
+		return waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
+	}
+	p.streams = streams
+	return validateGlobalState(globalState, slot.LSN)
+}
+
+func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
+	config, err := p.prepareWALJSConfig(p.streams...)
 	if err != nil {
 		return fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
-	replicator, err := waljs.NewReplicator(ctx, p.client, config, p.dataTypeConverter)
+	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get slot position: %s", err)
+	}
+
+	replicator, err := waljs.NewReplicator(ctx, p.client, config, slot, p.dataTypeConverter)
 	if err != nil {
 		return fmt.Errorf("failed to create wal connection: %s", err)
 	}
 
+	// persist replicator for post cdc
 	p.replicator = replicator
-	socket := p.replicator.Socket()
-	globalState := p.state.GetGlobal()
-	fullLoadAck := func() error {
-		p.state.SetGlobal(waljs.WALState{LSN: socket.CurrentWalPosition.String()})
-		p.state.ResetStreams()
 
-		// set lsn to start cdc from
-		socket.ConfirmedFlushLSN = socket.CurrentWalPosition
-		socket.ClientXLogPos = socket.CurrentWalPosition
-		return waljs.AdvanceLSN(ctx, p.client, socket.ReplicationSlot, socket.CurrentWalPosition.String())
+	// validate global state (might got invalid during full load)
+	if err := validateGlobalState(p.state.GetGlobal(), slot.LSN); err != nil {
+		return fmt.Errorf("%w: invalid global state: %s", constants.ErrNonRetryable, err)
 	}
 
-	if globalState == nil || globalState.State == nil {
-		if err := fullLoadAck(); err != nil {
-			return fmt.Errorf("failed to ack lsn for full load: %s", err)
-		}
-	} else {
-		// global state exist check for cursor and cursor mismatch
-		var postgresGlobalState waljs.WALState
-		if err = utils.Unmarshal(globalState.State, &postgresGlobalState); err != nil {
-			return fmt.Errorf("failed to unmarshal global state: %s", err)
-		}
-		if postgresGlobalState.LSN == "" {
-			if err := fullLoadAck(); err != nil {
-				return fmt.Errorf("failed to ack lsn for full load: %s", err)
-			}
-		} else {
-			parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
-			if err != nil {
-				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
-			}
-			// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
-			// suggesting to proceed with clear destination
-			if parsed != socket.ConfirmedFlushLSN {
-				return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, socket.ConfirmedFlushLSN)
-			}
-		}
-	}
-	return nil
-}
-
-func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
-	return p.replicator.StreamChanges(ctx, p.client, callback)
+	return p.replicator.StreamChanges(ctx, p.client, slot, callback)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
@@ -132,6 +118,28 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 	logger.Debugf("replication slot[%s] with pluginType[%s] found", slotName, slot.Plugin)
 	if slot.Plugin == "pgoutput" && publication == "" {
 		return fmt.Errorf("publication is required for pgoutput")
+	}
+	return nil
+}
+
+func validateGlobalState(globalState *types.GlobalState, confirmedFlushLSN pglogrepl.LSN) error {
+	// global state exist check for cursor and cursor mismatch
+	var postgresGlobalState waljs.WALState
+	if err := utils.Unmarshal(globalState.State, &postgresGlobalState); err != nil {
+		return fmt.Errorf("failed to unmarshal global state: %s", err)
+	}
+	if postgresGlobalState.LSN == "" {
+		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
+	} else {
+		parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
+		if err != nil {
+			return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
+		}
+		// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
+		// suggesting to proceed with clear destination
+		if parsed != confirmedFlushLSN {
+			return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
+		}
 	}
 	return nil
 }

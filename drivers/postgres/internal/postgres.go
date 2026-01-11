@@ -46,6 +46,7 @@ type Postgres struct {
 	cdcConfig  CDC
 	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
+	streams    []types.StreamInterface
 }
 
 func (p *Postgres) CDCSupported() bool {

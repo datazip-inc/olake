@@ -31,16 +31,7 @@ func (w *wal2jsonReplicator) Socket() *Socket {
 	return w.socket
 }
 
-func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, callback abstract.CDCMsgFn) error {
-	// update current lsn information
-	var slot ReplicationSlot
-	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, w.socket.ReplicationSlot)); err != nil {
-		return fmt.Errorf("failed to get replication slot: %s", err)
-	}
-
-	// update current wal lsn
-	w.socket.CurrentWalPosition = slot.CurrentLSN
-
+func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, slot ReplicationSlot, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
 	var tables []string
 	for key := range w.socket.changeFilter.tables {
