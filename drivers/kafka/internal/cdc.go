@@ -84,7 +84,7 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
 
-		// Filter record based on selected columns (similar to MongoDB CDC and S3)
+		// Filter record based on selected columns
 		filteredData := types.FilterDataBySelectedColumns(
 			record.Data,
 			currentPartitionMeta.Stream.Self().GetSelectedColumnsMap(),
