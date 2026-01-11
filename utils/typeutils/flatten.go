@@ -18,12 +18,22 @@ type FlattenerImpl struct {
 	omitNilValues bool
 }
 
+var flattenerPool = sync.Pool{
+	New: func() interface{} {
+		return &FlattenerImpl{omitNilValues: true}
+	},
+}
+
 // keyCache caches reformatted keys to avoid repeated string operations
 var keyCache sync.Map
 
 func NewFlattener() Flattener {
-	return &FlattenerImpl{
-		omitNilValues: true,
+	return flattenerPool.Get().(*FlattenerImpl)
+}
+
+func ReleaseFlattener(f Flattener) {
+	if impl, ok := f.(*FlattenerImpl); ok {
+		flattenerPool.Put(impl)
 	}
 }
 
