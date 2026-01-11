@@ -3,9 +3,11 @@ package types
 import (
 	"fmt"
 	"strings"
+	"reflect"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // Message is a dto for olake output row representation
@@ -177,21 +179,26 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 //
 // Returns:
 //   - A catalog containing only the streams that have differences
+// GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 	diffStreams := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
 
-	oldStreamsMap := make(map[string]*ConfiguredStream)
-	for _, stream := range oldStreams.Streams {
-		oldStreamsMap[stream.ID()] = stream
-	}
+	if oldStreams == nil || newStreams == nil {
+        return diffStreams
+    }
 
-	newStreamsMap := make(map[string]*ConfiguredStream)
-	for _, stream := range newStreams.Streams {
-		newStreamsMap[stream.ID()] = stream
-	}
+	oldStreamsMap := make(map[string]*ConfiguredStream)
+    for _, stream := range oldStreams.Streams {
+        oldStreamsMap[stream.Stream.ID()] = stream
+    }
+
+    newStreamsMap := make(map[string]*ConfiguredStream)
+    for _, stream := range newStreams.Streams {
+        newStreamsMap[stream.Stream.ID()] = stream
+    }
 
 	oldSelectedMap := make(map[string]StreamMetadata)
 	for namespace, metadatas := range oldStreams.SelectedStreams {
@@ -204,68 +211,57 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 		for _, newMetadata := range newMetadatas {
 			streamID := fmt.Sprintf("%s.%s", namespace, newMetadata.StreamName)
 
-			// new stream definition from streams array
-			newStream, newStreamExists := newStreamsMap[streamID]
-			if !newStreamExists {
+			newStream, newExists := newStreamsMap[streamID]
+			if !newExists {
 				continue
 			}
 
-			// Check if this stream existed in old catalog
-			oldMetadata, oldMetadataExists := oldSelectedMap[streamID]
+			oldMetadata, oldMetaExists := oldSelectedMap[streamID]
 			oldStream, oldStreamExists := oldStreamsMap[streamID]
 
-			// if new stream in selected_streams
-			if !oldMetadataExists || !oldStreamExists {
-				// addition of new streams
+			// If new stream or previously unselected, treat as a difference
+			if !oldMetaExists || !oldStreamExists {
 				diffStreams.Streams = append(diffStreams.Streams, newStream)
-				diffStreams.SelectedStreams[namespace] = append(
-					diffStreams.SelectedStreams[namespace],
-					newMetadata,
-				)
+				diffStreams.SelectedStreams[namespace] = append(diffStreams.SelectedStreams[namespace], newMetadata)
 				continue
 			}
 
-			// Stream exists in both catalogs - check for differences
-			// normalization difference
-			// partition regex difference
-			// filter difference
-			// append mode change
-			// destination database change
-			// cursor field change , Format: "primary_cursor:secondary_cursor"
-			// sync mode change
-			// destination table change
-			// TODO: log the differences for user reference
-			isDifferent := func() bool {
-				// check cursor field if SyncMode is incremental
-				cursorDelta := utils.Ternary(newStream.Stream.SyncMode == INCREMENTAL, oldStream.Stream.CursorField != newStream.Stream.CursorField, false).(bool)
+			isDifferent := false
 
-				return (oldMetadata.Normalization != newMetadata.Normalization) ||
-					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
-					(oldMetadata.Filter != newMetadata.Filter) ||
-					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
-					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
-					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
-					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
-					cursorDelta
-			}()
+			// Helper to check for difference and log it
+			check := func(field string, oldVal, newVal interface{}) {
+                if !reflect.DeepEqual(oldVal, newVal) {
+                    logger.Infof("Stream [%s] %s changed: %v -> %v", streamID, field, oldVal, newVal)
+                    isDifferent = true
+                }
+            }
 
-			// if any difference, add stream to diff streams
-			if isDifferent {
-				// copy of the new stream to modify it for the difference
+			// Compare metadata fields
+            check("Normalization", oldMetadata.Normalization, newMetadata.Normalization)
+            check("PartitionRegex", oldMetadata.PartitionRegex, newMetadata.PartitionRegex)
+            check("Filter", oldMetadata.Filter, newMetadata.Filter)
+            check("AppendMode", oldMetadata.AppendMode, newMetadata.AppendMode)
+
+            // Compare stream fields
+            check("SyncMode", oldStream.Stream.SyncMode, newStream.Stream.SyncMode)
+            check("DestinationDatabase", oldStream.Stream.DestinationDatabase, newStream.Stream.DestinationDatabase)
+            check("DestinationTable", oldStream.Stream.DestinationTable, newStream.Stream.DestinationTable)
+
+            // Conditional check for CursorField
+            if newStream.Stream.SyncMode == INCREMENTAL {
+                check("CursorField", oldStream.Stream.CursorField, newStream.Stream.CursorField)
+            }
+
+            if isDifferent {
+				// Copy stream to safely modify destination info
 				newStreamCopy := *newStream.Stream
-				deltaStream := &ConfiguredStream{
-					Stream: &newStreamCopy,
-				}
+				deltaStream := &ConfiguredStream{Stream: &newStreamCopy}
 
-				// safely change for destination database and table if difference present
 				deltaStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 				deltaStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 
 				diffStreams.Streams = append(diffStreams.Streams, deltaStream)
-				diffStreams.SelectedStreams[namespace] = append(
-					diffStreams.SelectedStreams[namespace],
-					newMetadata,
-				)
+				diffStreams.SelectedStreams[namespace] = append(diffStreams.SelectedStreams[namespace], newMetadata)
 			}
 		}
 	}
