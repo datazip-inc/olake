@@ -629,7 +629,7 @@ func MSSQLDiscoverTablesQuery() string {
 			t.TABLE_NAME
 		FROM INFORMATION_SCHEMA.TABLES t
 		WHERE t.TABLE_TYPE = 'BASE TABLE'
-		AND t.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA','sys')
+		AND t.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA','sys','cdc')
 	`
 }
 
@@ -697,6 +697,17 @@ func MSSQLCDCMaxLSNQuery() string {
 // MSSQLCDCAdvanceLSNQuery returns the query to increment an LSN for CDC
 func MSSQLCDCAdvanceLSNQuery() string {
 	return "SELECT sys.fn_cdc_increment_lsn(@p1)"
+}
+
+// MSSQLCDCTableEnabledQuery returns the query to check if CDC is enabled for a specific table
+func MSSQLCDCTableEnabledQuery() string {
+	return `
+		SELECT c.capture_instance
+		FROM sys.tables t
+		JOIN sys.schemas s ON t.schema_id = s.schema_id
+		JOIN cdc.change_tables c ON t.object_id = c.source_object_id
+		WHERE s.name = @p1 AND t.name = @p2
+	`
 }
 
 // MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances

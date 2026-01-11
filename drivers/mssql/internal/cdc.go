@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // MSSQLGlobalState keeps last processed LSN for CDC
@@ -35,6 +36,17 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	}
 	for _, stream := range streams {
 		m.streams[stream.ID()] = stream
+	}
+
+	// Validate that all selected streams have CDC enabled at the table level
+	for _, stream := range streams {
+		enabled, err := m.IsTableCDCEnabled(ctx, stream.Namespace(), stream.Name())
+		if err != nil {
+			return fmt.Errorf("failed to check CDC for table %s.%s: %s", stream.Namespace(), stream.Name(), err)
+		}
+		if !enabled {
+			logger.Warnf("CDC is not enabled for table %s.%s. Please enable CDC for this table using sys.sp_cdc_enable_table", stream.Namespace(), stream.Name())
+		}
 	}
 
 	// Initialize CDC state if needed

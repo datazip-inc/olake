@@ -92,7 +92,7 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if database-level CDC is enabled
-	cdcSupported, err := m.isCDCSupported(ctx)
+	cdcSupported, err := m.isDatabaseCDCEnabled(ctx)
 	if err != nil {
 		logger.Warnf("failed to check CDC support: %s", err)
 	}
@@ -260,37 +260,37 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		return nil, typeutils.ErrNullValue
 	}
 
+	columnType = strings.ToLower(columnType)
+	switch columnType {
 	// SQL Server stores UNIQUEIDENTIFIER values in a mixed-endian binary format:
 	// the first three fields are little-endian, while the remaining bytes are big-endian.
 	// When the driver returns this value as []byte, we must reorder the bytes to
 	// reconstruct a proper RFC4122 UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
-	if strings.EqualFold(columnType, "uniqueidentifier") {
-		switch v := value.(type) {
-		case string:
-			// Already RFC4122 formatted
-			return v, nil
-		case []byte:
-			if len(v) == 16 {
-				// Format as UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-				return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-					v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
-					v[5], v[4], // next 2 bytes
-					v[7], v[6], // next 2 bytes
-					v[8], v[9], // next 2 bytes
-					v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
-			}
-			// Fall through to string conversion if not 16 bytes
-		default:
-			// For other types, convert to string representation
-			return fmt.Sprintf("%v", v), nil
+	case "uniqueidentifier":
+		if v, ok := value.([]byte); ok {
+			return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+				v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
+				v[5], v[4], // next 2 bytes
+				v[7], v[6], // next 2 bytes
+				v[8], v[9], // next 2 bytes
+				v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
 		}
+		return fmt.Sprintf("%s", value), nil
+	// TODO: check how to handle hierarchyid datatype
+	case "hierarchyid":
+		if val, ok := value.(string); ok {
+			return val, nil
+		}
+		// Note: This returns a hex representation, not the hierarchical path format
+		// For proper "/1/2/3/" format, cast in SQL using col.ToString()
+		return fmt.Sprintf("%x", value), nil
 	}
 
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mssqlTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
 
-func (m *MSSQL) isCDCSupported(ctx context.Context) (bool, error) {
+func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	// sys.databases.is_cdc_enabled is a BIT; go-mssqldb returns it as bool.
 	var isEnabled bool
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCSupportQuery()).Scan(&isEnabled)
@@ -299,4 +299,21 @@ func (m *MSSQL) isCDCSupported(ctx context.Context) (bool, error) {
 	}
 
 	return isEnabled, nil
+}
+
+// IsTableCDCEnabled checks if CDC is enabled for a specific table.
+// This is used during discover to determine if CDC sync modes should be available for a stream.
+func (m *MSSQL) IsTableCDCEnabled(ctx context.Context, namespace, name string) (bool, error) {
+	if !m.CDCSupport {
+		return false, nil
+	}
+	var captureInstance string
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCTableEnabledQuery(), namespace, name).Scan(&captureInstance)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check table CDC enablement for %s.%s: %s", namespace, name, err)
+	}
+	return true, nil
 }
