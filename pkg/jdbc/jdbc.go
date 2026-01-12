@@ -801,8 +801,8 @@ func DB2DiscoveryQuery() string {
 			TRIM(TABSCHEMA) AS table_schema,
 			TRIM(TABNAME) AS table_name
 		FROM SYSCAT.TABLES
-		WHERE TYPE IN ('T', 'V')
-		  AND TABSCHEMA NOT LIKE 'SYS%'
+		WHERE TYPE = 'T'
+		AND TABSCHEMA NOT LIKE 'SYS%'
 		ORDER BY TABSCHEMA, TABNAME
 	`
 }
