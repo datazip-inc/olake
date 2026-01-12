@@ -43,6 +43,10 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}}},
 		}
 
+		if projection := BuildChangeStreamProjection(stream); projection != nil {
+			pipeline = append(pipeline, bson.D{{Key: "$project", Value: projection}})
+		}
+
 		prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
 		if prevResumeToken == nil {
 			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
@@ -71,6 +75,11 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
 		}}},
 	}
+
+	if projection := BuildChangeStreamProjection(stream); projection != nil {
+		pipeline = append(pipeline, bson.D{{Key: "$project", Value: projection}})
+	}
+
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
@@ -158,12 +167,6 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	}
 
 	filterMongoObject(record.FullDocument)
-
-	record.FullDocument = types.FilterDataBySelectedColumns(
-		record.FullDocument,
-		stream.Self().GetSelectedColumnsMap(),
-		stream.Self().GetSelectedColumnsAllSelected(),
-	)
 
 	ts := utils.Ternary(record.WallTime != 0,
 		record.WallTime.Time(), // millisecond precision
@@ -253,4 +256,42 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 		T: binary.BigEndian.Uint32(dataBytes[1:5]),
 		I: binary.BigEndian.Uint32(dataBytes[5:9]),
 	}, nil
+}
+
+// BuildChangeStreamProjection builds a MongoDB change stream projection for selected columns
+// Returns projection if not all columns are selected, nil if all columns are selected (no projection needed)
+// Projects selected columns from fullDocument for insert/update operations
+// Always includes documentKey for delete operations
+func BuildChangeStreamProjection(stream types.StreamInterface) bson.D {
+	selectedCols := stream.Self().GetSelectedColumns()
+	if len(selectedCols) == 0 || stream.Self().GetSelectedColumnsAllSelected() {
+		return nil
+	}
+
+	projection := bson.D{
+		// Always include essential change stream fields
+		{Key: "operationType", Value: 1},
+		{Key: "documentKey", Value: 1}, // Required for delete operations
+		{Key: "clusterTime", Value: 1},
+		{Key: "wallTime", Value: 1},
+		{Key: "_id", Value: 1}, // Required for resume tokens
+	}
+
+	for _, col := range selectedCols {
+		projection = append(projection, bson.E{
+			Key:   fmt.Sprintf("fullDocument.%s", col),
+			Value: 1,
+		})
+	}
+
+	// Always include _id in fullDocument if it's not explicitly selected
+	// This ensures _id is available even if not in selected columns
+	if _, exists := stream.Self().GetSelectedColumnsMap()["_id"]; !exists {
+		projection = append(projection, bson.E{
+			Key:   "fullDocument._id",
+			Value: 1,
+		})
+	}
+
+	return projection
 }
