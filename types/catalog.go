@@ -140,13 +140,31 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					oldSchema := oldStreams[streamID].Stream.Schema
 					newSchema := newStreams[streamID].Stream.Schema
 
-					// when selectedColumns property is not present or empty, use all columns from new schema
 					if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
-						columns := newMetadataMap[streamID].SelectedColumns.Columns
-						metadata.SelectedColumns = &SelectedColumns{
-							Columns: columns,
+						if metadata.SyncNewColumns {
+							// syn all columns
+							columns := newMetadataMap[streamID].SelectedColumns.Columns
+							metadata.SelectedColumns = &SelectedColumns{
+								Columns: columns,
+							}
+						} else {
+							// we select only columns that existed in old schema
+							var preservedColumns []string
+							oldSchema.Properties.Range(func(key, _ interface{}) bool {
+								colName := key.(string)
+								if _, exists := newSchema.Properties.Load(colName); exists {
+									preservedColumns = append(preservedColumns, colName)
+								}
+								return true
+							})
+							metadata.SelectedColumns = &SelectedColumns{
+								Columns: preservedColumns,
+							}
+
+							// no need to call ensureMandatoryColumns here as all the columns are already present in the old schema
 						}
 					} else {
+						// when selectedColumns property is present and not empty, use only columns that existed in both old and new schemas
 						var preservedSelectedColumns []string
 						for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
 							// Check if column exists in both old and new schemas
