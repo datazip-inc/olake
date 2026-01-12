@@ -140,6 +140,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					oldSchema := oldStreams[streamID].Stream.Schema
 					newSchema := newStreams[streamID].Stream.Schema
 
+					// when selectedColumns property is not present or empty, use all columns from new schema or only columns that existed in old schema
 					if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
 						if metadata.SyncNewColumns {
 							// syn all columns
