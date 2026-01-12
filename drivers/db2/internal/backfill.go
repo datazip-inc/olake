@@ -121,7 +121,7 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 			return nil, fmt.Errorf("failed to get table extremes: %s", err)
 		}
 		if minVal == nil {
-			return nil, nil
+			return types.NewSet[types.Chunk](), nil
 		}
 
 		chunks.Insert(types.Chunk{
@@ -193,6 +193,7 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		totalRidRange := maxRID - minRID
 		// distance between start and end RID of a chunk
 		ridInterval := int64(math.Ceil(float64(totalRidRange) / float64(numberOfChunks)))
+		ridInterval = utils.Ternary(ridInterval <= 0, int64(1), ridInterval).(int64)
 		chunks := types.NewSet[types.Chunk]()
 		for start := minRID; start <= maxRID; start += ridInterval {
 			end := start + ridInterval
