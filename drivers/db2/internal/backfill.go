@@ -48,10 +48,17 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
 
+	// begin transaction for chunks iteration
+	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %s", err)
+	}
+	defer tx.Rollback()
+
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
 
 	reader := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
-		return d.client.QueryContext(ctx, query, args...)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return reader.Capture(func(rows *sql.Rows) error {
