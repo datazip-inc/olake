@@ -13,6 +13,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
+import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.io.OutputFileFactory;
@@ -30,7 +31,8 @@ import jakarta.enterprise.context.Dependent;
 public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServiceImplBase {
      private static final Logger LOGGER = LoggerFactory.getLogger(OlakeArrowIngester.class);
      private static final String FILE_TYPE_DATA = "data";
-     private static final String FILE_TYPE_DELETE = "delete";
+     private static final String FILE_TYPE_EQUALITY_DELETE = "equalityDelete";
+     private static final String FILE_TYPE_POSITIONAL_DELETE = "positionalDelete";
 
      private final String icebergNamespace;
      private final Catalog icebergCatalog;
@@ -83,7 +85,11 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                    Collections.singletonList(olakeIdField),
                                    tableSchema.identifierFieldIds());
                          String deleteSchemaJson = SchemaParser.toJson(deleteSchema);
-                         schemaMap.put(FILE_TYPE_DELETE, deleteSchemaJson);
+                         schemaMap.put(FILE_TYPE_EQUALITY_DELETE, deleteSchemaJson);
+
+                         Schema posDeleteSchema = DeleteSchemaUtil.pathPosSchema();
+                         String posDeleteSchemaJson = SchemaParser.toJson(posDeleteSchema);
+                         schemaMap.put(FILE_TYPE_POSITIONAL_DELETE, posDeleteSchemaJson);
 
                          sendSchemaResponse(responseObserver, "Schema JSON retrieved successfully", schemaMap);
                          break;
@@ -92,7 +98,8 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                     case REGISTER_AND_COMMIT -> {
                          List<ArrowPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
                          int dataFileCount = 0;
-                         int deleteFileCount = 0;
+                         int eqDeleteFileCount = 0;
+                         int posDeleteFileCount = 0;
 
                          for (ArrowPayload.FileMetadata fileMeta : fileMetadataList) {
                               String fileType = fileMeta.getFileType();
@@ -100,7 +107,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                               long recordCount = fileMeta.getRecordCount();
 
                               switch (fileType) {
-                                   case FILE_TYPE_DELETE -> {
+                                   case FILE_TYPE_EQUALITY_DELETE -> {
                                         NestedField olakeIdFieldForDelete = icebergTable.schema().findField("_olake_id");
                                         int fieldId = olakeIdFieldForDelete.fieldId();
                                         icebergTableOperator.accumulateDeleteFiles(
@@ -110,7 +117,18 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                                   fieldId,
                                                   recordCount,
                                                   fileMeta.getPartitionValuesList());
-                                        deleteFileCount++;
+                                        eqDeleteFileCount++;
+                                        break;
+                                   }
+
+                                   case FILE_TYPE_POSITIONAL_DELETE -> {
+                                        icebergTableOperator.accumulatePositionalDeleteFiles(
+                                                  threadId,
+                                                  icebergTable,
+                                                  filePath,
+                                                  recordCount,
+                                                  fileMeta.getPartitionValuesList());
+                                        posDeleteFileCount++;
                                         break;
                                    }
 
@@ -134,8 +152,8 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          icebergTableOperator.commitThread(threadId, this.icebergTable);
                          sendResponse(responseObserver,
                                    String.format(
-                                             "Successfully committed %d data files and %d delete files for thread %s",
-                                             dataFileCount, deleteFileCount, threadId));
+                                             "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",
+                                             dataFileCount, eqDeleteFileCount, posDeleteFileCount, threadId));
                          break;
                     }
 
@@ -143,47 +161,33 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                          ArrowPayload.FileUploadRequest uploadReq = metadata.getFileUpload();
 
                          byte[] fileData = uploadReq.getFileData().toByteArray();
-                         String partitionKey = uploadReq.getPartitionKey();
+                         String filePath = uploadReq.getFilePath();
 
-                         if (this.outputFileFactory == null) {
-                              FileFormat fileFormat = IcebergUtil.getTableFileFormat(this.icebergTable);
-                              this.outputFileFactory = IcebergUtil.getTableOutputFileFactory(this.icebergTable, fileFormat);
-                         }
-
-                         EncryptedOutputFile encryptedFile = this.outputFileFactory.newOutputFile();
-
-                         // fullPath = "s3://bucket/namespace/table/data/20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
-                         String fullPath = encryptedFile.encryptingOutputFile().location();
-                         int lastSlashIndex = fullPath.lastIndexOf('/');
-
-                         // generatedFilename = "20251217-1-e19a66cb-a105-483a-ba3d-728419a63276-00001.parquet"
-                         String generatedFilename = fullPath.substring(lastSlashIndex + 1);
                          FileIO fileIO = this.icebergTable.io();
-
-                         String icebergLocation;
-
-                         // example: partitionKey = "name=George/department_trunc=E"
-                         if (partitionKey != null && !partitionKey.isEmpty()) {
-                              // basePath = "s3://bucket/namespace/table/data"
-                              String basePath = fullPath.substring(0, lastSlashIndex);
-
-                              // Final path: "s3://bucket/namespace/table/data/name=George/department_trunc=E/20251217-1-...-00001.parquet"
-                              icebergLocation = basePath + "/" + partitionKey + "/" + generatedFilename;
-                         } else {
-                              // For non-partitioned tables, use the generated path as-is
-                              icebergLocation = fullPath;
-                         }
-
-                         OutputFile outputFile = fileIO.newOutputFile(icebergLocation);
+                         OutputFile outputFile = fileIO.newOutputFile(filePath);
                          try (OutputStream out = outputFile.create()) {
                               out.write(fileData);
                               out.flush();
                          }
 
-                         LOGGER.info("{} Successfully uploaded file to: {}", requestId, icebergLocation);
-                         sendResponse(responseObserver, icebergLocation);
+                         LOGGER.info("{} Successfully uploaded file to: {}", requestId, filePath);
+                         sendResponse(responseObserver, filePath);
                          break;
+                    }
 
+                    case FILEPATH -> {
+                         if (this.outputFileFactory == null) {
+                              FileFormat fileFormat = IcebergUtil.getTableFileFormat(this.icebergTable);
+                              this.outputFileFactory = IcebergUtil.getTableOutputFileFactory(this.icebergTable,
+                                        fileFormat);
+                         }
+
+                         EncryptedOutputFile encryptedFile = this.outputFileFactory.newOutputFile();
+                         String basePath = encryptedFile.encryptingOutputFile().location();
+
+                         LOGGER.debug("{} Allocated base file path: {}", requestId, basePath);
+                         sendResponse(responseObserver, basePath);
+                         break;
                     }
 
                     default -> throw new IllegalArgumentException("Unknown payload type: " + request.getType());

@@ -6217,6 +6217,10 @@ public final class RecordIngest {
        * <code>JSONSCHEMA = 2;</code>
        */
       JSONSCHEMA(2),
+      /**
+       * <code>FILEPATH = 3;</code>
+       */
+      FILEPATH(3),
       UNRECOGNIZED(-1),
       ;
 
@@ -6232,6 +6236,10 @@ public final class RecordIngest {
        * <code>JSONSCHEMA = 2;</code>
        */
       public static final int JSONSCHEMA_VALUE = 2;
+      /**
+       * <code>FILEPATH = 3;</code>
+       */
+      public static final int FILEPATH_VALUE = 3;
 
 
       public final int getNumber() {
@@ -6261,6 +6269,7 @@ public final class RecordIngest {
           case 0: return UPLOAD_FILE;
           case 1: return REGISTER_AND_COMMIT;
           case 2: return JSONSCHEMA;
+          case 3: return FILEPATH;
           default: return null;
         }
       }
@@ -8568,16 +8577,16 @@ public final class RecordIngest {
       com.google.protobuf.ByteString getFileData();
 
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The filePath.
        */
-      java.lang.String getPartitionKey();
+      java.lang.String getFilePath();
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The bytes for partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The bytes for filePath.
        */
       com.google.protobuf.ByteString
-          getPartitionKeyBytes();
+          getFilePathBytes();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest}
@@ -8593,7 +8602,7 @@ public final class RecordIngest {
       }
       private FileUploadRequest() {
         fileData_ = com.google.protobuf.ByteString.EMPTY;
-        partitionKey_ = "";
+        filePath_ = "";
       }
 
       @java.lang.Override
@@ -8632,39 +8641,39 @@ public final class RecordIngest {
         return fileData_;
       }
 
-      public static final int PARTITION_KEY_FIELD_NUMBER = 2;
+      public static final int FILE_PATH_FIELD_NUMBER = 2;
       @SuppressWarnings("serial")
-      private volatile java.lang.Object partitionKey_ = "";
+      private volatile java.lang.Object filePath_ = "";
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The filePath.
        */
       @java.lang.Override
-      public java.lang.String getPartitionKey() {
-        java.lang.Object ref = partitionKey_;
+      public java.lang.String getFilePath() {
+        java.lang.Object ref = filePath_;
         if (ref instanceof java.lang.String) {
           return (java.lang.String) ref;
         } else {
           com.google.protobuf.ByteString bs = 
               (com.google.protobuf.ByteString) ref;
           java.lang.String s = bs.toStringUtf8();
-          partitionKey_ = s;
+          filePath_ = s;
           return s;
         }
       }
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The bytes for partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The bytes for filePath.
        */
       @java.lang.Override
       public com.google.protobuf.ByteString
-          getPartitionKeyBytes() {
-        java.lang.Object ref = partitionKey_;
+          getFilePathBytes() {
+        java.lang.Object ref = filePath_;
         if (ref instanceof java.lang.String) {
           com.google.protobuf.ByteString b = 
               com.google.protobuf.ByteString.copyFromUtf8(
                   (java.lang.String) ref);
-          partitionKey_ = b;
+          filePath_ = b;
           return b;
         } else {
           return (com.google.protobuf.ByteString) ref;
@@ -8688,8 +8697,8 @@ public final class RecordIngest {
         if (!fileData_.isEmpty()) {
           output.writeBytes(1, fileData_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, partitionKey_);
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, filePath_);
         }
         getUnknownFields().writeTo(output);
       }
@@ -8704,8 +8713,8 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeBytesSize(1, fileData_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, partitionKey_);
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, filePath_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -8724,8 +8733,8 @@ public final class RecordIngest {
 
         if (!getFileData()
             .equals(other.getFileData())) return false;
-        if (!getPartitionKey()
-            .equals(other.getPartitionKey())) return false;
+        if (!getFilePath()
+            .equals(other.getFilePath())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -8739,8 +8748,8 @@ public final class RecordIngest {
         hash = (19 * hash) + getDescriptor().hashCode();
         hash = (37 * hash) + FILE_DATA_FIELD_NUMBER;
         hash = (53 * hash) + getFileData().hashCode();
-        hash = (37 * hash) + PARTITION_KEY_FIELD_NUMBER;
-        hash = (53 * hash) + getPartitionKey().hashCode();
+        hash = (37 * hash) + FILE_PATH_FIELD_NUMBER;
+        hash = (53 * hash) + getFilePath().hashCode();
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -8871,7 +8880,7 @@ public final class RecordIngest {
           super.clear();
           bitField0_ = 0;
           fileData_ = com.google.protobuf.ByteString.EMPTY;
-          partitionKey_ = "";
+          filePath_ = "";
           return this;
         }
 
@@ -8909,7 +8918,7 @@ public final class RecordIngest {
             result.fileData_ = fileData_;
           }
           if (((from_bitField0_ & 0x00000002) != 0)) {
-            result.partitionKey_ = partitionKey_;
+            result.filePath_ = filePath_;
           }
         }
 
@@ -8960,8 +8969,8 @@ public final class RecordIngest {
           if (other.getFileData() != com.google.protobuf.ByteString.EMPTY) {
             setFileData(other.getFileData());
           }
-          if (!other.getPartitionKey().isEmpty()) {
-            partitionKey_ = other.partitionKey_;
+          if (!other.getFilePath().isEmpty()) {
+            filePath_ = other.filePath_;
             bitField0_ |= 0x00000002;
             onChanged();
           }
@@ -8997,7 +9006,7 @@ public final class RecordIngest {
                   break;
                 } // case 10
                 case 18: {
-                  partitionKey_ = input.readStringRequireUtf8();
+                  filePath_ = input.readStringRequireUtf8();
                   bitField0_ |= 0x00000002;
                   break;
                 } // case 18
@@ -9050,73 +9059,73 @@ public final class RecordIngest {
           return this;
         }
 
-        private java.lang.Object partitionKey_ = "";
+        private java.lang.Object filePath_ = "";
         /**
-         * <code>string partition_key = 2;</code>
-         * @return The partitionKey.
+         * <code>string file_path = 2;</code>
+         * @return The filePath.
          */
-        public java.lang.String getPartitionKey() {
-          java.lang.Object ref = partitionKey_;
+        public java.lang.String getFilePath() {
+          java.lang.Object ref = filePath_;
           if (!(ref instanceof java.lang.String)) {
             com.google.protobuf.ByteString bs =
                 (com.google.protobuf.ByteString) ref;
             java.lang.String s = bs.toStringUtf8();
-            partitionKey_ = s;
+            filePath_ = s;
             return s;
           } else {
             return (java.lang.String) ref;
           }
         }
         /**
-         * <code>string partition_key = 2;</code>
-         * @return The bytes for partitionKey.
+         * <code>string file_path = 2;</code>
+         * @return The bytes for filePath.
          */
         public com.google.protobuf.ByteString
-            getPartitionKeyBytes() {
-          java.lang.Object ref = partitionKey_;
+            getFilePathBytes() {
+          java.lang.Object ref = filePath_;
           if (ref instanceof String) {
             com.google.protobuf.ByteString b = 
                 com.google.protobuf.ByteString.copyFromUtf8(
                     (java.lang.String) ref);
-            partitionKey_ = b;
+            filePath_ = b;
             return b;
           } else {
             return (com.google.protobuf.ByteString) ref;
           }
         }
         /**
-         * <code>string partition_key = 2;</code>
-         * @param value The partitionKey to set.
+         * <code>string file_path = 2;</code>
+         * @param value The filePath to set.
          * @return This builder for chaining.
          */
-        public Builder setPartitionKey(
+        public Builder setFilePath(
             java.lang.String value) {
           if (value == null) { throw new NullPointerException(); }
-          partitionKey_ = value;
+          filePath_ = value;
           bitField0_ |= 0x00000002;
           onChanged();
           return this;
         }
         /**
-         * <code>string partition_key = 2;</code>
+         * <code>string file_path = 2;</code>
          * @return This builder for chaining.
          */
-        public Builder clearPartitionKey() {
-          partitionKey_ = getDefaultInstance().getPartitionKey();
+        public Builder clearFilePath() {
+          filePath_ = getDefaultInstance().getFilePath();
           bitField0_ = (bitField0_ & ~0x00000002);
           onChanged();
           return this;
         }
         /**
-         * <code>string partition_key = 2;</code>
-         * @param value The bytes for partitionKey to set.
+         * <code>string file_path = 2;</code>
+         * @param value The bytes for filePath to set.
          * @return This builder for chaining.
          */
-        public Builder setPartitionKeyBytes(
+        public Builder setFilePathBytes(
             com.google.protobuf.ByteString value) {
           if (value == null) { throw new NullPointerException(); }
           checkByteStringIsUtf8(value);
-          partitionKey_ = value;
+          filePath_ = value;
           bitField0_ |= 0x00000002;
           onChanged();
           return this;
@@ -12077,7 +12086,7 @@ java.lang.String defaultValue) {
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
       "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\333\006\n\014ArrowPayload\022F\n\004type\030\001" +
+      "success\030\002 \001(\010\"\345\006\n\014ArrowPayload\022F\n\004type\030\001" +
       " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
       "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
       "25.io.debezium.server.iceberg.rpc.ArrowP" +
@@ -12089,28 +12098,29 @@ java.lang.String defaultValue) {
       "titionValue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong" +
       "_value\030\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025" +
       "\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 " +
-      "\001(\001H\000B\007\n\005value\032=\n\021FileUploadRequest\022\021\n\tf" +
-      "ile_data\030\001 \001(\014\022\025\n\rpartition_key\030\002 \001(\t\032\362\001" +
-      "\n\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tt" +
-      "hread_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329." +
-      "io.debezium.server.iceberg.rpc.ArrowPayl" +
-      "oad.FileMetadata\022X\n\013file_upload\030\004 \001(\0132>." +
-      "io.debezium.server.iceberg.rpc.ArrowPayl" +
-      "oad.FileUploadRequestH\000\210\001\001B\016\n\014_file_uplo" +
-      "ad\"G\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023RE" +
-      "GISTER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\"\275\001\n\023" +
-      "ArrowIngestResponse\022\016\n\006result\030\001 \001(\t\022_\n\016i" +
-      "cebergSchemas\030\002 \003(\0132G.io.debezium.server" +
-      ".iceberg.rpc.ArrowIngestResponse.Iceberg" +
-      "SchemasEntry\0325\n\023IcebergSchemasEntry\022\013\n\003k" +
-      "ey\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n\023RecordIn" +
-      "gestService\022s\n\013SendRecords\022..io.debezium" +
-      ".server.iceberg.rpc.IcebergPayload\0324.io." +
-      "debezium.server.iceberg.rpc.RecordIngest" +
-      "Response2\205\001\n\022ArrowIngestService\022o\n\nIcebe" +
-      "rgAPI\022,.io.debezium.server.iceberg.rpc.A" +
-      "rrowPayload\0323.io.debezium.server.iceberg" +
-      ".rpc.ArrowIngestResponseb\006proto3"
+      "\001(\001H\000B\007\n\005value\0329\n\021FileUploadRequest\022\021\n\tf" +
+      "ile_data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001(\t\032\362\001\n\010Me" +
+      "tadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tthrea" +
+      "d_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329.io.d" +
+      "ebezium.server.iceberg.rpc.ArrowPayload." +
+      "FileMetadata\022X\n\013file_upload\030\004 \001(\0132>.io.d" +
+      "ebezium.server.iceberg.rpc.ArrowPayload." +
+      "FileUploadRequestH\000\210\001\001B\016\n\014_file_upload\"U" +
+      "\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGIST" +
+      "ER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEP" +
+      "ATH\020\003\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030" +
+      "\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debez" +
+      "ium.server.iceberg.rpc.ArrowIngestRespon" +
+      "se.IcebergSchemasEntry\0325\n\023IcebergSchemas" +
+      "Entry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001" +
+      "\n\023RecordIngestService\022s\n\013SendRecords\022..i" +
+      "o.debezium.server.iceberg.rpc.IcebergPay" +
+      "load\0324.io.debezium.server.iceberg.rpc.Re" +
+      "cordIngestResponse2\205\001\n\022ArrowIngestServic" +
+      "e\022o\n\nIcebergAPI\022,.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload\0323.io.debezium.serv" +
+      "er.iceberg.rpc.ArrowIngestResponseb\006prot" +
+      "o3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -12175,7 +12185,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor,
-        new java.lang.String[] { "FileData", "PartitionKey", });
+        new java.lang.String[] { "FileData", "FilePath", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(2);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new

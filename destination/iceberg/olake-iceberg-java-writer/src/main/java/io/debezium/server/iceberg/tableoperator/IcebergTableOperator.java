@@ -305,6 +305,41 @@ public class IcebergTableOperator {
           }
      }
 
+     public void accumulatePositionalDeleteFiles(String threadId, Table table, String filePath,
+               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+          try {
+               FileIO fileIO = table.io();
+               InputFile inputFile = fileIO.newInputFile(filePath);
+               long fileSize = inputFile.getLength();
+
+               FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
+                         .ofPositionDeletes()
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(fileSize)
+                         .withRecordCount(recordCount);
+
+               if (partitionValues != null && !partitionValues.isEmpty()) {
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
+                    deleteFileBuilder.withPartition(partitionData);
+                    LOGGER.debug("Thread {}: positional delete file scoped to partition with {} values", threadId,
+                              partitionValues.size());
+               } else {
+                    LOGGER.debug("Thread {}: positional delete file scoped to global (unpartitioned)", threadId);
+               }
+
+               DeleteFile deleteFile = deleteFileBuilder.build();
+               deleteFiles.add(deleteFile);
+               LOGGER.info("Thread {}: accumulated positional delete file {} (total delete files: {})",
+                         threadId, filePath, deleteFiles.size());
+          } catch (Exception e) {
+               String errorMsg = String.format("Thread %s: failed to accumulate positional delete file %s: %s",
+                         threadId, filePath, e.getMessage());
+               LOGGER.error(errorMsg, e);
+               throw new RuntimeException(e);
+          }
+     }
+
      private PartitionData partitionDataFromTypedValues(PartitionSpec spec,
                List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           PartitionData partitionData = new PartitionData(spec.partitionType());
