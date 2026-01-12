@@ -77,6 +77,10 @@ func TypeFromValue(v interface{}) types.DataType {
 		if val == nil {
 			return types.Null
 		}
+		t, err := ReformatDate(*val, false)
+		if err == nil {
+			return detectTimestampPrecision(t)
+		}
 		return types.String
 	case *time.Time:
 		if val == nil {
