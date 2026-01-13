@@ -203,7 +203,15 @@ func (p *Parquet) Check(_ context.Context) error {
 	}
 	// test for s3 permissions
 	if p.s3Client != nil {
-		testKey := fmt.Sprintf("olake_writer_test/%s", utils.TimestampedFileName(".txt"))
+		prefix := strings.Trim(p.config.Prefix, "/")
+		testKey := fmt.Sprintf("%s/olake_writer_test/%s", prefix, utils.TimestampedFileName(".txt"))
+
+		if prefix == "" {
+			testKey = fmt.Sprintf(
+				"olake_writer_test/%s",
+				utils.TimestampedFileName(".txt"),
+			)
+		}
 		// Try to upload a small test file
 		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
 			Bucket: aws.String(p.config.Bucket),
@@ -215,7 +223,7 @@ func (p *Parquet) Check(_ context.Context) error {
 		}
 		p.config.Path = os.TempDir()
 		// trim '/' from prefix path
-		p.config.Prefix = strings.Trim(p.config.Prefix, "/")
+		// p.config.Prefix = strings.Trim(p.config.Prefix, "/")
 		logger.Infof("Thread[%s]: s3 writer configuration found", p.options.ThreadID)
 	} else if p.config.Path != "" {
 		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
