@@ -62,10 +62,10 @@ func (s *State) initStreamState(stream *ConfiguredStream) *StreamState {
 }
 
 // TODO: Add validation tags; Write custom unmarshal that triggers validation
-// State is a dto for airbyte state serialization
 type State struct {
 	*sync.RWMutex `json:"-"`
 	Type          StateType      `json:"type"`
+	Version       int            `json:"version,omitempty"` // version of state file for backward compatibility
 	Global        *GlobalState   `json:"global,omitempty"`
 	Streams       []*StreamState `json:"streams,omitempty"` // TODO: make it set
 }
