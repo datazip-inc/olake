@@ -74,17 +74,20 @@ type TestConfig struct {
 	HostTestCatalogPath    string
 }
 
+// history stores the RPS values and the last updated time for a given mode.
 type history struct {
 	RPS       []float64 `json:"rps"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// benchmarkStore stores the benchmark RPS values for backfill and CDC modes.
 type benchmarkStore struct {
 	Backfill history `json:"backfill"`
 	CDC      history `json:"cdc"`
 	FilePath string  `json:"-"`
 }
 
+// initializes the benchmark store with the given path and loads the stored benchmarks data from the file.
 func loadBenchmarks(path string) (*benchmarkStore, error) {
 	store := &benchmarkStore{
 		Backfill: history{
@@ -103,6 +106,7 @@ func loadBenchmarks(path string) (*benchmarkStore, error) {
 	return store, nil
 }
 
+// load loads the stored benchmarks data from the file.
 func (s *benchmarkStore) load() error {
 	if err := utils.UnmarshalFile(s.FilePath, s, false); err != nil {
 		if _, statErr := os.Stat(s.FilePath); os.IsNotExist(statErr) {
@@ -115,7 +119,7 @@ func (s *benchmarkStore) load() error {
 	return nil
 }
 
-// record records a new value for the given driver and mode, and persists it to the file.
+// record records a new benchmark RPS value for the given driver and mode, and persists it to the file.
 func (s *benchmarkStore) record(
 	isBackfill bool,
 	rps float64,
