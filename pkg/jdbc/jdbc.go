@@ -789,8 +789,27 @@ func BuildColumnList(stream types.StreamInterface, driver constants.DriverType) 
 		return "*"
 	}
 
-	quotedCols := make([]string, len(selectedCols))
-	for i, col := range selectedCols {
+	// Filter out system-generated metadata columns that don't exist in source tables
+	filteredCols := make([]string, 0, len(selectedCols))
+	metadataColumns := map[string]bool{
+		constants.OlakeID:        true,
+		constants.OlakeTimestamp: true,
+		constants.OpType:         true,
+		constants.CdcTimestamp:   true,
+	}
+
+	for _, col := range selectedCols {
+		if !metadataColumns[col] {
+			filteredCols = append(filteredCols, col)
+		}
+	}
+
+	if len(filteredCols) == 0 {
+		return "*"
+	}
+
+	quotedCols := make([]string, len(filteredCols))
+	for i, col := range filteredCols {
 		quotedCols[i] = QuoteIdentifier(col, driver)
 	}
 	return strings.Join(quotedCols, ", ")
