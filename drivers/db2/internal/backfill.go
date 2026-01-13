@@ -86,7 +86,7 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 		}
 
 		if hasRows {
-			return nil, fmt.Errorf("stats not populated for table[%s]. Please run CLP command:\tRUNSTATS ON TABLE %s.%s WITH DETAILED INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run CLP command:\tRUNSTATS ON TABLE %s.%s AND INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
 		}
 
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
