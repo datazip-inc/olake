@@ -87,15 +87,6 @@ func (c *Config) Validate() error {
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
-
-	// Default float format
-	if c.FloatFormat == "" {
-		c.FloatFormat = "raw"
-	}
-
-	if c.FloatFormat != "raw" && c.FloatFormat != "display" {
-       return fmt.Errorf("invalid float_format: %s (allowed: raw, display)", c.FloatFormat)
-}
 	
 	return utils.Validate(c)
 }
