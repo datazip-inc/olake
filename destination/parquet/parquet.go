@@ -222,8 +222,6 @@ func (p *Parquet) Check(_ context.Context) error {
 			return fmt.Errorf("failed to write test file to S3: %s", err)
 		}
 		p.config.Path = os.TempDir()
-		// trim '/' from prefix path
-		// p.config.Prefix = strings.Trim(p.config.Prefix, "/")
 		logger.Infof("Thread[%s]: s3 writer configuration found", p.options.ThreadID)
 	} else if p.config.Path != "" {
 		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
