@@ -18,10 +18,10 @@ jobs:
           const { body } = context.payload.pull_request;
 
           // If N/A is checked, we're done
-          if (/-\s*\[\s*x\s*\]\s*N\/A/.test(body)) return;
+          if (/-\s*\[\s*[xX]\s*\]\s*N\/A/.test(body)) return;
 
           // Check for valid documentation link in the Documentation Link line
-          const docLine = body.match(/-\s*\[\s*x\s*\]\s*Documentation Link:[^\n]*/i);
+          const docLine = body.match(/-\s*\[\s*[xX]\s*\]\s*Documentation Link:[^\n]*/i);
           if (!docLine) {
             core.setFailed(
               'Documentation Required: Please either check "Documentation Link" and provide a valid link, or check "N/A" for bug fixes, refactors, or test changes.'

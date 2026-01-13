@@ -92,7 +92,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 					}
 					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}})
 				case "timestamptz":
-					timeValue, err := typeutils.ReformatDate(val)
+					timeValue, err := typeutils.ReformatDate(val, true)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as time value: %s", val, val, err)
 					}

@@ -1,0 +1,173 @@
+{
+  "type": "object",
+  "properties": {
+    "bucket_name": {
+      "type": "string",
+      "title": "S3 Bucket Name",
+      "description": "Name of the S3 bucket containing your data files"
+    },
+    "region": {
+      "type": "string",
+      "title": "AWS Region",
+      "description": "AWS region where the bucket is located (e.g., us-east-1)",
+      "default": "us-east-1"
+    },
+    "path_prefix": {
+      "type": "string",
+      "title": "Path Prefix",
+      "description": "S3 path prefix to filter files (optional)",
+      "default": ""
+    },
+    "access_key_id": {
+      "type": "string",
+      "title": "Access Key ID",
+      "description": "AWS access key ID for authentication (optional - if omitted, uses IAM role or default credential chain)"
+    },
+    "secret_access_key": {
+      "type": "string",
+      "title": "Secret Access Key",
+      "description": "AWS secret access key for authentication (optional - if omitted, uses IAM role or default credential chain)",
+      "format": "password"
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "Custom Endpoint",
+      "description": "Custom S3-compatible endpoint URL (e.g., http://localhost:9000 for MinIO)",
+      "default": ""
+    },
+    "file_format": {
+      "type": "string",
+      "title": "File Format",
+      "description": "Format of files to process",
+      "enum": [
+        "csv",
+        "json",
+        "parquet"
+      ],
+      "default": "csv"
+    },
+    "compression": {
+      "type": "string",
+      "title": "Compression Type",
+      "description": "Compression format of the files",
+      "enum": [
+        "none",
+        "gzip",
+        "zip"
+      ],
+      "default": "none"
+    },
+    "file_pattern": {
+      "type": "string",
+      "title": "File Pattern",
+      "description": "Regular expression to filter files by name (optional)",
+      "default": ""
+    },
+    "max_threads": {
+      "type": "integer",
+      "title": "Max Threads",
+      "description": "Maximum number of concurrent file processors",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 20
+    },
+    "retry_count": {
+      "type": "integer",
+      "title": "Retry Count",
+      "description": "Number of retry attempts for failed operations",
+      "default": 3,
+      "minimum": 0,
+      "maximum": 10
+    }
+  },
+  "required": [
+    "bucket_name",
+    "file_format"
+  ],
+  "dependencies": {
+    "file_format": {
+      "oneOf": [
+        {
+          "properties": {
+            "file_format": {
+              "const": "csv"
+            },
+            "csv": {
+              "type": "object",
+              "title": "CSV Configuration",
+              "description": "CSV format-specific settings",
+              "properties": {
+                "delimiter": {
+                  "type": "string",
+                  "title": "Delimiter",
+                  "description": "Delimiter character for CSV files",
+                  "default": ","
+                },
+                "has_header": {
+                  "type": "boolean",
+                  "title": "Has Header",
+                  "description": "Whether CSV files contain a header row",
+                  "default": true
+                },
+                "skip_rows": {
+                  "type": "integer",
+                  "title": "Skip Rows",
+                  "description": "Number of rows to skip at the beginning of CSV files",
+                  "default": 0,
+                  "minimum": 0
+                },
+                "quote_character": {
+                  "type": "string",
+                  "title": "Quote Character",
+                  "description": "Quote character for CSV fields",
+                  "default": "\""
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "file_format": {
+              "const": "json"
+            },
+            "json": {
+              "type": "object",
+              "title": "JSON Configuration",
+              "description": "JSON format-specific settings",
+              "properties": {
+                "line_delimited": {
+                  "type": "boolean",
+                  "title": "Line Delimited",
+                  "description": "Use line-delimited JSON (JSONL) format instead of JSON array",
+                  "default": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "file_format": {
+              "const": "parquet"
+            },
+            "parquet": {
+              "type": "object",
+              "title": "Parquet Configuration",
+              "description": "Parquet format-specific settings",
+              "properties": {
+                "streaming_enabled": {
+                  "type": "boolean",
+                  "title": "Streaming Enabled",
+                  "description": "Use S3 range requests for memory-efficient streaming (recommended for large files)",
+                  "default": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+

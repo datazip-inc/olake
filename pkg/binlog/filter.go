@@ -156,7 +156,7 @@ func mysqlTypeName(t byte) string {
 		return "DATE"
 	case mysql.MYSQL_TYPE_TIME:
 		return "TIME"
-	case mysql.MYSQL_TYPE_DATETIME:
+	case mysql.MYSQL_TYPE_DATETIME, mysql.MYSQL_TYPE_DATETIME2:
 		return "DATETIME"
 	case mysql.MYSQL_TYPE_YEAR:
 		return "YEAR"

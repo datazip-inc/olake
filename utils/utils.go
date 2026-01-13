@@ -75,6 +75,19 @@ func Ternary(cond bool, a, b any) any {
 	return b
 }
 
+// return the average of the given values.
+func Average[T int | int8 | int16 | int32 | int64 | float32 | float64](values []T) float64 {
+	if len(values) == 0 {
+		return 0.0
+	}
+
+	var sum float64
+	for _, v := range values {
+		sum += float64(v)
+	}
+	return sum / float64(len(values))
+}
+
 func ForEach[T any](set []T, action func(elem T) error) error {
 	for _, elem := range set {
 		err := action(elem)
@@ -240,7 +253,7 @@ func genULID(t time.Time) string {
 // Returns a timestamped
 func TimestampedFileName(extension string) string {
 	now := time.Now().UTC()
-	return fmt.Sprintf("%d-%d-%d_%d-%d-%d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
+	return fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d_%s.%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), genULID(now), extension)
 }
 
 func IsJSON(str string) bool {
