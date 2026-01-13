@@ -48,7 +48,7 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
 
-	// begin transaction for chunks iteration
+	// begin transaction for chunk iteration
 	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
