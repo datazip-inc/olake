@@ -210,8 +210,8 @@ func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterfa
 
 		record = types.FilterDataBySelectedColumns(
 			record,
-			stream.Self().GetSelectedColumnsMap(),
-			stream.Self().GetSelectedColumnsAllSelected(),
+			stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+			stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 		)
 
 		return processFn(ctx, record)

@@ -503,8 +503,8 @@ func hasMultipleType(stream types.StreamInterface) bool {
 // BuildMongoProjection builds a MongoDB projection document for selected columns
 // Returns projection if not all columns are selected, nil if all columns are selected (no projection needed)
 func BuildMongoProjection(stream types.StreamInterface) bson.D {
-	selectedCols := stream.Self().GetSelectedColumns()
-	if len(selectedCols) == 0 || stream.Self().GetSelectedColumnsAllSelected() {
+	selectedCols := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumns()
+	if len(selectedCols) == 0 || stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag() {
 		return nil
 	}
 
@@ -513,7 +513,7 @@ func BuildMongoProjection(stream types.StreamInterface) bson.D {
 		projection = append(projection, bson.E{Key: col, Value: 1})
 	}
 
-	if _, exists := stream.Self().GetSelectedColumnsMap()["_id"]; !exists {
+	if _, exists := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap()["_id"]; !exists {
 		projection = append(projection, bson.E{Key: "_id", Value: 1})
 	}
 	return projection

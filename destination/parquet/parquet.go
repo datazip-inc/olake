@@ -148,10 +148,11 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 		return fields, nil
 	}
 
+	// set the schema for the destination table based on the selected columns
 	filteredSchema := types.FilterSchemaBySelectedColumns(
 		stream.Schema(),
-		stream.Self().GetSelectedColumnsMap(),
-		stream.Self().GetSelectedColumnsAllSelected(),
+		stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+		stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 	)
 
 	fields := make(typeutils.Fields)

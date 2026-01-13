@@ -189,8 +189,8 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 
 	values = types.FilterDataBySelectedColumns(
 		values,
-		stream.Self().GetSelectedColumnsMap(),
-		stream.Self().GetSelectedColumnsAllSelected(),
+		stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+		stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 	)
 
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "insert", Data: values})
@@ -214,8 +214,8 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 
 	values = types.FilterDataBySelectedColumns(
 		values,
-		stream.Self().GetSelectedColumnsMap(),
-		stream.Self().GetSelectedColumnsAllSelected(),
+		stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+		stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 	)
 
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "update", Data: values})
@@ -239,8 +239,8 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 
 	values = types.FilterDataBySelectedColumns(
 		values,
-		stream.Self().GetSelectedColumnsMap(),
-		stream.Self().GetSelectedColumnsAllSelected(),
+		stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+		stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 	)
 
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})

@@ -81,8 +81,8 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		// filter record based on selected columns
 		record = types.FilterDataBySelectedColumns(
 			record,
-			stream.Self().GetSelectedColumnsMap(),
-			stream.Self().GetSelectedColumnsAllSelected(),
+			stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+			stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 		)
 
 		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,

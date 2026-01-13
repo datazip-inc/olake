@@ -77,8 +77,8 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 
 		changesMap = types.FilterDataBySelectedColumns(
 			changesMap,
-			stream.Self().GetSelectedColumnsMap(),
-			stream.Self().GetSelectedColumnsAllSelected(),
+			stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+			stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 		)
 
 		if err := OnFiltered(ctx, abstract.CDCChange{

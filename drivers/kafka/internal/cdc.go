@@ -87,8 +87,8 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 		// Filter record based on selected columns
 		filteredData := types.FilterDataBySelectedColumns(
 			record.Data,
-			currentPartitionMeta.Stream.Self().GetSelectedColumnsMap(),
-			currentPartitionMeta.Stream.Self().GetSelectedColumnsAllSelected(),
+			currentPartitionMeta.Stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+			currentPartitionMeta.Stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 		)
 
 		// process the change

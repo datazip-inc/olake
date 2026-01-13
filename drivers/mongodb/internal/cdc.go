@@ -263,8 +263,8 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 // Projects selected columns from fullDocument for insert/update operations
 // Always includes documentKey for delete operations
 func BuildChangeStreamProjection(stream types.StreamInterface) bson.D {
-	selectedCols := stream.Self().GetSelectedColumns()
-	if len(selectedCols) == 0 || stream.Self().GetSelectedColumnsAllSelected() {
+	selectedCols := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumns()
+	if len(selectedCols) == 0 || stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag() {
 		return nil
 	}
 
@@ -286,7 +286,7 @@ func BuildChangeStreamProjection(stream types.StreamInterface) bson.D {
 
 	// Always include _id in fullDocument if it's not explicitly selected
 	// This ensures _id is available even if not in selected columns
-	if _, exists := stream.Self().GetSelectedColumnsMap()["_id"]; !exists {
+	if _, exists := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap()["_id"]; !exists {
 		projection = append(projection, bson.E{
 			Key:   "fullDocument._id",
 			Value: 1,

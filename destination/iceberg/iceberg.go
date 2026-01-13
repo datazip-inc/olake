@@ -83,10 +83,11 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	if globalSchema == nil {
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
+		// set the schema for the destination table based on the selected columns
 		filteredSchema := types.FilterSchemaBySelectedColumns(
 			stream.Schema(),
-			stream.Self().GetSelectedColumnsMap(),
-			stream.Self().GetSelectedColumnsAllSelected(),
+			stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+			stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
 		)
 
 		var requestPayload proto.IcebergPayload

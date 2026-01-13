@@ -183,6 +183,13 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
+
+			// Merge selected columns with newly discovered columns for sync, if SyncNewColumns is true
+			types.MergeSelectedColumns(&sMetadata, elem.Stream.Schema, source.Schema, elem.Stream)
+
+			// set all columns selected flag
+			sMetadata.SelectedColumns.SetAllSelectedColumnsFlag(elem.Stream)
+
 			elem.StreamMetadata = sMetadata
 			err := elem.Validate(source)
 			if err != nil {

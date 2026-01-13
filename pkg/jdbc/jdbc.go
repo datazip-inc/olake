@@ -784,8 +784,8 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 // BuildColumnList builds a comma-separated list of quoted column names for SQL queries
 // If selectedCols is empty, returns "*"
 func BuildColumnList(stream types.StreamInterface, driver constants.DriverType) string {
-	selectedCols := stream.Self().GetSelectedColumns()
-	if len(selectedCols) == 0 || stream.Self().GetSelectedColumnsAllSelected() {
+	selectedCols := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumns()
+	if len(selectedCols) == 0 || stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag() {
 		return "*"
 	}
 
