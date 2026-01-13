@@ -80,7 +80,7 @@ type history struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// benchmarkStore stores the benchmark RPS values for backfill and CDC modes.
+// benchmarkStore stores the benchmark RPS history for backfill and CDC modes.
 type benchmarkStore struct {
 	Backfill history `json:"backfill"`
 	CDC      history `json:"cdc"`
