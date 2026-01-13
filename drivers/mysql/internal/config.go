@@ -22,7 +22,6 @@ type Config struct {
 	MaxThreads    int              `json:"max_threads"`
 	RetryCount    int              `json:"backoff_retry_count"`
 	SSHConfig     *utils.SSHConfig `json:"ssh_config"`
-	FloatFormat   string           `json:"float_format"`
 }
 
 type CDC struct {
