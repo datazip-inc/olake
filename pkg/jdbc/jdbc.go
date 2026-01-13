@@ -547,6 +547,10 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 	}
 
 	quotedCol := QuoteIdentifier(cursorField, opts.Driver)
+	if formattedValue == nil {
+		return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), nil, nil
+	}
+
 	var dbDatatype string
 	switch opts.Driver {
 	case constants.Oracle:
