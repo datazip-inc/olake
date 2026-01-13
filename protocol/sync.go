@@ -184,11 +184,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				return false
 			}
 
-			// Merge selected columns with newly discovered columns for sync, if SyncNewColumns is true
 			types.MergeSelectedColumns(&sMetadata, elem.Stream.Schema, source.Schema, source)
-
-			// set all columns selected flag
-			sMetadata.SelectedColumns.SetAllSelectedColumnsFlag(elem.Stream)
 
 			elem.StreamMetadata = sMetadata
 			err := elem.Validate(source)
