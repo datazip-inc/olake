@@ -119,78 +119,75 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 }
 
 func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn) error {
-	ctx := setter.ctx
 	valuesCh := make(chan []any)
-	doneCh := make(chan error, 1)
 
 	var (
-		columns  []string
-		colTypes []*sql.ColumnType
+		columns   []string
+		colTypes  []*sql.ColumnType
+		scanDests []any // reused pointers for rows.Scan
 	)
 
-	go func() {
-		var procErr error
-		defer func() {
-			doneCh <- procErr
-			close(doneCh)
-		}()
+	// Producer: scan rows and push raw values onto the channel.
+	producer := func(ctx context.Context) error {
+		defer close(valuesCh)
+
+		return setter.Capture(func(rows *sql.Rows) error {
+			if columns == nil {
+				var metaErr error
+				columns, colTypes, metaErr = getColumnMetadata(rows)
+				if metaErr != nil {
+					return metaErr
+				}
+
+				scanDests = make([]any, len(columns))
+				for i := range scanDests {
+					scanDests[i] = new(any)
+				}
+			}
+
+			if err := rows.Scan(scanDests...); err != nil {
+				return err
+			}
+
+			vals := make([]any, len(columns))
+			for i := range scanDests {
+				vals[i] = *(scanDests[i].(*any))
+			}
+
+			select {
+			case <-ctx.Done():
+				// If the processor failed, errgroup cancels the ctx; return nil so the original error wins.
+				return nil
+			case valuesCh <- vals:
+				return nil
+			}
+		})
+	}
+
+	// Consumer: convert + emit records.
+	consumer := func(ctx context.Context) error {
 		for vals := range valuesCh {
-			record := make(map[string]any)
+			record := make(map[string]any, len(columns))
 			for i, col := range columns {
 				rawData := vals[i]
+				if converter == nil {
+					record[col] = rawData
+					continue
+				}
+
 				conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
 				if err != nil {
-					procErr = fmt.Errorf("failed to convert value for column %s: %s", col, err)
-					return
+					return fmt.Errorf("failed to convert value for column %s: %s", col, err)
 				}
 				record[col] = conv
 			}
+
 			if err := OnMessage(ctx, record); err != nil {
-				procErr = err
-				return
+				return err
 			}
 		}
-	}()
-
-	// Capture rows: scan quickly and hand off raw values to the processor
-	err := setter.Capture(func(rows *sql.Rows) error {
-		if columns == nil {
-			var metaErr error
-			columns, colTypes, metaErr = getColumnMetadata(rows)
-			if metaErr != nil {
-				return metaErr
-			}
-		}
-
-		scanDests := make([]any, len(columns))
-		for i := range scanDests {
-			scanDests[i] = new(any)
-		}
-		if err := rows.Scan(scanDests...); err != nil {
-			return err
-		}
-
-		vals := make([]any, len(columns))
-		for i := range scanDests {
-			vals[i] = *(scanDests[i].(*any))
-		}
-
-		// Hand off to processor via unbuffered channel; if processor finished early, surface its error
-		select {
-		case valuesCh <- vals:
-			return nil
-		case procErr := <-doneCh:
-			if procErr != nil {
-				return procErr
-			}
-			return nil
-		}
-	})
-
-	close(valuesCh)
-	procErr := <-doneCh
-	if err != nil {
-		return err
+		return nil
 	}
-	return procErr
+
+	return utils.ConcurrentF(setter.ctx, consumer, producer)
 }

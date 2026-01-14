@@ -457,7 +457,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 	resp, err := i.server.SendClientRequest(ctx, &request)
 	if err != nil {
-		return false, fmt.Errorf("failed to %s: %w", request.Type.String(), err)
+		return false, fmt.Errorf("failed to %s: %s", request.Type.String(), err)
 	}
 
 	response := resp.(*proto.RecordIngestResponse).GetResult()
