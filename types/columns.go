@@ -167,23 +167,30 @@ func MergeSelectedColumns(
 	newSchema *TypeSchema,
 	stream *Stream,
 ) {
-	// when selectedColumns property is not present or empty, use all columns from new schema or only columns that existed in old schema
+	// when selectedColumns property is not present or empty
+	// default behavior is OFF (sync_new_columns = false)
+	// - If sync_new_columns is true: sync all columns from new schema
+	// - If sync_new_columns is false: sync only columns that existed in old schema
+	// However, if oldSchema is empty or incomplete (backward compatibility), default to all columns from newSchema
 	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
-		if metadata.SyncNewColumns {
-			// sync all columns
+		oldSchemaColumns := collectColumnsFromSchema(oldSchema)
+		newSchemaColumns := collectColumnsFromSchema(newSchema)
+
+		// if oldSchema is empty or sync_new_columns is true, use all columns from new schema
+		// ensures backward compatibility when selected_columns was not previously specified
+		if len(oldSchemaColumns) == 0 || metadata.SyncNewColumns {
 			metadata.SelectedColumns = &SelectedColumns{
-				Columns: collectColumnsFromSchema(newSchema),
+				Columns: newSchemaColumns,
 			}
 		} else {
-			// select only columns that existed in old schema
+			// default behavior: select only columns that existed in old schema
 			metadata.SelectedColumns = &SelectedColumns{
-				Columns: collectColumnsFromSchema(oldSchema),
+				Columns: oldSchemaColumns,
 			}
 		}
 		metadata.SelectedColumns.setSelectedColumnsMap()
+		metadata.SelectedColumns.ensureMandatoryColumns(stream)
 		metadata.SelectedColumns.SetAllSelectedColumnsFlag(stream)
-
-		// no need to call ensureMandatoryColumns here as all the columns are already present in the old schema
 		return
 	}
 
