@@ -6,7 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -52,11 +51,6 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		}
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
-		defer func() {
-			if err != nil {
-				err = fmt.Errorf("%w: %s", constants.ErrorBackfillFailed, err)
-			}
-		}()
 
 		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
 			func(ctx context.Context) error {
