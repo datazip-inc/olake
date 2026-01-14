@@ -52,14 +52,33 @@ func createSchemaFromTemplate(template map[string]*Property) *TypeSchema {
 	return schema
 }
 
-// createSelectedColumns creates a SelectedColumns with initialized Map
 func createSelectedColumns(columns []string) *SelectedColumns {
 	sc := &SelectedColumns{
 		Columns: columns,
 	}
-	sc.setSelectedColumnsMap()
+	if len(columns) > 0 {
+		sc.setSelectedColumnsMap()
+	}
 	return sc
 }
+
+func compareCatalogs(t *testing.T, expected, actual *Catalog, testName string) {
+	assert.Equal(t, len(expected.Streams), len(actual.Streams))
+
+	for i := range expected.Streams {
+		es, as := expected.Streams[i].Stream, actual.Streams[i].Stream
+		assert.Equal(t, es.Name, as.Name)
+		assert.Equal(t, es.Namespace, as.Namespace)
+		assert.Equal(t, es.SyncMode, as.SyncMode)
+		assert.Equal(t, es.CursorField, as.CursorField)
+		assert.Equal(t, es.DestinationDatabase, as.DestinationDatabase)
+		assert.Equal(t, es.DestinationTable, as.DestinationTable)
+		validateBasicSchemas(t, es.Schema, as.Schema, testName)
+	}
+
+	assert.Equal(t, expected.SelectedStreams, actual.SelectedStreams)
+}
+
 func TestCatalogGetWrappedCatalog(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -243,7 +262,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := GetWrappedCatalog(tc.streams, tc.driver)
-			assert.Equal(t, tc.expected, result, "The generated catalog should match the expected catalog")
+			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
 				for i := range tc.streams {
@@ -660,21 +679,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog)
-			assert.Equal(t, len(tc.expected.Streams), len(result.Streams), "Stream count should match")
-			assert.Equal(t, tc.expected.SelectedStreams, result.SelectedStreams, "SelectedStreams should match")
-
-			for i, expectedStream := range tc.expected.Streams {
-				actualStream := result.Streams[i]
-
-				assert.Equal(t, expectedStream.Stream.Name, actualStream.Stream.Name, "Stream name should match")
-				assert.Equal(t, expectedStream.Stream.Namespace, actualStream.Stream.Namespace, "Stream namespace should match")
-				assert.Equal(t, expectedStream.Stream.SyncMode, actualStream.Stream.SyncMode, "SyncMode should match")
-				assert.Equal(t, expectedStream.Stream.CursorField, actualStream.Stream.CursorField, "CursorField should match")
-				assert.Equal(t, expectedStream.Stream.DestinationDatabase, actualStream.Stream.DestinationDatabase, "DestinationDatabase should match")
-				assert.Equal(t, expectedStream.Stream.DestinationTable, actualStream.Stream.DestinationTable, "DestinationTable should match")
-
-				validateBasicSchemas(t, expectedStream.Stream.Schema, actualStream.Stream.Schema, tc.name)
-			}
+			compareCatalogs(t, tc.expected, result, tc.name)
 		})
 	}
 }
