@@ -87,6 +87,7 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 	return conv, nil
 }
 
+// TODO: Use MapScanConcurrent instead of MapScan for incremental as well
 func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error)) error {
 	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {

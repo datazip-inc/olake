@@ -352,6 +352,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 			// if schema difference is not detected, detect schema difference
 			if !diffThreadSchema.Load() {
+				// when detectChange is true, the function does not modify schema parameter
 				if changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, i.schema); err != nil {
 					return fmt.Errorf("failed to detect schema: %s", err)
 				} else if changeDetected {
