@@ -26,14 +26,13 @@ const (
 )
 
 type Mongo struct {
-	config        *Config
-	client        *mongo.Client
-	CDCSupport    bool // indicates if the MongoDB instance supports Change Streams
-	cdcCursor     sync.Map
-	state         *types.State // reference to globally present state
-	streams       []types.StreamInterface
-	LastOplogTime primitive.Timestamp // Cluster opTime is the latest timestamp of any operation applied in the MongoDB cluster
-	sshDialer     *MongoSSHDialer
+	config     *Config
+	client     *mongo.Client
+	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
+	cdcCursor  sync.Map
+	state      *types.State // reference to globally present state
+	streams    []types.StreamInterface
+	sshDialer  *MongoSSHDialer
 }
 
 // MongoSSHDialer implements a custom dialer for SSH tunnel connections.

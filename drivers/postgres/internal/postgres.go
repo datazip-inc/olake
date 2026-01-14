@@ -116,7 +116,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 
 		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
 
-		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication)
+		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
 		if err != nil {
 			if strings.Contains(err.Error(), "sql: no rows in result set") {
 				err = fmt.Errorf("no record found")
@@ -125,7 +125,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		}
 
 		if !exists {
-			return fmt.Errorf("provided replication slot %s does not exist", cdc.ReplicationSlot)
+			return fmt.Errorf("replication slot '%s' does not exist in the current database '%s'", cdc.ReplicationSlot, p.config.Database)
 		}
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true

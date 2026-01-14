@@ -60,20 +60,18 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 		}
 		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
-
-	// TODO: move it to stream change function
-	lastOplogTime, err := m.getClusterOpTime(cdcCtx, m.config.Database)
-	if err != nil {
-		logger.Warnf("Failed to get cluster op time: %s", err)
-		return err
-	}
-	m.LastOplogTime = lastOplogTime
 	m.streams = streams
 	return nil
 }
 
 func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
 	stream := m.streams[streamIndex]
+	// lastOplogTime is the latest timestamp of any operation applied in the MongoDB cluster
+	lastOplogTime, err := m.getClusterOpTime(ctx, m.config.Database)
+	if err != nil {
+		logger.Warnf("Failed to get cluster op time: %s", err)
+		return err
+	}
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
@@ -97,32 +95,36 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 	defer cursor.Close(ctx)
 
 	for {
-		if !cursor.TryNext(ctx) {
-			if err := cursor.Err(); err != nil {
-				return fmt.Errorf("change stream error: %s", err)
-			}
-
-			// PBRT checkpoint and termination check
-			if err := m.handleIdleCheckpoint(ctx, cursor, stream); err != nil {
-				if errors.Is(err, ErrIdleTermination) {
-					// graceful termination requested by helper
-					logger.Infof("change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
-					return nil
-				}
-				return err
-			}
-			// Wait before for a brief pause before the next iteration of the loop
-			time.Sleep(changeStreamRetryDelay)
-			continue
+		hasNext := cursor.TryNext(ctx)
+		if err := cursor.Err(); err != nil {
+			return fmt.Errorf("change stream error: %s", err)
 		}
 
-		if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
+		if hasNext {
+			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
+				return err
+			}
+		}
+
+		// Check boundary AFTER emitting
+		if err := m.handleStreamCatchup(ctx, cursor, stream, lastOplogTime); err != nil {
+			if errors.Is(err, ErrIdleTermination) {
+				// graceful termination requested by helper
+				logger.Infof("change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
+				return nil
+			}
 			return err
+		}
+
+		if !hasNext {
+			// Wait before for a brief pause before the next iteration of the loop
+			// TryNext() method behaves differently when connecting through mongos vs. direct replica set connections:TryNext() is non-blocking and may return false immediately even when events exist
+			time.Sleep(changeStreamRetryDelay)
 		}
 	}
 }
 
-func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface) error {
+func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastOplogTime primitive.Timestamp) error {
 	finalToken := cursor.ResumeToken()
 	if finalToken == nil {
 		return fmt.Errorf("no resume token available for stream %s after TryNext", stream.ID())
@@ -143,7 +145,7 @@ func (m *Mongo) handleIdleCheckpoint(_ context.Context, cursor *mongo.ChangeStre
 	}
 
 	// If stream is caught up -> request graceful termination
-	if !m.LastOplogTime.After(streamOpTime) {
+	if !lastOplogTime.After(streamOpTime) {
 		return ErrIdleTermination
 	}
 
