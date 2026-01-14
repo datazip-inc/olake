@@ -33,6 +33,7 @@ const (
 	db2CLIDriverInstallCmd = "go run github.com/ibmdb/go_ibm_db/installer@v0.5.4" // db2 CLIDriver
 	SyncTimeout            = 10 * time.Minute
 	BenchmarkThreshold     = 0.9
+	maxRPSHistorySize      = 5
 )
 
 type IntegrationTest struct {
