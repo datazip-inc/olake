@@ -285,10 +285,12 @@ func (sc *SelectedColumns) ensureMandatoryColumns(stream *Stream) map[string]str
 	}
 
 	// Add source defined primary key columns
-	for _, pk := range stream.SourceDefinedPrimaryKey.Array() {
-		if _, exists := selectedMap[pk]; !exists {
-			sc.Columns = append(sc.Columns, pk)
-			selectedMap[pk] = struct{}{}
+	if stream.SourceDefinedPrimaryKey != nil {
+		for _, pk := range stream.SourceDefinedPrimaryKey.Array() {
+			if _, exists := selectedMap[pk]; !exists {
+				sc.Columns = append(sc.Columns, pk)
+				selectedMap[pk] = struct{}{}
+			}
 		}
 	}
 	return selectedMap
