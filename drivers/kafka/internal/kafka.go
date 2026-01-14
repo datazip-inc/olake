@@ -62,7 +62,8 @@ func (k *Kafka) MaxConnections() int {
 }
 
 func (k *Kafka) MaxRetries() int {
-	return k.config.RetryCount
+	// TODO: kafka retries are not supported yet (due to rebalancing while creating new reader)
+	return 1
 }
 
 func (k *Kafka) CDCSupported() bool {
