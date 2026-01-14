@@ -61,7 +61,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.C
 		return fmt.Errorf("failed to get slot position: %s", err)
 	}
 
-	replicator, err := waljs.NewReplicator(ctx, p.client, config, slot, p.dataTypeConverter)
+	replicator, err := waljs.NewReplicator(ctx, config, slot, p.dataTypeConverter)
 	if err != nil {
 		return fmt.Errorf("failed to create wal connection: %s", err)
 	}
@@ -75,7 +75,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.C
 	}
 
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
-	return p.replicator.StreamChanges(ctx, p.client, slot, callback)
+	return p.replicator.StreamChanges(ctx, p.client, callback)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ int) error {

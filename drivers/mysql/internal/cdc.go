@@ -12,21 +12,21 @@ import (
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, error) {
-	if !m.CDCSupport {
-		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
+	savedState := m.state.GetGlobal()
+	if savedState == nil || savedState.State == nil {
+		return nil, fmt.Errorf("invalid global state; state is missing")
 	}
 
-	savedState := m.state.GetGlobal()
 	var mySQLGlobalState MySQLGlobalState
 	if err := utils.Unmarshal(savedState.State, &mySQLGlobalState); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
 	}
 
-	// validate global state
+	// validate server id
 	if mySQLGlobalState.ServerID == 0 {
 		return nil, fmt.Errorf("invalid global state; server_id is missing")
 	}
-	// TODO: Support all flavour of mysql
+
 	config := &binlog.Config{
 		ServerID:        mySQLGlobalState.ServerID,
 		Flavor:          "mysql",
@@ -61,7 +61,7 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		// reinit state
 		globalState = m.state.GetGlobal()
 	}
-
+	m.streams = streams
 	return nil
 }
 

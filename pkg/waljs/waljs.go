@@ -31,7 +31,7 @@ func (w *wal2jsonReplicator) Socket() *Socket {
 	return w.socket
 }
 
-func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, slot ReplicationSlot, callback abstract.CDCMsgFn) error {
+func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
 	var tables []string
 	for key := range w.socket.changeFilter.tables {

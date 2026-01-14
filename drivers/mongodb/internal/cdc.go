@@ -58,7 +58,6 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
-		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
 	m.streams = streams
 	return nil
@@ -80,13 +79,13 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	// Seed resume token from previously saved cursor (if any)
-	resumeToken, ok := m.cdcCursor.Load(stream.ID())
-	if !ok {
+	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if prevResumeToken == nil {
 		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
 	}
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: resumeToken})
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), resumeToken)
+
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -177,10 +176,17 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Kind:      record.OperationType,
 	}
 
+	// Call OnMessage first; only update the resume token if it succeeds
+	// This ensures that on retry, we re-process from the failed record
+	if err := OnMessage(ctx, change); err != nil {
+		return err
+	}
+
+	// Update resume token AFTER successful processing
 	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
 		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
 	}
-	return OnMessage(ctx, change)
+	return nil
 }
 
 func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {

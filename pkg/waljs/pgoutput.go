@@ -30,7 +30,7 @@ func (p *pgoutputReplicator) Socket() *Socket {
 	return p.socket
 }
 
-func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, slot ReplicationSlot, insertFn abstract.CDCMsgFn) error {
+func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {

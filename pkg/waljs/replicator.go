@@ -44,10 +44,10 @@ type Replicator interface {
 	// info about socket
 	Socket() *Socket
 	// StreamChanges processes messages until it emits changes via insertFn or exits per logic.
-	StreamChanges(ctx context.Context, db *sqlx.DB, slot ReplicationSlot, insertFn abstract.CDCMsgFn) error
+	StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error
 }
 
-func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, slot ReplicationSlot, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
+func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
 	// Build PostgreSQL connection config
 	connURL := config.Connection
 	q := connURL.Query()
