@@ -364,8 +364,17 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	records = dedupRecords(records)
 
+	filter, isLegacy, err := i.stream.GetFilter()
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
+	}
+
 	if !i.stream.NormalizationEnabled() {
-		return false, records, i.schema, nil
+		filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+		return false, filtered, i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
@@ -373,7 +382,12 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
-	return schemaDifference, records, recordsSchema, err
+	filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+	}
+
+	return schemaDifference, filtered, recordsSchema, nil
 }
 
 // compares with global schema and update schema in destination accordingly

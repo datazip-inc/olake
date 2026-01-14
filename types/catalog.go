@@ -43,8 +43,23 @@ type StreamMetadata struct {
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
-	Filter         string `json:"filter,omitempty"`
+	//legacy filter input
+	Filter string `json:"filter,omitempty"`
+	//new filter input
+	FilterInput FilterInput `json:"filter_input,omitempty"`
 }
+
+type FilterInput struct {
+	LogicalOperator string            `json:"logical_operator,omitempty"`
+	Conditions      []FilterCondition `json:"conditions,omitempty"`
+}
+
+type FilterCondition struct {
+	Column   string `json:"column,omitempty"`
+	Operator string `json:"operator,omitempty"`
+	Value    any    `json:"value,omitempty"`
+}
+
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`

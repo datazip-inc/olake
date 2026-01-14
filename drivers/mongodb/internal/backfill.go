@@ -388,7 +388,7 @@ func generateMinObjectID(t time.Time) string {
 	return objectID.Hex()
 }
 
-func buildMongoCondition(cond types.Condition) bson.D {
+func buildMongoCondition(cond types.FilterCondition) bson.D {
 	opMap := map[string]string{
 		">":  "$gt",
 		">=": "$gte",
@@ -397,36 +397,59 @@ func buildMongoCondition(cond types.Condition) bson.D {
 		"=":  "$eq",
 		"!=": "$ne",
 	}
-	//TODO: take val as any type
-	value := func(field, val string) interface{} {
-		// Handle unquoted null
-		if val == "null" {
-			return nil
-		}
 
-		if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
-			val = val[1 : len(val)-1]
-		}
-		if field == "_id" && len(val) == 24 {
-			if oid, err := primitive.ObjectIDFromHex(val); err == nil {
-				return oid
+	mongoOp, ok := opMap[cond.Operator]
+	if !ok {
+		panic(fmt.Sprintf("unsupported operator for mongo: %s", cond.Operator))
+	}
+
+	var value interface{}
+
+	switch v := cond.Value.(type) {
+
+	case nil:
+		value = nil
+
+	case primitive.ObjectID:
+		value = v
+
+	case string:
+		// try ObjectID only if column is _id
+		if cond.Column == "_id" && len(v) == 24 {
+			if oid, err := primitive.ObjectIDFromHex(v); err == nil {
+				value = oid
+				break
 			}
 		}
-		if strings.ToLower(val) == "true" || strings.ToLower(val) == "false" {
-			return strings.ToLower(val) == "true"
+		// try date
+		if t, err := typeutils.ReformatDate(v, false); err == nil {
+			value = t
+			break
 		}
-		if timeVal, err := typeutils.ReformatDate(val, false); err == nil {
-			return timeVal
-		}
-		if intVal, err := typeutils.ReformatInt64(val); err == nil {
-			return intVal
-		}
-		if floatVal, err := typeutils.ReformatFloat64(val); err == nil {
-			return floatVal
-		}
-		return val
-	}(cond.Column, cond.Value)
-	return bson.D{{Key: cond.Column, Value: bson.D{{Key: opMap[cond.Operator], Value: value}}}}
+
+		value = v
+
+	case bool:
+		value = v
+	case int:
+		value = int64(v)
+	case int64:
+		value = v
+	case float64:
+		value = v
+	case time.Time:
+		value = v
+
+	default:
+		// safest fallback
+		value = v
+	}
+
+	return bson.D{
+		{Key: cond.Column, Value: bson.D{
+			{Key: mongoOp, Value: value},
+		}},
+	}
 }
 
 // buildFilter generates a BSON document for MongoDB by combining threshold conditions with user-defined filter conditions
@@ -436,7 +459,7 @@ func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
 		return nil, fmt.Errorf("failed to create threshold filter: %s", err)
 	}
 
-	filter, err := stream.GetFilter()
+	filter, _, err := stream.GetFilter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}

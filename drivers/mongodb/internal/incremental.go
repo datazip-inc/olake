@@ -58,7 +58,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 		logger.Warnf("Stored secondary cursor value is nil for the stream [%s]", stream.ID())
 	}
 
-	incrementalCondition := buildMongoCondition(types.Condition{
+	incrementalCondition := buildMongoCondition(types.FilterCondition{
 		Column:   primaryCursor,
 		Value:    fmt.Sprintf("%v", lastPrimaryCursorValue),
 		Operator: ">",
@@ -72,7 +72,7 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 				bson.D{{
 					Key: "$and", Value: bson.A{
 						bson.D{{Key: primaryCursor, Value: nil}},
-						buildMongoCondition(types.Condition{
+						buildMongoCondition(types.FilterCondition{
 							Column:   secondaryCursor,
 							Value:    fmt.Sprintf("%v", lastSecondaryCursorValue),
 							Operator: ">",
@@ -156,7 +156,7 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 		// Include null values: (column <= value) OR (column IS NULL)
 		conditions = append(conditions, bson.D{{
 			Key: "$or", Value: bson.A{
-				buildMongoCondition(types.Condition{
+				buildMongoCondition(types.FilterCondition{
 					Column:   primaryCursor,
 					Value:    fmt.Sprintf("%v", formattedPrimaryValue),
 					Operator: "<=",
@@ -174,7 +174,7 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 
 		conditions = append(conditions, bson.D{{
 			Key: "$or", Value: bson.A{
-				buildMongoCondition(types.Condition{
+				buildMongoCondition(types.FilterCondition{
 					Column:   secondaryCursor,
 					Value:    fmt.Sprintf("%v", formattedSecondaryValue),
 					Operator: "<=",
