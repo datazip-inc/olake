@@ -159,7 +159,7 @@ func ConcurrentInGroupWithRetry[T any](group *CxGroup, array []T, retryCount int
 	for idx, one := range array {
 		select {
 		case <-group.ctx.Done():
-			break
+			return
 		default:
 			// schedule an execution
 			group.AddWithRetry(retryCount, func(ctx context.Context) error {
@@ -173,7 +173,7 @@ func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx contex
 	for idx, one := range array {
 		select {
 		case <-group.ctx.Done():
-			break
+			return
 		default:
 			// schedule an execution
 			group.Add(func(ctx context.Context) error {
