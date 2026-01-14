@@ -51,6 +51,15 @@ func createSchemaFromTemplate(template map[string]*Property) *TypeSchema {
 	}
 	return schema
 }
+
+// createSelectedColumns creates a SelectedColumns with initialized Map
+func createSelectedColumns(columns []string) *SelectedColumns {
+	sc := &SelectedColumns{
+		Columns: columns,
+	}
+	sc.setSelectedColumnsMap()
+	return sc
+}
 func TestCatalogGetWrappedCatalog(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -102,15 +111,11 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
 						{
-							StreamName:     "stream1",
-							PartitionRegex: "",
-							AppendMode:     false,
-							Normalization:  true,
-							SelectedColumns: &SelectedColumns{
-								Columns:     []string{},
-								Map:         make(map[string]struct{}),
-								AllSelected: false,
-							},
+							StreamName:      "stream1",
+							PartitionRegex:  "",
+							AppendMode:      false,
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{}),
 						},
 					},
 				},
@@ -140,15 +145,11 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{
 					"database1": {
 						{
-							StreamName:     "collection1",
-							PartitionRegex: "",
-							AppendMode:     false,
-							Normalization:  false,
-							SelectedColumns: &SelectedColumns{
-								Columns:     []string{},
-								Map:         make(map[string]struct{}),
-								AllSelected: false,
-							},
+							StreamName:      "collection1",
+							PartitionRegex:  "",
+							AppendMode:      false,
+							Normalization:   false,
+							SelectedColumns: createSelectedColumns([]string{}),
 						},
 					},
 				},
@@ -216,26 +217,18 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{
 					"public": {
 						{
-							StreamName:     "users",
-							PartitionRegex: "",
-							AppendMode:     false,
-							Normalization:  true,
-							SelectedColumns: &SelectedColumns{
-								Columns:     []string{},
-								Map:         make(map[string]struct{}),
-								AllSelected: false,
-							},
+							StreamName:      "users",
+							PartitionRegex:  "",
+							AppendMode:      false,
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{}),
 						},
 						{
-							StreamName:     "orders",
-							PartitionRegex: "",
-							AppendMode:     false,
-							Normalization:  true,
-							SelectedColumns: &SelectedColumns{
-								Columns:     []string{},
-								Map:         make(map[string]struct{}),
-								AllSelected: false,
-							},
+							StreamName:      "orders",
+							PartitionRegex:  "",
+							AppendMode:      false,
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{}),
 						},
 					},
 				},
@@ -280,7 +273,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{})},
 					},
 				},
 			},
@@ -296,7 +289,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"_olake_id", "_olake_timestamp", "_op_type"})},
 					},
 				},
 			},
@@ -366,7 +359,14 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+						{
+							StreamName:      "stream1",
+							PartitionRegex:  "user_partition",
+							Filter:          "test_filter > 10",
+							AppendMode:      true,
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type", "_cdc_timestamp"}),
+						},
 					},
 				},
 			},
@@ -453,7 +453,14 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+						{
+							StreamName:      "stream1",
+							PartitionRegex:  "old_partition",
+							Filter:          "test_filter > 10",
+							AppendMode:      true,
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type", "updated_at"}),
+						},
 					},
 				},
 			},
@@ -533,7 +540,14 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true},
+						{
+							StreamName:      "stream1",
+							PartitionRegex:  "user_partition",
+							Filter:          "test_filter > 10",
+							AppendMode:      true,
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type"}),
+						},
 					},
 				},
 			},
@@ -625,7 +639,13 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true},
+						{
+							StreamName:      "stream1",
+							PartitionRegex:  "user_partition",
+							Filter:          "test_filter > 10",
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type"}),
+						},
 					},
 				},
 			},
