@@ -66,7 +66,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		})
 
 		// Collect selected columns from schema
-		var selectedColumns []string
+		selectedColumns := make([]string, 0)
 		stream.Schema.Properties.Range(func(key, _ interface{}) bool {
 			if columnName, ok := key.(string); ok {
 				selectedColumns = append(selectedColumns, columnName)
@@ -74,14 +74,16 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			return true
 		})
 
+		selectedCols := &SelectedColumns{
+			Columns: selectedColumns,
+		}
+
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:    stream.Name,
-			AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization: IsDriverRelational(driver),
-			SelectedColumns: &SelectedColumns{
-				Columns: selectedColumns,
-			},
-			SyncNewColumns: false,
+			StreamName:      stream.Name,
+			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			Normalization:   IsDriverRelational(driver),
+			SelectedColumns: selectedCols,
+			SyncNewColumns:  false,
 		})
 	}
 

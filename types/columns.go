@@ -167,7 +167,7 @@ func MergeSelectedColumns(
 	newSchema *TypeSchema,
 	stream *Stream,
 ) {
-	// when selectedColumns property is not present or empty
+	// when selectedColumns property is not present or empty, initialize with columns
 	// default behavior is OFF (sync_new_columns = false)
 	// - If sync_new_columns is true: sync all columns from new schema
 	// - If sync_new_columns is false: sync only columns that existed in old schema
