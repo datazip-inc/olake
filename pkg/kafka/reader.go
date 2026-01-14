@@ -13,10 +13,9 @@ import (
 // NewReaderManager creates a new Kafka reader manager
 func NewReaderManager(config ReaderConfig) *ReaderManager {
 	return &ReaderManager{
-		config:          config,
-		partitionIndex:  make(map[string]types.PartitionMetaData),
-		readers:         make(map[string]*kafka.Reader),
-		readerClientIDs: make(map[string]string),
+		config:         config,
+		readers:        make([]*kafkaReader, 0),
+		partitionIndex: make(map[string]types.PartitionMetaData),
 	}
 }
 
@@ -36,10 +35,7 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		return nil
 	}
 
-	r.readers = make(map[string]*kafka.Reader)
-	r.readerClientIDs = make(map[string]string)
-
-	// reader tasks according to concurrency policy
+	// reader tasks = max threads if set to total partitions
 	readersToCreate := utils.Ternary(r.ShouldMatchPartitionCount(), totalPartitions, utils.Ternary(r.config.MaxThreads > totalPartitions, totalPartitions, r.config.MaxThreads).(int)).(int)
 
 	for readerIndex := range readersToCreate {
@@ -50,39 +46,42 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		dialerCopy := *r.config.Dialer
 		dialerCopy.ClientID = clientID
 
-		// custom round robin group balancer that ensures proper consumer ID distribution
-		groupBalancer := &CustomGroupBalancer{
-			requiredConsumerIDs: readersToCreate,
-			readerIndex:         readerIndex,
-			partitionIndex:      r.partitionIndex,
-		}
-
-		// readers creation
-		reader := kafka.NewReader(kafka.ReaderConfig{
-			Brokers: utils.SplitAndTrim(r.config.BootstrapServers),
-			GroupID: consumerGroupID,
-			GroupTopics: func() []string {
-				topics := make([]string, 0, len(streams))
-				for _, s := range streams {
-					topics = append(topics, s.Name())
-				}
-				return topics
-			}(),
-			MinBytes:       1,    // 1 byte
-			MaxBytes:       10e6, // 10 MB
-			GroupBalancers: []kafka.GroupBalancer{groupBalancer},
-			Dialer:         &dialerCopy,
+		r.readers = append(r.readers, &kafkaReader{
+			id:       readerID,
+			clientID: clientID,
+			reader: kafka.NewReader(kafka.ReaderConfig{
+				Brokers: utils.SplitAndTrim(r.config.BootstrapServers),
+				GroupID: consumerGroupID,
+				GroupTopics: func() []string {
+					topics := make([]string, 0, len(streams))
+					for _, s := range streams {
+						topics = append(topics, s.Name())
+					}
+					return topics
+				}(),
+				MinBytes: 1,    // 1 byte
+				MaxBytes: 10e6, // 10 MB
+				GroupBalancers: []kafka.GroupBalancer{&CustomGroupBalancer{ // custom round robin group balancer that ensures proper consumer ID distribution
+					requiredConsumerIDs: readersToCreate,
+					readerIndex:         readerIndex,
+					partitionIndex:      r.partitionIndex,
+				}},
+				Dialer: &dialerCopy,
+			}),
 		})
-		r.readers[readerID] = reader
-		r.readerClientIDs[readerID] = clientID
 	}
 	logger.Infof("created %d readers for %d total partitions, with consumer group %s", len(r.readers), totalPartitions, consumerGroupID)
 	return nil
 }
 
 // GetReaders returns the created readers
-func (r *ReaderManager) GetReader(readerID string) *kafka.Reader {
-	return r.readers[readerID]
+func (r *ReaderManager) GetReader(readerID int) *kafka.Reader {
+	return r.readers[readerID].reader
+}
+
+// GetReaders returns the created readers
+func (r *ReaderManager) GetReaderCount() int {
+	return len(r.readers)
 }
 
 // GetPartitionIndex returns the partition index
@@ -97,18 +96,8 @@ func (r *ReaderManager) ShouldMatchPartitionCount() bool {
 }
 
 // GetReaderClientIDs returns the reader client IDs
-func (r *ReaderManager) GetReaderClientID(readerID string) (string, bool) {
-	clientID, exists := r.readerClientIDs[readerID]
-	return clientID, exists
-}
-
-// return reader ids
-func (r *ReaderManager) GetReaderIDs() []string {
-	ids := make([]string, 0, len(r.readers))
-	for readerID := range r.readers {
-		ids = append(ids, readerID)
-	}
-	return ids
+func (r *ReaderManager) GetReaderIDAndClientID(readerIndex int) (string, string) {
+	return r.readers[readerIndex].id, r.readers[readerIndex].clientID
 }
 
 // sets partitions that need to be synced for a stream
@@ -208,8 +197,8 @@ func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string,
 }
 
 func (r *ReaderManager) Close() error {
-	for _, reader := range r.readers {
-		if err := reader.Close(); err != nil {
+	for _, kafkaReader := range r.readers {
+		if err := kafkaReader.reader.Close(); err != nil {
 			return fmt.Errorf("failed to close reader: %s", err)
 		}
 	}

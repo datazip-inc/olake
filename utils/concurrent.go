@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -138,6 +139,12 @@ func (g *CxGroup) Ctx() context.Context {
 	return g.ctx
 }
 
+func (g *CxGroup) AddWithRetry(retryCount int, execute func(ctx context.Context) error) {
+	g.executor.Go(func() error {
+		return RetryOnBackoff(g.ctx, retryCount, constants.DefaultRetryTimeout, execute)
+	})
+}
+
 func (g *CxGroup) Add(execute func(ctx context.Context) error) {
 	g.executor.Go(func() error {
 		return execute(g.ctx)
@@ -148,15 +155,29 @@ func (g *CxGroup) Block() error {
 	return g.executor.Wait()
 }
 
-func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx context.Context, one T) error) {
-	for _, one := range array {
+func ConcurrentInGroupWithRetry[T any](group *CxGroup, array []T, retryCount int, execute func(ctx context.Context, index int, one T) error) {
+	for idx, one := range array {
 		select {
 		case <-group.ctx.Done():
-			break
+			return
+		default:
+			// schedule an execution
+			group.AddWithRetry(retryCount, func(ctx context.Context) error {
+				return execute(ctx, idx, one)
+			})
+		}
+	}
+}
+
+func ConcurrentInGroup[T any](group *CxGroup, array []T, execute func(ctx context.Context, index int, one T) error) {
+	for idx, one := range array {
+		select {
+		case <-group.ctx.Done():
+			return
 		default:
 			// schedule an execution
 			group.Add(func(ctx context.Context) error {
-				return execute(ctx, one)
+				return execute(ctx, idx, one)
 			})
 		}
 	}
