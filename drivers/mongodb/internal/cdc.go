@@ -176,13 +176,10 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Kind:      record.OperationType,
 	}
 
-	// Call OnMessage first; only update the resume token if it succeeds
-	// This ensures that on retry, we re-process from the failed record
 	if err := OnMessage(ctx, change); err != nil {
 		return err
 	}
 
-	// Update resume token AFTER successful processing
 	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
 		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
 	}
