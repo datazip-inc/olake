@@ -48,10 +48,17 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
 
+	// begin transaction for chunk iteration (by default isolation mode in db2 driver is cursor stability)
+	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %s", err)
+	}
+	defer tx.Rollback()
+
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
 
 	reader := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
-		return d.client.QueryContext(ctx, query, args...)
+		return tx.QueryContext(ctx, query, args...)
 	})
 
 	return reader.Capture(func(rows *sql.Rows) error {
@@ -79,7 +86,7 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 		}
 
 		if hasRows {
-			return nil, fmt.Errorf("stats not populated for table[%s]. Please run CLP command:\tRUNSTATS ON TABLE %s.%s WITH DISTRIBUTION AND DETAILED INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
+			return nil, fmt.Errorf("stats not populated for table[%s]. Please run CLP command:\tRUNSTATS ON TABLE %s.%s AND INDEXES ALL;\t to update table statistics", stream.ID(), stream.Namespace(), stream.Name())
 		}
 
 		logger.Warnf("Table %s is empty, skipping chunking", stream.ID())
@@ -121,7 +128,7 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 			return nil, fmt.Errorf("failed to get table extremes: %s", err)
 		}
 		if minVal == nil {
-			return nil, nil
+			return types.NewSet[types.Chunk](), nil
 		}
 
 		chunks.Insert(types.Chunk{
@@ -193,6 +200,7 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		totalRidRange := maxRID - minRID
 		// distance between start and end RID of a chunk
 		ridInterval := int64(math.Ceil(float64(totalRidRange) / float64(numberOfChunks)))
+		ridInterval = utils.Ternary(ridInterval <= 0, int64(1), ridInterval).(int64)
 		chunks := types.NewSet[types.Chunk]()
 		for start := minRID; start <= maxRID; start += ridInterval {
 			end := start + ridInterval

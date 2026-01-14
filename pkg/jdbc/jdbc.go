@@ -547,6 +547,10 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 	}
 
 	quotedCol := QuoteIdentifier(cursorField, opts.Driver)
+	if formattedValue == nil {
+		return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), nil, nil
+	}
+
 	var dbDatatype string
 	switch opts.Driver {
 	case constants.Oracle:
@@ -801,8 +805,8 @@ func DB2DiscoveryQuery() string {
 			TRIM(TABSCHEMA) AS table_schema,
 			TRIM(TABNAME) AS table_name
 		FROM SYSCAT.TABLES
-		WHERE TYPE IN ('T', 'V')
-		  AND TABSCHEMA NOT LIKE 'SYS%'
+		WHERE TYPE = 'T'
+		AND TABSCHEMA NOT LIKE 'SYS%'
 		ORDER BY TABSCHEMA, TABNAME
 	`
 }

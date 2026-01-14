@@ -102,7 +102,11 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 			return fmt.Sprintf("%t", v), nil
 		// in db2, char and varchar comes in byte format
 		case []byte: // byte slice
-			return strings.TrimSpace(string(v)), nil
+			val := strings.TrimSpace(string(v))
+			if val == "" {
+				return nil, ErrNullValue
+			}
+			return val, nil
 		default:
 			return fmt.Sprintf("%v", v), nil
 		}
