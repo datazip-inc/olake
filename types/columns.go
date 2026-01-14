@@ -163,10 +163,12 @@ func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
 // 7. set the selected columns map
 func MergeSelectedColumns(
 	metadata *StreamMetadata,
-	oldSchema *TypeSchema,
-	newSchema *TypeSchema,
-	stream *Stream,
+	oldStream *Stream,
+	newStream *Stream,
 ) {
+	oldSchema := oldStream.Schema
+	newSchema := newStream.Schema
+
 	// when selectedColumns property is not present or empty, initialize with columns
 	// default behavior is OFF (sync_new_columns = false)
 	// - If sync_new_columns is true: sync all columns from new schema
@@ -189,8 +191,8 @@ func MergeSelectedColumns(
 			}
 		}
 		metadata.SelectedColumns.setSelectedColumnsMap()
-		metadata.SelectedColumns.ensureMandatoryColumns(stream)
-		metadata.SelectedColumns.SetAllSelectedColumnsFlag(stream)
+		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
+		metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
 		return
 	}
 
@@ -198,8 +200,8 @@ func MergeSelectedColumns(
 	// and call ensureMandatoryColumns to ensure mandatory columns are included
 	if schemasHaveSameColumns(oldSchema, newSchema) {
 		metadata.SelectedColumns.setSelectedColumnsMap()
-		metadata.SelectedColumns.ensureMandatoryColumns(stream)
-		metadata.SelectedColumns.SetAllSelectedColumnsFlag(stream)
+		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
+		metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
 		return
 	}
 
@@ -230,10 +232,10 @@ func MergeSelectedColumns(
 	metadata.SelectedColumns.setSelectedColumnsMap()
 
 	// ensure mandatory columns are included
-	metadata.SelectedColumns.ensureMandatoryColumns(stream)
+	metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
 
 	// set the all selected flag
-	metadata.SelectedColumns.SetAllSelectedColumnsFlag(stream)
+	metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
 }
 
 // ensureMandatoryColumns ensures that mandatory columns are always in SelectedColumns:
@@ -241,7 +243,7 @@ func MergeSelectedColumns(
 // 2. CDC columns,
 // 3. source defined primary key columns,
 // 4. system generated fields
-func (sc *SelectedColumns) ensureMandatoryColumns(stream *Stream) map[string]struct{} {
+func (sc *SelectedColumns) ensureMandatoryColumns(oldStream, newStream *Stream) map[string]struct{} {
 	selectedMap := sc.GetSelectedColumnsMap()
 
 	// if the selected columns map is not set, set it
@@ -260,8 +262,8 @@ func (sc *SelectedColumns) ensureMandatoryColumns(stream *Stream) map[string]str
 	}
 
 	// Add cursor fields for incremental sync
-	if stream.SyncMode == INCREMENTAL && stream.CursorField != "" {
-		primaryCursor, secondaryCursor := parseCursorField(stream.CursorField)
+	if oldStream.SyncMode == INCREMENTAL && oldStream.CursorField != "" {
+		primaryCursor, secondaryCursor := parseCursorField(oldStream.CursorField)
 		if primaryCursor != "" {
 			if _, exists := selectedMap[primaryCursor]; !exists {
 				sc.Columns = append(sc.Columns, primaryCursor)
@@ -277,7 +279,7 @@ func (sc *SelectedColumns) ensureMandatoryColumns(stream *Stream) map[string]str
 	}
 
 	// Add CDC columns if CDC sync mode
-	if stream.SyncMode == CDC || stream.SyncMode == STRICTCDC {
+	if oldStream.SyncMode == CDC || oldStream.SyncMode == STRICTCDC {
 		if _, exists := selectedMap[constants.CdcTimestamp]; !exists {
 			sc.Columns = append(sc.Columns, constants.CdcTimestamp)
 			selectedMap[constants.CdcTimestamp] = struct{}{}
@@ -285,8 +287,8 @@ func (sc *SelectedColumns) ensureMandatoryColumns(stream *Stream) map[string]str
 	}
 
 	// Add source defined primary key columns
-	if stream.SourceDefinedPrimaryKey != nil {
-		for _, pk := range stream.SourceDefinedPrimaryKey.Array() {
+	if newStream.SourceDefinedPrimaryKey != nil {
+		for _, pk := range newStream.SourceDefinedPrimaryKey.Array() {
 			if _, exists := selectedMap[pk]; !exists {
 				sc.Columns = append(sc.Columns, pk)
 				selectedMap[pk] = struct{}{}

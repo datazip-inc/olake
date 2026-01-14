@@ -121,10 +121,10 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 				_, exists := newStreams[streamID]
 
 				if exists {
-					oldSchema := oldStreams[streamID].Stream.Schema
-					newSchema := newStreams[streamID].Stream.Schema
+					oldStream := oldStreams[streamID].Stream
+					newStream := newStreams[streamID].Stream
 
-					MergeSelectedColumns(&metadata, oldSchema, newSchema, newStreams[streamID].Stream)
+					MergeSelectedColumns(&metadata, oldStream, newStream)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
