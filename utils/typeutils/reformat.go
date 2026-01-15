@@ -583,7 +583,7 @@ func ReformatGeoType(v any) (any, error) {
 }
 
 // ReformatTimeValue is used to make time format consistent as per db
-func ReformatTimeValue(value any) (any, error) {
+func ReformatTimeValue(value any) (string, error) {
 	switch t := value.(type) {
 	case time.Time:
 		return t.Format("15:04:05"), nil
