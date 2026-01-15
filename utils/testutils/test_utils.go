@@ -27,12 +27,13 @@ import (
 )
 
 const (
-	icebergCatalog      = "olake_iceberg"
-	sparkConnectAddress = "sc://localhost:15002"
-	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
-	SyncTimeout         = 10 * time.Minute
-	BenchmarkThreshold  = 0.9
-	maxRPSHistorySize   = 5
+	icebergCatalog         = "olake_iceberg"
+	sparkConnectAddress    = "sc://localhost:15002"
+	installCmd             = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
+	db2CLIDriverInstallCmd = "go run github.com/ibmdb/go_ibm_db/installer@v0.5.4" // db2 CLIDriver
+	SyncTimeout            = 10 * time.Minute
+	BenchmarkThreshold     = 0.9
+	maxRPSHistorySize      = 5
 )
 
 type IntegrationTest struct {
@@ -231,7 +232,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
-		s = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(s), s).(string)
+		s = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
@@ -253,7 +254,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	// in case of Oracle, the stream names are in uppercase in stream.json
-	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
+	streamName = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(
@@ -283,6 +284,10 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "drop", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "create", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false)
+	if cfg.TestConfig.Driver == string(constants.DB2) {
+		// to populate stats for DB2
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false)
+	}
 	return nil
 }
 
@@ -743,9 +748,19 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			ConfigModifier: func(config *container.Config) {
 				config.WorkingDir = "/test-olake"
 			},
-			Env: map[string]string{
-				"TELEMETRY_DISABLED": "true",
-			},
+			Env: func() map[string]string {
+				env := map[string]string{
+					"TELEMETRY_DISABLED": "true",
+				}
+				// Add DB2-specific environment variables
+				if cfg.TestConfig.Driver == string(constants.DB2) {
+					env["IBM_DB_HOME"] = "/go/pkg/mod/github.com/ibmdb/clidriver"
+					env["CGO_CFLAGS"] = "-I/go/pkg/mod/github.com/ibmdb/clidriver/include"
+					env["CGO_LDFLAGS"] = "-L/go/pkg/mod/github.com/ibmdb/clidriver/lib -Wl,-rpath,/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+					env["LD_LIBRARY_PATH"] = "/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+				}
+				return env
+			}(),
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
 					PostReadies: []testcontainers.ContainerHook{
@@ -753,6 +768,13 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 1. Install required tools
 							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
+							}
+
+							// 1b. Install DB2 CLI driver if needed
+							if cfg.TestConfig.Driver == string(constants.DB2) {
+								if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
+									return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
+								}
 							}
 
 							// 2. Query on test table
@@ -816,9 +838,19 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			ConfigModifier: func(config *container.Config) {
 				config.WorkingDir = "/test-olake"
 			},
-			Env: map[string]string{
-				"TELEMETRY_DISABLED": "true",
-			},
+			Env: func() map[string]string {
+				env := map[string]string{
+					"TELEMETRY_DISABLED": "true",
+				}
+				// Add DB2-specific environment variables
+				if cfg.TestConfig.Driver == string(constants.DB2) {
+					env["IBM_DB_HOME"] = "/go/pkg/mod/github.com/ibmdb/clidriver"
+					env["CGO_CFLAGS"] = "-I/go/pkg/mod/github.com/ibmdb/clidriver/include"
+					env["CGO_LDFLAGS"] = "-L/go/pkg/mod/github.com/ibmdb/clidriver/lib -Wl,-rpath,/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+					env["LD_LIBRARY_PATH"] = "/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+				}
+				return env
+			}(),
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
 					PostReadies: []testcontainers.ContainerHook{
@@ -826,6 +858,13 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 1. Install required tools
 							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
+							}
+
+							// 1b. Install DB2 CLI driver if needed
+							if cfg.TestConfig.Driver == string(constants.DB2) {
+								if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
+									return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
+								}
 							}
 
 							// 2. Query on test table
