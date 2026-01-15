@@ -115,7 +115,7 @@ func (s *benchmarkStore) load() error {
 			// Missing file is acceptable, it will be created when the first RPS is recorded.
 			return nil
 		}
-		return fmt.Errorf("failed to load rps benchmarks from file %s: %w", s.FilePath, err)
+		return fmt.Errorf("failed to load rps benchmarks from file %s: %s", s.FilePath, err)
 	}
 
 	return nil
@@ -323,7 +323,7 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 		Secure: false,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create MinIO client: %w", err)
+		return fmt.Errorf("failed to create MinIO client: %s", err)
 	}
 
 	ctx := context.Background()
@@ -337,7 +337,7 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 
 	for object := range objectsCh {
 		if object.Err != nil {
-			return fmt.Errorf("error listing objects: %w", object.Err)
+			return fmt.Errorf("error listing objects: %s", object.Err)
 		}
 
 		if strings.HasSuffix(object.Key, ".parquet") {
@@ -346,7 +346,7 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 
 			err := minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{})
 			if err != nil {
-				return fmt.Errorf("failed to delete %s: %w", object.Key, err)
+				return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 			}
 			deletedCount++
 		}
@@ -512,7 +512,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	t.Log("Starting Parquet Full load + CDC tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
-		return fmt.Errorf("failed to reset table: %w", err)
+		return fmt.Errorf("failed to reset table: %s", err)
 	}
 
 	testCases := []syncTestCase{
@@ -596,7 +596,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	t.Log("Starting Iceberg Full load + Incremental tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
-		return fmt.Errorf("failed to reset table: %w", err)
+		return fmt.Errorf("failed to reset table: %s", err)
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
@@ -686,7 +686,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	t.Log("Starting Parquet Full load + Incremental tests")
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
-		return fmt.Errorf("failed to reset table: %w", err)
+		return fmt.Errorf("failed to reset table: %s", err)
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
