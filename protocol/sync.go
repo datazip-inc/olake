@@ -142,6 +142,10 @@ var syncCmd = &cobra.Command{
 		}
 		state.LogWithLock()
 		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
+		filteredRecoredCount := pool.GetStats().RecordsFiltered.Load()
+		if filteredRecoredCount > 0 {
+			logger.Infof("Total records filtered: %d", filteredRecoredCount)
+		}
 		return nil
 	},
 }

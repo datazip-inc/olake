@@ -33,6 +33,7 @@ type (
 	Stats struct {
 		TotalRecordsToSync atomic.Int64 // total record that are required to sync
 		ReadCount          atomic.Int64 // records that got read
+		RecordsFiltered    atomic.Int64 // records that got filtered
 		ThreadCount        atomic.Int64 // total number of writer threads
 	}
 
@@ -225,12 +226,12 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	// create flush context
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
+	recodsCountBeforeFiltering := len(buf)
 	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
-
+	wt.stats.RecordsFiltered.Add(int64(recodsCountBeforeFiltering - len(buf)))
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()

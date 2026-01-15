@@ -386,12 +386,16 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 	}
 
-	filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
+	records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 	}
+	logger.Debugf(
+		"[FlattenAndCleanData] after filtering: records=%d",
+		len(records),
+	)
 
-	return schemaChange, filtered, p.schema, nil
+	return schemaChange, records, p.schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
