@@ -210,27 +210,12 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, info captureInf
 		// Determine operation type from SQL Server CDC operation codes.
 		// For updates, CDC emits "before" (3) and "after" (4); we skip "before".
 		var operationType string
-		if operation, ok := record["__$operation"]; ok {
-			switch v := operation.(type) {
-			case int32:
-				if int(v) == 3 {
-					continue
-				}
-				operationType = operationTypeFromCDCCode(int(v))
-			case int64:
-				if int(v) == 3 {
-					continue
-				}
-				operationType = operationTypeFromCDCCode(int(v))
-			case int:
-				if v == 3 {
-					continue
-				}
-				operationType = operationTypeFromCDCCode(v)
-			default:
-				// Fallback: treat unknown types as update.
-				operationType = "update"
+		if val, ok := record["__$operation"]; ok {
+			var opCode int32 = val.(int32)
+			if opCode == 3 {
+				continue
 			}
+			operationType = operationTypeFromCDCCode(opCode)
 		}
 
 		// Extract start_lsn before deleting metadata
@@ -293,7 +278,7 @@ func (m *MSSQL) advanceLSN(ctx context.Context, lsnHex string) (string, error) {
 
 // operationTypeFromCDCCode converts SQL Server CDC __$operation codes to our operationType string.
 // Codes: 1=delete, 2=insert, 3/4=update (before/after).
-func operationTypeFromCDCCode(code int) string {
+func operationTypeFromCDCCode(code int32) string {
 	switch code {
 	case 1:
 		return "delete"
