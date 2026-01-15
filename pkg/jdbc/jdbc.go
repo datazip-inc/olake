@@ -630,7 +630,6 @@ func SQLFilter(
 	var finalFilter string
 
 	switch len(filter.Conditions) {
-
 	case 0:
 		return thresholdFilter, nil
 
