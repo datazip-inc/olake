@@ -34,7 +34,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter: "age >= 18",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "age", Operator: ">=", Value: int64(18)},
+					{Column: "age", Operator: ">=", Value: "18"},
 				},
 			},
 		},
@@ -43,7 +43,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter: "price > 99.99",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "price", Operator: ">", Value: float64(99.99)},
+					{Column: "price", Operator: ">", Value: "99.99"},
 				},
 			},
 		},
@@ -71,8 +71,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expected: FilterInput{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
-					{Column: "a", Operator: ">", Value: int64(1)},
-					{Column: "b", Operator: "<", Value: int64(2)},
+					{Column: "a", Operator: ">", Value: "1"},
+					{Column: "b", Operator: "<", Value: "2"},
 				},
 			},
 		},
@@ -82,8 +82,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			expected: FilterInput{
 				LogicalOperator: "OR",
 				Conditions: []FilterCondition{
-					{Column: "a", Operator: "=", Value: int64(1)},
-					{Column: "b", Operator: "=", Value: int64(2)},
+					{Column: "a", Operator: "=", Value: "1"},
+					{Column: "b", Operator: "=", Value: "2"},
 				},
 			},
 		},
@@ -111,7 +111,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter: "temp < -10",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "temp", Operator: "<", Value: int64(-10)},
+					{Column: "temp", Operator: "<", Value: "-10"},
 				},
 			},
 		},
@@ -132,7 +132,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 					{
 						Column:   strings.Repeat("col", 100),
 						Operator: "=",
-						Value:    int64(1),
+						Value:    "1",
 					},
 				},
 			},

@@ -46,7 +46,7 @@ type StreamMetadata struct {
 	//legacy filter input
 	Filter string `json:"filter,omitempty"`
 	//new filter input
-	FilterInput FilterInput `json:"filter_input,omitempty"`
+	FilterInput *FilterInput `json:"filter_input,omitempty"`
 }
 
 type FilterInput struct {

@@ -22,7 +22,6 @@ func FilterRecords(
 	legacy bool,
 	schema any,
 ) ([]types.RawRecord, error) {
-
 	logger.Debugf(
 		"[FilterRecords] called: legacy=%v, conditions=%d, records=%d",
 		legacy,
@@ -140,7 +139,6 @@ func filterConcurrently(
 	conditions []parsedCondition,
 	logicalOp string,
 ) ([]types.RawRecord, error) {
-
 	logger.Debugf(
 		"[filterConcurrently] records=%d conditions=%d logicalOp=%s",
 		len(records),
@@ -192,7 +190,6 @@ func matches(
 	conditions []parsedCondition,
 	logicalOp string,
 ) bool {
-
 	isAnd := !strings.EqualFold(strings.TrimSpace(logicalOp), "OR")
 	logger.Debugf("[matches] logicalOp=%s isAnd=%v", logicalOp, isAnd)
 

@@ -316,7 +316,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
-	if !p.stream.NormalizationEnabled() {
+	if !p.stream.NormalizationEnabled() && p.stream.GetSyncMode() == types.CDC {
 		filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
@@ -386,9 +386,11 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 	}
 
-	records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
-	if err != nil {
-		return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+	if p.stream.GetSyncMode() == types.CDC {
+		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
 	}
 	logger.Debugf(
 		"[FlattenAndCleanData] after filtering: records=%d",
