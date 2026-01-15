@@ -52,7 +52,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter: "is_active = true",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "is_active", Operator: "=", Value: true},
+					{Column: "is_active", Operator: "=", Value: "true"},
 				},
 			},
 		},
@@ -61,7 +61,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			filter: `name = "john doe"`,
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "name", Operator: "=", Value: "john doe"},
+					{Column: "name", Operator: "=", Value: "\"john doe\""},
 				},
 			},
 		},

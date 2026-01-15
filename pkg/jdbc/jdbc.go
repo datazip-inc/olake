@@ -566,7 +566,6 @@ func SQLFilter(
 	driver string,
 	thresholdFilter string,
 ) (string, error) {
-
 	buildCondition := func(cond types.FilterCondition, driver string) (string, error) {
 		var driverType constants.DriverType
 		switch driver {
@@ -593,16 +592,12 @@ func SQLFilter(
 				return "", fmt.Errorf("operator %s not supported with NULL", cond.Operator)
 			}
 		}
-
 		// ---------- value formatting ----------
 		var valueSQL string
-
 		switch v := cond.Value.(type) {
-
 		case string:
 			escaped := strings.ReplaceAll(v, "'", "''")
 			valueSQL = fmt.Sprintf("'%s'", escaped)
-
 		case bool:
 			// SQL standard boolean
 			if v {
@@ -610,16 +605,12 @@ func SQLFilter(
 			} else {
 				valueSQL = "FALSE"
 			}
-
 		case int:
 			valueSQL = strconv.Itoa(v)
-
 		case int64:
 			valueSQL = strconv.FormatInt(v, 10)
-
 		case float64:
 			valueSQL = strconv.FormatFloat(v, 'f', -1, 64)
-
 		default:
 			// last-resort safety
 			escaped := strings.ReplaceAll(fmt.Sprint(v), "'", "''")
@@ -648,7 +639,6 @@ func SQLFilter(
 		if err != nil {
 			return "", err
 		}
-
 	default:
 		conditions := make([]string, 0, len(filter.Conditions))
 		for _, cond := range filter.Conditions {
