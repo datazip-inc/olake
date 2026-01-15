@@ -46,6 +46,7 @@ type Config struct {
 	JDBCUrl      string `json:"jdbc_url,omitempty"`
 	JDBCUsername string `json:"jdbc_username,omitempty"`
 	JDBCPassword string `json:"jdbc_password,omitempty"`
+	JDBCPoolSize int    `json:"jdbc_pool_size,omitempty"`
 
 	// Hive specific configuration
 	HiveURI         string `json:"hive_uri,omitempty"`

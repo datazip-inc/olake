@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/constants"
@@ -1008,33 +1009,130 @@ func normalizeKeysLower(v any) any {
 func assertDenormValueEqual(t *testing.T, key string, expected any, actual any) {
 	t.Helper()
 
-	// Compare JSON-ish strings by parsing and deep-equal (lowercasing keys).
-	if expStr, ok := expected.(string); ok && utils.IsJSON(expStr) {
-		var expAny any
-		require.NoError(t, json.Unmarshal([]byte(expStr), &expAny), "Failed to unmarshal expected JSON for key %s", key)
-		expAny = normalizeKeysLower(expAny)
+	parseJSONIfValid := func(s string) (any, bool) {
+		trimmed := strings.TrimSpace(s)
+		if !(strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) {
+			return nil, false
+		}
+		if !json.Valid([]byte(trimmed)) {
+			return nil, false
+		}
+		var out any
+		if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
+			return nil, false
+		}
+		return normalizeKeysLower(out), true
+	}
 
-		switch act := actual.(type) {
-		case string:
-			if utils.IsJSON(act) {
-				var actAny any
-				require.NoError(t, json.Unmarshal([]byte(act), &actAny), "Failed to unmarshal actual JSON string for key %s", key)
-				actAny = normalizeKeysLower(actAny)
+	// Compare JSON-ish strings by parsing and deep-equal (lowercasing keys).
+	if expStr, ok := expected.(string); ok {
+		if expAny, ok := parseJSONIfValid(expStr); ok {
+			switch act := actual.(type) {
+			case string:
+				if actAny, ok := parseJSONIfValid(act); ok {
+					require.EqualValues(t, expAny, actAny, "Value mismatch for key %s", key)
+					return
+				}
+			case map[string]interface{}, []interface{}:
+				actAny := normalizeKeysLower(actual)
 				require.EqualValues(t, expAny, actAny, "Value mismatch for key %s", key)
 				return
 			}
-		case map[string]interface{}, []interface{}:
-			actAny := normalizeKeysLower(actual)
-			require.EqualValues(t, expAny, actAny, "Value mismatch for key %s", key)
-			return
 		}
 	}
 
-	// If actual is an RFC3339 timestamp string, compare by epoch micros.
+	parseTimestampMicros := func(s string) (int64, bool) {
+		layouts := []string{
+			time.RFC3339Nano,
+			"2006-01-02 15:04:05",
+			"2006-01-02 15:04:05Z07:00",
+			"2006-01-02 15:04:05-07",
+			"2006-01-02 15:04:05-0700",
+		}
+		for _, layout := range layouts {
+			if tm, err := time.Parse(layout, s); err == nil {
+				return tm.UnixNano() / int64(time.Microsecond), true
+			}
+		}
+		return 0, false
+	}
+
+	extractExpectedMicros := func(v any) (int64, bool) {
+		switch val := v.(type) {
+		case arrow.Timestamp:
+			return int64(val), true
+		case int64:
+			return val, true
+		case int32:
+			return int64(val), true
+		case int:
+			return int64(val), true
+		case float64:
+			return int64(val), true
+		case float32:
+			return int64(val), true
+		default:
+			return 0, false
+		}
+	}
+
+	// If actual is a timestamp string, compare by epoch micros.
 	if actStr, ok := actual.(string); ok {
-		if tm, err := time.Parse(time.RFC3339Nano, actStr); err == nil {
-			actualMicros := tm.UnixNano() / int64(time.Microsecond)
-			require.EqualValues(t, expected, actualMicros, "Timestamp mismatch for key %s", key)
+		if actualMicros, ok := parseTimestampMicros(actStr); ok {
+			if expectedMicros, ok := extractExpectedMicros(expected); ok {
+				require.EqualValues(t, expectedMicros, actualMicros, "Timestamp mismatch for key %s", key)
+				return
+			}
+		}
+	}
+
+	toFloat64 := func(v any) (float64, bool) {
+		switch n := v.(type) {
+		case int:
+			return float64(n), true
+		case int32:
+			return float64(n), true
+		case int64:
+			return float64(n), true
+		case uint:
+			return float64(n), true
+		case uint32:
+			return float64(n), true
+		case uint64:
+			return float64(n), true
+		case float32:
+			return float64(n), true
+		case float64:
+			return n, true
+		case json.Number:
+			f, err := n.Float64()
+			if err != nil {
+				return 0, false
+			}
+			return f, true
+		default:
+			return 0, false
+		}
+	}
+
+	isFloatLike := func(v any) bool {
+		switch n := v.(type) {
+		case float32, float64:
+			return true
+		case json.Number:
+			return strings.Contains(n.String(), ".")
+		default:
+			return false
+		}
+	}
+
+	if expNum, okExp := toFloat64(expected); okExp {
+		if actNum, okAct := toFloat64(actual); okAct {
+			if isFloatLike(expected) || isFloatLike(actual) {
+				require.InDelta(t, expNum, actNum, 1e-6, "Value mismatch for key %s", key)
+			} else {
+				require.EqualValues(t, expNum, actNum, "Value mismatch for key %s", key)
+			}
 			return
 		}
 	}

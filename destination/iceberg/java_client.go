@@ -80,6 +80,9 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 		serverConfig["uri"] = config.JDBCUrl
 		addMapKeyIfNotEmpty("jdbc.user", config.JDBCUsername)
 		addMapKeyIfNotEmpty("jdbc.password", config.JDBCPassword)
+		if config.JDBCPoolSize > 0 {
+			serverConfig["jdbc.pool-size"] = strconv.Itoa(config.JDBCPoolSize)
+		}
 	case HiveCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.hive.HiveCatalog"
 		serverConfig["uri"] = config.HiveURI
