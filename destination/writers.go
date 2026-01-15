@@ -274,6 +274,11 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 	}
 }
 
+// IsThreadCommitted checks if the thread is already committed
+func (wt *WriterThread) IsThreadCommitted(ctx context.Context, threadID string) (bool, error) {
+	return wt.writer.ThreadStatus(ctx, threadID)
+}
+
 func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {

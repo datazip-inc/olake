@@ -110,6 +110,20 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     break;
                     
+                case CHECK_THREAD_STATUS:
+                    this.icebergTable.refresh();
+                    String propertyValue = this.icebergTable.properties().get(threadId);
+                    boolean committed = propertyValue != null && propertyValue.equals("committed");
+                    
+                    RecordIngest.RecordIngestResponse statusResponse = RecordIngest.RecordIngestResponse.newBuilder()
+                        .setSuccess(committed)
+                        .setResult(String.valueOf(committed))
+                        .build();
+                    responseObserver.onNext(statusResponse);
+                    responseObserver.onCompleted();
+                    LOGGER.info("{} Processed check commit status for thread: {}, committed: {}", requestId, threadId, committed);
+                    break;
+
                 case DROP_TABLE:
                     String dropTable = metadata.getDestTableName();
                     String[] parts = dropTable.split("\\.", 2);
