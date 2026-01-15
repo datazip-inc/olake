@@ -21,9 +21,9 @@ func TypeFromValue(v interface{}) types.DataType {
 	switch val := v.(type) {
 	case bool:
 		return types.Bool
-	case int, int8, int16, int32, uint, uint8, uint16, uint32:
+	case int8, int16, int32, uint8, uint16, uint32:
 		return types.Int32
-	case int64, uint64:
+	case int, int64, uint, uint64:
 		return types.Int64
 	case float32:
 		return types.Float32
@@ -52,7 +52,7 @@ func TypeFromValue(v interface{}) types.DataType {
 		if val == nil {
 			return types.Null
 		}
-		return types.Int32
+		return types.Int64
 	case *int32:
 		if val == nil {
 			return types.Null
