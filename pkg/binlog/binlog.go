@@ -111,6 +111,13 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 				c.CurrentPos.Pos = uint32(e.Position)
 				logger.Infof("Binlog rotated to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 
+			case *replication.GTIDEvent:
+				if e.OriginalCommitTimestamp > 0 {
+					c.changeFilter.lastGTIDEvent = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
+				}
+
+				// TODO: Investigate MariaDB GTID event structure for microsecond timestamp support.
+
 			case *replication.RowsEvent:
 				messageReceived = true
 				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, callback); err != nil {
@@ -131,13 +138,13 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
 
 	// Get MySQL version
-	majorVersion, minorVersion, err := jdbc.MySQLVersion(ctx, client)
+	mysqlFlavor, majorVersion, minorVersion, err := jdbc.MySQLVersion(ctx, client)
 	if err != nil {
 		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %s", err)
 	}
 
 	// Use the appropriate query based on the MySQL version
-	query := utils.Ternary(majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
+	query := utils.Ternary(mysqlFlavor == "MySQL" && (majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4)), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
 	rows, err := client.QueryContext(ctx, query)
 	if err != nil {
@@ -152,8 +159,19 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	var file string
 	var position uint32
 	var binlogDoDB, binlogIgnoreDB, executeGtidSet string
-	if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to scan binlog position: %s", err)
+
+	switch mysqlFlavor {
+	case "MySQL":
+		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
+			return mysql.Position{}, fmt.Errorf("failed to scan MySQL binlog position: %s", err)
+		}
+	case "MariaDB":
+		// MariaDB returns 4 columns: File, Position, Binlog_Do_DB, Binlog_Ignore_DB
+		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB); err != nil {
+			return mysql.Position{}, fmt.Errorf("failed to scan MariaDB binlog position: %s", err)
+		}
+	default:
+		return mysql.Position{}, fmt.Errorf("unsupported database flavor: %s", mysqlFlavor)
 	}
 
 	return mysql.Position{Name: file, Pos: position}, nil
