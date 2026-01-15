@@ -11,4 +11,5 @@ use (
 	./drivers/s3
 	./drivers/kafka
 	./drivers/mssql
+	./drivers/db2
 )

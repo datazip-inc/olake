@@ -14,6 +14,7 @@ var uiSchemaMap = map[string]string{
 	"s3":       S3UISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
+	"db2":      DB2UISchema,
 	"kafka":    KafkaUISchema,
 }
 
@@ -381,6 +382,39 @@ const IcebergUISchema = `{
     },
     "ui:options": {
       "label": false
+    }
+  }
+}`
+
+const DB2UISchema = `{
+  "ui:grid": [
+    { "host": 12, "port": 12 },
+    { "database": 12, "max_threads": 12 },
+    { "username": 12, "password": 12 },
+    { "jdbc_url_params": 12, "retry_count": 12 },
+    { "ssl": 12 }, { "ssh_config": 12 }
+  ],
+  "ssl": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    }
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
     }
   }
 }`
