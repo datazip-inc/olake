@@ -58,17 +58,11 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
 
-	reader := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return reader.Capture(func(rows *sql.Rows) error {
-		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, d.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record data as map: %s", err)
-		}
-		return OnMessage(ctx, record)
-	})
+	return jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage)
 }
 
 func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
