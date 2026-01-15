@@ -54,15 +54,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		// Capture and process rows
-		return setter.Capture(func(rows *sql.Rows) error {
-			record := make(types.Record)
-			err := jdbc.MapScan(rows, record, m.dataTypeConverter)
-			if err != nil {
-				return fmt.Errorf("failed to scan record data as map: %s", err)
-			}
-			return OnMessage(ctx, record)
-		})
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage)
 	})
 }
 

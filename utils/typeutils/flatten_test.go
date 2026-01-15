@@ -475,7 +475,7 @@ func TestFlattenInternal(t *testing.T) {
 				Age  int
 			}{"John", 30},
 			expected: types.Record{
-				"struct": "{John 30}",
+				"struct": `{"Name":"John","Age":30}`,
 			},
 			expectError: false,
 		},
