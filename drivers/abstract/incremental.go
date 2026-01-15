@@ -164,11 +164,11 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 	switch v := cursorValue.(type) {
 	case time.Time:
-		// DB2 TIMESTAMP does NOT store timezone information. Applying v.UTC().Format() changes the actual time value for db2.
+		// db2 timestamp does NOT store timezone information. Applying v.UTC() changes the actual time value for db2.
 		if a.driver.Type() == string(constants.DB2) {
-			return v.Format(constants.DB2TimestampFormat)
+			return v.Format(constants.DB2StateTimestampFormat)
 		}
-		return v.UTC().Format(constants.DefaultTimestampFormat)
+		return v.UTC().Format(constants.DefaultStateTimestampFormat)
 	case primitive.ObjectID:
 		return v.Hex()
 	default:

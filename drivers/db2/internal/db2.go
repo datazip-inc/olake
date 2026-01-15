@@ -178,6 +178,15 @@ func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface
 	if columnType == "TIME" {
 		return typeutils.ReformatTimeValue(value)
 	}
+
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, db2TypeToDataTypes)
+
+	// in db2, string based types come in byte format
+	if olakeType == types.String {
+		if v, ok := value.([]byte); ok {
+			return strings.TrimSpace(string(v)), nil
+		}
+	}
+
 	return typeutils.ReformatValue(olakeType, value)
 }

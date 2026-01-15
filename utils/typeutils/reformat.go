@@ -101,8 +101,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		case bool:
 			return fmt.Sprintf("%t", v), nil
 		case []byte: // byte slice
-			// in db2, char and varchar comes in byte format
-			return strings.TrimSpace(string(v)), nil
+			return string(v), nil
 		default:
 			return fmt.Sprintf("%v", v), nil
 		}
