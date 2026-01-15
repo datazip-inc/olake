@@ -1,5 +1,5 @@
 {
-    "bootstrap_servers": "host.docker.internal:9094",
+    "bootstrap_servers": "host.docker.internal:9093",
     "consumer_group_id": "olake_test_group",
     "protocol": {
         "security_protocol": "PLAINTEXT"
