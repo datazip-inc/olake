@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -117,11 +118,9 @@ func (f Fields) FromSchema(schema *types.TypeSchema) {
 		// Use the destination column name if set, otherwise use field name for backward compatibility
 		// This ensures consistency with flattened record keys which are also normalized to lowercase
 		// Without this, both uppercase (from schema) and lowercase (from records) entries exist,
-		// causing type conflicts when creating the parquet schema
+		// causing type conflicts when creating the parquet schema in TypeSchema.ToParquet(), solving last writer wins issue
 		normalizedName := property.DestinationColumnName
-		if normalizedName == "" {
-			normalizedName = fieldName
-		}
+		normalizedName = utils.Ternary(normalizedName != "", normalizedName, fieldName).(string)
 		f[normalizedName] = NewField(property.DataType())
 		return true
 	})
