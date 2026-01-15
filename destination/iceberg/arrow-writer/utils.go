@@ -214,7 +214,7 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 			return err
 		}
 	case *array.TimestampBuilder:
-		if timeVal, err := typeutils.ReformatDate(val); err == nil {
+		if timeVal, err := typeutils.ReformatDate(val, true); err == nil {
 			ts := arrow.Timestamp(timeVal.UnixMicro())
 			builder.Append(ts)
 		} else {
