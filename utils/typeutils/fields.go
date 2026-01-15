@@ -118,7 +118,7 @@ func (f Fields) FromSchema(schema *types.TypeSchema) {
 		// Use the destination column name if set, otherwise use field name for backward compatibility
 		// This ensures consistency with flattened record keys which are also normalized to lowercase
 		// Without this, both uppercase (from schema) and lowercase (from records) entries exist,
-		// causing type conflicts when creating the parquet schema in TypeSchema.ToParquet(), solving last writer wins issue
+		// causing type conflicts when creating the parquet schema in TypeSchema.ToParquet()
 		normalizedName := property.DestinationColumnName
 		normalizedName = utils.Ternary(normalizedName != "", normalizedName, fieldName).(string)
 		f[normalizedName] = NewField(property.DataType())
