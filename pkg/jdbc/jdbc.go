@@ -710,8 +710,8 @@ func MSSQLCDCTableEnabledQuery() string {
 }
 
 // MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
-func MSSQLCDCDiscoverQuery() string {
-	return `
+func MSSQLCDCDiscoverQuery(streams []string) string {
+	query := `
 		SELECT s.name AS schema_name,
 			t.name AS table_name,
 			c.capture_instance
@@ -719,6 +719,14 @@ func MSSQLCDCDiscoverQuery() string {
 		JOIN sys.schemas s ON t.schema_id = s.schema_id
 		JOIN cdc.change_tables c ON t.object_id = c.source_object_id
 	`
+	if len(streams) > 0 {
+		var quotedStreams []string
+		for _, s := range streams {
+			quotedStreams = append(quotedStreams, fmt.Sprintf("'%s'", s))
+		}
+		query += fmt.Sprintf(" WHERE CONCAT(s.name, '.', t.name) IN (%s)", strings.Join(quotedStreams, ","))
+	}
+	return query
 }
 
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance

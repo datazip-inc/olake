@@ -27,8 +27,14 @@ type MSSQL struct {
 	CDCSupport bool
 
 	state            *types.State
-	streams          map[string]types.StreamInterface
+	captures         []captureInfo
 	lastProcessedLSN string
+}
+
+type captureInfo struct {
+	capture  captureInstance
+	stream   types.StreamInterface
+	startLSN string
 }
 
 // GetConfigRef implements abstract.DriverInterface.

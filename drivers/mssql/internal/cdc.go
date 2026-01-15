@@ -25,28 +25,79 @@ type captureInstance struct {
 	instanceName string
 }
 
+// prepareCaptureInstance discovers capture instances for selected streams and returns the starting LSN for each stream.
+func (m *MSSQL) prepareCaptureInstance(ctx context.Context, streams []types.StreamInterface) error {
+	streamMap := make(map[string]types.StreamInterface, len(streams))
+	streamIDs := make([]string, 0, len(streams))
+	for _, stream := range streams {
+		streamMap[stream.ID()] = stream
+		streamIDs = append(streamIDs, stream.ID())
+	}
+
+	// Discover capture instances for selected streams
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDiscoverQuery(streamIDs))
+	if err != nil {
+		return fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
+	}
+	defer rows.Close()
+
+	// Get current max LSN once to use as start point for new streams
+	currentLSN, err := m.currentMaxLSN(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get MSSQL current max LSN: %s", err)
+	}
+
+	for rows.Next() {
+		var capture captureInstance
+		if err := rows.Scan(&capture.schema, &capture.table, &capture.instanceName); err != nil {
+			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
+		}
+
+		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
+		if stream, ok := streamMap[streamID]; ok {
+			var startLSN string
+
+			// Check if start_lsn is already persisted in state.
+			if val := m.state.GetCursor(stream.Self(), "start_lsn"); val != nil {
+				if s, ok := val.(string); ok {
+					startLSN = s
+				}
+			} else {
+				// If not in state, check if it's a new stream (backfill not completed).
+				// We set startLSN to currentLSN for new streams to avoid overlap with backfill.
+				if !m.state.HasCompletedBackfill(stream.Self()) {
+					startLSN = currentLSN
+					// Persist to state to handle restarts.
+					m.state.SetCursor(stream.Self(), "start_lsn", startLSN)
+				}
+			}
+
+			m.captures = append(m.captures, captureInfo{
+				capture:  capture,
+				stream:   stream,
+				startLSN: startLSN,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if len(m.captures) == 0 {
+		logger.Warnf("No CDC capture instances found for selected streams")
+	}
+
+	return nil
+}
+
 // PreCDC initialises global CDC state and starting LSN.
 func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	if !m.CDCSupport {
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	if m.streams == nil {
-		m.streams = make(map[string]types.StreamInterface, len(streams))
-	}
-	for _, stream := range streams {
-		m.streams[stream.ID()] = stream
-	}
-
-	// Validate that all selected streams have CDC enabled at the table level
-	for _, stream := range streams {
-		enabled, err := m.IsTableCDCEnabled(ctx, stream.Namespace(), stream.Name())
-		if err != nil {
-			return fmt.Errorf("failed to check CDC for table %s.%s: %s", stream.Namespace(), stream.Name(), err)
-		}
-		if !enabled {
-			logger.Warnf("CDC is not enabled for table %s.%s. Please enable CDC for this table using sys.sp_cdc_enable_table", stream.Namespace(), stream.Name())
-		}
+	if err := m.prepareCaptureInstance(ctx, streams); err != nil {
+		return err
 	}
 
 	// Initialize CDC state if needed
@@ -92,8 +143,10 @@ func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, proc
 		return nil
 	}
 
-	// Process bounded window [fromLSN, targetLSN].
-	err = m.fetchAllTableChangesInLSNRange(ctx, fromLSN, targetLSN, processFn)
+	// Process bounded window [fromLSN, targetLSN] in parallel across all captured tables.
+	err = utils.Concurrent(ctx, m.captures, m.MaxConnections(), func(ctx context.Context, info captureInfo, _ int) error {
+		return m.fetchTableChangesInLSNRange(ctx, info, fromLSN, targetLSN, processFn)
+	})
 	if err != nil {
 		return err
 	}
@@ -122,49 +175,8 @@ func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 	return hex.EncodeToString(lsn), nil
 }
 
-// fetchAllTableChangesInLSNRange reads CDC changes for all selected CDC-enabled tables within a single LSN range.
-func (m *MSSQL) fetchAllTableChangesInLSNRange(ctx context.Context, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
-	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDiscoverQuery())
-	if err != nil {
-		return fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
-	}
-	defer rows.Close()
-
-	var captures []captureInstance
-	for rows.Next() {
-		var capture captureInstance
-		if err := rows.Scan(&capture.schema, &capture.table, &capture.instanceName); err != nil {
-			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
-		}
-
-		// the query returns all tables, so we need to filter out the ones that are not selected
-		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
-		if _, selected := m.streams[streamID]; !selected {
-			continue
-		}
-
-		captures = append(captures, capture)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, capture := range captures {
-		if err := m.fetchTableChangesInLSNRange(ctx, capture.schema, capture.table, capture.instanceName, fromLSN, toLSN, processFn); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // fetchTableChangesInLSNRange fetches and emits CDC changes for a single table/capture-instance within an LSN range.
-func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, schema, table, captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
-	streamID := fmt.Sprintf("%s.%s", schema, table)
-	cfgStream, selected := m.streams[streamID]
-	if !selected {
-		return fmt.Errorf("CDC capture instance discovered for unselected stream %s", streamID)
-	}
-
+func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, info captureInfo, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
 	// Move the lower bound forward by one LSN to avoid re-emitting the last processed row.
 	effectiveFromLSN, err := m.advanceLSN(ctx, fromLSN)
 	if err != nil {
@@ -182,7 +194,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, schema, table, 
 	}
 
 	// Query CDC rows for this capture instance between the two LSNs.
-	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCGetChangesQuery(captureInstance), fromLSNBytes, toLSNBytes)
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCGetChangesQuery(info.capture.instanceName), fromLSNBytes, toLSNBytes)
 	if err != nil {
 		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
 	}
@@ -221,15 +233,29 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, schema, table, 
 			}
 		}
 
-		// Remove CDC metadata columns so only real table columns remain in the payload.
+		// Extract start_lsn before deleting metadata
+		var startLSNBytes []byte
+		if startLSN, ok := record["__$start_lsn"]; ok {
+			startLSNBytes = []byte(startLSN.(string))
+		}
+
 		delete(record, "__$operation")
 		delete(record, "__$start_lsn")
 		delete(record, "__$seqval")
 		delete(record, "__$update_mask")
 
+		// we only process events occurring after startLSN to avoid duplication with the backfill snapshot.
+		if info.startLSN != "" {
+			// Convert startLSN to hex string for comparison
+			eventLSNHex := hex.EncodeToString(startLSNBytes)
+			if eventLSNHex <= info.startLSN {
+				continue
+			}
+		}
+
 		// Emit one normalized CDC change event.
 		if err := processFn(ctx, abstract.CDCChange{
-			Stream:    cfgStream,
+			Stream:    info.stream,
 			Timestamp: time.Now().UTC(),
 			Kind:      operationType,
 			Data:      record,
