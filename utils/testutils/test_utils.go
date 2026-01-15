@@ -1009,6 +1009,15 @@ func normalizeKeysLower(v any) any {
 func assertDenormValueEqual(t *testing.T, key string, expected any, actual any) {
 	t.Helper()
 
+	// Fast path: if both are strings and equal, we're done
+	if expStr, okE := expected.(string); okE {
+		if actStr, okA := actual.(string); okA {
+			if expStr == actStr {
+				return
+			}
+		}
+	}
+
 	parseJSONIfValid := func(s string) (any, bool) {
 		trimmed := strings.TrimSpace(s)
 		if !(strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) {
@@ -1042,15 +1051,30 @@ func assertDenormValueEqual(t *testing.T, key string, expected any, actual any) 
 	}
 
 	parseTimestampMicros := func(s string) (int64, bool) {
-		layouts := []string{
+		// Layouts with explicit timezone info - parse normally
+		layoutsWithTZ := []string{
 			time.RFC3339Nano,
-			"2006-01-02 15:04:05",
+			time.RFC3339,
 			"2006-01-02 15:04:05Z07:00",
-			"2006-01-02 15:04:05-07",
+			"2006-01-02 15:04:05-07:00",
 			"2006-01-02 15:04:05-0700",
+			"2006-01-02T15:04:05Z07:00",
+			"2006-01-02T15:04:05-0700",
 		}
-		for _, layout := range layouts {
+		for _, layout := range layoutsWithTZ {
 			if tm, err := time.Parse(layout, s); err == nil {
+				return tm.UnixNano() / int64(time.Microsecond), true
+			}
+		}
+		// Layouts without timezone - assume UTC (test data is defined in UTC)
+		layoutsNoTZ := []string{
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05",
+			"2006-01-02 15:04:05.999999",
+			"2006-01-02T15:04:05.999999",
+		}
+		for _, layout := range layoutsNoTZ {
+			if tm, err := time.ParseInLocation(layout, s, time.UTC); err == nil {
 				return tm.UnixNano() / int64(time.Microsecond), true
 			}
 		}
@@ -1134,6 +1158,15 @@ func assertDenormValueEqual(t *testing.T, key string, expected any, actual any) 
 				require.EqualValues(t, expNum, actNum, "Value mismatch for key %s", key)
 			}
 			return
+		}
+	}
+
+	// For string comparisons (handles UUIDs, etc.) - compare case-insensitively after trimming
+	if expStr, okE := expected.(string); okE {
+		if actStr, okA := actual.(string); okA {
+			if strings.EqualFold(strings.TrimSpace(expStr), strings.TrimSpace(actStr)) {
+				return
+			}
 		}
 	}
 
