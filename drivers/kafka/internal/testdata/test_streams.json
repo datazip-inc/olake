@@ -1,23 +1,75 @@
 {
     "selected_streams": {
-        "olake_kafka": [
+        "topics": [
             {
                 "partition_regex": "",
-                "stream_name": "test_topic",
-                "normalization": true
+                "stream_name": "kafka_test_table_olake",
+                "append_mode": true,
+                "normalization": false
+            },
+            {
+                "partition_regex": "",
+                "stream_name": "__consumer_offsets",
+                "append_mode": true,
+                "normalization": false
             }
         ]
     },
     "streams": [
         {
             "stream": {
-                "name": "test_topic",
-                "namespace": "olake_kafka",
+                "name": "kafka_test_table_olake",
+                "namespace": "topics",
                 "type_schema": {
                     "properties": {
-                        "id": {
+                        "_kafka_key": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "_kafka_key"
+                        },
+                        "_kafka_offset": {
                             "type": [
                                 "integer"
+                            ],
+                            "destination_column_name": "_kafka_offset"
+                        },
+                        "_kafka_partition": {
+                            "type": [
+                                "integer_small"
+                            ],
+                            "destination_column_name": "_kafka_partition"
+                        },
+                        "_kafka_timestamp": {
+                            "type": [
+                                "timestamp_milli"
+                            ],
+                            "destination_column_name": "_kafka_timestamp"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        },
+                        "id": {
+                            "type": [
+                                "number"
                             ],
                             "destination_column_name": "id"
                         },
@@ -35,27 +87,65 @@
                         },
                         "timestamp": {
                             "type": [
-                                "string"
+                                "timestamp"
                             ],
                             "destination_column_name": "timestamp"
                         }
                     }
                 },
                 "supported_sync_modes": [
-                    "full_refresh",
-                    "incremental"
+                    "strict_cdc"
                 ],
                 "source_defined_primary_key": [
-                    [
-                        "id"
-                    ]
+                    "_kafka_partition",
+                    "_kafka_offset"
                 ],
-                "available_cursor_fields": [
-                    "id"
+                "available_cursor_fields": [],
+                "sync_mode": "strict_cdc",
+                "destination_database": "kafka:topics",
+                "destination_table": "kafka_test_table_olake"
+            }
+        },
+        {
+            "stream": {
+                "name": "__consumer_offsets",
+                "namespace": "topics",
+                "type_schema": {
+                    "properties": {
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id"
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp"
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "strict_cdc"
                 ],
-                "sync_mode": "full_refresh",
-                "destination_database": "kafka_olake_kafka",
-                "destination_table": "test_topic"
+                "source_defined_primary_key": [
+                    "_kafka_offset",
+                    "_kafka_partition"
+                ],
+                "available_cursor_fields": [],
+                "sync_mode": "strict_cdc",
+                "destination_database": "kafka:topics",
+                "destination_table": "__consumer_offsets"
             }
         }
     ]
