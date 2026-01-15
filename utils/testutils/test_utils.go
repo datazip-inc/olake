@@ -395,6 +395,108 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	return nil
 }
 
+// testKafkaSync tests Kafka-specific streaming sync behavior
+// Kafka uses Consumer Group-based streaming which is different from database sync modes
+func (cfg *IntegrationTest) testKafkaSync(t *testing.T) {
+	ctx := context.Background()
+	currentTestTable := "kafka_test_table_olake"
+
+	t.Run("Kafka Streaming Sync", func(t *testing.T) {
+		req := testcontainers.ContainerRequest{
+			Image: "golang:1.24.0",
+			HostConfigModifier: func(hc *container.HostConfig) {
+				hc.Binds = []string{
+					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
+					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
+				}
+				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
+				hc.NetworkMode = "host"
+			},
+			ConfigModifier: func(config *container.Config) {
+				config.WorkingDir = "/test-olake"
+			},
+			Env: map[string]string{
+				"TELEMETRY_DISABLED": "true",
+			},
+			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
+				{
+					PostReadies: []testcontainers.ContainerHook{
+						func(ctx context.Context, c testcontainers.Container) error {
+							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
+								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
+							}
+							if code, output, err := utils.ExecCommand(ctx, c, "go mod download"); err != nil || code != 0 {
+								return fmt.Errorf("failed to download go modules:\n%s", string(output))
+							}
+
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							t.Log("Cleaned Kafka topic")
+
+							resetCmd := fmt.Sprintf("echo '{}' > %s", cfg.TestConfig.StatePath)
+							if code, output, err := utils.ExecCommand(ctx, c, resetCmd); err != nil || code != 0 {
+								return fmt.Errorf("failed to reset state: %s\n%s", err, output)
+							}
+
+							// Produce initial messages
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+							t.Log("Produced initial messages to Kafka topic")
+
+							// Small delay for messages to be available
+							time.Sleep(2 * time.Second)
+
+							// Run initial sync
+							t.Run("Initial_Sync", func(t *testing.T) {
+								syncCmd := syncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", "integration_kafka")
+								t.Logf("Running initial sync: %s", syncCmd)
+
+								code, output, err := utils.ExecCommand(ctx, c, syncCmd)
+								if err != nil || code != 0 {
+									t.Fatalf("Initial sync failed (%d): %s\n%s", code, err, output)
+								}
+								t.Log("Initial sync completed successfully")
+							})
+
+							// Produce additional messages
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "insert", false)
+							t.Log("Produced additional messages to Kafka topic")
+
+							time.Sleep(2 * time.Second)
+
+							// Run incremental sync (continues from last offset)
+							t.Run("Incremental_Sync", func(t *testing.T) {
+								syncCmd := syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", "integration_kafka")
+								t.Logf("Running incremental sync: %s", syncCmd)
+
+								code, output, err := utils.ExecCommand(ctx, c, syncCmd)
+								if err != nil || code != 0 {
+									t.Fatalf("Incremental sync failed (%d): %s\n%s", code, err, output)
+								}
+								t.Log("Incremental sync completed successfully")
+							})
+
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+							t.Log("Kafka streaming sync test completed")
+							return nil
+						},
+					},
+				},
+			},
+			Cmd: []string{"tail", "-f", "/dev/null"},
+		}
+
+		kafkaContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		})
+		require.NoError(t, err, "Container startup failed")
+		defer func() {
+			if err := kafkaContainer.Terminate(ctx); err != nil {
+				t.Logf("warning: failed to terminate container: %v", err)
+			}
+		}()
+	})
+}
+
 // testIcebergFullLoadAndCDC tests Full load and CDC operations
 func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	ctx context.Context,
@@ -804,6 +906,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	})
 
 	t.Run("Sync", func(t *testing.T) {
+		// Use custom sync tests for streaming drivers like Kafka
+		if slices.Contains(constants.HasCustomSyncTests, constants.DriverType(cfg.TestConfig.Driver)) {
+			cfg.testKafkaSync(t)
+			return
+		}
+
 		req := testcontainers.ContainerRequest{
 			Image: "golang:1.24.0",
 			HostConfigModifier: func(hc *container.HostConfig) {

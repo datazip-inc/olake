@@ -87,7 +87,7 @@ jobs:
           max_attempts: 30
           retry_wait_seconds: 5
           command: |
-            docker exec olake_kafka kafka-topics.sh --list --bootstrap-server localhost:9092
+            docker exec olake_kafka kafka-topics.sh --list --bootstrap-server localhost:9093
 
       - name: Set up Data Directories
         run: |

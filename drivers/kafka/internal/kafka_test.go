@@ -11,7 +11,7 @@ func TestKafkaIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka)),
-		Namespace:                        "olake_kafka",
+		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaData,
 		ExpectedUpdatedData:              ExpectedUpdatedData,
 		DestinationDataTypeSchema:        KafkaToDestinationSchema,

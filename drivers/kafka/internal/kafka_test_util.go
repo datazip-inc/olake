@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	brokerAddress = "localhost:9095"
+	brokerAddress = "localhost:9094"
 	topic         = "test_topic"
 )
 
@@ -46,7 +46,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		// In Kafka, "cleaning" could mean deleting the topic and recreating it
 		// For simplicity, we'll recreate the topic.
 		deleteTopic(ctx, t, currentTopic)
+		time.Sleep(2 * time.Second)
 		createTopic(ctx, t, currentTopic)
+		time.Sleep(3 * time.Second) // Wait for topic to be fully available
 
 	case "add":
 		produceMessages(ctx, t, currentTopic, false)

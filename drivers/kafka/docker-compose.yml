@@ -1,31 +1,28 @@
-version: '3.8'
-
 services:
   zookeeper:
     image: wurstmeister/zookeeper
     container_name: olake_zookeeper
+    platform: linux/amd64
     ports:
       - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
     image: wurstmeister/kafka
     container_name: olake_kafka
+    platform: linux/amd64
     ports:
-      - "9094:9092"
-      - "9095:9093"
+      - "9093:9093"
+      - "9094:9094"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      KAFKA_ADVERTISED_LISTENERS: INSIDE://host.docker.internal:9094,OUTSIDE://localhost:9095
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
-      KAFKA_LISTENERS: INSIDE://0.0.0.0:9092,OUTSIDE://0.0.0.0:9093
-      KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+      KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: olake_zookeeper:2181
-      KAFKA_CREATE_TOPICS: "test_topic:1:1"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://host.docker.internal:9093,EXTERNAL://localhost:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     depends_on:
       - zookeeper
