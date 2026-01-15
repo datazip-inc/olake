@@ -114,9 +114,15 @@ func (f Fields) FromSchema(schema *types.TypeSchema) {
 	schema.Properties.Range(func(key, value any) bool {
 		fieldName := key.(string)
 		property := value.(*types.Property)
-
-		f[fieldName] = NewField(property.DataType())
-
+		// Use the destination column name if set, otherwise use field name for backward compatibility
+		// This ensures consistency with flattened record keys which are also normalized to lowercase
+		// Without this, both uppercase (from schema) and lowercase (from records) entries exist,
+		// causing type conflicts when creating the parquet schema
+		normalizedName := property.DestinationColumnName
+		if normalizedName == "" {
+			normalizedName = fieldName
+		}
+		f[normalizedName] = NewField(property.DataType())
 		return true
 	})
 }
