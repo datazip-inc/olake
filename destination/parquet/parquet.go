@@ -156,7 +156,40 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
-	// TODO: use batch writing feature of pq writer
+	const batchSize = 1000
+
+	// Buffers for each partition path
+	normalizedBuffers := make(map[string][]any)
+	rawBuffers := make(map[string][]types.RawRecord)
+	normalizationEnabled := p.stream.NormalizationEnabled()
+
+	// Flush function for normalized records
+	flushNormalized := func(partitionedPath string, buffer []any) error {
+		partitionFile := p.partitionedFiles[partitionedPath]
+		if partitionFile == nil {
+			return fmt.Errorf("failed to find partition file for path[%s]", partitionedPath)
+		}
+		_, err := partitionFile.writer.(*pqgo.GenericWriter[any]).Write(buffer)
+		if err != nil {
+			return fmt.Errorf("failed to write batch in parquet file: %s", err)
+		}
+		return nil
+	}
+
+	// Flush function for raw records
+	flushRaw := func(partitionedPath string, buffer []types.RawRecord) error {
+		partitionFile := p.partitionedFiles[partitionedPath]
+		if partitionFile == nil {
+			return fmt.Errorf("failed to find partition file for path[%s]", partitionedPath)
+		}
+		_, err := partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write(buffer)
+		if err != nil {
+			return fmt.Errorf("failed to write batch in parquet file: %s", err)
+		}
+		return nil
+	}
+
+	// Process all records and accumulate in buffers
 	for _, record := range records {
 		record.OlakeTimestamp = time.Now().UTC()
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
@@ -173,14 +206,44 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
 		}
 
-		var err error
-		if p.stream.NormalizationEnabled() {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
+		// Append to appropriate buffer based on normalization setting
+		if normalizationEnabled {
+			normalizedBuffers[partitionedPath] = append(normalizedBuffers[partitionedPath], record.Data)
+			// Flush when buffer reaches batch size
+			if len(normalizedBuffers[partitionedPath]) >= batchSize {
+				if err := flushNormalized(partitionedPath, normalizedBuffers[partitionedPath]); err != nil {
+					return err
+				}
+				normalizedBuffers[partitionedPath] = normalizedBuffers[partitionedPath][:0] // reset buffer
+			}
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+			rawBuffers[partitionedPath] = append(rawBuffers[partitionedPath], record)
+			// Flush when buffer reaches batch size
+			if len(rawBuffers[partitionedPath]) >= batchSize {
+				if err := flushRaw(partitionedPath, rawBuffers[partitionedPath]); err != nil {
+					return err
+				}
+				rawBuffers[partitionedPath] = rawBuffers[partitionedPath][:0] // reset buffer
+			}
 		}
-		if err != nil {
-			return fmt.Errorf("failed to write in parquet file: %s", err)
+	}
+
+	// Flush any remaining records in buffers
+	if normalizationEnabled {
+		for partitionedPath, buffer := range normalizedBuffers {
+			if len(buffer) > 0 {
+				if err := flushNormalized(partitionedPath, buffer); err != nil {
+					return err
+				}
+			}
+		}
+	} else {
+		for partitionedPath, buffer := range rawBuffers {
+			if len(buffer) > 0 {
+				if err := flushRaw(partitionedPath, buffer); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
