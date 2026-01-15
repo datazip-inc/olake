@@ -31,7 +31,9 @@ const (
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
-	EffectiveParquetSize = int64(256) * 1024 * 1024 * int64(8)
+	EffectiveParquetSize   = int64(256) * 1024 * 1024 * int64(8)
+	DB2TimestampFormat     = "2006-01-02 15:04:05.000000"
+	DefaultTimestampFormat = "2006-01-02T15:04:05.000000000Z"
 )
 
 type DriverType string

@@ -54,7 +54,7 @@ func (d *DB2) Setup(ctx context.Context) error {
 }
 
 func (d *DB2) StateType() types.StateType {
-	return types.GlobalType
+	return types.StreamType
 }
 
 func (d *DB2) SetupState(state *types.State) {

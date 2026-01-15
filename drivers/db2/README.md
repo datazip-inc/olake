@@ -1,5 +1,5 @@
 # DB2 LUW (Linux, Unix, Windows) Driver
-The DB2 LUW Driver enables data synchronization from DB2 LUW to your desired destination. It supports **Full Refresh** and **Incremental** mode.
+The DB2 LUW Driver enables data synchronization from DB2 LUW to your desired destination. It supports **Full Refresh** and **Incremental** mode. The db2 golang driver needs IBM Data Server ODBC and CLI driver to run, where support for **Linux/arm64** is not present.
 
 ---
 

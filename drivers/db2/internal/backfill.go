@@ -48,7 +48,8 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
 
-	// begin transaction for chunk iteration (by default isolation mode in db2 driver is cursor stability)
+	// begin transaction for chunk iteration (by default isolation mode in db2 driver is cursor stability (also known as read committed))
+	// db2 driver does not support custom isolation level setting
 	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
@@ -79,7 +80,7 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 	}
 	if approxRowCount == -1 || approxRowCount == 0 {
 		var hasRows bool
-		existsQuery := jdbc.DB2TableExistQuery(stream)
+		existsQuery := jdbc.DB2TableStatsExistQuery(stream)
 		err := d.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check if table has rows: %s", err)

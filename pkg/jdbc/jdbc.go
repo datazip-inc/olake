@@ -871,8 +871,8 @@ func DB2PageStatsQuery(stream types.StreamInterface) string {
     `, stream.Namespace(), stream.Name())
 }
 
-// DB2TableExistQuery returns the query to check if a table exists in DB2
-func DB2TableExistQuery(stream types.StreamInterface) string {
+// DB2TableStatsExistQuery returns the query to check if a table exists in DB2
+func DB2TableStatsExistQuery(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
         SELECT CASE 
             WHEN EXISTS (SELECT 1 FROM "%s"."%s") THEN 1 
