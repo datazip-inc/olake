@@ -277,6 +277,8 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		// Note: This returns a hex representation, not the hierarchical path format
 		// For proper "/1/2/3/" format, cast in SQL using col.ToString()
 		return fmt.Sprintf("%x", value), nil
+	case "time":
+		return typeutils.ReformatTimeValue(value)
 	}
 
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mssqlTypeToDataTypes)
