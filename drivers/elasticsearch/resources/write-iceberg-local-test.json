@@ -1,0 +1,13 @@
+{
+  "type": "ICEBERG",
+  "writer": {
+    "catalog_type": "jdbc",
+    "jdbc_url": "jdbc:postgresql://localhost:5432/iceberg?user=iceberg&password=password",
+    "iceberg_s3_path": "s3a://warehouse/olake_iceberg",
+    "s3_endpoint": "http://localhost:9000",
+    "aws_access_key": "admin",
+    "aws_secret_key": "password",
+    "aws_region": "us-east-1",
+    "s3_path_style": true
+  }
+}

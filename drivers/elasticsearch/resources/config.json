@@ -1,0 +1,13 @@
+{
+  "host": "localhost",
+  "port": 9200,
+  "username": "elastic",
+  "password": "changeme",
+  "use_ssl": false,
+  "index": "test-*",
+  "max_threads": 5,
+  "retry_count": 2,
+  "update_method": {
+    "cursor_field": "timestamp"
+  }
+}
