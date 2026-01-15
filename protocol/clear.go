@@ -43,7 +43,7 @@ var clearCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state)
 		if err != nil {
-			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
+			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
 		}
 		dropStreams := []types.StreamInterface{}
 		dropStreams = append(dropStreams, append(append(selectedStreamsMetadata.IncrementalStreams, selectedStreamsMetadata.FullLoadStreams...), selectedStreamsMetadata.CDCStreams...)...)
@@ -56,7 +56,7 @@ var clearCmd = &cobra.Command{
 		// clear state for selected streams
 		newState, err := connector.ClearState(dropStreams)
 		if err != nil {
-			return fmt.Errorf("error clearing state: %w", err)
+			return fmt.Errorf("error clearing state: %s", err)
 		}
 		logger.Infof("State for selected streams cleared successfully.")
 		// Setup new state after clear for connector
