@@ -323,7 +323,7 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 
 	// money
 	"col_smallmoney": "1.2500",
-	"col_money":      "9.75",
+	"col_money":      "9.7500",
 
 	// strings
 	"col_char":     "char_val__",

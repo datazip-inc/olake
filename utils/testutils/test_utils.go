@@ -359,6 +359,10 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
+		if cfg.TestConfig.Driver == "mssql" {
+			t.Log("Waiting 10 seconds for MSSQL CDC to process transactions...")
+			time.Sleep(10 * time.Second)
+		}
 	}
 
 	// Run sync command
