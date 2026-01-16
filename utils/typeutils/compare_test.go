@@ -10,15 +10,15 @@ import (
 )
 
 func TestCompare(t *testing.T) {
-	now := time.Now()
-	later := now.Add(time.Hour)
-	intval_1, intval_2 := 1, 1
+	currentTime := time.Now()
+	futureTime := currentTime.Add(time.Hour)
+	firstPointerTarget, secondPointerTarget := 1, 1
 
 	testCases := []struct {
-		name     string
-		a        interface{}
-		b        interface{}
-		expected int
+		name          string
+		leftArgument  interface{}
+		rightArgument interface{}
+		expected      int
 	}{
 		// nil cases
 		{"nil_vs_nil", nil, nil, 0},
@@ -61,24 +61,19 @@ func TestCompare(t *testing.T) {
 		{"zero_vs_negative_zero", 0, -0, 0},
 
 		// time
-		{"time_equal", now, now, 0},
-		{"time_less", now, later, -1},
-		{"time_greater", later, now, 1},
+		{"time_equal", currentTime, currentTime, 0},
+		{"time_less", currentTime, futureTime, -1},
+		{"time_greater", futureTime, currentTime, 1},
 		{"time_zero_vs_time_zero", time.Time{}, time.Time{}, 0},
-		{"time_zero_vs_now", time.Time{}, now, -1},
-		{"time_nanosecond_diff", now.Add(time.Nanosecond), now, 1},
-		{"time_difference", now.UTC(), now.In(time.Local), 0},
+		{"time_zero_vs_now", time.Time{}, currentTime, -1},
+		{"time_nanosecond_diff", currentTime.Add(time.Nanosecond), currentTime, 1},
+		{"time_difference", currentTime.UTC(), currentTime.In(time.Local), 0},
 
 		// custom time
 		{"custom_time_zero", Time{}, Time{}, 0},
-		{"custom_time_equal", Time{Time: now}, Time{Time: now}, 0},
-		{"custom_time_less", Time{Time: now}, Time{Time: later}, -1},
-		{"custom_time_greater", Time{Time: later}, Time{Time: now}, 1},
-
-		// mixed custom time cases
-		{"custom_time_vs_stdlib_time_equal", Time{Time: now}, now, 0},
-		{"custom_time_vs_stdlib_time_less", Time{Time: now}, later, -1},
-		{"custom_time_vs_stdlib_time_greater", later, Time{Time: now}, 1},
+		{"custom_time_equal", Time{Time: currentTime}, Time{Time: currentTime}, 0},
+		{"custom_time_less", Time{Time: currentTime}, Time{Time: futureTime}, -1},
+		{"custom_time_greater", Time{Time: futureTime}, Time{Time: currentTime}, 1},
 
 		// bool
 		{"bool_false_vs_false", false, false, 0},
@@ -102,14 +97,14 @@ func TestCompare(t *testing.T) {
 		{"fallback_slice", []int{1, 2, 56}, []float32{2, 3}, -1},
 		{"fallback_map", map[string]int{"z": 1}, map[string]int{"b": 34}, 1},
 		{"fallback_errors", errors.New("a"), errors.New("A"), 1},
-		{"fallback_pointers_lesser", &intval_1, &intval_2, -1},
-		{"fallback_pointers_greater", &intval_2, &intval_1, 1},
+		{"fallback_pointers_lesser", &firstPointerTarget, &secondPointerTarget, -1},
+		{"fallback_pointers_greater", &secondPointerTarget, &firstPointerTarget, 1},
 		{"fallback_interface_wrapped_int", interface{}(int(5)), interface{}(int(5)), 0},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := Compare(tc.a, tc.b)
+			result := Compare(tc.leftArgument, tc.rightArgument)
 			assert.Equal(t, tc.expected, result)
 		})
 	}

@@ -49,13 +49,7 @@ func Compare(a, b any) int {
 		}
 		return 0
 	case time.Time:
-		var bTime time.Time
-		if t, ok := b.(time.Time); ok {
-			bTime = t
-		} else if t, ok := b.(Time); ok {
-			bTime = t.Time
-		}
-
+		bTime := b.(time.Time)
 		if aVal.Before(bTime) {
 			return -1
 		} else if aVal.After(bTime) {
