@@ -311,8 +311,18 @@ func (p *Parquet) Close(_ context.Context) error {
 
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
-	if !p.stream.NormalizationEnabled() {
-		return false, records, nil, nil
+	filter, isLegacy, err := p.stream.GetFilter()
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
+	}
+
+	if !p.stream.NormalizationEnabled() && !p.options.Backfill {
+		// Q: do we need to add filter in case of normalization false?
+		filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+		return false, filtered, nil, nil
 	}
 
 	if len(records) == 0 {
@@ -321,7 +331,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
-	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
+	err = utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
 		records[idx].Data[constants.OlakeID] = record.OlakeID
 		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
@@ -371,9 +381,24 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 	}
 
-	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
+	if err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
-	})
+	}); err != nil {
+		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
+	}
+
+	if !p.options.Backfill {
+		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+	}
+	logger.Debugf(
+		"[FlattenAndCleanData] after filtering: records=%d",
+		len(records),
+	)
+
+	return schemaChange, records, p.schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
