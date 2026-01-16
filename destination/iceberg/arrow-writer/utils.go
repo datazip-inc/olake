@@ -241,13 +241,13 @@ func createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocat
 	return arrowRec, nil
 }
 
-func createPositionalDeleteArrowRecord(posDeletes []PositionalDeleteRecord, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
+func createPositionalDeleteArrowRecord(posDeletes []PositionalDelete, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
 	for _, del := range posDeletes {
 		recordBuilder.Field(0).(*array.StringBuilder).Append(del.FilePath)
-		recordBuilder.Field(1).(*array.Int64Builder).Append(del.Pos)
+		recordBuilder.Field(1).(*array.Int64Builder).Append(del.Position)
 	}
 
 	return recordBuilder.NewRecord()
@@ -352,10 +352,6 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
 	return nil
-}
-
-func getPartitionKey(fileType string, partitionKey string) string {
-	return fileType + ":" + partitionKey
 }
 
 func arrowToParquetSchema(arrowSchema *arrow.Schema) (*schema.Schema, error) {
