@@ -25,6 +25,7 @@ type captureInstance struct {
 
 // prepareCaptureInstances discovers capture instances for selected streams
 func (m *MSSQL) prepareCaptureInstances(ctx context.Context, streams []types.StreamInterface) error {
+	// TODO: query capture instances per-stream in StreamChanges and remove capturesMap
 	m.capturesMap = make(map[string][]captureInstance)
 	streamIDs := make([]string, 0, len(streams))
 	for _, stream := range streams {
