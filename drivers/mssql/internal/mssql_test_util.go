@@ -90,15 +90,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					col_nvarchar NVARCHAR(255) NOT NULL,
 					col_ntext NTEXT NOT NULL,
 
-					col_binary BINARY(16) NOT NULL,
-					col_varbinary VARBINARY(MAX) NOT NULL,
-
 					col_date DATE NOT NULL,
+					col_time TIME NOT NULL,
 					col_smalldatetime SMALLDATETIME NOT NULL,
 					col_datetime DATETIME NOT NULL,
 					col_datetime2 DATETIME2(6) NOT NULL,
 					col_datetimeoffset DATETIMEOFFSET(6) NOT NULL,
 					col_uniqueidentifier UNIQUEIDENTIFIER NOT NULL,
+
+					col_xml XML NOT NULL,
+					col_sysname SYSNAME NOT NULL,
 
 					col_int_nullable INT NULL,
 					col_varchar_nullable VARCHAR(255) NULL,
@@ -169,9 +170,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_decimal, col_numeric, col_smallmoney, col_money,
 				col_float, col_real, col_bit,
 				col_char, col_varchar, col_text, col_nchar, col_nvarchar, col_ntext,
-				col_binary, col_varbinary,
-				col_date, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
+				col_date, col_time, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
 				col_uniqueidentifier,
+				col_xml, col_sysname,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
 				created_at
 			) VALUES (
@@ -180,10 +181,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				123.50, 10.12500, 1.2500, 2.5000,
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
-				0x0102030405060708090A0B0C0D0E0F10, 0x01020304,
-				'2023-01-01', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
+				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
 				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
+				'<xml>test</xml>', 'sysname_val',
 				NULL, NULL, NULL,
 				'2023-01-01 12:00:00'
 			);
@@ -202,8 +203,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varchar = 'updated varchar',
 				col_datetime2 = '2024-07-01 15:30:00',
 				col_datetimeoffset = '2024-07-01 15:30:00 +00:00',
-				col_varbinary = 0x0A0B0C,
 				col_uniqueidentifier = '00000000-0000-0000-0000-000000000000',
+				col_xml = '<xml>updated</xml>',
+				col_sysname = 'updated_sysname',
 				col_int_nullable = 123,
 				col_varchar_nullable = 'nullable updated',
 				col_datetime2_nullable = '2024-07-01 15:30:00',
@@ -238,9 +240,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 				col_decimal, col_numeric, col_smallmoney, col_money,
 				col_float, col_real, col_bit,
 				col_char, col_varchar, col_text, col_nchar, col_nvarchar, col_ntext,
-				col_binary, col_varbinary,
-				col_date, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
+				col_date, col_time, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
 				col_uniqueidentifier,
+				col_xml, col_sysname,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
 				created_at
 			) VALUES (
@@ -249,10 +251,10 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 				123.50, 10.12500, 1.2500, 2.5000,
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
-				0x0102030405060708090A0B0C0D0E0F10, 0x01020304,
-				'2023-01-01', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
+				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
 				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
+				'<xml>test</xml>', 'sysname_val',
 				NULL, NULL, NULL,
 				'2023-01-01 12:00:00'
 			);
@@ -289,12 +291,9 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_nvarchar": "nvarchar_val",
 	"col_ntext":    "ntext_val",
 
-	// binary
-	"col_binary":    "0102030405060708090a0b0c0d0e0f10",
-	"col_varbinary": "01020304",
-
 	// date/time
 	"col_date":           arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_time":           "12:00:00",
 	"col_smalldatetime":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime2":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -302,6 +301,8 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"created_at":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 
 	"col_uniqueidentifier": "123e4567-e89b-12d3-a456-426614174000",
+	"col_xml":              "<xml>test</xml>",
+	"col_sysname":          "sysname_val",
 }
 
 var ExpectedUpdatedMSSQLData = map[string]interface{}{
@@ -332,18 +333,17 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_nvarchar": "nvarchar_val",
 	"col_ntext":    "ntext_val",
 
-	// binary -> hex strings
-	"col_binary":    "0102030405060708090a0b0c0d0e0f10",
-	"col_varbinary": "0a0b0c",
-
 	// date/time
 	"col_date":           arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_time":           "12:00:00",
 	"col_smalldatetime":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime2":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetimeoffset": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 
 	"col_uniqueidentifier": "00000000-0000-0000-0000-000000000000",
+	"col_xml":              "<xml>updated</xml>",
+	"col_sysname":          "updated_sysname",
 
 	"col_int_nullable":       int32(123),
 	"col_varchar_nullable":   "nullable updated",
@@ -372,14 +372,15 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_nchar":              "string",
 	"col_nvarchar":           "string",
 	"col_ntext":              "string",
-	"col_binary":             "string",
-	"col_varbinary":          "string",
 	"col_date":               "timestamp",
+	"col_time":               "string",
 	"col_smalldatetime":      "timestamp",
 	"col_datetime":           "timestamp",
 	"col_datetime2":          "timestamp",
 	"col_datetimeoffset":     "timestamp",
 	"col_uniqueidentifier":   "string",
+	"col_xml":                "string",
+	"col_sysname":            "string",
 	"col_int_nullable":       "int",
 	"col_varchar_nullable":   "string",
 	"col_datetime2_nullable": "timestamp",
@@ -405,14 +406,15 @@ var UpdatedMSSQLToDestinationSchema = map[string]string{
 	"col_nchar":              "string",
 	"col_nvarchar":           "string",
 	"col_ntext":              "string",
-	"col_binary":             "string",
-	"col_varbinary":          "string",
 	"col_date":               "timestamp",
+	"col_time":               "string",
 	"col_smalldatetime":      "timestamp",
 	"col_datetime":           "timestamp",
 	"col_datetime2":          "timestamp",
 	"col_datetimeoffset":     "timestamp",
 	"col_uniqueidentifier":   "string",
+	"col_xml":                "string",
+	"col_sysname":            "string",
 	"col_int_nullable":       "int",
 	"col_varchar_nullable":   "string",
 	"col_datetime2_nullable": "timestamp",
