@@ -24,10 +24,11 @@ import (
 )
 
 const (
-	fileTypeData         = "data"
-	fileTypeDelete       = "delete"
-	targetDataFileSize   = int64(512 * 1024 * 1024) // 512 MB
-	targetDeleteFileSize = int64(64 * 1024 * 1024)  // 64 MB
+	fileTypeData             = "data"
+	fileTypeEqualityDelete   = "equalityDelete"
+	fileTypePositionalDelete = "positionalDelete"
+	targetDataFileSize       = int64(512 * 1024 * 1024) // 512 MB
+	targetDeleteFileSize     = int64(64 * 1024 * 1024)  // 64 MB
 )
 
 func getDefaultWriterProps() []parquet.WriterProperty {
@@ -238,6 +239,18 @@ func createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocat
 	arrowRec := recordBuilder.NewRecord()
 
 	return arrowRec, nil
+}
+
+func createPositionalDeleteArrowRecord(posDeletes []PositionalDeleteRecord, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
+	recordBuilder := array.NewRecordBuilder(allocator, schema)
+	defer recordBuilder.Release()
+
+	for _, del := range posDeletes {
+		recordBuilder.Field(0).(*array.StringBuilder).Append(del.FilePath)
+		recordBuilder.Field(1).(*array.Int64Builder).Append(del.Pos)
+	}
+
+	return recordBuilder.NewRecord()
 }
 
 func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool, olakeTimestamp time.Time) (arrow.Record, error) {

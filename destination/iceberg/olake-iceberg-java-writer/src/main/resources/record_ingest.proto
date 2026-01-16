@@ -67,6 +67,7 @@ message ArrowPayload {
     UPLOAD_FILE = 0;
     REGISTER_AND_COMMIT = 1;
     JSONSCHEMA = 2;
+    FILEPATH = 3;
   }
 
   PayloadType type = 1;
@@ -90,7 +91,7 @@ message ArrowPayload {
 
   message FileUploadRequest {
     bytes file_data = 1;
-    string partition_key = 2;
+    string file_path = 2;
   }
 
   message Metadata {
