@@ -278,7 +278,7 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	}{
 		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
 		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
-		{jdbc.MySQLBinlogRowMetadataQuery(), "FULL", "binlog_row_metadata is not set to FULL"},
+		{jdbc.MySQLBinlogRowImageQuery(), "FULL", "binlog_row_image is not set to FULL"},
 	}
 
 	for _, check := range configChecks {

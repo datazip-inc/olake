@@ -390,6 +390,11 @@ func MySQLBinlogRowMetadataQuery() string {
 	return "SHOW VARIABLES LIKE 'binlog_row_metadata'"
 }
 
+// MySQLBinlogRowImageQuery returns the query to fetch the binlog_row_image variable in MySQL
+func MySQLBinlogRowImageQuery() string {
+	return "SHOW VARIABLES LIKE 'binlog_row_image'"
+}
+
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
 func MySQLTableColumnsQuery() string {
 	return `
