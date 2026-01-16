@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb"
@@ -26,15 +27,9 @@ type MSSQL struct {
 
 	CDCSupport bool
 
-	state            *types.State
-	captures         []captureInfo
-	lastProcessedLSN string
-}
-
-type captureInfo struct {
-	capture  captureInstance
-	stream   types.StreamInterface
-	startLSN string
+	state       *types.State
+	capturesMap map[string][]captureInstance
+	lsnMap      sync.Map
 }
 
 // GetConfigRef implements abstract.DriverInterface.
