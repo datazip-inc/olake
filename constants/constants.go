@@ -46,9 +46,10 @@ const (
 	DB2      DriverType = "db2"
 	S3       DriverType = "s3"
 	Kafka    DriverType = "kafka"
+	MSSQL    DriverType = "mssql"
 )
 
-var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2}
+var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 

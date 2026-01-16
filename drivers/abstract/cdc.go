@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -203,5 +204,9 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 }
 
 func isParallelChangeStream(driverType string) bool {
-	return driverType == string(constants.MongoDB)
+	parallelStreamDrivers := []string{
+		string(constants.MongoDB),
+		string(constants.MSSQL),
+	}
+	return slices.Contains(parallelStreamDrivers, driverType)
 }
