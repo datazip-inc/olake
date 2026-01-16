@@ -101,7 +101,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_CHAR SET DATA TYPE VARCHAR(50)`, integrationTestTable)
+		// edge-case : where parquet might break during schema evolution due to schema of both uppercase (from streams) and lowercase columns (from data),
+		// where schema might get overriden, throwing error of schema mismatch in parquet writer
+		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_SMALLINT SET DATA TYPE BIGINT`, integrationTestTable)
 		_, err = db.ExecContext(ctx, evolveQuery)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 
@@ -176,7 +178,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
 	"col_int":        int32(123),
-	"col_smallint":   int32(321),
+	"col_smallint":   int64(321),
 	"col_clob":       "sample text",
 	"col_blob":       "BLOB DATA ONE",
 	"col_timestamp":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -218,7 +220,7 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_double":     "double",
 	"col_real":       "float",
 	"col_int":        "integer",
-	"col_smallint":   "integer",
+	"col_smallint":   "bigint",
 	"col_clob":       "string",
 	"col_blob":       "string",
 	"col_timestamp":  "timestamp",
