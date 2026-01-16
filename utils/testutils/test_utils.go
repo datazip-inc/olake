@@ -355,20 +355,22 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
+	t.Logf("[SYNC DEBUG] Command: %s", cmd)
 
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
 		if cfg.TestConfig.Driver == "mssql" {
-			t.Log("Waiting 10 seconds for MSSQL CDC to process transactions...")
-			time.Sleep(10 * time.Second)
+			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
+			time.Sleep(20 * time.Second)
 		}
 	}
 
 	// Run sync command
 	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	t.Logf("[SYNC DEBUG] Sync Output:\n%s", string(out))
 	if err != nil || code != 0 {
-		return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
+		return fmt.Errorf("sync failed (%d): %s", code, err)
 	}
 
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)

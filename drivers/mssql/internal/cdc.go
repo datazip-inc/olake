@@ -45,6 +45,7 @@ func (m *MSSQL) prepareCaptureInstances(ctx context.Context, streams []types.Str
 			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
 		}
 
+		logger.Infof("[CDC DEBUG] Discovered capture instance: schema=%s, table=%s, instance=%s", capture.schema, capture.table, capture.instanceName)
 		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
 		m.capturesMap[streamID] = append(m.capturesMap[streamID], capture)
 	}
@@ -164,7 +165,10 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 
 	// Query CDC rows for this capture instance between the two LSNs.
 	query := jdbc.MSSQLCDCGetChangesQuery(capture.instanceName)
-	logger.Infof("Executing CDC query for stream %s: %s with params: fromLSN=%x, toLSN=%x", stream.ID(), query, fromLSNBytes, toLSNBytes)
+	logger.Infof("[CDC DEBUG] Executing CDC query: %s", query)
+	logger.Infof("[CDC DEBUG] fromLSN: %s (bytes: %x, len: %d)", effectiveFromLSN, fromLSNBytes, len(fromLSNBytes))
+	logger.Infof("[CDC DEBUG] toLSN: %s (bytes: %x, len: %d)", toLSN, toLSNBytes, len(toLSNBytes))
+
 	rows, err := m.client.QueryContext(ctx, query, fromLSNBytes, toLSNBytes)
 	if err != nil {
 		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
@@ -221,7 +225,9 @@ func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 	if len(lsn) == 0 {
 		return "", fmt.Errorf("no LSN available (CDC may not be initialized or no transactions exist)")
 	}
-	return hex.EncodeToString(lsn), nil
+	lsnHex := hex.EncodeToString(lsn)
+	logger.Infof("[CDC DEBUG] Current Max LSN: %s", lsnHex)
+	return lsnHex, nil
 }
 
 // advanceLSN returns the next valid LSN after the given LSN.
@@ -242,7 +248,9 @@ func (m *MSSQL) advanceLSN(ctx context.Context, lsnHex string) (string, error) {
 		return "", fmt.Errorf("advanced LSN is empty")
 	}
 
-	return hex.EncodeToString(nextLSNBytes), nil
+	nextLSNHex := hex.EncodeToString(nextLSNBytes)
+	logger.Infof("[CDC DEBUG] Advanced LSN: %s -> %s", lsnHex, nextLSNHex)
+	return nextLSNHex, nil
 }
 
 // operationTypeFromCDCCode converts SQL Server CDC __$operation codes to our operationType string.

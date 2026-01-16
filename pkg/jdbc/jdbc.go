@@ -733,7 +733,7 @@ func MSSQLCDCDiscoverQuery(streams []string) string {
 func MSSQLCDCGetChangesQuery(captureInstance string) string {
 	return fmt.Sprintf(`
 		SELECT *
-		FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')
+		FROM cdc.[fn_cdc_get_all_changes_%s](@p1, @p2, 'all')
 	`, captureInstance)
 }
 

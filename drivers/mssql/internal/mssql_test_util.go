@@ -131,6 +131,29 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err = db.ExecContext(ctx, enableTableCDC)
 		require.NoError(t, err, "failed to enable CDC on integration test table")
 
+		// Verify CDC setup by logging change_tables
+		t.Log("[MSSQL DEBUG] Verifying CDC setup in sys.databases and cdc.change_tables...")
+		var dbCDC int
+		err = db.GetContext(ctx, &dbCDC, "SELECT is_cdc_enabled FROM sys.databases WHERE name = 'olake_mssql_test'")
+		if err == nil {
+			t.Logf("[MSSQL DEBUG] Database 'olake_mssql_test' is_cdc_enabled: %v", dbCDC == 1)
+		}
+
+		type cdcCapture struct {
+			SourceObjectID  int    `db:"source_object_id"`
+			CaptureInstance string `db:"capture_instance"`
+			StartLSN        []byte `db:"start_lsn"`
+		}
+		var captures []cdcCapture
+		err = db.SelectContext(ctx, &captures, "SELECT source_object_id, capture_instance, start_lsn FROM cdc.change_tables")
+		if err == nil {
+			for _, c := range captures {
+				t.Logf("[MSSQL DEBUG] Capture Instance: %s, table_id: %d, start_lsn: %x", c.CaptureInstance, c.SourceObjectID, c.StartLSN)
+			}
+		} else {
+			t.Logf("[MSSQL DEBUG] Failed to query cdc.change_tables: %v", err)
+		}
+
 	case "drop":
 		// Disable CDC before dropping table to ensure capture instance is cleaned up
 		// This prevents "capture instance already exists" errors in subsequent test runs
