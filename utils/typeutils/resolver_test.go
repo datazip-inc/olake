@@ -62,12 +62,12 @@ func TestResolve(t *testing.T) {
 				dataType types.DataType
 				nullable bool
 			}{
-				"int_field":    {dataType: types.Int64, nullable: false},
+				"int_field":    {dataType: types.Int32, nullable: false},
 				"int8_field":   {dataType: types.Int32, nullable: false},
 				"int16_field":  {dataType: types.Int32, nullable: false},
 				"int32_field":  {dataType: types.Int32, nullable: false},
 				"int64_field":  {dataType: types.Int64, nullable: false},
-				"uint_field":   {dataType: types.Int64, nullable: false},
+				"uint_field":   {dataType: types.Int32, nullable: false},
 				"uint8_field":  {dataType: types.Int32, nullable: false},
 				"uint16_field": {dataType: types.Int32, nullable: false},
 				"uint32_field": {dataType: types.Int32, nullable: false},
@@ -130,7 +130,7 @@ func TestResolve(t *testing.T) {
 				dataType types.DataType
 				nullable bool
 			}{
-				"int_ptr":     {dataType: types.Int64, nullable: false},
+				"int_ptr":     {dataType: types.Int32, nullable: false},
 				"string_ptr":  {dataType: types.String, nullable: false},
 				"bool_ptr":    {dataType: types.Bool, nullable: false},
 				"float64_ptr": {dataType: types.Float64, nullable: false},
