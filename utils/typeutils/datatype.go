@@ -125,7 +125,6 @@ func typeFromValueReflect(v interface{}) types.DataType {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
 		return types.Int32
-	// on standard 64 bit systems, golang's int type is 64 bits
 	case reflect.Int64, reflect.Uint64:
 		return types.Int64
 	case reflect.Float32:

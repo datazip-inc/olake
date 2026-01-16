@@ -387,14 +387,14 @@ func (w *ArrowWriter) createWriter(arrowSchema arrow.Schema, fileType string, pa
 
 	// build the key-value metadata
 	kvMeta := make(metadata.KeyValueMetadata, 0)
-	kvMeta.Append("iceberg.schema", w.fileschemajson[fileType])
+	_ = kvMeta.Append("iceberg.schema", w.fileschemajson[fileType])
 
 	if fileType == fileTypeDelete {
-		kvMeta.Append("delete-type", "equality")
+		_ = kvMeta.Append("delete-type", "equality")
 		// Extract field ID from _olake_id field metadata
 		olakeIDField := arrowSchema.Field(0)
 		fieldIDStr, _ := olakeIDField.Metadata.GetValue("PARQUET:field_id")
-		kvMeta.Append("delete-field-ids", fieldIDStr)
+		_ = kvMeta.Append("delete-field-ids", fieldIDStr)
 	}
 
 	writer, err := newParquetWriter(&arrowSchema, currentBuffer, baseProps, kvMeta)

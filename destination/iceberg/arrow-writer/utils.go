@@ -365,7 +365,7 @@ func arrowToParquetSchema(arrowSchema *arrow.Schema) (*schema.Schema, error) {
 	return schema.NewSchema(root), nil
 }
 
-// this is important as it does not sets LogicalTypes for types like INT32/INT64 
+// this is important as it does not sets LogicalTypes for types like INT32/INT64
 // (eg, IntLogicalType for INT32/INT64)
 func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
 	repetition := parquet.Repetitions.Required
