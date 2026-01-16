@@ -3,10 +3,10 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb"
@@ -22,15 +22,13 @@ import (
 )
 
 type MSSQL struct {
-	client *sqlx.DB
-	config *Config
+	client      *sqlx.DB
+	config      *Config
+	state       *types.State
+	capturesMap map[string][]captureInstance
+	lsnMap      sync.Map
 
-	CDCSupport bool
-	cdcConfig  CDC
-
-	state            *types.State
-	streams          map[string]types.StreamInterface
-	lastProcessedLSN string // Track the last LSN that was actually processed
+	cdcSupported bool
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -50,7 +48,7 @@ func (m *MSSQL) Type() string {
 }
 
 func (m *MSSQL) CDCSupported() bool {
-	return m.CDCSupport
+	return m.cdcSupported
 }
 
 // Setup establishes the database connection and initialises CDC settings.
@@ -78,29 +76,17 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
 
-	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
-	if found {
-		logger.Info("Found CDC Configuration")
-		cdc := &CDC{}
-		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
-			return err
-		}
-		if cdc.InitialWaitTime == 0 {
-			cdc.InitialWaitTime = 10
-		}
-		m.cdcConfig = *cdc
-	}
 	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if database-level CDC is enabled
-	cdcSupported, err := m.isCDCSupported(ctx)
+	cdcSupported, err := m.isDatabaseCDCEnabled(ctx)
 	if err != nil {
 		logger.Warnf("failed to check CDC support: %s", err)
 	}
 	if !cdcSupported {
 		logger.Warnf("CDC is not supported")
 	}
-	m.CDCSupport = cdcSupported
+	m.cdcSupported = cdcSupported
 	return nil
 }
 
@@ -114,7 +100,6 @@ func (m *MSSQL) buildConnectionString() string {
 	query.Add("database", m.config.Database)
 
 	// Set encrypt parameter based on SSL configuration
-	// MSSQL encrypt values: "disable", "true", "false"
 	// SSL modes: "disable" -> encrypt=disable, "require"/"verify-*" -> encrypt=true
 	if m.config.SSLConfiguration == nil {
 		query.Add("encrypt", "disable")
@@ -186,7 +171,13 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 		}
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
 	}
-	return tableNames, rows.Err()
+
+	// Check for any errors that occurred while iterating over the rows
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tableNames, nil
 }
 
 func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
@@ -207,59 +198,39 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		defer rows.Close()
 
 		type columnInfo struct {
-			name       string
-			dataType   string
-			isNullable string
+			name         string
+			dataType     string
+			isNullable   string
+			isPrimaryKey bool
 		}
 
-		var cols []columnInfo
+		var columns []columnInfo
 		for rows.Next() {
-			var ci columnInfo
-			if err := rows.Scan(&ci.name, &ci.dataType, &ci.isNullable); err != nil {
+			var colInfo columnInfo
+			if err := rows.Scan(&colInfo.name, &colInfo.dataType, &colInfo.isNullable, &colInfo.isPrimaryKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
-			cols = append(cols, ci)
+			columns = append(columns, colInfo)
 		}
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
 
-		// Get primary key columns using INFORMATION_SCHEMA
-		pkQuery := jdbc.MSSQLPrimaryKeyQuery()
-		pkRows, err := m.client.QueryContext(ctx, pkQuery, schemaName, tableName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve primary keys for table %s: %s", streamName, err)
-		}
-		defer pkRows.Close()
-
-		var pkCols []string
-		for pkRows.Next() {
-			var pkCol string
-			if err := pkRows.Scan(&pkCol); err != nil {
-				pkRows.Close()
-				return nil, fmt.Errorf("failed to scan primary key column: %s", err)
-			}
-			pkCols = append(pkCols, pkCol)
-		}
-		if err := pkRows.Err(); err != nil {
-			return nil, fmt.Errorf("failed to retrieve primary keys for table %s: %s", streamName, err)
-		}
-
-		for _, ci := range cols {
-			stream.WithCursorField(ci.name)
+		for _, column := range columns {
+			stream.WithCursorField(column.name)
 
 			datatype := types.Unknown
-			if val, found := mssqlTypeToDataTypes[strings.ToLower(ci.dataType)]; found {
+			if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
 				datatype = val
 			} else {
-				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", ci.dataType, streamName, ci.name)
+				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
 				datatype = types.String
 			}
-			stream.UpsertField(ci.name, datatype, strings.EqualFold(ci.isNullable, "YES"))
-		}
+			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"))
 
-		for _, pk := range pkCols {
-			stream.WithPrimaryKey(pk)
+			if column.isPrimaryKey {
+				stream.WithPrimaryKey(column.name)
+			}
 		}
 
 		return stream, nil
@@ -271,82 +242,44 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	return stream, nil
 }
 
-// isBinaryType checks if the column type is a binary type that needs hex encoding.
-func isBinaryType(columnType string) bool {
-	columnTypeLower := strings.ToLower(columnType)
-
-	// Exact matches for binary types
-	binaryTypes := map[string]bool{
-		"image":      true,
-		"rowversion": true,
-		"timestamp":  true,
-		"geometry":   true, // Spatial type stored as binary
-		"geography":  true, // Spatial type stored as binary
-	}
-	if binaryTypes[columnTypeLower] {
-		return true
-	}
-
-	// Prefix matches (check varbinary before binary since "varbinary" starts with "binary")
-	binaryPrefixes := []string{"varbinary", "binary"}
-	for _, prefix := range binaryPrefixes {
-		if strings.HasPrefix(columnTypeLower, prefix) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
 
-	// Handle binary and spatial types: encode []byte to hex to ensure valid UTF-8
-	if isBinaryType(columnType) {
-		switch v := value.(type) {
-		case []byte:
-			// Encode binary data as hex to ensure valid UTF-8 string
-			return hex.EncodeToString(v), nil
-		case string:
-			return v, nil
-		default:
-			// For other types, convert to string representation
-			return fmt.Sprintf("%v", v), nil
-		}
-	}
-
+	columnType = strings.ToLower(columnType)
+	switch columnType {
 	// SQL Server stores UNIQUEIDENTIFIER values in a mixed-endian binary format:
 	// the first three fields are little-endian, while the remaining bytes are big-endian.
 	// When the driver returns this value as []byte, we must reorder the bytes to
 	// reconstruct a proper RFC4122 UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
-	if strings.EqualFold(columnType, "uniqueidentifier") {
-		switch v := value.(type) {
-		case []byte:
-			if len(v) == 16 {
-				// Format as UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-				return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-					v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
-					v[5], v[4], // next 2 bytes
-					v[7], v[6], // next 2 bytes
-					v[8], v[9], // next 2 bytes
-					v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
-			}
-			// Fall through to string conversion if not 16 bytes
-		case string:
-			return v, nil
-		default:
-			// For other types, convert to string representation
-			return fmt.Sprintf("%v", v), nil
+	case "uniqueidentifier":
+		if v, ok := value.([]byte); ok {
+			return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+				v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
+				v[5], v[4], // next 2 bytes
+				v[7], v[6], // next 2 bytes
+				v[8], v[9], // next 2 bytes
+				v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
 		}
+		return fmt.Sprintf("%s", value), nil
+	// TODO: check how to handle hierarchyid datatype
+	case "hierarchyid":
+		if val, ok := value.(string); ok {
+			return val, nil
+		}
+		// Note: This returns a hex representation, not the hierarchical path format
+		// For proper "/1/2/3/" format, cast in SQL using col.ToString()
+		return fmt.Sprintf("%x", value), nil
+	case "time":
+		return typeutils.ReformatTimeValue(value)
 	}
 
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mssqlTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
 
-func (m *MSSQL) isCDCSupported(ctx context.Context) (bool, error) {
+func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	// sys.databases.is_cdc_enabled is a BIT; go-mssqldb returns it as bool.
 	var isEnabled bool
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCSupportQuery()).Scan(&isEnabled)
@@ -355,4 +288,21 @@ func (m *MSSQL) isCDCSupported(ctx context.Context) (bool, error) {
 	}
 
 	return isEnabled, nil
+}
+
+// IsTableCDCEnabled checks if CDC is enabled for a specific table.
+// This is used during discover to determine if CDC sync modes should be available for a stream.
+func (m *MSSQL) IsTableCDCEnabled(ctx context.Context, namespace, name string) (bool, error) {
+	if !m.cdcSupported {
+		return false, nil
+	}
+	var captureInstance string
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCTableEnabledQuery(), namespace, name).Scan(&captureInstance)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check table CDC enablement for %s.%s: %s", namespace, name, err)
+	}
+	return true, nil
 }

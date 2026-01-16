@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
@@ -20,9 +21,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	switch driver {
 	case constants.MySQL:
 		return fmt.Sprintf("`%s`", identifier) // MySQL uses backticks for quoting identifiers
-	case constants.Postgres:
-		return fmt.Sprintf("%q", identifier)
-	case constants.Oracle:
+	case constants.Postgres, constants.DB2, constants.Oracle:
 		return fmt.Sprintf("%q", identifier)
 	case constants.MSSQL:
 		return fmt.Sprintf("[%s]", identifier)
@@ -34,7 +33,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 // GetPlaceholder returns the appropriate placeholder for the given driver
 func GetPlaceholder(driver constants.DriverType) func(int) string {
 	switch driver {
-	case constants.MySQL:
+	case constants.MySQL, constants.DB2:
 		return func(_ int) string { return "?" }
 	case constants.Postgres:
 		return func(i int) string { return fmt.Sprintf("$%d", i) }
@@ -259,121 +258,169 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 	return chunkCond
 }
 
-// buildChunkConditionMSSQL builds the condition for a chunk in MSSQL.
-func buildChunkConditionMSSQL(quotedCols []string, chunk types.Chunk, extraFilter string) string {
-	buildValues := func(val any) []string {
-		if val == nil {
+// buildChunkConditionMSSQL builds a WHERE condition for scanning a chunk in MSSQL.
+// It emulates lexicographic ranges for one or more ordering columns because SQL Server
+// does not support tuple comparisons like (col1, col2) >= (...).
+func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFilter string) string {
+	// splitBoundaryValues turns the chunk boundary string into a list of values
+	splitBoundaryValues := func(boundary any) []string {
+		if boundary == nil {
 			return nil
 		}
-		parts := strings.Split(val.(string), ",")
-		for i, part := range parts {
-			parts[i] = strings.TrimSpace(part)
+		values := strings.Split(boundary.(string), ",")
+		for idx, value := range values {
+			values[idx] = strings.TrimSpace(value)
 		}
-		return parts
+		return values
 	}
 
-	// formatValue formats a value for SQL comparison, avoiding quotes for numeric values
-	// to prevent type conversion errors in SQL Server
-	formatValue := func(val string) string {
-		if val == "" {
+	// formatSQLLiteral returns a SQL literal for the given boundary value.
+	// It avoids quoting numeric/boolean values (to prevent type conversion issues)
+	// and only quotes actual strings.
+	formatSQLLiteral := func(value string) string {
+		if value == "" {
 			return "''"
 		}
-		// Try to parse as integer - if successful, don't quote (let SQL Server handle type coercion)
-		if _, err := strconv.ParseInt(val, 10, 64); err == nil {
-			return val
+
+		// Integers stay unquoted.
+		if _, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return value
 		}
-		// Try to parse as float - if successful, don't quote
-		if _, err := strconv.ParseFloat(val, 64); err == nil {
-			return val
+
+		// Floats stay unquoted.
+		if _, err := strconv.ParseFloat(value, 64); err == nil {
+			return value
 		}
-		// Boolean values (though unlikely in PKs)
-		if val == "true" || val == "false" {
-			return val
+
+		// Boolean values stay unquoted.
+		if value == "true" || value == "false" {
+			return value
 		}
-		// For strings, quote and escape
-		escaped := strings.ReplaceAll(val, "'", "''")
+
+		// Everything else is treated as a string and escaped.
+		escaped := strings.ReplaceAll(value, "'", "''")
 		return fmt.Sprintf("'%s'", escaped)
 	}
 
-	// Build lexicographic >= condition for the lower bound.
-	buildGE := func(values []string) string {
-		if values == nil {
+	// buildLowerBoundCondition builds a lexicographic ">= lowerBound" condition.
+	// For columns (c1, c2, c3) and values (m1, m2, m3) it produces:
+	//   (c1 > m1) OR
+	//   (c1 = m1 AND c2 > m2) OR
+	//   (c1 = m1 AND c2 = m2 AND c3 >= m3)
+	buildLowerBoundCondition := func(lowerBoundValues []string) string {
+		if lowerBoundValues == nil {
 			return ""
 		}
-		clauses := make([]string, 0, len(quotedCols))
-		for i := range quotedCols {
-			preds := make([]string, 0, i+1)
-			for j := 0; j < i; j++ {
-				if j < len(values) {
-					preds = append(preds, fmt.Sprintf("%s = %s", quotedCols[j], formatValue(values[j])))
+
+		orGroups := make([]string, 0, len(quotedColumns))
+
+		for columnIndex := range quotedColumns {
+			andConditions := make([]string, 0, columnIndex+1)
+
+			// Prefix columns must match exactly: c1 = m1 AND c2 = m2 ...
+			for prefixIndex := 0; prefixIndex < columnIndex; prefixIndex++ {
+				if prefixIndex < len(lowerBoundValues) {
+					andConditions = append(
+						andConditions,
+						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSQLLiteral(lowerBoundValues[prefixIndex])),
+					)
 				}
 			}
-			op := ">"
-			if i == len(quotedCols)-1 {
-				op = ">="
+
+			// For the current column, use ">" except on the last column where we use ">=".
+			comparisonOp := ">"
+			if columnIndex == len(quotedColumns)-1 {
+				comparisonOp = ">="
 			}
-			if i < len(values) {
-				preds = append(preds, fmt.Sprintf("%s %s %s", quotedCols[i], op, formatValue(values[i])))
+
+			if columnIndex < len(lowerBoundValues) {
+				andConditions = append(
+					andConditions,
+					fmt.Sprintf("%s %s %s", quotedColumns[columnIndex], comparisonOp, formatSQLLiteral(lowerBoundValues[columnIndex])),
+				)
 			}
-			if len(preds) > 0 {
-				clauses = append(clauses, "("+strings.Join(preds, " AND ")+")")
+
+			if len(andConditions) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConditions, " AND ")+")")
 			}
 		}
-		if len(clauses) == 0 {
+
+		if len(orGroups) == 0 {
 			return ""
 		}
-		return "(" + strings.Join(clauses, " OR ") + ")"
+		return "(" + strings.Join(orGroups, " OR ") + ")"
 	}
 
-	// Build lexicographic < condition for the upper bound.
-	buildLT := func(values []string) string {
-		if values == nil {
+	// buildUpperBoundCondition builds a lexicographic "< upperBound" condition.
+	// For columns (c1, c2, c3) and values (M1, M2, M3) it produces:
+	//   (c1 < M1) OR
+	//   (c1 = M1 AND c2 < M2) OR
+	//   (c1 = M1 AND c2 = M2 AND c3 < M3)
+	buildUpperBoundCondition := func(upperBoundValues []string) string {
+		if upperBoundValues == nil {
 			return ""
 		}
-		clauses := make([]string, 0, len(quotedCols))
-		for i := range quotedCols {
-			preds := make([]string, 0, i+1)
-			for j := 0; j < i; j++ {
-				if j < len(values) {
-					preds = append(preds, fmt.Sprintf("%s = %s", quotedCols[j], formatValue(values[j])))
+
+		orGroups := make([]string, 0, len(quotedColumns))
+
+		for columnIndex := range quotedColumns {
+			andConditions := make([]string, 0, columnIndex+1)
+
+			// Prefix columns must match exactly: c1 = M1 AND c2 = M2 ...
+			for prefixIndex := 0; prefixIndex < columnIndex; prefixIndex++ {
+				if prefixIndex < len(upperBoundValues) {
+					andConditions = append(
+						andConditions,
+						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSQLLiteral(upperBoundValues[prefixIndex])),
+					)
 				}
 			}
-			if i < len(values) {
-				preds = append(preds, fmt.Sprintf("%s < %s", quotedCols[i], formatValue(values[i])))
+
+			// Current column uses strict "<" for the upper bound.
+			if columnIndex < len(upperBoundValues) {
+				andConditions = append(
+					andConditions,
+					fmt.Sprintf("%s < %s", quotedColumns[columnIndex], formatSQLLiteral(upperBoundValues[columnIndex])),
+				)
 			}
-			if len(preds) > 0 {
-				clauses = append(clauses, "("+strings.Join(preds, " AND ")+")")
+
+			if len(andConditions) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConditions, " AND ")+")")
 			}
 		}
-		if len(clauses) == 0 {
+
+		if len(orGroups) == 0 {
 			return ""
 		}
-		return "(" + strings.Join(clauses, " OR ") + ")"
+		return "(" + strings.Join(orGroups, " OR ") + ")"
 	}
 
-	var chunkCond string
-	minVals := buildValues(chunk.Min)
-	maxVals := buildValues(chunk.Max)
+	lowerBoundValues := splitBoundaryValues(chunk.Min)
+	upperBoundValues := splitBoundaryValues(chunk.Max)
+
+	var chunkCondition string
 
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		ge := buildGE(minVals)
-		lt := buildLT(maxVals)
-		if ge != "" && lt != "" {
-			chunkCond = fmt.Sprintf("(%s) AND (%s)", ge, lt)
+		lowerCondition := buildLowerBoundCondition(lowerBoundValues)
+		upperCondition := buildUpperBoundCondition(upperBoundValues)
+		if lowerCondition != "" && upperCondition != "" {
+			chunkCondition = fmt.Sprintf("(%s) AND (%s)", lowerCondition, upperCondition)
 		} else {
-			chunkCond = ge + lt
+			chunkCondition = lowerCondition + upperCondition
 		}
 	case chunk.Min != nil:
-		chunkCond = buildGE(minVals)
+		chunkCondition = buildLowerBoundCondition(lowerBoundValues)
 	case chunk.Max != nil:
-		chunkCond = buildLT(maxVals)
+		chunkCondition = buildUpperBoundCondition(upperBoundValues)
 	}
 
-	if extraFilter != "" && chunkCond != "" {
-		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
+	// Combine with any additional filter if present.
+	if extraFilter != "" && chunkCondition != "" {
+		return fmt.Sprintf("(%s) AND (%s)", chunkCondition, extraFilter)
 	}
-	return chunkCond
+
+	return chunkCondition
 }
 
 // MysqlLimitOffsetScanQuery is used to get the rows
@@ -581,20 +628,31 @@ func MSSQLDiscoverTablesQuery() string {
 			t.TABLE_NAME
 		FROM INFORMATION_SCHEMA.TABLES t
 		WHERE t.TABLE_TYPE = 'BASE TABLE'
-		AND t.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA','sys')
+		AND t.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA','sys','cdc')
 	`
 }
 
-// MSSQLTableSchemaQuery returns the query to fetch schema information for a table in MSSQL
+// MSSQLTableSchemaQuery returns the query to fetch the column_name, data_type, nullable, and primary_key information of a table in MSSQL
 func MSSQLTableSchemaQuery() string {
 	return `
-		SELECT
-			c.COLUMN_NAME,
-			c.DATA_TYPE,
-			c.IS_NULLABLE
-		FROM INFORMATION_SCHEMA.COLUMNS c
-		WHERE c.TABLE_SCHEMA = @p1
-		AND c.TABLE_NAME = @p2
+		SELECT  c.COLUMN_NAME,
+		        c.DATA_TYPE,
+		        c.IS_NULLABLE,
+		        CAST(CASE WHEN tc.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN 1 ELSE 0 END AS BIT) AS IS_PRIMARY_KEY
+		FROM    INFORMATION_SCHEMA.COLUMNS AS c
+		LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu
+		       ON  c.TABLE_CATALOG = kcu.TABLE_CATALOG
+		       AND c.TABLE_SCHEMA  = kcu.TABLE_SCHEMA
+		       AND c.TABLE_NAME    = kcu.TABLE_NAME
+		       AND c.COLUMN_NAME   = kcu.COLUMN_NAME
+		LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS tc
+		       ON  kcu.TABLE_CATALOG = tc.TABLE_CATALOG
+		       AND kcu.TABLE_SCHEMA  = tc.TABLE_SCHEMA
+		       AND kcu.TABLE_NAME    = tc.TABLE_NAME
+		       AND kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+		       AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+		WHERE   c.TABLE_SCHEMA = @p1
+		  AND   c.TABLE_NAME   = @p2
 		ORDER BY c.ORDINAL_POSITION
 	`
 }
@@ -620,24 +678,6 @@ func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64
 	`, quotedTable, chunkSize)
 }
 
-// MSSQLPrimaryKeyQuery returns the query to fetch primary key columns of a table in MSSQL
-func MSSQLPrimaryKeyQuery() string {
-	return `
-		SELECT COLUMN_NAME
-		FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-		WHERE TABLE_SCHEMA = @p1
-		AND TABLE_NAME = @p2
-		AND CONSTRAINT_NAME IN (
-			SELECT CONSTRAINT_NAME
-			FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-			WHERE TABLE_SCHEMA = @p1
-			AND TABLE_NAME = @p2
-			AND CONSTRAINT_TYPE = 'PRIMARY KEY'
-		)
-		ORDER BY ORDINAL_POSITION
-	`
-}
-
 // MSSQLCDCSupportQuery returns the query to check if CDC is enabled for the current database
 func MSSQLCDCSupportQuery() string {
 	return `
@@ -653,14 +693,25 @@ func MSSQLCDCMaxLSNQuery() string {
 	return "SELECT sys.fn_cdc_get_max_lsn()"
 }
 
-// MSSQLCDCIncrementLSNQuery returns the query to increment an LSN for CDC
-func MSSQLCDCIncrementLSNQuery() string {
+// MSSQLCDCAdvanceLSNQuery returns the query to increment an LSN for CDC
+func MSSQLCDCAdvanceLSNQuery() string {
 	return "SELECT sys.fn_cdc_increment_lsn(@p1)"
 }
 
-// MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
-func MSSQLCDCDiscoverQuery() string {
+// MSSQLCDCTableEnabledQuery returns the query to check if CDC is enabled for a specific table
+func MSSQLCDCTableEnabledQuery() string {
 	return `
+		SELECT c.capture_instance
+		FROM sys.tables t
+		JOIN sys.schemas s ON t.schema_id = s.schema_id
+		JOIN cdc.change_tables c ON t.object_id = c.source_object_id
+		WHERE s.name = @p1 AND t.name = @p2
+	`
+}
+
+// MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
+func MSSQLCDCDiscoverQuery(streams []string) string {
+	query := `
 		SELECT s.name AS schema_name,
 			t.name AS table_name,
 			c.capture_instance
@@ -668,6 +719,14 @@ func MSSQLCDCDiscoverQuery() string {
 		JOIN sys.schemas s ON t.schema_id = s.schema_id
 		JOIN cdc.change_tables c ON t.object_id = c.source_object_id
 	`
+	if len(streams) > 0 {
+		var quotedStreams []string
+		for _, s := range streams {
+			quotedStreams = append(quotedStreams, fmt.Sprintf("'%s'", s))
+		}
+		query += fmt.Sprintf(" WHERE CONCAT(s.name, '.', t.name) IN (%s)", strings.Join(quotedStreams, ","))
+	}
+	return query
 }
 
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
@@ -676,6 +735,12 @@ func MSSQLCDCGetChangesQuery(captureInstance string) string {
 		SELECT *
 		FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')
 	`, captureInstance)
+}
+
+// MSSQLTableExistsQuery returns the query to check if a table has any rows
+func MSSQLTableExistsQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+	return fmt.Sprintf("SELECT CAST(CASE WHEN EXISTS(SELECT TOP 1 1 FROM %s) THEN 1 ELSE 0 END AS BIT)", quotedTable)
 }
 
 // buildMSSQLConcat builds a CONCAT expression for SQL Server (2012+)
@@ -720,40 +785,92 @@ func MinMaxQueryMSSQL(stream types.StreamInterface, columns []string) string {
 	)
 }
 
-// MSSQLNextChunkEndQuery returns the query to calculate the next chunk boundary
-func MSSQLNextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
-	quotedCols := QuoteColumns(columns, constants.MSSQL)
-	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+// MSSQLNextChunkEndQuery returns the query to calculate the next chunk boundary.
+//
+// Example:
+//
+//	stream.Namespace()   = "dbo"
+//	stream.Name()        = "orders"
+//	orderingColumns      = []string{"order_id", "item_id"}
+//	chunkSize            = 1000
+//
+// Conceptual output:
+//
+//	WITH ordered AS (
+//	  SELECT
+//	    <concat(order_id, item_id)> AS key_str,
+//	    ROW_NUMBER() OVER (ORDER BY [order_id], [item_id]) AS rn
+//	  FROM [dbo].[orders]
+//	  WHERE
+//	    ([order_id] > @p1)
+//	     OR ([order_id] = @p1 AND [item_id] > @p2)
+//	)
+//	SELECT key_str FROM ordered WHERE rn = 1000;
+func MSSQLNextChunkEndQuery(stream types.StreamInterface, orderingColumns []string, chunkSize int64) string {
+	// Quote table and column names for MSSQL.
+	quotedColumns := QuoteColumns(orderingColumns, constants.MSSQL)
+	quotedTableName := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	var query strings.Builder
+	var sqlBuilder strings.Builder
 
-	keyStrExpr := buildMSSQLConcat(quotedCols)
+	// Expression that concatenates the ordering columns into a single key string.
+	concatenatedKeyExpression := buildMSSQLConcat(quotedColumns)
 
-	fmt.Fprintf(&query, "WITH ordered AS (SELECT %s AS key_str, ROW_NUMBER() OVER (ORDER BY %s) AS rn FROM %s",
-		keyStrExpr,
-		strings.Join(quotedCols, ", "),
-		quotedTable)
+	// Start CTE: select key_str and row number over the ordering columns.
+	fmt.Fprintf(
+		&sqlBuilder,
+		"WITH ordered AS (SELECT %s AS key_str, ROW_NUMBER() OVER (ORDER BY %s) AS rn FROM %s",
+		concatenatedKeyExpression,
+		strings.Join(quotedColumns, ", "),
+		quotedTableName,
+	)
 
-	// WHERE clause for lexicographic \"greater than\" using parameter placeholders (@pN).
-	query.WriteString(" WHERE ")
-	paramIndex := 1
-	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
-		if currentColIndex > 0 {
-			query.WriteString(" OR ")
+	// Build WHERE clause: lexicographic "greater than" using parameter placeholders (@p1, @p2, ...).
+	// For columns (c1, c2, c3) and parameters (@p1, @p2, @p3), this becomes:
+	//   (c1 > @p1)
+	//   OR (c1 = @p1 AND c2 > @p2)
+	//   OR (c1 = @p1 AND c2 = @p2 AND c3 > @p3)
+	sqlBuilder.WriteString(" WHERE ")
+
+	nextParameterIndex := 1
+	for columnIndex := 0; columnIndex < len(orderingColumns); columnIndex++ {
+		if columnIndex > 0 {
+			sqlBuilder.WriteString(" OR ")
 		}
-		query.WriteString("(")
-		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
-			fmt.Fprintf(&query, "%s = @p%d AND ", quotedCols[equalityColIndex], paramIndex)
-			paramIndex++
+
+		sqlBuilder.WriteString("(")
+
+		// Prefix columns must match exactly: c1 = @p1 AND c2 = @p2 ...
+		for prefixColumnIndex := 0; prefixColumnIndex < columnIndex; prefixColumnIndex++ {
+			fmt.Fprintf(
+				&sqlBuilder,
+				"%s = @p%d AND ",
+				quotedColumns[prefixColumnIndex],
+				nextParameterIndex,
+			)
+			nextParameterIndex++
 		}
-		fmt.Fprintf(&query, "%s > @p%d", quotedCols[currentColIndex], paramIndex)
-		paramIndex++
-		query.WriteString(")")
+
+		// Current column must be strictly greater than its parameter.
+		fmt.Fprintf(
+			&sqlBuilder,
+			"%s > @p%d",
+			quotedColumns[columnIndex],
+			nextParameterIndex,
+		)
+		nextParameterIndex++
+
+		sqlBuilder.WriteString(")")
 	}
 
-	// Close CTE and pick the row at position = chunkSize.
-	fmt.Fprintf(&query, ") SELECT key_str FROM ordered WHERE rn = %d", chunkSize)
-	return query.String()
+	// Close CTE and select the row at position = chunkSize.
+	fmt.Fprintf(
+		&sqlBuilder,
+		") SELECT key_str FROM ordered WHERE rn = %d",
+		chunkSize,
+	)
+
+	return sqlBuilder.String()
 }
 
 // MSSQLPhysLocChunkScanQuery returns the SQL query for scanning a chunk using %%physloc%% in MSSQL
@@ -770,8 +887,8 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 			if len(b) == 0 {
 				return "0x"
 			}
-			hexStr := fmt.Sprintf("%X", b)
-			return "0x" + hexStr
+			hexString := fmt.Sprintf("%X", b)
+			return "0x" + hexString
 		}
 		// If it's a string (from utils.ConvertToString on []byte), convert bytes to hex
 		if s, ok := val.(string); ok {
@@ -780,8 +897,8 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 				return s
 			}
 			// Convert string of bytes to hex (utils.ConvertToString converts []byte to string of bytes)
-			hexStr := fmt.Sprintf("%X", []byte(s))
-			return "0x" + hexStr
+			hexString := fmt.Sprintf("%X", []byte(s))
+			return "0x" + hexString
 		}
 		return fmt.Sprintf("%v", val)
 	}
@@ -799,12 +916,11 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 		chunkCond = "1 = 1"
 	}
 
-	where := chunkCond
 	if filter != "" {
-		where = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
+		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
 	}
 
-	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, where)
+	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, chunkCond)
 }
 
 // MSSQLChunkScanQuery returns the SQL query for scanning a chunk in MSSQL
@@ -813,11 +929,9 @@ func MSSQLChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 	quotedCols := QuoteColumns(filterColumns, constants.MSSQL)
 	condition := buildChunkConditionMSSQL(quotedCols, chunk, filter)
 	if condition == "" {
-		condition = "1 = 1"
-		if filter != "" {
-			condition = filter
-		}
+		condition = utils.Ternary(filter != "", filter, "1 = 1").(string)
 	}
+
 	orderBy := strings.Join(quotedCols, ", ")
 	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %s", tableName, condition, orderBy)
 }
@@ -825,19 +939,19 @@ func MSSQLChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 // MSSQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MSSQL
 func MSSQLTableRowStatsQuery() string {
 	return `
-SELECT 
-    SUM(p.rows) AS row_count,
-    CEILING((SUM(a.total_pages) * 8.0 * 1024.0) / NULLIF(SUM(p.rows), 0)) AS avg_row_bytes
-FROM sys.tables t
-JOIN sys.indexes i ON t.object_id = i.object_id
-JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-JOIN sys.allocation_units a ON p.partition_id = a.container_id
-JOIN sys.schemas s ON t.schema_id = s.schema_id
-WHERE t.type = 'U'
-  AND i.index_id IN (0,1)
-  AND s.name = @p1
-  AND t.name = @p2
-`
+		SELECT 
+			SUM(p.rows) AS row_count,
+			CEILING((SUM(a.total_pages) * 8.0 * 1024.0) / NULLIF(SUM(p.rows), 0)) AS avg_row_bytes
+		FROM sys.tables t
+		JOIN sys.indexes i ON t.object_id = i.object_id
+		JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+		JOIN sys.allocation_units a ON p.partition_id = a.container_id
+		JOIN sys.schemas s ON t.schema_id = s.schema_id
+		WHERE t.type = 'U'
+		AND i.index_id IN (0,1)
+		AND s.name = @p1
+		AND t.name = @p2
+	`
 }
 
 // OracleDB Specific Queries
@@ -919,8 +1033,8 @@ func OracleChunkRetrievalQuery(taskName string) string {
 	return fmt.Sprintf(`SELECT chunk_id, start_rowid, end_rowid FROM user_parallel_execute_chunks WHERE task_name = '%s' ORDER BY chunk_id`, taskName)
 }
 
-// OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
+// IncrementalValueFormatter is used to format the value of the cursor field for incremental sync, mainly because of the various timestamp formats
+func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// in case of incremental sync mode, during backfill to avoid duplicate records we need to use '<=', otherwise use '>'
@@ -937,16 +1051,40 @@ func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentP
 		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %s", lastCursorValue, lastCursorValue, err)
 	}
 
-	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
-	err = opts.Client.QueryRowContext(ctx, query).Scan(&datatype)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+	quotedCol := QuoteIdentifier(cursorField, opts.Driver)
+	if formattedValue == nil {
+		return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), nil, nil
 	}
-	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
-	quotedCol := QuoteIdentifier(cursorField, constants.Oracle)
-	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
-		return fmt.Sprintf("%s %s CAST(%s AS TIMESTAMP)", quotedCol, operator, argumentPlaceholder), formattedValue, nil
+
+	var dbDatatype string
+	switch opts.Driver {
+	case constants.Oracle:
+		query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+		err = opts.Client.QueryRowContext(ctx, query).Scan(&dbDatatype)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+		}
+		// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
+		if isTimestamp && !strings.Contains(dbDatatype, "TIME ZONE") {
+			return fmt.Sprintf("%s %s CAST(%s AS TIMESTAMP)", quotedCol, operator, argumentPlaceholder), formattedValue, nil
+		}
+	case constants.DB2:
+		query := "SELECT TYPENAME FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? AND TABNAME = ? AND COLNAME = ?"
+		err = opts.Client.QueryRowContext(ctx, query, stream.Namespace(), stream.Name(), cursorField).Scan(&dbDatatype)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get db2 column datatype: %s", err)
+		}
+
+		if isTimestamp && strings.Contains(strings.ToUpper(dbDatatype), "TIMESTAMP") {
+			db2Timestamp, ok := formattedValue.(time.Time)
+			if !ok {
+				return "", nil, fmt.Errorf("expected time.Time for DB2 timestamp, got %T", formattedValue)
+			}
+			timestampValue := db2Timestamp.Format("2006-01-02 15:04:05.000000")
+			return fmt.Sprintf("%s %s TIMESTAMP_FORMAT(%s, 'YYYY-MM-DD HH24:MI:SS.FF6')", quotedCol, operator, argumentPlaceholder), timestampValue, nil
+		}
 	}
+
 	return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), formattedValue, nil
 }
 
@@ -963,6 +1101,8 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 			driverType = constants.Oracle
 		case "mssql":
 			driverType = constants.MSSQL
+		case "db2":
+			driverType = constants.DB2
 		default:
 			driverType = constants.Postgres // default fallback
 		}
@@ -1053,8 +1193,8 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
-		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
 		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
@@ -1136,8 +1276,8 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	placeholder := GetPlaceholder(opts.Driver)
 
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
-		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil
@@ -1161,4 +1301,206 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 		arguments = append(arguments, argument)
 	}
 	return thresholdFilter, arguments, nil
+}
+
+// DB2 Specific Queries
+
+// DB2DiscoveryQuery returns the query to discover tables in a DB2 database with filter for 'T' (Table) and 'V' (View).
+func DB2DiscoveryQuery() string {
+	return `
+		SELECT
+			TRIM(TABSCHEMA) AS table_schema,
+			TRIM(TABNAME) AS table_name
+		FROM SYSCAT.TABLES
+		WHERE TYPE = 'T'
+		AND TABSCHEMA NOT LIKE 'SYS%'
+		ORDER BY TABSCHEMA, TABNAME
+	`
+}
+
+// DB2TableSchemaAndPrimaryKeysQuery returns the query to fetch columns for a specific table
+func DB2TableSchemaAndPrimaryKeysQuery() string {
+	return `
+		SELECT
+			c.COLNAME   AS column_name,
+			c.TYPENAME  AS data_type,
+			c.NULLS     AS is_nullable,
+			k.COLNAME   AS pk_column
+		FROM SYSCAT.COLUMNS c
+			LEFT JOIN SYSCAT.KEYCOLUSE k ON c.TABSCHEMA = k.TABSCHEMA AND c.TABNAME = k.TABNAME AND c.COLNAME = k.COLNAME
+		WHERE c.TABSCHEMA = ? AND c.TABNAME = ?
+		ORDER BY c.COLNO
+	`
+}
+
+// DB2ApproxRowCountQuery uses generic CARD from SYSCAT.TABLES (CARD is approx).
+func DB2ApproxRowCountQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT CARD FROM SYSCAT.TABLES WHERE TABSCHEMA = '%s' AND TABNAME = '%s'`, stream.Namespace(), stream.Name())
+}
+
+// DB2RidChunkScanQuery returns the query to fetch rows for a specific chunk using RID
+func DB2RidChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+	ridFunc := fmt.Sprintf("RID(%s)", quotedTable)
+
+	// chunk condition
+	var chunkCond string
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", ridFunc, chunk.Min, ridFunc, chunk.Max)
+	case chunk.Min != nil:
+		chunkCond = fmt.Sprintf("%s >= %v", ridFunc, chunk.Min)
+	case chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s < %v", ridFunc, chunk.Max)
+	}
+
+	// user-based filter
+	if filter != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE (%s) AND (%s)", quotedTable, chunkCond, filter)
+	}
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, chunkCond)
+}
+
+// DB2MinMaxRidQuery to find the min/max of RIDs for chunking
+func DB2MinMaxRidQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+	return fmt.Sprintf(`SELECT MIN(RID_VAL), MAX(RID_VAL) FROM (SELECT RID(%s) AS RID_VAL FROM %s) AS T`, quotedTable, quotedTable)
+}
+
+// DB2PageStatsQuery returns the query to fetch the page size and number of pages for a table
+func DB2PageStatsQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT TSP.PAGESIZE, T.NPAGES
+        FROM SYSCAT.TABLES T
+        JOIN SYSCAT.TABLESPACES TSP ON T.TBSPACE = TSP.TBSPACE
+        WHERE T.TABSCHEMA = '%s'
+          AND T.TABNAME = '%s'
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2TableStatsExistQuery returns the query to check if a table exists in DB2
+func DB2TableStatsExistQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT CASE 
+            WHEN EXISTS (SELECT 1 FROM "%s"."%s") THEN 1 
+            ELSE 0 
+        END FROM SYSIBM.SYSDUMMY1
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2AvgRowSizeQuery returns the query to fetch the average row size for a table in DB2
+func DB2AvgRowSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT AVGROWSIZE
+        FROM SYSCAT.TABLES
+        WHERE TABSCHEMA = '%s'
+          AND TABNAME = '%s'
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2MinMaxPKQuery returns the query to fetch min/max values of a column
+func DB2MinMaxPKQuery(stream types.StreamInterface, columns []string) string {
+	quotedCols := QuoteColumns(columns, constants.DB2)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	// DB2 concatenation
+	concatExpr := ""
+	for i, col := range quotedCols {
+		if i > 0 {
+			concatExpr += " || ',' || "
+		}
+		concatExpr += col
+	}
+
+	orderAsc := strings.Join(quotedCols, ", ")
+	descCols := make([]string, len(quotedCols))
+	for i, col := range quotedCols {
+		descCols[i] = col + " DESC"
+	}
+	orderDesc := strings.Join(descCols, ", ")
+
+	return fmt.Sprintf(`
+    SELECT
+        (SELECT %s FROM %s ORDER BY %s FETCH FIRST 1 ROWS ONLY) AS min_value,
+        (SELECT %s FROM %s ORDER BY %s FETCH FIRST 1 ROWS ONLY) AS max_value
+    FROM SYSIBM.SYSDUMMY1
+    `,
+		concatExpr, quotedTable, orderAsc,
+		concatExpr, quotedTable, orderDesc,
+	)
+}
+
+// DB2NextChunkEndQuery returns the query to calculate the next chunk boundary for DB2
+func DB2NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
+	quotedCols := QuoteColumns(columns, constants.DB2)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	// DB2 concatenation
+	concatExpr := ""
+	for i, col := range quotedCols {
+		if i > 0 {
+			concatExpr += " || ',' || "
+		}
+		concatExpr += col
+	}
+
+	var query strings.Builder
+	// SELECT with quoted and concatenated values
+	fmt.Fprintf(&query, "SELECT %s AS key_str FROM (SELECT %s FROM %s",
+		concatExpr,
+		strings.Join(quotedCols, ", "),
+		quotedTable,
+	)
+
+	// WHERE clause for lexicographic "greater than"
+	query.WriteString(" WHERE ")
+	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
+		if currentColIndex > 0 {
+			query.WriteString(" OR ")
+		}
+		query.WriteString("(")
+		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
+			fmt.Fprintf(&query, "%s = ? AND ", quotedCols[equalityColIndex])
+		}
+		fmt.Fprintf(&query, "%s > ?", quotedCols[currentColIndex])
+		query.WriteString(")")
+	}
+
+	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(quotedCols, ", "))
+	fmt.Fprintf(&query, " OFFSET %d ROWS FETCH NEXT 1 ROWS ONLY) AS subquery", chunkSize)
+	return query.String()
+}
+
+// DB2PKChunkScanQuery builds a chunk scan query for DB2 using Primary Keys
+func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
+	quotedCols := QuoteColumns(filterColumns, constants.DB2)
+	// for composite key check
+	columns := strings.Join(quotedCols, ", ")
+	if len(filterColumns) > 1 {
+		columns = fmt.Sprintf("(%s)", columns)
+	}
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	buildSQLTuple := func(val any) string {
+		parts := strings.Split(val.(string), ",")
+		for i, part := range parts {
+			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
+		}
+		return strings.Join(parts, ", ")
+	}
+
+	chunkCond := ""
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", columns, buildSQLTuple(chunk.Min), columns, buildSQLTuple(chunk.Max))
+	case chunk.Min != nil:
+		chunkCond = fmt.Sprintf("%s >= (%s)", columns, buildSQLTuple(chunk.Min))
+	case chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s < (%s)", columns, buildSQLTuple(chunk.Max))
+	}
+
+	if extraFilter != "" && chunkCond != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE (%s) AND (%s)", quotedTable, chunkCond, extraFilter)
+	}
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, chunkCond)
 }

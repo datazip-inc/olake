@@ -2,10 +2,12 @@ go 1.24.0
 
 use (
 	.
-	./drivers/kafka
 	./drivers/mongodb
-	./drivers/mssql
 	./drivers/mysql
-	./drivers/oracle
 	./drivers/postgres
+	./drivers/oracle
+	./drivers/s3
+	./drivers/kafka
+	./drivers/mssql
+	./drivers/db2
 )

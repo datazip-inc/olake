@@ -9,121 +9,202 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// MSSQLGlobalState keeps last processed LSN for CDC
-type MSSQLGlobalState struct {
-	LSN string `json:"lsn"`
+const (
+	cdcCursorKey = "lsn"
+)
+
+// CDC capture instance for a table
+type captureInstance struct {
+	schema       string
+	table        string
+	instanceName string
 }
 
-// PreCDC initialises global CDC state and starting LSN.
+// prepareCaptureInstances discovers capture instances for selected streams
+func (m *MSSQL) prepareCaptureInstances(ctx context.Context, streams []types.StreamInterface) error {
+	m.capturesMap = make(map[string][]captureInstance)
+	streamIDs := make([]string, 0, len(streams))
+	for _, stream := range streams {
+		streamIDs = append(streamIDs, stream.ID())
+	}
+
+	// Discover capture instances for selected streams
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDiscoverQuery(streamIDs))
+	if err != nil {
+		return fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var capture captureInstance
+		if err := rows.Scan(&capture.schema, &capture.table, &capture.instanceName); err != nil {
+			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
+		}
+
+		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
+		m.capturesMap[streamID] = append(m.capturesMap[streamID], capture)
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if len(m.capturesMap) == 0 {
+		logger.Warnf("No CDC capture instances found for selected streams")
+	}
+
+	return nil
+}
+
+// PreCDC initialises CDC state and starting LSN per stream.
 func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
-	if !m.CDCSupport {
+	if !m.cdcSupported {
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	// Index streams by ID for CDC routing
-	if m.streams == nil {
-		m.streams = make(map[string]types.StreamInterface, len(streams))
-	}
-	for _, s := range streams {
-		m.streams[s.ID()] = s
+	if err := m.prepareCaptureInstances(ctx, streams); err != nil {
+		return err
 	}
 
-	initializeCDCState := func(ctx context.Context) error {
-		lsn, err := m.currentMaxLSN(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get MSSQL current max LSN: %s", err)
+	// Get current max LSN to use as start point for new streams
+	currentLSN, err := m.currentMaxLSN(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get MSSQL current max LSN: %w", err)
+	}
+
+	// Initialize LSN for each stream if not present
+	for _, stream := range streams {
+		lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey)
+		if lsnVal == nil {
+			// New stream or first run: start from current max LSN
+			m.state.SetCursor(stream.Self(), cdcCursorKey, currentLSN)
+			lsnVal = currentLSN
 		}
-		m.state.SetGlobal(MSSQLGlobalState{LSN: lsn})
-		m.state.ResetStreams()
+		m.lsnMap.Store(stream.ID(), lsnVal.(string))
+	}
+
+	return nil
+}
+
+// StreamChanges fetches a bounded window of CDC changes for a specific stream.
+func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.CDCMsgFn) error {
+	// Get current position for this stream
+	fromLSNVal, exists := m.lsnMap.Load(stream.ID())
+	if !exists {
+		return fmt.Errorf("no LSN found for stream %s", stream.ID())
+	}
+	fromLSN := fromLSNVal.(string)
+
+	// Get target LSN (current max LSN in DB)
+	targetLSN, err := m.currentMaxLSN(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
+	}
+
+	// No changes yet
+	if fromLSN >= targetLSN {
 		return nil
 	}
 
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return initializeCDCState(ctx)
+	// Get capture instance info
+	captures, ok := m.capturesMap[stream.ID()]
+	if !ok || len(captures) == 0 {
+		logger.Warnf("No capture instance found for stream %s, skipping", stream.ID())
+		return nil
 	}
 
-	var mssqlState MSSQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mssqlState); err != nil {
-		return fmt.Errorf("failed to unmarshal MSSQL global state: %s", err)
+	// TODO: Handle multiple capture instances (schema evolution).
+	capture := captures[len(captures)-1]
+
+	// Fetch changes
+	err = m.fetchTableChangesInLSNRange(ctx, stream, capture, fromLSN, targetLSN, processFn)
+	if err != nil {
+		return err
 	}
-	if mssqlState.LSN == "" {
-		return initializeCDCState(ctx)
+
+	// Cache target LSN for this stream
+	m.lsnMap.Store(stream.ID(), targetLSN)
+
+	return nil
+}
+
+// PostCDC per stream state saving is handled here if no error occurred.
+func (m *MSSQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
+	if noErr {
+		if val, exists := m.lsnMap.Load(stream.ID()); exists {
+			m.state.SetCursor(stream.Self(), cdcCursorKey, val)
+		} else {
+			logger.Warnf("No LSN found for stream: %s", stream.ID())
+		}
 	}
 	return nil
 }
 
-// StreamChanges polls changes via fn_cdc_get_all_changes_* for each table.
-func (m *MSSQL) StreamChanges(ctx context.Context, _ types.StreamInterface, processFn abstract.CDCMsgFn) error {
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return fmt.Errorf("global CDC state not initialised")
+// fetchTableChangesInLSNRange fetches and emits CDC changes for a single table/capture-instance within an LSN range.
+func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.StreamInterface, capture captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
+	// Move the lower bound forward by one LSN to avoid re-emitting the last processed row.
+	effectiveFromLSN, err := m.advanceLSN(ctx, fromLSN)
+	if err != nil {
+		return err
 	}
 
-	var mssqlState MSSQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mssqlState); err != nil {
-		return fmt.Errorf("failed to unmarshal MSSQL global state: %s", err)
+	// SQL Server expects LSN parameters as binary; state stores them as hex strings.
+	fromLSNBytes, err := hex.DecodeString(effectiveFromLSN)
+	if err != nil {
+		return fmt.Errorf("failed to parse fromLSN: %s", err)
+	}
+	toLSNBytes, err := hex.DecodeString(toLSN)
+	if err != nil {
+		return fmt.Errorf("failed to parse toLSN: %s", err)
 	}
 
-	fromLSN := mssqlState.LSN // we get this from the state file
-	startTime := time.Now()
-	changesReceived := false // we set this to true when we receive at least one change
+	// Query CDC rows for this capture instance between the two LSNs.
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCGetChangesQuery(capture.instanceName), fromLSNBytes, toLSNBytes)
+	if err != nil {
+		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
+	}
+	defer rows.Close()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			// Check if no changes received within initial wait time
-			if !changesReceived && m.cdcConfig.InitialWaitTime > 0 && time.Since(startTime) > time.Duration(m.cdcConfig.InitialWaitTime)*time.Second {
-				logger.Warnf("no records found in given initial wait time, try increasing it")
-				// Ensure current LSN is persisted even when exiting early
-				toLSN, err := m.currentMaxLSN(ctx)
-				if err == nil {
-					m.state.SetGlobal(MSSQLGlobalState{LSN: toLSN})
-				}
-				return nil
-			}
+	for rows.Next() {
+		// Use MapScan to properly convert data types including binary types
+		record := make(map[string]interface{})
+		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
+			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
+		}
 
-			toLSN, err := m.currentMaxLSN(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
-			}
-
-			// If caught up to latest position
-			if fromLSN >= toLSN {
-				if changesReceived {
-					return nil
-				}
+		// Determine operation type from SQL Server CDC operation codes.
+		// For updates, CDC emits "before" (3) and "after" (4); we skip "before".
+		var operationType string
+		if val, ok := record["__$operation"]; ok {
+			var opCode int32 = val.(int32)
+			if opCode == 3 {
 				continue
 			}
+			operationType = operationTypeFromCDCCode(opCode)
+		}
 
-			// Process changes between fromLSN and toLSN
-			recordsProcessed, err := m.streamChangesOnce(ctx, fromLSN, toLSN, processFn)
-			if err != nil {
-				return err
-			}
+		// Remove metadata columns
+		delete(record, "__$operation")
+		delete(record, "__$start_lsn")
+		delete(record, "__$seqval")
+		delete(record, "__$update_mask")
 
-			// Only set changesReceived if records were actually processed
-			if recordsProcessed > 0 {
-				changesReceived = true
-			}
-
-			fromLSN = toLSN
-			m.lastProcessedLSN = fromLSN
-			m.state.SetGlobal(MSSQLGlobalState{LSN: fromLSN})
+		// Emit one normalized CDC change event.
+		if err := processFn(ctx, abstract.CDCChange{
+			Stream:    stream,
+			Timestamp: time.Now().UTC(),
+			Kind:      operationType,
+			Data:      record,
+		}); err != nil {
+			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
 	}
-}
 
-// PostCDC persists final LSN
-func (m *MSSQL) PostCDC(ctx context.Context, _ types.StreamInterface, noErr bool, _ string) error {
-	if noErr && m.lastProcessedLSN != "" {
-		m.state.SetGlobal(MSSQLGlobalState{LSN: m.lastProcessedLSN})
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -140,160 +221,30 @@ func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 	return hex.EncodeToString(lsn), nil
 }
 
-// streamChangesOnce reads changes for all CDC-enabled tables between fromLSN and toLSN.
-// Returns the number of records processed.
-func (m *MSSQL) streamChangesOnce(ctx context.Context, fromLSN, toLSN string, processFn abstract.CDCMsgFn) (int, error) {
-	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDiscoverQuery())
+// advanceLSN returns the next valid LSN after the given LSN.
+func (m *MSSQL) advanceLSN(ctx context.Context, lsnHex string) (string, error) {
+	// Decode the hex string into raw bytes because SQL Server LSN functions use binary values.
+	lsnBytes, err := hex.DecodeString(lsnHex)
 	if err != nil {
-		return 0, fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
-	}
-	defer rows.Close()
-
-	type capture struct {
-		schema string
-		table  string
-		inst   string
+		return "", fmt.Errorf("failed to parse LSN for advance: %s", err)
 	}
 
-	var captures []capture
-	for rows.Next() {
-		var c capture
-		if err := rows.Scan(&c.schema, &c.table, &c.inst); err != nil {
-			return 0, fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
-		}
-
-		streamID := fmt.Sprintf("%s.%s", c.schema, c.table)
-		if _, selected := m.streams[streamID]; !selected {
-			continue
-		}
-
-		captures = append(captures, c)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, err
+	// Compute the next LSN.
+	var nextLSNBytes []byte
+	if err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCAdvanceLSNQuery(), lsnBytes).Scan(&nextLSNBytes); err != nil {
+		return "", fmt.Errorf("failed to advance LSN: %s", err)
 	}
 
-	totalRecords := 0
-	for _, capture := range captures {
-		records, err := m.streamTableChanges(ctx, capture.schema, capture.table, capture.inst, fromLSN, toLSN, processFn)
-		if err != nil {
-			return totalRecords, err
-		}
-		totalRecords += records
+	if len(nextLSNBytes) == 0 {
+		return "", fmt.Errorf("advanced LSN is empty")
 	}
-	return totalRecords, nil
+
+	return hex.EncodeToString(nextLSNBytes), nil
 }
 
-func (m *MSSQL) streamTableChanges(ctx context.Context, schema, table, captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) (int, error) {
-	effectiveFromLSN, err := m.incrementLSN(ctx, fromLSN)
-	if err != nil {
-		return 0, err
-	}
-
-	// Convert hex LSN back to binary for function call.
-	from, err := hex.DecodeString(effectiveFromLSN)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse fromLSN: %s", err)
-	}
-	to, err := hex.DecodeString(toLSN)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse toLSN: %s", err)
-	}
-
-	// Use direct function call with parameters - go-mssqldb handles binary parameters correctly
-	query := jdbc.MSSQLCDCGetChangesQuery(captureInstance)
-
-	logger.Infof("Streaming CDC changes for MSSQL table %s.%s between LSN %s and %s", schema, table, fromLSN, toLSN)
-
-	rows, err := m.client.QueryContext(ctx, query, from, to)
-	if err != nil {
-		return 0, fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
-	}
-	defer rows.Close()
-
-	recordsProcessed := 0
-	for rows.Next() {
-		// Use MapScan to properly convert data types including binary types
-		record := make(map[string]interface{})
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
-			return recordsProcessed, fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
-		}
-
-		var opKind string
-		// SQL Server CDC returns two rows for updates:
-		// - 3 = update (before image) - skip this
-		// - 4 = update (after image) - process this
-		if opVal, ok := record["__$operation"]; ok {
-			switch v := opVal.(type) {
-			case int32:
-				if int(v) == 3 {
-					continue
-				}
-				opKind = operationFromCode(int(v))
-			case int64:
-				if int(v) == 3 {
-					continue
-				}
-				opKind = operationFromCode(int(v))
-			case int:
-				if v == 3 {
-					continue
-				}
-				opKind = operationFromCode(v)
-			default:
-				opKind = "update"
-			}
-		}
-
-		// Remove technical columns from payload
-		delete(record, "__$operation")
-		delete(record, "__$start_lsn")
-		delete(record, "__$seqval")
-		delete(record, "__$update_mask")
-
-		streamID := fmt.Sprintf("%s.%s", schema, table)
-		cfgStream, ok := m.streams[streamID]
-		if !ok {
-			logger.Warnf("skipping CDC change for unmapped MSSQL stream %s", streamID)
-			continue
-		}
-
-		if err := processFn(ctx, abstract.CDCChange{
-			Stream:    cfgStream,
-			Timestamp: time.Now().UTC(),
-			Kind:      opKind,
-			Data:      record,
-		}); err != nil {
-			return recordsProcessed, fmt.Errorf("failed to process MSSQL CDC change: %s", err)
-		}
-
-		recordsProcessed++
-	}
-	if err := rows.Err(); err != nil {
-		return recordsProcessed, err
-	}
-	return recordsProcessed, nil
-}
-
-func (m *MSSQL) incrementLSN(ctx context.Context, hexLSN string) (string, error) {
-	lsnBytes, err := hex.DecodeString(hexLSN)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse LSN for increment: %s", err)
-	}
-
-	var next []byte
-	if err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCIncrementLSNQuery(), lsnBytes).Scan(&next); err != nil {
-		return "", fmt.Errorf("failed to increment LSN: %s", err)
-	}
-	if len(next) == 0 {
-		return "", fmt.Errorf("incremented LSN is empty")
-	}
-	return hex.EncodeToString(next), nil
-}
-
-func operationFromCode(code int) string {
-	// SQL Server CDC operation codes:
-	// 1 = delete, 2 = insert, 3/4 = update (before/after)
+// operationTypeFromCDCCode converts SQL Server CDC __$operation codes to our operationType string.
+// Codes: 1=delete, 2=insert, 3/4=update (before/after).
+func operationTypeFromCDCCode(code int32) string {
 	switch code {
 	case 1:
 		return "delete"
