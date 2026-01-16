@@ -131,7 +131,7 @@ jobs:
           export CGO_CFLAGS="-I$IBM_DB_HOME/include"
           export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
           export LD_LIBRARY_PATH=$IBM_DB_HOME/lib
-          go test -v -p 5 --parallel 5 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... -timeout 0 -run 'Integration'
+          go test -v -p 5 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... -timeout 0 -run 'Integration'
       
       - name: Cleanup
         if: always()
