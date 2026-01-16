@@ -133,8 +133,8 @@ func (w *ArrowWriter) getRecordPartitionValues(record types.RawRecord, olakeTime
 }
 
 type Deletes struct {
-	Partitions      *PartitionedRecords
-	PostitionOffset map[string]*PositionTracker
+	Partitions     *PartitionedRecords         // delete records information for each partition key
+	PositionOffset map[string]*PositionTracker // _olake_id -> positions mapping
 }
 
 func (w *ArrowWriter) extract(records []types.RawRecord, olakeTimestamp time.Time) (map[string]*PartitionedRecords, map[string]*Deletes, error) {
@@ -165,15 +165,17 @@ func (w *ArrowWriter) extract(records []types.RawRecord, olakeTimestamp time.Tim
 						PartitionKey:    pKey,
 						PartitionValues: pValues,
 					},
-					PostitionOffset: make(map[string]*PositionTracker),
+					PositionOffset: make(map[string]*PositionTracker),
 				}
 			}
 
 			// for positional deletes
-			if deletes[pKey].PostitionOffset[rec.OlakeID] == nil {
-				deletes[pKey].PostitionOffset[rec.OlakeID] = &PositionTracker{}
+			if deletes[pKey].PositionOffset[rec.OlakeID] == nil {
+				deletes[pKey].PositionOffset[rec.OlakeID] = &PositionTracker{}
+				// for equality deletes - add only once per unique OlakeID
+				deletes[pKey].Partitions.Records = append(deletes[pKey].Partitions.Records, types.RawRecord{OlakeID: rec.OlakeID})
 			}
-			deletes[pKey].PostitionOffset[rec.OlakeID].Positions = append(deletes[pKey].PostitionOffset[rec.OlakeID].Positions, int64(idx))
+			deletes[pKey].PositionOffset[rec.OlakeID].Positions = append(deletes[pKey].PositionOffset[rec.OlakeID].Positions, int64(idx))
 		}
 
 		if data[pKey] == nil {
@@ -183,13 +185,6 @@ func (w *ArrowWriter) extract(records []types.RawRecord, olakeTimestamp time.Tim
 			}
 		}
 		data[pKey].Records = append(data[pKey].Records, rec)
-	}
-
-	// for equality delete files
-	for _, del := range deletes {
-		for olakeID := range del.PostitionOffset {
-			del.Partitions.Records = append(del.Partitions.Records, types.RawRecord{OlakeID: olakeID})
-		}
 	}
 
 	return data, deletes, nil
@@ -402,7 +397,7 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {
 	for pKey, writer := range w.writers {
 		if writer.currentRowCount == 0 {
-			continue 
+			continue
 		}
 
 		if err := writer.currentWriter.Close(); err != nil {
