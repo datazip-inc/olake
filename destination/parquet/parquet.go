@@ -156,7 +156,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
-	const batchSize = 1000
+	const batchSize = 5000
 
 	// Buffers for each partition path
 	normalizedBuffers := make(map[string][]any)
