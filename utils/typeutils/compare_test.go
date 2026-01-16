@@ -38,11 +38,22 @@ func TestCompare(t *testing.T) {
 		// int8 boundaries
 		{"int8_max_vs_min", int8(127), int8(-128), 1},
 
+		// int32 boundaries
+		{"int32_max_vs_max", int32(math.MaxInt32), int32(math.MaxInt32), 0},
+		{"int32_min_vs_min", int32(math.MinInt32), int32(math.MinInt32), 0},
+		{"int32_min_vs_max", int32(math.MinInt32), int32(math.MaxInt32), -1},
+		{"int32_max_vs_min", int32(math.MaxInt32), int32(math.MinInt32), 1},
+
 		// int64 boundaries
 		{"int64_max_vs_max", int64(math.MaxInt64), int64(math.MaxInt64), 0},
 		{"int64_min_vs_min", int64(math.MinInt64), int64(math.MinInt64), 0},
 		{"int64_min_vs_max", int64(math.MinInt64), int64(math.MaxInt64), -1},
 		{"int64_max_vs_min", int64(math.MaxInt64), int64(math.MinInt64), 1},
+
+		// uint32 boundaries
+		{"uint32_max_vs_max", uint32(math.MaxUint32), uint32(math.MaxUint32), 0},
+		{"uint32_zero_vs_max", uint32(0), uint32(math.MaxUint32), -1},
+		{"uint32_max_vs_zero", uint32(math.MaxUint32), uint32(0), 1},
 
 		// uint64 boundaries
 		{"uint64_max_vs_max", uint64(math.MaxUint64), uint64(math.MaxUint64), 0},
