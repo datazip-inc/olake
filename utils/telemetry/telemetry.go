@@ -61,7 +61,7 @@ func Init() {
 		if disabled {
 			return
 		}
-		
+
 		ip := getOutboundIP()
 		telemetry = &Telemetry{
 			httpClient: &http.Client{Timeout: 5 * time.Second},
@@ -299,7 +299,7 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 	return count
 }
 
-//getVersion extracts the olake version from the ENV embedded in the olake image
+// getVersion extracts the olake version from the ENV embedded in the olake image
 func getVersion() string {
 	v := os.Getenv("DRIVER_VERSION")
 	if v == "" {
