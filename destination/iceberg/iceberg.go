@@ -387,7 +387,8 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
-	if !i.stream.NormalizationEnabled() && i.stream.GetSyncMode() == types.CDC {
+	if !i.stream.NormalizationEnabled() && !i.options.Backfill {
+		// Q: do we need to add filter in case of normalization false?
 		filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
@@ -400,7 +401,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
-	if i.stream.GetSyncMode() == types.CDC {
+	if !i.options.Backfill {
 		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)

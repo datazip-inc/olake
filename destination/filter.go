@@ -77,14 +77,14 @@ func FilterRecords(
 		)
 
 		conditions[i] = parsedCondition{
-			column:   cond.Column,
+			column:   utils.Reformat(cond.Column),
 			operator: cond.Operator,
 			value:    parsedVal,
 		}
 	}
 
 	logger.Debug("[FilterRecords] starting concurrent filtering")
-	return filterConcurrently(ctx, records, conditions, filter.LogicalOperator)
+	return filterConcurrently(ctx, records, conditions, utils.Reformat(filter.LogicalOperator))
 }
 
 // parsedCondition holds a fully-typed condition
