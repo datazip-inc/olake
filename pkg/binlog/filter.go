@@ -7,6 +7,7 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -14,8 +15,9 @@ import (
 
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
-	streams   map[string]types.StreamInterface // Keyed by "schema.table"
-	converter func(value interface{}, columnType string) (interface{}, error)
+	streams       map[string]types.StreamInterface // Keyed by "schema.table"
+	converter     func(value interface{}, columnType string) (interface{}, error)
+	lastGTIDEvent time.Time
 }
 
 // NewChangeFilter creates a filter for the given streams.
@@ -68,16 +70,21 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	}
 
 	for _, row := range rowsToProcess {
-		record, err := convertRowToMap(row, e.Table.ColumnNameString(), columnTypes, f.converter)
+		record, err := convertRowToMap(row, e.Table, columnTypes, f.converter)
 		if err != nil {
 			return err
 		}
 		if record == nil {
 			continue
 		}
+
+		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
+		// otherwise fall back to second-precision header timestamp
+		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
+
 		change := abstract.CDCChange{
 			Stream:    stream,
-			Timestamp: time.Unix(int64(ev.Header.Timestamp), 0),
+			Timestamp: timestamp,
 			Kind:      operationType,
 			Data:      record,
 		}
@@ -89,13 +96,31 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 }
 
 // convertRowToMap converts a binlog row to a map.
-func convertRowToMap(row []interface{}, columns []string, columnTypes []string, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
+func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, columnTypes []string, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
+	columns := tableMap.ColumnNameString()
 	if len(columns) != len(row) {
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(columns), len(row))
 	}
 
+	enumMap := tableMap.EnumStrValueMap()
+
+	// TODO: float values from binlog are not always same as the output of select * from db,
+	// need to typecast it to the datatype of the column for consistency with db.
 	record := make(map[string]interface{})
 	for i, val := range row {
+		if tableMap.IsEnumColumn(i) && val != nil {
+			if enumValues, ok := enumMap[i]; ok {
+				// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
+				// during such a case, we need to find out the enum value of it from the index
+				if idx, isInt64 := val.(int64); isInt64 {
+					if idx == 0 {
+						return nil, fmt.Errorf("invalid ENUM value detected for column %s: index 0 indicates an error value (empty string) from MySQL", columns[i])
+					}
+					val = enumValues[idx-1]
+				}
+			}
+		}
+
 		convertedVal, err := converter(val, columnTypes[i])
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
@@ -131,7 +156,7 @@ func mysqlTypeName(t byte) string {
 		return "DATE"
 	case mysql.MYSQL_TYPE_TIME:
 		return "TIME"
-	case mysql.MYSQL_TYPE_DATETIME:
+	case mysql.MYSQL_TYPE_DATETIME, mysql.MYSQL_TYPE_DATETIME2:
 		return "DATETIME"
 	case mysql.MYSQL_TYPE_YEAR:
 		return "YEAR"

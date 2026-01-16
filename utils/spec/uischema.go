@@ -10,8 +10,10 @@ var uiSchemaMap = map[string]string{
 	"postgres": PostgresUISchema,
 	"mysql":    MySQLUISchema,
 	"oracle":   OracleUISchema,
+	"s3":       S3UISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
+	"db2":      DB2UISchema,
 	"kafka":    KafkaUISchema,
 }
 
@@ -179,24 +181,113 @@ const OracleUISchema = `{
   }
 }`
 
+const S3UISchema = `{
+  "ui:grid": [
+    { "bucket_name": 12, "region": 12 },
+    { "access_key_id": 12, "secret_access_key": 12 },
+    { "path_prefix": 12, "endpoint": 12 },
+    { "file_pattern": 12, "compression": 12 },
+    { "retry_count": 12, "max_threads": 12 },
+    { "file_format": 12},
+    { "csv": 12, "parquet": 12, "json": 12 }
+  ],
+  "file_format": {
+    "ui:enumNames": [
+      "CSV",
+      "JSON",
+      "Parquet"
+    ]
+  },
+  "csv": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "delimiter": 12, "has_header": 12 },
+      { "skip_rows": 12, "quote_character": 12 }
+    ],
+    "has_header": {
+      "ui:widget": "boolean"
+    }
+  },
+  "json": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "line_delimited": 12 }
+    ],
+    "line_delimited": {
+      "ui:widget": "boolean"
+    }
+  },
+  "parquet": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "streaming_enabled": 12 }
+    ],
+    "streaming_enabled": {
+      "ui:widget": "boolean"
+    }
+  }
+}`
+
 const KafkaUISchema = `{
     "ui:grid": [
       { "bootstrap_servers": 12, "consumer_group_id": 12 },
       { "threads_equal_total_partitions": 12, "max_threads": 12 },
-      { "protocol": 12, "backoff_retry_count": 12 }
+      { "backoff_retry_count": 12, "protocol": 12 }
     ],
     "protocol": {
       "ui:grid": [
-      { "sasl_mechanism": 12, "sasl_jaas_config": 12 }
+        { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
+        { "tls_skip_verify": 24 },
+        { "ssl": 24 }
       ],
       "sasl_jaas_config": {
-      "ui:widget": "textarea",
+        "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
         }
       },
+      "tls_skip_verify": {
+        "ui:widget": "boolean"
+      },
+      "ssl": {
+        "ui:options": {
+          "title": false,
+          "description": false
+        },
+        "ui:grid": [
+          { "server_ca": 12, "client_cert": 12 },
+          { "client_key": 12 }
+        ],
+        "server_ca": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        }
+      },
       "ui:options": {
-      "title": false
+        "title": false
       }
     },
     "threads_equal_total_partitions": {
@@ -237,7 +328,7 @@ const IcebergUISchema = `{
       { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12 }
+      { "aws_region": 12, "arrow_writes": 12 }
     ],
     "no_identifier_fields": {
       "ui:widget": "boolean"
@@ -254,6 +345,9 @@ const IcebergUISchema = `{
     "s3_path_style": {
       "ui:widget": "boolean"
     },
+    "arrow_writes": {
+      "ui:widget": "boolean"
+    },
     "catalog_type": {
       "ui:enumNames": [
         "AWS Glue",
@@ -264,6 +358,39 @@ const IcebergUISchema = `{
     },
     "ui:options": {
       "label": false
+    }
+  }
+}`
+
+const DB2UISchema = `{
+  "ui:grid": [
+    { "host": 12, "port": 12 },
+    { "database": 12, "max_threads": 12 },
+    { "username": 12, "password": 12 },
+    { "jdbc_url_params": 12, "retry_count": 12 },
+    { "ssl": 12 }, { "ssh_config": 12 }
+  ],
+  "ssl": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    }
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
     }
   }
 }`

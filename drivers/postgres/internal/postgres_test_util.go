@@ -97,7 +97,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
 				col_point, col_polygon, col_circle
 			) VALUES (
-				6, 123456789012345, TRUE, 'c', 'char_val',
+				6, 123456789012345, TRUE, 'c', 'charac_val',
 				'varchar_val', '2023-01-01', 123.45,
 				123.456789, 123.45, 123, 123, 12345,
 				'1 hour', '{"key": "value"}', '{"key": "value"}',
@@ -116,7 +116,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_bigint = 123456789012340,
 				col_bool = FALSE,
 				col_char = 'd',
-				col_character = 'updated__',
+				col_character = 'update_val',
 				col_character_varying = 'updated val',
 				col_date = '2024-07-01',
 				col_decimal = 543.21,
@@ -214,7 +214,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_uuid, col_varbit, col_xml,
 			col_point, col_polygon, col_circle
 		) VALUES (
-			%d, 123456789012345, DEFAULT, TRUE, 'c', 'char_val',
+			%d, 123456789012345, DEFAULT, TRUE, 'c', 'charac_val',
 			'varchar_val', '2023-01-01', 123.45,
 			123.456789, 123.45, 123, 123, 12345, '1 hour', '{"key": "value"}',
 			'{"key": "value"}', 'test_name', 123.45, 123.45,
@@ -236,7 +236,7 @@ var ExpectedPostgresData = map[string]interface{}{
 	"col_bigint":            int64(123456789012345),
 	"col_bool":              true,
 	"col_char":              "c",
-	"col_character":         "char_val  ",
+	"col_character":         "charac_val",
 	"col_character_varying": "varchar_val",
 	"col_date":              arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":           float64(123.45),
@@ -266,7 +266,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"col_bigint":            int64(123456789012340),
 	"col_bool":              false,
 	"col_char":              "d",
-	"col_character":         "updated__ ",
+	"col_character":         "update_val",
 	"col_character_varying": "updated val",
 	"col_date":              arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":           float64(543.21),

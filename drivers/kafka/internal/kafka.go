@@ -3,29 +3,31 @@ package driver
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
-	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
 )
 
 const (
-	Message        = "message"
-	Key            = "key"
-	Offset         = "offset"
-	Partition      = "partition"
-	KafkaTimestamp = "kafka_timestamp"
+	Key            = "_kafka_key"
+	Offset         = "_kafka_offset"
+	Partition      = "_kafka_partition"
+	KafkaTimestamp = "_kafka_timestamp"
 )
 
 type Kafka struct {
@@ -117,17 +119,87 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	return topicNames, nil
 }
 
-func (k *Kafka) ProduceSchema(_ context.Context, streamName string) (*types.Stream, error) {
+func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("producing schema for topic [%s]", streamName)
 	stream := types.NewStream(streamName, "topics", nil).WithSyncMode(types.STRICTCDC)
 	stream.SyncMode = types.STRICTCDC
-	schema := types.NewTypeSchema()
-	schema.AddTypes(Message, types.String)       // message payload
-	schema.AddTypes(Key, types.String)           // Kafka message key
-	schema.AddTypes(Offset, types.Int64)         // Offset for tracking
-	schema.AddTypes(Partition, types.Int64)      // Partition
-	schema.AddTypes(KafkaTimestamp, types.Int64) // Message timestamp
-	stream.WithSchema(schema)
+
+	// create reader manager for schema discovery
+	readerManager := kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
+		BootstrapServers: k.config.BootstrapServers,
+		Dialer:           k.dialer,
+		AdminClient:      k.adminClient,
+	})
+
+	// get the topic metadata
+	topicDetail, err := readerManager.GetTopicMetadata(ctx, streamName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", streamName, err)
+	}
+
+	// get offsets for all partitions
+	offsetRequests := make([]kafka.OffsetRequest, 0, len(topicDetail.Partitions)*2)
+	for _, p := range topicDetail.Partitions {
+		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.FirstOffset})
+		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.LastOffset})
+	}
+
+	offsetsResp, err := k.adminClient.ListOffsets(ctx, &kafka.ListOffsetsRequest{
+		Topics: map[string][]kafka.OffsetRequest{streamName: offsetRequests},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", streamName, err)
+	}
+
+	var mu sync.Mutex
+	// get messages from partitions for schema discovery
+	err = utils.Concurrent(ctx, offsetsResp.Topics[streamName], len(offsetsResp.Topics[streamName]), func(ctx context.Context, partitionDetails kafka.PartitionOffsets, _ int) error {
+		// skip empty partitions
+		if partitionDetails.FirstOffset >= partitionDetails.LastOffset {
+			return nil
+		}
+
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:   utils.SplitAndTrim(k.config.BootstrapServers),
+			Topic:     streamName,
+			Partition: partitionDetails.Partition,
+			Dialer:    k.dialer,
+			MaxBytes:  10e6,
+		})
+		defer reader.Close()
+
+		// set offset to first offset
+		if err := reader.SetOffset(partitionDetails.FirstOffset); err != nil {
+			logger.Warnf("failed to set offset for partition %d: %s, continuing to next partition", partitionDetails.Partition, err)
+			return nil
+		}
+
+		messageCount := 0
+
+		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
+			if record.Data != nil {
+				mu.Lock()
+				// resolve data for schema
+				err := typeutils.Resolve(stream, record.Data)
+				mu.Unlock()
+				if err != nil {
+					return true, err
+				}
+				messageCount++
+			}
+
+			// stop if hit 1000 messages or reach the last known offset
+			shouldExit := messageCount >= 1000 || record.Message.Offset >= partitionDetails.LastOffset
+			return shouldExit, nil
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
+	}
+
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
 	return stream, nil
 }
@@ -149,6 +221,15 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 	switch k.config.Protocol.SecurityProtocol {
 	case "PLAINTEXT":
 		// No additional configuration needed
+
+	case "SSL":
+		// Pure TLS without SASL authentication
+		tlsConfig, err := k.buildTLSConfig()
+		if err != nil {
+			return nil, err
+		}
+		dialer.TLS = tlsConfig
+
 	case "SASL_PLAINTEXT":
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
@@ -164,10 +245,15 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
+
 	case "SASL_SSL":
-		dialer.TLS = &tls.Config{
-			MinVersion: tls.VersionTLS12,
+		// TLS with SASL authentication
+		tlsConfig, err := k.buildTLSConfig()
+		if err != nil {
+			return nil, err
 		}
+		dialer.TLS = tlsConfig
+
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
 			dialer.SASLMechanism = plain.Mechanism{
@@ -182,6 +268,7 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
+
 	default:
 		return nil, fmt.Errorf("unsupported security protocol: %s", k.config.Protocol.SecurityProtocol)
 	}
@@ -200,6 +287,38 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid sasl_jaas_config for PLAIN")
 	}
 	return matches[1], matches[2], nil
+}
+
+// buildTLSConfig creates TLS configuration with optional external certificates
+func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// Apply SSL config if provided
+	if k.config.Protocol.SSL != nil {
+		tlsConfig.InsecureSkipVerify = k.config.Protocol.TLSSkipVerify
+
+		// Load CA certificate if provided
+		if k.config.Protocol.SSL.ServerCA != "" {
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM([]byte(k.config.Protocol.SSL.ServerCA)) {
+				return nil, fmt.Errorf("failed to parse CA certificate")
+			}
+			tlsConfig.RootCAs = caCertPool
+		}
+
+		// Load client certificate and key for mTLS
+		if k.config.Protocol.SSL.ClientCert != "" && k.config.Protocol.SSL.ClientKey != "" {
+			cert, err := tls.X509KeyPair([]byte(k.config.Protocol.SSL.ClientCert), []byte(k.config.Protocol.SSL.ClientKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client certificate/key: %s", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{cert}
+		}
+	}
+
+	return tlsConfig, nil
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
@@ -246,7 +365,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerID string
 		GroupIDs: []string{k.consumerGroupID},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("DescribeGroups failed: %w", err)
+		return nil, fmt.Errorf("DescribeGroups failed: %s", err)
 	}
 
 	var assigned []types.PartitionKey
