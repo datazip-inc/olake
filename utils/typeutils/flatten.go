@@ -1,8 +1,7 @@
 package typeutils
 
 import (
-	"fmt"
-	"reflect"
+	"sync"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -19,18 +18,29 @@ type FlattenerImpl struct {
 	omitNilValues bool
 }
 
+// keyCache caches reformatted keys to avoid repeated string operations
+var keyCache sync.Map
+
 func NewFlattener() Flattener {
 	return &FlattenerImpl{
 		omitNilValues: true,
 	}
 }
 
-func (f *FlattenerImpl) Flatten(json types.Record) (types.Record, error) {
-	destination := make(types.Record)
+func getReformattedKey(key string) string {
+	if cached, ok := keyCache.Load(key); ok {
+		return cached.(string)
+	}
+	reformatted := utils.Reformat(key)
+	keyCache.Store(key, reformatted)
+	return reformatted
+}
 
-	for key, value := range json {
-		err := f.flatten(key, value, destination)
-		if err != nil {
+func (f *FlattenerImpl) Flatten(data types.Record) (types.Record, error) {
+	destination := make(types.Record, len(data))
+
+	for key, value := range data {
+		if err := f.flatten(key, value, destination); err != nil {
 			return nil, err
 		}
 	}
@@ -38,36 +48,29 @@ func (f *FlattenerImpl) Flatten(json types.Record) (types.Record, error) {
 	return destination, nil
 }
 
-// Reformat key
 func (f *FlattenerImpl) flatten(key string, value any, destination types.Record) error {
-	key = utils.Reformat(key)
-	t := reflect.ValueOf(value)
-	switch t.Kind() {
-	case reflect.Slice: // Stringify arrays
-		b, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("error marshaling array with key %s: %v", key, err)
+	if value == nil {
+		if !f.omitNilValues {
+			destination[getReformattedKey(key)] = nil
 		}
-		destination[key] = string(b)
-	case reflect.Map: // Stringify nested maps
-		b, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("error marshaling array with key[%s] and value %v: %v", key, value, err)
-		}
-		destination[key] = string(b)
-	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64, reflect.String:
-		destination[key] = value
+		return nil
+	}
+
+	reformattedKey := getReformattedKey(key)
+
+	// Type switch is faster than reflection for known types
+	switch v := value.(type) {
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string, time.Time:
+		destination[reformattedKey] = v
+	case []byte:
+		destination[reformattedKey] = string(v)
 	default:
-		if !f.omitNilValues || value != nil {
-			// Handle time.Time values
-			if tm, ok := value.(time.Time); ok {
-				destination[key] = tm
-			} else {
-				destination[key] = fmt.Sprint(value)
-			}
+		// Fallback for other types
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
 		}
+		destination[reformattedKey] = string(b)
 	}
 
 	return nil

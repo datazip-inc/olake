@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
@@ -20,9 +21,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	switch driver {
 	case constants.MySQL:
 		return fmt.Sprintf("`%s`", identifier) // MySQL uses backticks for quoting identifiers
-	case constants.Postgres:
-		return fmt.Sprintf("%q", identifier)
-	case constants.Oracle:
+	case constants.Postgres, constants.DB2, constants.Oracle:
 		return fmt.Sprintf("%q", identifier)
 	default:
 		return identifier
@@ -32,7 +31,7 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 // GetPlaceholder returns the appropriate placeholder for the given driver
 func GetPlaceholder(driver constants.DriverType) func(int) string {
 	switch driver {
-	case constants.MySQL:
+	case constants.MySQL, constants.DB2:
 		return func(_ int) string { return "?" }
 	case constants.Postgres:
 		return func(i int) string { return fmt.Sprintf("$%d", i) }
@@ -529,8 +528,8 @@ func OracleChunkRetrievalQuery(taskName string) string {
 	return fmt.Sprintf(`SELECT chunk_id, start_rowid, end_rowid FROM user_parallel_execute_chunks WHERE task_name = '%s' ORDER BY chunk_id`, taskName)
 }
 
-// OracleIncrementalValueFormatter is used to format the value of the cursor field for Oracle incremental sync, mainly because of the various timestamp formats
-func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
+// IncrementalValueFormatter is used to format the value of the cursor field for incremental sync, mainly because of the various timestamp formats
+func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceholder string, isBackfill bool, lastCursorValue any, opts DriverOptions) (string, any, error) {
 	// Get the datatype of the cursor field from streams
 	stream := opts.Stream
 	// in case of incremental sync mode, during backfill to avoid duplicate records we need to use '<=', otherwise use '>'
@@ -547,16 +546,40 @@ func OracleIncrementalValueFormatter(ctx context.Context, cursorField, argumentP
 		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %s", lastCursorValue, lastCursorValue, err)
 	}
 
-	query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
-	err = opts.Client.QueryRowContext(ctx, query).Scan(&datatype)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+	quotedCol := QuoteIdentifier(cursorField, opts.Driver)
+	if formattedValue == nil {
+		return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), nil, nil
 	}
-	// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
-	quotedCol := QuoteIdentifier(cursorField, constants.Oracle)
-	if isTimestamp && !strings.Contains(string(datatype), "TIME ZONE") {
-		return fmt.Sprintf("%s %s CAST(%s AS TIMESTAMP)", quotedCol, operator, argumentPlaceholder), formattedValue, nil
+
+	var dbDatatype string
+	switch opts.Driver {
+	case constants.Oracle:
+		query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+		err = opts.Client.QueryRowContext(ctx, query).Scan(&dbDatatype)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+		}
+		// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
+		if isTimestamp && !strings.Contains(dbDatatype, "TIME ZONE") {
+			return fmt.Sprintf("%s %s CAST(%s AS TIMESTAMP)", quotedCol, operator, argumentPlaceholder), formattedValue, nil
+		}
+	case constants.DB2:
+		query := "SELECT TYPENAME FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? AND TABNAME = ? AND COLNAME = ?"
+		err = opts.Client.QueryRowContext(ctx, query, stream.Namespace(), stream.Name(), cursorField).Scan(&dbDatatype)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get db2 column datatype: %s", err)
+		}
+
+		if isTimestamp && strings.Contains(strings.ToUpper(dbDatatype), "TIMESTAMP") {
+			db2Timestamp, ok := formattedValue.(time.Time)
+			if !ok {
+				return "", nil, fmt.Errorf("expected time.Time for DB2 timestamp, got %T", formattedValue)
+			}
+			timestampValue := db2Timestamp.Format("2006-01-02 15:04:05.000000")
+			return fmt.Sprintf("%s %s TIMESTAMP_FORMAT(%s, 'YYYY-MM-DD HH24:MI:SS.FF6')", quotedCol, operator, argumentPlaceholder), timestampValue, nil
+		}
 	}
+
 	return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), formattedValue, nil
 }
 
@@ -571,6 +594,8 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 			driverType = constants.Postgres
 		case "oracle":
 			driverType = constants.Oracle
+		case "db2":
+			driverType = constants.DB2
 		default:
 			driverType = constants.Postgres // default fallback
 		}
@@ -661,8 +686,8 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
-		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
 		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
@@ -744,8 +769,8 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	placeholder := GetPlaceholder(opts.Driver)
 
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
-		if opts.Driver == constants.Oracle {
-			return OracleIncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil
@@ -769,4 +794,206 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 		arguments = append(arguments, argument)
 	}
 	return thresholdFilter, arguments, nil
+}
+
+// DB2 Specific Queries
+
+// DB2DiscoveryQuery returns the query to discover tables in a DB2 database with filter for 'T' (Table) and 'V' (View).
+func DB2DiscoveryQuery() string {
+	return `
+		SELECT
+			TRIM(TABSCHEMA) AS table_schema,
+			TRIM(TABNAME) AS table_name
+		FROM SYSCAT.TABLES
+		WHERE TYPE = 'T'
+		AND TABSCHEMA NOT LIKE 'SYS%'
+		ORDER BY TABSCHEMA, TABNAME
+	`
+}
+
+// DB2TableSchemaAndPrimaryKeysQuery returns the query to fetch columns for a specific table
+func DB2TableSchemaAndPrimaryKeysQuery() string {
+	return `
+		SELECT
+			c.COLNAME   AS column_name,
+			c.TYPENAME  AS data_type,
+			c.NULLS     AS is_nullable,
+			k.COLNAME   AS pk_column
+		FROM SYSCAT.COLUMNS c
+			LEFT JOIN SYSCAT.KEYCOLUSE k ON c.TABSCHEMA = k.TABSCHEMA AND c.TABNAME = k.TABNAME AND c.COLNAME = k.COLNAME
+		WHERE c.TABSCHEMA = ? AND c.TABNAME = ?
+		ORDER BY c.COLNO
+	`
+}
+
+// DB2ApproxRowCountQuery uses generic CARD from SYSCAT.TABLES (CARD is approx).
+func DB2ApproxRowCountQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT CARD FROM SYSCAT.TABLES WHERE TABSCHEMA = '%s' AND TABNAME = '%s'`, stream.Namespace(), stream.Name())
+}
+
+// DB2RidChunkScanQuery returns the query to fetch rows for a specific chunk using RID
+func DB2RidChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+	ridFunc := fmt.Sprintf("RID(%s)", quotedTable)
+
+	// chunk condition
+	var chunkCond string
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s >= %v AND %s < %v", ridFunc, chunk.Min, ridFunc, chunk.Max)
+	case chunk.Min != nil:
+		chunkCond = fmt.Sprintf("%s >= %v", ridFunc, chunk.Min)
+	case chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s < %v", ridFunc, chunk.Max)
+	}
+
+	// user-based filter
+	if filter != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE (%s) AND (%s)", quotedTable, chunkCond, filter)
+	}
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, chunkCond)
+}
+
+// DB2MinMaxRidQuery to find the min/max of RIDs for chunking
+func DB2MinMaxRidQuery(stream types.StreamInterface) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+	return fmt.Sprintf(`SELECT MIN(RID_VAL), MAX(RID_VAL) FROM (SELECT RID(%s) AS RID_VAL FROM %s) AS T`, quotedTable, quotedTable)
+}
+
+// DB2PageStatsQuery returns the query to fetch the page size and number of pages for a table
+func DB2PageStatsQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT TSP.PAGESIZE, T.NPAGES
+        FROM SYSCAT.TABLES T
+        JOIN SYSCAT.TABLESPACES TSP ON T.TBSPACE = TSP.TBSPACE
+        WHERE T.TABSCHEMA = '%s'
+          AND T.TABNAME = '%s'
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2TableStatsExistQuery returns the query to check if a table exists in DB2
+func DB2TableStatsExistQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT CASE 
+            WHEN EXISTS (SELECT 1 FROM "%s"."%s") THEN 1 
+            ELSE 0 
+        END FROM SYSIBM.SYSDUMMY1
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2AvgRowSizeQuery returns the query to fetch the average row size for a table in DB2
+func DB2AvgRowSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        SELECT AVGROWSIZE
+        FROM SYSCAT.TABLES
+        WHERE TABSCHEMA = '%s'
+          AND TABNAME = '%s'
+    `, stream.Namespace(), stream.Name())
+}
+
+// DB2MinMaxPKQuery returns the query to fetch min/max values of a column
+func DB2MinMaxPKQuery(stream types.StreamInterface, columns []string) string {
+	quotedCols := QuoteColumns(columns, constants.DB2)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	// DB2 concatenation
+	concatExpr := ""
+	for i, col := range quotedCols {
+		if i > 0 {
+			concatExpr += " || ',' || "
+		}
+		concatExpr += col
+	}
+
+	orderAsc := strings.Join(quotedCols, ", ")
+	descCols := make([]string, len(quotedCols))
+	for i, col := range quotedCols {
+		descCols[i] = col + " DESC"
+	}
+	orderDesc := strings.Join(descCols, ", ")
+
+	return fmt.Sprintf(`
+    SELECT
+        (SELECT %s FROM %s ORDER BY %s FETCH FIRST 1 ROWS ONLY) AS min_value,
+        (SELECT %s FROM %s ORDER BY %s FETCH FIRST 1 ROWS ONLY) AS max_value
+    FROM SYSIBM.SYSDUMMY1
+    `,
+		concatExpr, quotedTable, orderAsc,
+		concatExpr, quotedTable, orderDesc,
+	)
+}
+
+// DB2NextChunkEndQuery returns the query to calculate the next chunk boundary for DB2
+func DB2NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize int64) string {
+	quotedCols := QuoteColumns(columns, constants.DB2)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	// DB2 concatenation
+	concatExpr := ""
+	for i, col := range quotedCols {
+		if i > 0 {
+			concatExpr += " || ',' || "
+		}
+		concatExpr += col
+	}
+
+	var query strings.Builder
+	// SELECT with quoted and concatenated values
+	fmt.Fprintf(&query, "SELECT %s AS key_str FROM (SELECT %s FROM %s",
+		concatExpr,
+		strings.Join(quotedCols, ", "),
+		quotedTable,
+	)
+
+	// WHERE clause for lexicographic "greater than"
+	query.WriteString(" WHERE ")
+	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
+		if currentColIndex > 0 {
+			query.WriteString(" OR ")
+		}
+		query.WriteString("(")
+		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
+			fmt.Fprintf(&query, "%s = ? AND ", quotedCols[equalityColIndex])
+		}
+		fmt.Fprintf(&query, "%s > ?", quotedCols[currentColIndex])
+		query.WriteString(")")
+	}
+
+	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(quotedCols, ", "))
+	fmt.Fprintf(&query, " OFFSET %d ROWS FETCH NEXT 1 ROWS ONLY) AS subquery", chunkSize)
+	return query.String()
+}
+
+// DB2PKChunkScanQuery builds a chunk scan query for DB2 using Primary Keys
+func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
+	quotedCols := QuoteColumns(filterColumns, constants.DB2)
+	// for composite key check
+	columns := strings.Join(quotedCols, ", ")
+	if len(filterColumns) > 1 {
+		columns = fmt.Sprintf("(%s)", columns)
+	}
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+
+	buildSQLTuple := func(val any) string {
+		parts := strings.Split(val.(string), ",")
+		for i, part := range parts {
+			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
+		}
+		return strings.Join(parts, ", ")
+	}
+
+	chunkCond := ""
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", columns, buildSQLTuple(chunk.Min), columns, buildSQLTuple(chunk.Max))
+	case chunk.Min != nil:
+		chunkCond = fmt.Sprintf("%s >= (%s)", columns, buildSQLTuple(chunk.Min))
+	case chunk.Max != nil:
+		chunkCond = fmt.Sprintf("%s < (%s)", columns, buildSQLTuple(chunk.Max))
+	}
+
+	if extraFilter != "" && chunkCond != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE (%s) AND (%s)", quotedTable, chunkCond, extraFilter)
+	}
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, chunkCond)
 }

@@ -36,6 +36,23 @@ type Iceberg struct {
 	// It defines when to complete the Java writer and when schema evolution is required.
 }
 
+// Pre-computed lookup tables for type validation
+var validTypeTransitions = map[string]map[string]bool{
+	"int":         {"int": true, "long": true},
+	"long":        {"long": true, "int": true},
+	"float":       {"float": true, "double": true},
+	"double":      {"double": true, "float": true},
+	"boolean":     {"boolean": true},
+	"string":      {"string": true},
+	"timestamptz": {"timestamptz": true},
+}
+
+// promotionTransitions tracks when type promotion is required
+var promotionTransitions = map[string]map[string]bool{
+	"int":   {"long": true},
+	"float": {"double": true},
+}
+
 func (i *Iceberg) GetConfigRef() destination.Config {
 	i.config = &Config{}
 	return i.config
@@ -230,41 +247,6 @@ func (i *Iceberg) Type() string {
 
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
-	// dedup records according to cdc timestamp and olakeID
-	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
-		// only dedup if it is upsert mode
-		if !isUpsertMode(i.stream, i.options.Backfill) {
-			return records
-		}
-
-		// map olakeID -> index of record to keep (index into original slice)
-		keepIdx := make(map[string]int, len(records))
-		for idx, record := range records {
-			existingIdx, ok := keepIdx[record.OlakeID]
-			if !ok {
-				keepIdx[record.OlakeID] = idx
-				continue
-			}
-			if record.CdcTimestamp == nil {
-				keepIdx[record.OlakeID] = idx // keep latest reord (in incremental)
-				continue
-			}
-
-			ex := records[existingIdx]
-			if ex.CdcTimestamp.Before(*record.CdcTimestamp) {
-				keepIdx[record.OlakeID] = idx // keep latest reord (w.r.t cdc timestamp)
-			}
-		}
-
-		out := make([]types.RawRecord, 0, len(keepIdx))
-		for rIdx, record := range records {
-			if idx, ok := keepIdx[record.OlakeID]; ok && idx == rIdx {
-				out = append(out, record)
-			}
-		}
-		return out
-	}
-
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {
@@ -283,7 +265,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				detectedIcebergType := detectedType.ToIceberg()
 				if _, existInIceberg := threadSchema[key]; existInIceberg {
 					// Column exists in iceberg table: restrict to valid promotions only
-					valid := validIcebergType(finalSchema[key], detectedIcebergType)
+					valid := isValidTransition(finalSchema[key], detectedIcebergType)
 					if !valid {
 						return false, fmt.Errorf(
 							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
@@ -291,7 +273,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 						)
 					}
 
-					if promotionRequired(finalSchema[key], detectedIcebergType) {
+					if isPromotionRequired(finalSchema[key], detectedIcebergType) {
 						if detectChange {
 							return true, nil
 						}
@@ -335,7 +317,8 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 			// if schema difference is not detected, detect schema difference
 			if !diffThreadSchema.Load() {
-				if changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, copySchema(i.schema)); err != nil {
+				// when detectChange is true, the function does not modify schema parameter
+				if changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, i.schema); err != nil {
 					return fmt.Errorf("failed to detect schema: %s", err)
 				} else if changeDetected {
 					diffThreadSchema.Store(true)
@@ -361,8 +344,6 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 		return diffThreadSchema.Load(), schemaMap, err
 	}
-
-	records = dedupRecords(records)
 
 	if !i.stream.NormalizationEnabled() {
 		return false, records, i.schema, nil
@@ -407,7 +388,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		for fieldName, newType := range newSchema {
 			if oldType, exists := oldSchema[fieldName]; !exists {
 				return true
-			} else if promotionRequired(oldType, newType) {
+			} else if isPromotionRequired(oldType, newType) {
 				return true
 			}
 		}
@@ -440,7 +421,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 	resp, err := i.server.SendClientRequest(ctx, &request)
 	if err != nil {
-		return false, fmt.Errorf("failed to %s: %w", request.Type.String(), err)
+		return false, fmt.Errorf("failed to %s: %s", request.Type.String(), err)
 	}
 
 	response := resp.(*proto.RecordIngestResponse).GetResult()
@@ -457,30 +438,6 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	}
 
 	return schemaAfterEvolution, nil
-}
-
-// return if evolution is valid or not
-func validIcebergType(oldType, newType string) bool {
-	if oldType == newType || getCommonAncestorType(oldType, newType) == oldType {
-		return true
-	}
-
-	switch fmt.Sprintf("%s->%s", oldType, newType) {
-	case "int->long", "float->double", "long->int", "double->float":
-		return true
-	default:
-		return false
-	}
-}
-
-// promotion only required from int -> long and float -> double
-func promotionRequired(oldType, newType string) bool {
-	switch fmt.Sprintf("%s->%s", oldType, newType) {
-	case "int->long", "float->double":
-		return true
-	default:
-		return false
-	}
 }
 
 // parsePartitionRegex parses the partition regex and populates the partitionInfo slice
@@ -505,6 +462,29 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 	}
 
 	return nil
+}
+
+// isValidTransition checks if type transition is valid using lookup table
+func isValidTransition(oldType, newType string) bool {
+	if oldType == newType {
+		return true
+	}
+	if transitions, ok := validTypeTransitions[oldType]; ok {
+		if transitions[newType] {
+			return true
+		}
+	}
+
+	return getCommonAncestorType(oldType, newType) == oldType
+}
+
+// isPromotionRequired checks if promotion is needed using lookup table
+func isPromotionRequired(oldType, newType string) bool {
+	if transitions, ok := promotionTransitions[oldType]; ok {
+		return transitions[newType]
+	}
+
+	return false
 }
 
 // drop streams required for clear destination

@@ -11,13 +11,94 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
+var timeType = reflect.TypeOf(time.Time{})
+
 func TypeFromValue(v interface{}) types.DataType {
 	if v == nil {
 		return types.Null
 	}
 
-	// Check if v is a pointer and get the underlying element type if it is
+	switch val := v.(type) {
+	case bool:
+		return types.Bool
+	case int, int8, int16, int32, uint, uint8, uint16, uint32:
+		return types.Int32
+	case int64, uint64:
+		return types.Int64
+	case float32:
+		return types.Float32
+	case float64:
+		return types.Float64
+	case string:
+		t, err := ReformatDate(v, false)
+		if err == nil {
+			return detectTimestampPrecision(t)
+		}
+		return types.String
+	case []byte:
+		return types.String
+	case time.Time:
+		return detectTimestampPrecision(val)
+	case []any:
+		return types.Array
+	case map[string]any:
+		return types.Object
+	case *bool:
+		if val == nil {
+			return types.Null
+		}
+		return types.Bool
+	case *int:
+		if val == nil {
+			return types.Null
+		}
+		return types.Int32
+	case *int32:
+		if val == nil {
+			return types.Null
+		}
+		return types.Int32
+	case *int64:
+		if val == nil {
+			return types.Null
+		}
+		return types.Int64
+	case *float32:
+		if val == nil {
+			return types.Null
+		}
+		return types.Float32
+	case *float64:
+		if val == nil {
+			return types.Null
+		}
+		return types.Float64
+	case *string:
+		if val == nil {
+			return types.Null
+		}
+		t, err := ReformatDate(*val, false)
+		if err == nil {
+			return detectTimestampPrecision(t)
+		}
+		return types.String
+	case *time.Time:
+		if val == nil {
+			return types.Null
+		}
+		return detectTimestampPrecision(*val)
+	}
+
+	return typeFromValueReflect(v)
+}
+
+// typeFromValueReflect handles types that require reflection
+func typeFromValueReflect(v interface{}) types.DataType {
 	valType := reflect.TypeOf(v)
+	if valType == nil {
+		return types.Null
+	}
+	// Handle pointers
 	if valType.Kind() == reflect.Pointer {
 		val := reflect.ValueOf(v)
 		if val.IsNil() {
@@ -63,10 +144,9 @@ func TypeFromValue(v interface{}) types.DataType {
 		return types.Object
 	default:
 		// Check if the type is time.Time for timestamp detection
-		if valType == reflect.TypeOf(time.Time{}) {
+		if valType == timeType {
 			return detectTimestampPrecision(v.(time.Time))
 		}
-
 		return types.Unknown
 	}
 }
