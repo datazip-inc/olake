@@ -87,6 +87,7 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 func (s *ConfiguredStream) GetFilter() (FilterInput, bool, error) {
 	//new filter input
 	if s.StreamMetadata.FilterInput != nil && len(s.StreamMetadata.FilterInput.Conditions) > 0 {
+		s.StreamMetadata.FilterInput.LogicalOperator = utils.Reformat(s.StreamMetadata.FilterInput.LogicalOperator)
 		return *s.StreamMetadata.FilterInput, false, nil
 	}
 

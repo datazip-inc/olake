@@ -84,7 +84,7 @@ func FilterRecords(
 	}
 
 	logger.Debug("[FilterRecords] starting concurrent filtering")
-	return filterConcurrently(ctx, records, conditions, utils.Reformat(filter.LogicalOperator))
+	return filterConcurrently(ctx, records, conditions, filter.LogicalOperator)
 }
 
 // parsedCondition holds a fully-typed condition

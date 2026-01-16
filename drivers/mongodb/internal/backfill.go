@@ -426,6 +426,16 @@ func buildMongoCondition(cond types.FilterCondition) bson.D {
 			value = t
 			break
 		}
+		// try integer (for numeric cursor fields like id_bigint)
+		if intVal, err := typeutils.ReformatInt64(v); err == nil {
+			value = intVal
+			break
+		}
+		// try float
+		if floatVal, err := typeutils.ReformatFloat64(v); err == nil {
+			value = floatVal
+			break
+		}
 
 		value = v
 
