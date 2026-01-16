@@ -163,7 +163,9 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	}
 
 	// Query CDC rows for this capture instance between the two LSNs.
-	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCGetChangesQuery(capture.instanceName), fromLSNBytes, toLSNBytes)
+	query := jdbc.MSSQLCDCGetChangesQuery(capture.instanceName)
+	logger.Infof("Executing CDC query for stream %s: %s with params: fromLSN=%x, toLSN=%x", stream.ID(), query, fromLSNBytes, toLSNBytes)
+	rows, err := m.client.QueryContext(ctx, query, fromLSNBytes, toLSNBytes)
 	if err != nil {
 		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
 	}
