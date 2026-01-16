@@ -54,15 +54,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		// Capture and process rows
-		return setter.Capture(func(rows *sql.Rows) error {
-			record := make(types.Record)
-			err := jdbc.MapScan(rows, record, m.dataTypeConverter)
-			if err != nil {
-				return fmt.Errorf("failed to scan record data as map: %s", err)
-			}
-			return OnMessage(ctx, record)
-		})
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage)
 	})
 }
 
@@ -102,6 +94,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	// Takes the user defined batch size as chunkSize
+	// TODO: common-out the chunking logic for db2, mssql, mysql
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
 			// Get primary key column using the provided function
