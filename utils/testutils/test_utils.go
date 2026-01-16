@@ -693,13 +693,11 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	}
 
 	// Test cases for incremental sync
-	// Note: All tests use useState=true so they write cursor to state file
-	// This ensures subsequent incremental tests have a valid starting cursor
 	incrementalTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
 			operation: "",
-			useState:  true,
+			useState:  false,
 			opSymbol:  "r",
 			expected:  cfg.ExpectedData,
 		},
@@ -1093,7 +1091,20 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
 	t.Helper()
 	ctx := context.Background()
-	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+
+	// Retry Spark session creation for transient connection issues
+	var spark sql.SparkSession
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		spark, err = sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+		if err == nil {
+			break
+		}
+		if attempt < 3 {
+			t.Logf("Attempt %d/3: Failed to connect to Spark, retrying in 2s: %v", attempt, err)
+			time.Sleep(2 * time.Second)
+		}
+	}
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 	defer func() {
 		if stopErr := spark.Stop(); stopErr != nil {
@@ -1109,7 +1120,19 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		"CREATE OR REPLACE TEMP VIEW %s AS SELECT * FROM parquet.`%s/*.parquet`",
 		viewName, parquetPath,
 	)
-	_, err = spark.Sql(ctx, createViewQuery)
+
+	// Retry logic for transient Spark connection issues (e.g., catalog connection pool exhaustion)
+	const maxRetries = 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		_, err = spark.Sql(ctx, createViewQuery)
+		if err == nil {
+			break
+		}
+		if attempt < maxRetries {
+			t.Logf("Attempt %d/%d: Failed to create view, retrying in 2s: %v", attempt, maxRetries, err)
+			time.Sleep(2 * time.Second)
+		}
+	}
 	require.NoError(t, err, "Failed to create temporary view for Parquet files")
 
 	defer func() {
