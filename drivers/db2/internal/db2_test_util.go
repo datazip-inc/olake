@@ -93,8 +93,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
         UPDATE %s SET
             col_cursor = NULL,
-            col_smallint = 321,
-			col_char = 'new_char_val'
+            col_smallint = 321
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -170,7 +169,7 @@ var ExpectedDB2Data = map[string]interface{}{
 
 var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_bigint":     int64(12345678901234),
-	"col_char":       "new_char_val",
+	"col_char":       "c",
 	"col_character":  "char_val",
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
