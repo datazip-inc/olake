@@ -21,9 +21,9 @@ func TypeFromValue(v interface{}) types.DataType {
 	switch val := v.(type) {
 	case bool:
 		return types.Bool
-	case int8, int16, int32, uint8, uint16, uint32:
+	case int, int8, int16, int32, uint, uint8, uint16, uint32:
 		return types.Int32
-	case int, int64, uint, uint64:
+	case int64, uint64:
 		return types.Int64
 	case float32:
 		return types.Float32
@@ -52,7 +52,7 @@ func TypeFromValue(v interface{}) types.DataType {
 		if val == nil {
 			return types.Null
 		}
-		return types.Int64
+		return types.Int32
 	case *int32:
 		if val == nil {
 			return types.Null
@@ -122,11 +122,11 @@ func typeFromValueReflect(v interface{}) types.DataType {
 		return types.Null
 	case reflect.Bool:
 		return types.Bool
-	case reflect.Int8, reflect.Int16, reflect.Int32,
-		reflect.Uint8, reflect.Uint16, reflect.Uint32:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
 		return types.Int32
 	// on standard 64 bit systems, golang's int type is 64 bits
-	case reflect.Int, reflect.Int64, reflect.Uint, reflect.Uint64:
+	case reflect.Int64, reflect.Uint64:
 		return types.Int64
 	case reflect.Float32:
 		return types.Float32

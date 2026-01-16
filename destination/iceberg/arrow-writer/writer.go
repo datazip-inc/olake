@@ -9,8 +9,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/memory"
-	"github.com/apache/arrow-go/v18/parquet"
-	"github.com/apache/arrow-go/v18/parquet/pqarrow"
+	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
@@ -32,7 +31,7 @@ type ArrowWriter struct {
 }
 
 type RollingWriter struct {
-	currentWriter   *pqarrow.FileWriter
+	currentWriter   *parquetWriter
 	currentBuffer   *bytes.Buffer
 	currentRowCount int64
 	partitionValues []any
@@ -382,38 +381,25 @@ func (w *ArrowWriter) getOrCreateWriter(partitionKey string, schema arrow.Schema
 	return writer, nil
 }
 
-func (w *ArrowWriter) createWriter(schema arrow.Schema, fileType string, partitionValues []any) (*RollingWriter, error) {
+func (w *ArrowWriter) createWriter(arrowSchema arrow.Schema, fileType string, partitionValues []any) (*RollingWriter, error) {
 	baseProps := getDefaultWriterProps()
-	baseProps = append(baseProps, parquet.WithAllocator(w.allocator))
-
 	currentBuffer := &bytes.Buffer{}
-	writerProps := parquet.NewWriterProperties(baseProps...)
 
-	arrowProps := pqarrow.NewArrowWriterProperties(
-		pqarrow.WithStoreSchema(),
-		pqarrow.WithNoMapLogicalType(),
-	)
-
-	writer, err := pqarrow.NewFileWriter(&schema, currentBuffer, writerProps, arrowProps)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new file writer: %s", err)
-	}
+	// build the key-value metadata
+	kvMeta := make(metadata.KeyValueMetadata, 0)
+	kvMeta.Append("iceberg.schema", w.fileschemajson[fileType])
 
 	if fileType == fileTypeDelete {
-		if err = writer.AppendKeyValueMetadata("delete-type", "equality"); err != nil {
-			return nil, fmt.Errorf("failed to append key value metadata, delete-type equality: %s", err)
-		}
-
+		kvMeta.Append("delete-type", "equality")
 		// Extract field ID from _olake_id field metadata
-		olakeIDField := schema.Field(0)
+		olakeIDField := arrowSchema.Field(0)
 		fieldIDStr, _ := olakeIDField.Metadata.GetValue("PARQUET:field_id")
-		if err = writer.AppendKeyValueMetadata("delete-field-ids", fieldIDStr); err != nil {
-			return nil, fmt.Errorf("failed to append key value metadata, delete-field-ids: %s", err)
-		}
+		kvMeta.Append("delete-field-ids", fieldIDStr)
 	}
 
-	if err = writer.AppendKeyValueMetadata("iceberg.schema", w.fileschemajson[fileType]); err != nil {
-		return nil, fmt.Errorf("failed to append iceberg schema json: %s", err)
+	writer, err := newParquetWriter(&arrowSchema, currentBuffer, baseProps, kvMeta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create iceberg parquet writer: %s", err)
 	}
 
 	return &RollingWriter{
