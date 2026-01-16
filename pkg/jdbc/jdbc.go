@@ -375,8 +375,8 @@ func MySQLMasterStatusQueryNew() string {
 	return "SHOW BINARY LOG STATUS"
 }
 
-// MySQLLogBinQuery returns the query to fetch the log_bin variable in MySQL
-func MySQLLogBinQuery() string {
+// MySQLBinLogQuery returns the query to fetch the log_bin variable in MySQL
+func MySQLBinLogQuery() string {
 	return "SHOW VARIABLES LIKE 'log_bin'"
 }
 
@@ -388,6 +388,11 @@ func MySQLBinlogFormatQuery() string {
 // MySQLBinlogRowMetadataQuery returns the query to fetch the binlog_row_metadata variable in MySQL
 func MySQLBinlogRowMetadataQuery() string {
 	return "SHOW VARIABLES LIKE 'binlog_row_metadata'"
+}
+
+// MySQLBinlogRowImageQuery returns the query to fetch the binlog_row_image variable in MySQL
+func MySQLBinlogRowImageQuery() string {
+	return "SHOW VARIABLES LIKE 'binlog_row_image'"
 }
 
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
