@@ -732,6 +732,17 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
 			}
 
+			// Only reset state for tests that don't use state (useState=false)
+			// For incremental tests with useState=true, use state from previous test case
+			// This ensures the cursor-based sync has valid state to work with
+			if !tc.useState {
+				resetState := resetStateFileCommand(*cfg.TestConfig)
+				code, out, err := utils.ExecCommand(ctx, c, resetState)
+				if err != nil || code != 0 {
+					t.Fatalf("Failed to reset state for %s: %v\n%s", tc.name, err, out)
+				}
+			}
+
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
