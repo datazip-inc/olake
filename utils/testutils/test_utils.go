@@ -693,11 +693,13 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	}
 
 	// Test cases for incremental sync
+	// Note: All tests use useState=true so they write cursor to state file
+	// This ensures subsequent incremental tests have a valid starting cursor
 	incrementalTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
 			operation: "",
-			useState:  false,
+			useState:  true,
 			opSymbol:  "r",
 			expected:  cfg.ExpectedData,
 		},
