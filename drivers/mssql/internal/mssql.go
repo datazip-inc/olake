@@ -22,14 +22,13 @@ import (
 )
 
 type MSSQL struct {
-	client *sqlx.DB
-	config *Config
-
-	CDCSupport bool
-
+	client      *sqlx.DB
+	config      *Config
 	state       *types.State
 	capturesMap map[string][]captureInstance
 	lsnMap      sync.Map
+
+	cdcSupported bool
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -49,7 +48,7 @@ func (m *MSSQL) Type() string {
 }
 
 func (m *MSSQL) CDCSupported() bool {
-	return m.CDCSupport
+	return m.cdcSupported
 }
 
 // Setup establishes the database connection and initialises CDC settings.
@@ -87,7 +86,7 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	if !cdcSupported {
 		logger.Warnf("CDC is not supported")
 	}
-	m.CDCSupport = cdcSupported
+	m.cdcSupported = cdcSupported
 	return nil
 }
 
@@ -294,7 +293,7 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 // IsTableCDCEnabled checks if CDC is enabled for a specific table.
 // This is used during discover to determine if CDC sync modes should be available for a stream.
 func (m *MSSQL) IsTableCDCEnabled(ctx context.Context, namespace, name string) (bool, error) {
-	if !m.CDCSupport {
+	if !m.cdcSupported {
 		return false, nil
 	}
 	var captureInstance string

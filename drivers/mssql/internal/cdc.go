@@ -61,7 +61,7 @@ func (m *MSSQL) prepareCaptureInstances(ctx context.Context, streams []types.Str
 
 // PreCDC initialises CDC state and starting LSN per stream.
 func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
-	if !m.CDCSupport {
+	if !m.cdcSupported {
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
@@ -92,9 +92,9 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 // StreamChanges fetches a bounded window of CDC changes for a specific stream.
 func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.CDCMsgFn) error {
 	// Get current position for this stream
-	fromLSNVal, ok := m.lsnMap.Load(stream.ID())
-	if !ok {
-		return fmt.Errorf("no cached LSN found for stream %s", stream.ID())
+	fromLSNVal, exists := m.lsnMap.Load(stream.ID())
+	if !exists {
+		return fmt.Errorf("no LSN found for stream %s", stream.ID())
 	}
 	fromLSN := fromLSNVal.(string)
 
@@ -141,18 +141,6 @@ func (m *MSSQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 		}
 	}
 	return nil
-}
-
-func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
-	var lsn []byte
-	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCMaxLSNQuery()).Scan(&lsn)
-	if err != nil {
-		return "", err
-	}
-	if len(lsn) == 0 {
-		return "", fmt.Errorf("no LSN available (CDC may not be initialized or no transactions exist)")
-	}
-	return hex.EncodeToString(lsn), nil
 }
 
 // fetchTableChangesInLSNRange fetches and emits CDC changes for a single table/capture-instance within an LSN range.
@@ -219,6 +207,18 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		return err
 	}
 	return nil
+}
+
+func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
+	var lsn []byte
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCMaxLSNQuery()).Scan(&lsn)
+	if err != nil {
+		return "", err
+	}
+	if len(lsn) == 0 {
+		return "", fmt.Errorf("no LSN available (CDC may not be initialized or no transactions exist)")
+	}
+	return hex.EncodeToString(lsn), nil
 }
 
 // advanceLSN returns the next valid LSN after the given LSN.
