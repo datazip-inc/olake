@@ -15,6 +15,7 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 type ArrowWriter struct {
@@ -110,6 +111,11 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 		}
 
 		fieldValue := utils.Ternary(pInfo.Field == constants.OlakeTimestamp, olakeTimestamp, record.Data[pInfo.Field])
+		if colType == "timestamptz" {
+			if ts, err := typeutils.ReformatDate(fieldValue, true); err == nil {
+				fieldValue = ts
+			}
+		}
 
 		pathStr, typedVal, err := TransformValue(fieldValue, pInfo.Transform, colType)
 		if err != nil {
@@ -276,6 +282,8 @@ func (w *ArrowWriter) writePositionalDeletes(ctx context.Context, dt *DeleteTrac
 
 // checkAndFlush checks if file size threshold is reached and flushes if needed.
 func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, partitionKey string, fileType string) error {
+	// logic, sizeSoFar := actual File Size + current compressed data (RowGroupTotalBytesWritten())
+	// we can find out current row group's compressed size even before completing the entire row group
 	sizeSoFar := int64(rw.currentBuffer.Len()) + rw.currentWriter.RowGroupTotalBytesWritten()
 	targetSize := targetDataFileSize
 	if fileType == fileTypeEqualityDelete || fileType == fileTypePositionalDelete {
@@ -495,10 +503,10 @@ func (w *ArrowWriter) newRollingWriter(arrowSchema arrow.Schema, fileType string
 
 	return &RollingWriter{
 		filePath:        filePath,
-		currentWriter:          pqWriter,
-		currentBuffer:          buf,
-		currentRowCount:        0,
-		partitionValues:       partition,
+		currentWriter:   pqWriter,
+		currentBuffer:   buf,
+		currentRowCount: 0,
+		partitionValues: partition,
 		olakeIDPosition: make(map[string]int64),
 	}, nil
 }

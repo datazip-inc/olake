@@ -83,6 +83,9 @@ func identityTransform(val any, colType string) (pathStr string, typedVal any, e
 		return s, s, nil
 	case "timestamptz":
 		t := val.(time.Time).UTC()
+		if t.IsZero() {
+			return NULL, nil, nil
+		}
 		pathStr = t.Format("2006-01-02T15:04:05-07:00")
 		typedVal = t.UnixMicro()
 		return pathStr, typedVal, nil
@@ -98,6 +101,9 @@ func timeTransform(val any, unit string, colType string) (pathStr string, typedV
 
 	v, _ := val.(time.Time)
 	v = v.UTC()
+	if v.IsZero() {
+		return NULL, nil, nil
+	}
 	epoch := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	switch unit {
@@ -136,6 +142,9 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 		tm, ok := val.(time.Time)
 		if !ok {
 			return "", nil, fmt.Errorf("expected time.Time for colType %q, got %T", colType, val)
+		}
+		if tm.IsZero() {
+			return NULL, nil, nil
 		}
 		h = hashInt(tm.UnixMicro())
 	case "string":
