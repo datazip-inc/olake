@@ -31,6 +31,11 @@ type CDC struct {
 	InitialWaitTime int `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
+	// OnLSNMismatch defines behavior when LSN mismatch is detected
+	// "fail" - fail sync and ask user to clear destination (default, prevents duplicates)
+	// "full_load" - perform full load with new LSN (accepts duplicates, useful for S3/Parquet destinations)
+	// Note: For Iceberg destinations, this should always be "fail" to prevent data duplication
+	OnLSNMismatch string `json:"on_lsn_mismatch"`
 }
 
 func (c *Config) Validate() error {
