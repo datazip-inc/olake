@@ -87,6 +87,5 @@ func (c *Config) Validate() error {
 	if c.RetryCount <= 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
-	
 	return utils.Validate(c)
 }
