@@ -105,6 +105,16 @@
                             "type": "string",
                             "title": "Publication",
                             "description": "Publication defines which tables need to be consumed"
+                        },
+                        "on_lsn_mismatch": {
+                            "type": "string",
+                            "title": "On LSN Mismatch",
+                            "description": "Behavior when LSN mismatch is detected. 'fail' (default): fail sync and request clear destination to prevent duplicates. 'full_load': restart with new LSN, accepting potential duplicates. Note: Always use 'fail' for Iceberg destinations.",
+                            "default": "fail",
+                            "enum": [
+                                "fail",
+                                "full_load"
+                            ]
                         }
                     },
                     "required": [

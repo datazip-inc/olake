@@ -72,10 +72,23 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 			if err != nil {
 				return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
 			}
-			// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
-			// suggesting to proceed with clear destination
+			// Handle LSN mismatch based on user configuration
 			if parsed != socket.ConfirmedFlushLSN {
-				return fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", parsed, socket.ConfirmedFlushLSN)
+				currentLSN := socket.ConfirmedFlushLSN
+				logger.Warnf("LSN mismatch detected. Stored LSN [%s], Current LSN [%s]", parsed, currentLSN)
+
+				// Check the configured behavior for LSN mismatch
+				if p.cdcConfig.OnLSNMismatch == "full_load" {
+					// User has chosen to perform full load on mismatch (accepts duplicates)
+					logger.Warnf("on_lsn_mismatch is set to 'full_load'. Starting full load with new LSN. This may result in duplicate data.")
+					if err := fullLoadAck(); err != nil {
+						return fmt.Errorf("failed to ack lsn for full load after mismatch: %s", err)
+					}
+				} else {
+					// Default behavior: fail sync to prevent duplicates
+					// This is recommended for Iceberg destinations
+					return fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]. To allow full load on mismatch, set on_lsn_mismatch to 'full_load' (not recommended for Iceberg destinations)", parsed, currentLSN)
+				}
 			}
 		}
 	}
