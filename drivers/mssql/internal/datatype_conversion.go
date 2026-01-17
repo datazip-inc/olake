@@ -22,8 +22,8 @@ var mssqlTypeToDataTypes = map[string]types.DataType{
 	"bit": types.Bool,
 
 	// Money types
-	"smallmoney": types.String,
-	"money":      types.String,
+	"smallmoney": types.Float64,
+	"money":      types.Float64,
 
 	// Character strings
 	"char":     types.String,
