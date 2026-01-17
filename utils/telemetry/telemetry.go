@@ -24,7 +24,6 @@ import (
 
 const (
 	userIDFile            = "user_id"
-	version               = "0.0.0"
 	ipNotFoundPlaceholder = "NA"
 	proxTrackURL          = "https://analytics.olake.io/mp/track"
 )
@@ -55,6 +54,8 @@ type LocationInfo struct {
 
 func Init() {
 	go func() {
+		//get the version
+		version := getVersion()
 		// check for disable
 		disabled, _ := strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED"))
 		if disabled {
@@ -296,4 +297,13 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 		return nil
 	})
 	return count
+}
+
+// getVersion extracts the olake version from the ENV embedded in the olake image
+func getVersion() string {
+	v := os.Getenv("DRIVER_VERSION")
+	if v == "" {
+		return "version not embedded"
+	}
+	return v
 }
