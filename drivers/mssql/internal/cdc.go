@@ -203,6 +203,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
+		// TODO: check if we can use MapScanConcurrent for mssql
 		record := make(map[string]interface{})
 		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)

@@ -274,30 +274,11 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 		return values
 	}
 
-	// formatSQLLiteral returns a SQL literal for the given boundary value.
-	// It avoids quoting numeric/boolean values (to prevent type conversion issues)
-	// and only quotes actual strings.
+	// formatSQLLiteral returns a SQL literal for the given value.
 	formatSQLLiteral := func(value string) string {
 		if value == "" {
 			return "''"
 		}
-
-		// Integers stay unquoted.
-		if _, err := strconv.ParseInt(value, 10, 64); err == nil {
-			return value
-		}
-
-		// Floats stay unquoted.
-		if _, err := strconv.ParseFloat(value, 64); err == nil {
-			return value
-		}
-
-		// Boolean values stay unquoted.
-		if value == "true" || value == "false" {
-			return value
-		}
-
-		// Everything else is treated as a string and escaped.
 		escaped := strings.ReplaceAll(value, "'", "''")
 		return fmt.Sprintf("'%s'", escaped)
 	}
