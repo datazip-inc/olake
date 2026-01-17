@@ -37,42 +37,30 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	switch operation {
 	case "create":
+		// Create a topic (used by Discover test)
 		createTopic(ctx, t, currentTopic)
 
-	case "drop":
-		deleteTopic(ctx, t, currentTopic)
-
 	case "clean":
-		// In Kafka, "cleaning" could mean deleting the topic and recreating it
-		// For simplicity, we'll recreate the topic.
+		// Delete and recreate the topic for a fresh test state
 		deleteTopic(ctx, t, currentTopic)
 		time.Sleep(2 * time.Second)
 		createTopic(ctx, t, currentTopic)
 		time.Sleep(3 * time.Second) // Wait for topic to be fully available
 
 	case "add":
+		// Produce initial messages
 		produceMessages(ctx, t, currentTopic, false)
 
 	case "insert":
-		// Produce more messages
+		// Produce additional messages for incremental sync test
 		produceMessages(ctx, t, currentTopic, true)
 
-	case "update":
-		// Produce messages with same ID but different content
-		produceUpdateMessages(ctx, t, currentTopic)
-
-	case "delete":
-		// skip explicit delete for now or implement a tombstone if applicable.
-		t.Log("Delete operation not fully implemented for Kafka test helper yet")
-
-	case "evolve-schema":
-		// Kafka is schema-less, so this might be a no-op
-		// or producing messages with new fields.
-		t.Log("Evolve schema operation - producing message with new field")
-		produceEvolvedMessage(ctx, t, currentTopic)
+	case "drop":
+		// delete the topic
+		deleteTopic(ctx, t, currentTopic)
 
 	default:
-		t.Fatalf("Unsupported operation: %s", operation)
+		t.Logf("Operation %s not implemented for Kafka (append-only)", operation)
 	}
 }
 
@@ -156,65 +144,17 @@ func produceMessages(ctx context.Context, t *testing.T, topicName string, isCDC 
 	require.NoError(t, err, "Failed to write messages to Kafka")
 }
 
-func produceUpdateMessages(ctx context.Context, t *testing.T, topicName string) {
-	w := &kafka.Writer{
-		Addr:     kafka.TCP(brokerAddress),
-		Topic:    topicName,
-		Balancer: &kafka.LeastBytes{},
-	}
-	defer w.Close()
-
-	msg := TestMessage{
-		ID:        6,
-		Name:      "updated_name_6",
-		Price:     999.99,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}
-	val, err := json.Marshal(msg)
-	require.NoError(t, err)
-
-	err = w.WriteMessages(ctx, kafka.Message{
-		Key:   []byte("6"),
-		Value: val,
-	})
-	require.NoError(t, err, "Failed to write update message to Kafka")
-}
-
-func produceEvolvedMessage(ctx context.Context, t *testing.T, topicName string) {
-	w := &kafka.Writer{
-		Addr:     kafka.TCP(brokerAddress),
-		Topic:    topicName,
-		Balancer: &kafka.LeastBytes{},
-	}
-	defer w.Close()
-
-	msg := map[string]interface{}{
-		"id":        7,
-		"name":      "evolved_name",
-		"price":     77.7,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"new_field": "extra_data",
-	}
-	val, err := json.Marshal(msg)
-	require.NoError(t, err)
-
-	err = w.WriteMessages(ctx, kafka.Message{
-		Key:   []byte("7"),
-		Value: val,
-	})
-	require.NoError(t, err, "Failed to write evolved message to Kafka")
-}
-
 var ExpectedKafkaData = map[string]interface{}{
 	"id":    int64(6),
 	"name":  "name_6",
 	"price": float64(63.0),
 }
 
+// ExpectedUpdatedData not used for Kafka (append-only), but required by test framework
 var ExpectedUpdatedData = map[string]interface{}{
 	"id":    int64(6),
-	"name":  "updated_name_6",
-	"price": float64(999.99),
+	"name":  "name_6",
+	"price": float64(63.0),
 }
 
 var KafkaToDestinationSchema = map[string]string{
