@@ -226,7 +226,6 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 			return typeutils.ReformatGeoType(value)
 		}
 	}
-
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }

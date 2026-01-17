@@ -20,6 +20,7 @@ type StringInterface interface {
 	String() string
 }
 
+var EnableMySQLBinlogFloatFix = false
 var (
 	ErrNullValue = fmt.Errorf("null value")
 )
@@ -462,7 +463,21 @@ func ReformatFloat32(v interface{}) (float32, error) {
 	case float32:
 		return v, nil
 	case float64:
-		return float32(v), nil
+    	// Apply normalization ONLY for MySQL binlog CDC
+		if EnableMySQLBinlogFloatFix {
+		f32 := float32(v)
+		str := strconv.FormatFloat(float64(f32), 'f', -1, 32)
+
+		finalVal, err := strconv.ParseFloat(str, 32)
+		if err != nil {
+			return float32(0), err
+		}
+		return float32(finalVal), nil
+	}
+
+	// Default behavior for all other drivers
+	return float32(v), nil
+
 	case int:
 		return float32(v), nil
 	case int8:
