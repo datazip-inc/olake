@@ -1,0 +1,24 @@
+{
+  "host": "localhost",
+  "port": 5433,
+  "database": "postgres",
+  "username": "postgres",
+  "password": "secret1234",
+  "ssl": {
+    "mode": "disable"
+  },
+  "update_method": {
+    "type": "CDC",
+    "replication_slot": "olake_slot",
+    "initial_wait_time": 120,
+    "publication": "olake_publication"
+  },
+  "reader_batch_size": 1,
+  "default_mode": "cdc",
+  "max_threads": 30,
+  "ssh_config": {
+    "type": "no_tunnel"
+  },
+  "jdbc_url_params": {},
+  "retry_count": 2
+}
