@@ -9,6 +9,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalState, streams []types.StreamInterface) (*binlog.Connection, error) {
@@ -66,6 +67,11 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+
+	typeutils.EnableMySQLBinlogFloatFix = true
+	defer func() {
+		typeutils.EnableMySQLBinlogFloatFix = false
+	}()
 	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
 }
 
