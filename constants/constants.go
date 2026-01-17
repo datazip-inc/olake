@@ -53,3 +53,5 @@ var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2}
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 
 var SkipCDCDrivers = []DriverType{Oracle, DB2}
+
+var HasCustomSyncTests = []DriverType{Kafka}
