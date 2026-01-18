@@ -1190,7 +1190,7 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 
 	// buildCursorCondition creates the SQL condition for incremental queries based on cursor fields.
 	buildCursorCondition := func(cursorField string, lastCursorValue any, argumentPosition int) (string, any, error) {
-		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 || opts.Driver == constants.MSSQL {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
@@ -1273,7 +1273,7 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	placeholder := GetPlaceholder(opts.Driver)
 
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
-		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 {
+		if opts.Driver == constants.Oracle || opts.Driver == constants.DB2 || opts.Driver == constants.MSSQL {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
