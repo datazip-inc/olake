@@ -419,7 +419,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		default:
 			if wErr != nil {
 				select {
-				case errCh <- fmt.Errorf("%s exited before ready: %w", processName, wErr):
+				case errCh <- fmt.Errorf("%s exited before ready: %s", processName, wErr):
 				default:
 				}
 			} else {
