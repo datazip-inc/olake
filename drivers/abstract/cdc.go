@@ -204,9 +204,5 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 }
 
 func isParallelChangeStream(driverType string) bool {
-	parallelStreamDrivers := []string{
-		string(constants.MongoDB),
-		string(constants.MSSQL),
-	}
-	return slices.Contains(parallelStreamDrivers, driverType)
+	return slices.Contains(constants.ParallelCDCDrivers, constants.DriverType(driverType))
 }

@@ -21,6 +21,7 @@ type captureInstance struct {
 	schema       string
 	table        string
 	instanceName string
+	startLSN     string
 }
 
 // prepareCaptureInstances discovers capture instances for selected streams
@@ -40,10 +41,15 @@ func (m *MSSQL) prepareCaptureInstances(ctx context.Context, streams []types.Str
 	defer rows.Close()
 
 	for rows.Next() {
-		var capture captureInstance
-		if err := rows.Scan(&capture.schema, &capture.table, &capture.instanceName); err != nil {
+		var (
+			capture  captureInstance
+			startLSN []byte // to track the start LSN of the capture instance
+		)
+
+		if err := rows.Scan(&capture.schema, &capture.table, &capture.instanceName, &startLSN); err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
 		}
+		capture.startLSN = hex.EncodeToString(startLSN)
 
 		logger.Infof("[CDC DEBUG] Discovered capture instance: schema=%s, table=%s, instance=%s", capture.schema, capture.table, capture.instanceName)
 		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
@@ -118,11 +124,37 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 		return nil
 	}
 
-	// TODO: Handle multiple capture instances (schema evolution).
-	capture := captures[len(captures)-1]
+	// TODO: research how to handle schema evolution
+
+	// Select the newest capture instance whose startLSN is <= fromLSN.
+	// This allows seamless continuation across CDC capture re-creation
+	// during schema evolution.
+	var selectedCapture *captureInstance
+	for i := len(captures) - 1; i >= 0; i-- {
+		// LSNs are fixed-length hex strings and can be compared lexicographically
+		if captures[i].startLSN <= fromLSN {
+			selectedCapture = &captures[i]
+			break
+		}
+	}
+
+	if selectedCapture == nil {
+		return fmt.Errorf(
+			"LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh",
+			fromLSN,
+			stream.ID(),
+		)
+	}
+
+	logger.Infof(
+		"Selected CDC capture instance [%s] for stream %s (from LSN %s)",
+		selectedCapture.instanceName,
+		stream.ID(),
+		fromLSN,
+	)
 
 	// Fetch changes
-	err = m.fetchTableChangesInLSNRange(ctx, stream, capture, fromLSN, targetLSN, processFn)
+	err = m.fetchTableChangesInLSNRange(ctx, stream, *selectedCapture, fromLSN, targetLSN, processFn)
 	if err != nil {
 		return err
 	}
@@ -177,6 +209,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
+		// TODO: check if we can use MapScanConcurrent for mssql
 		record := make(map[string]interface{})
 		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)

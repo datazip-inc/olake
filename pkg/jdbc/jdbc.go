@@ -274,30 +274,11 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 		return values
 	}
 
-	// formatSQLLiteral returns a SQL literal for the given boundary value.
-	// It avoids quoting numeric/boolean values (to prevent type conversion issues)
-	// and only quotes actual strings.
+	// formatSQLLiteral returns a SQL literal for the given value.
 	formatSQLLiteral := func(value string) string {
 		if value == "" {
 			return "''"
 		}
-
-		// Integers stay unquoted.
-		if _, err := strconv.ParseInt(value, 10, 64); err == nil {
-			return value
-		}
-
-		// Floats stay unquoted.
-		if _, err := strconv.ParseFloat(value, 64); err == nil {
-			return value
-		}
-
-		// Boolean values stay unquoted.
-		if value == "true" || value == "false" {
-			return value
-		}
-
-		// Everything else is treated as a string and escaped.
 		escaped := strings.ReplaceAll(value, "'", "''")
 		return fmt.Sprintf("'%s'", escaped)
 	}
@@ -712,20 +693,36 @@ func MSSQLCDCTableEnabledQuery() string {
 // MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
 func MSSQLCDCDiscoverQuery(streams []string) string {
 	query := `
-		SELECT s.name AS schema_name,
+		SELECT
+			s.name AS schema_name,
 			t.name AS table_name,
-			c.capture_instance
+			c.capture_instance,
+			c.start_lsn
 		FROM sys.tables t
-		JOIN sys.schemas s ON t.schema_id = s.schema_id
-		JOIN cdc.change_tables c ON t.object_id = c.source_object_id
+		JOIN sys.schemas s
+			ON t.schema_id = s.schema_id
+		JOIN cdc.change_tables c
+			ON t.object_id = c.source_object_id
 	`
+
 	if len(streams) > 0 {
 		var quotedStreams []string
 		for _, s := range streams {
 			quotedStreams = append(quotedStreams, fmt.Sprintf("'%s'", s))
 		}
-		query += fmt.Sprintf(" WHERE CONCAT(s.name, '.', t.name) IN (%s)", strings.Join(quotedStreams, ","))
+		query += fmt.Sprintf(
+			" WHERE CONCAT(s.name, '.', t.name) IN (%s)",
+			strings.Join(quotedStreams, ","),
+		)
 	}
+
+	query += `
+		ORDER BY
+			s.name ASC,
+			t.name ASC,
+			c.start_lsn ASC
+	`
+
 	return query
 }
 
