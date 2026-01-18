@@ -224,3 +224,126 @@ func TestConfigDefaults(t *testing.T) {
 		t.Error("MaxThreads should be set to default value")
 	}
 }
+
+func TestProcessProperties(t *testing.T) {
+	driver := &Elasticsearch{}
+	stream := types.NewStream("test_index", "elasticsearch", nil)
+
+	properties := map[string]interface{}{
+		"id": map[string]interface{}{
+			"type": "keyword",
+		},
+		"name": map[string]interface{}{
+			"type": "text",
+		},
+		"age": map[string]interface{}{
+			"type": "integer",
+		},
+		"user_id": map[string]interface{}{
+			"type": "long",
+		},
+		"score": map[string]interface{}{
+			"type": "float",
+		},
+		"rating": map[string]interface{}{
+			"type": "double",
+		},
+		"is_active": map[string]interface{}{
+			"type": "boolean",
+		},
+		"created_date": map[string]interface{}{
+			"type": "date",
+		},
+		"last_login": map[string]interface{}{
+			"type": "date",
+		},
+		"metadata": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"department": map[string]interface{}{
+					"type": "keyword",
+				},
+				"level": map[string]interface{}{
+					"type": "integer",
+				},
+			},
+		},
+		"addresses": map[string]interface{}{
+			"type": "nested",
+			"properties": map[string]interface{}{
+				"street": map[string]interface{}{
+					"type": "text",
+				},
+				"city": map[string]interface{}{
+					"type": "keyword",
+				},
+			},
+		},
+	}
+
+	driver.processProperties(stream, properties, "")
+
+	// Verify all fields were added
+	expectedFields := []string{
+		"id", "name", "age", "user_id", "score", "rating", "is_active",
+		"created_date", "last_login", "metadata.department", "metadata.level",
+		"addresses.street", "addresses.city",
+	}
+
+	for _, field := range expectedFields {
+		found, _ := stream.Schema.GetProperty(field)
+		if !found {
+			t.Errorf("Field %s not found in schema", field)
+		}
+	}
+}
+
+func TestStateManagement(t *testing.T) {
+	stream := types.NewStream("test_index", "elasticsearch", nil)
+	stream.UpsertField("timestamp", types.Timestamp, true)
+
+	// Verify field was added
+	found, _ := stream.Schema.GetProperty("timestamp")
+	if !found {
+		t.Error("timestamp field not found in schema")
+	}
+}
+
+func TestStreamInterface(t *testing.T) {
+	driver := &Elasticsearch{
+		config: &Config{
+			Host:     "localhost",
+			Port:     9200,
+			Username: "elastic",
+			Password: "changeme",
+			Index:    "test-index",
+		},
+	}
+
+	// Test Type
+	if driver.Type() != "elasticsearch" {
+		t.Errorf("Type() = %v, want elasticsearch", driver.Type())
+	}
+
+	// Test CDCSupported
+	if driver.CDCSupported() {
+		t.Error("CDCSupported() = true, want false")
+	}
+
+	// Test StateType
+	if driver.StateType() != types.GlobalType {
+		t.Errorf("StateType() = %v, want GlobalType", driver.StateType())
+	}
+
+	// Test MaxConnections
+	driver.config.MaxThreads = 10
+	if driver.MaxConnections() != 10 {
+		t.Errorf("MaxConnections() = %v, want 10", driver.MaxConnections())
+	}
+
+	// Test MaxRetries
+	driver.config.RetryCount = 3
+	if driver.MaxRetries() != 3 {
+		t.Errorf("MaxRetries() = %v, want 3", driver.MaxRetries())
+	}
+}
