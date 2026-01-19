@@ -231,21 +231,15 @@ func createFields(schema map[string]string, fieldIDs map[string]int32) []arrow.F
 	return fields
 }
 
-func (rw *RollingWriter) createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema) (arrow.Record, error) {
+func createDeleteArrowRecord(records []string, allocator memory.Allocator, schema *arrow.Schema) (arrow.Record) {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
 	for _, rec := range records {
-		// write _olake_id for equality deletes only once
-		if _, ok := rw.olakeIDPosition[rec.OlakeID]; !ok {
-			recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
-			rw.olakeIDPosition[rec.OlakeID] = -1
-		}
+		recordBuilder.Field(0).(*array.StringBuilder).Append(rec)
 	}
 
-	arrowRec := recordBuilder.NewRecord()
-
-	return arrowRec, nil
+	return recordBuilder.NewRecord()
 }
 
 func createPositionalDeleteArrowRecord(posDeletes []PositionalDelete, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
@@ -261,10 +255,6 @@ func createPositionalDeleteArrowRecord(posDeletes []PositionalDelete, allocator 
 }
 
 func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool, olakeTimestamp time.Time) (arrow.Record, error) {
-	if len(records) == 0 {
-		return nil, fmt.Errorf("no records provided")
-	}
-
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
