@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -73,7 +74,7 @@ type parquetWriter struct {
 	closed bool
 }
 
-func newParquetWriter(arrSchema *arrow.Schema, w io.Writer, writerOpts []parquet.WriterProperty, kvMeta metadata.KeyValueMetadata) (*parquetWriter, error) {
+func newParquetWriter(ctx context.Context, arrSchema *arrow.Schema, w io.Writer, writerOpts []parquet.WriterProperty, kvMeta metadata.KeyValueMetadata) (*parquetWriter, error) {
 	props := parquet.NewWriterProperties(writerOpts...)
 	pqSchema, err := arrowToParquetSchema(arrSchema)
 	if err != nil {
@@ -87,7 +88,7 @@ func newParquetWriter(arrSchema *arrow.Schema, w io.Writer, writerOpts []parquet
 	return &parquetWriter{
 		wr:     baseWriter,
 		schema: arrSchema,
-		ctx:    pqarrow.NewArrowWriteContext(context.Background(), nil),
+		ctx:    pqarrow.NewArrowWriteContext(ctx, nil),
 	}, nil
 }
 
@@ -110,10 +111,12 @@ func (fw *parquetWriter) WriteBuffered(rec arrow.Record) error {
 
 		cw, err := fw.rgw.Column(colIdx)
 		if err != nil {
-			return fmt.Errorf("failed to get column writer %d: %w", colIdx, err)
+			return fmt.Errorf("failed to get column writer %d: %s", colIdx, err)
 		}
 
 		// for flat schemas, generating definition levels for nullable columns
+		// 0 == value is NULL
+		// 1 == value is present
 		var defLevels []int16
 		if field.Nullable {
 			defLevels = make([]int16, numRows)
@@ -228,12 +231,16 @@ func createFields(schema map[string]string, fieldIDs map[string]int32) []arrow.F
 	return fields
 }
 
-func createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema) (arrow.Record, error) {
+func (rw *RollingWriter) createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema) (arrow.Record, error) {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
 	for _, rec := range records {
-		recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
+		// write _olake_id for equality deletes only once
+		if _, ok := rw.olakeIDPosition[rec.OlakeID]; !ok {
+			recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
+			rw.olakeIDPosition[rec.OlakeID] = -1
+		}
 	}
 
 	arrowRec := recordBuilder.NewRecord()
@@ -432,4 +439,18 @@ func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
 		return schema.NewPrimitiveNodeLogical(field.Name, repetition, logicalType, pqType, int(typeLength), fieldID)
 	}
 	return schema.NewPrimitiveNode(field.Name, repetition, pqType, fieldID, typeLength)
+}
+
+// writerKey creates a map key for writers
+func writerKey(fileType, partitionKey string) string {
+	return fileType + ":" + partitionKey
+}
+
+// parseWriterKey extracts fileType and partitionKey from a writer key.
+func parseWriterKey(key string) (fileType, partitionKey string) {
+	parts := strings.SplitN(key, ":", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return parts[0], ""
 }
