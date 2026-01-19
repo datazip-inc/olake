@@ -54,14 +54,11 @@ type LocationInfo struct {
 
 func Init() {
 	go func() {
-		//get the version
-		version := getVersion()
 		// check for disable
 		disabled, _ := strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED"))
 		if disabled {
 			return
 		}
-
 		ip := getOutboundIP()
 		telemetry = &Telemetry{
 			httpClient: &http.Client{Timeout: 5 * time.Second},
@@ -69,7 +66,7 @@ func Init() {
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
-				OlakeVersion: version,
+				OlakeVersion: getOlakeCLIVersion(),
 				DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
 			},
 			ipAddress: ip,
@@ -300,10 +297,10 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 }
 
 // getVersion extracts the olake version from the ENV embedded in the olake image
-func getVersion() string {
-	v := os.Getenv("DRIVER_VERSION")
-	if v == "" {
+func getOlakeCLIVersion() string {
+	version := os.Getenv("DRIVER_VERSION")
+	if version == "" {
 		return "version not embedded"
 	}
-	return v
+	return version
 }
