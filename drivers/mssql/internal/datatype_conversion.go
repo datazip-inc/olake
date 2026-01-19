@@ -3,6 +3,7 @@ package driver
 import "github.com/datazip-inc/olake/types"
 
 // mssqlTypeToDataTypes maps SQL Server types to internal data types.
+// TODO: add support for binary datatypes in all drivers
 var mssqlTypeToDataTypes = map[string]types.DataType{
 	// Integer types
 	"tinyint":  types.Int32,
