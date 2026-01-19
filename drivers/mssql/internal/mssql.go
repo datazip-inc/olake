@@ -99,8 +99,7 @@ func (m *MSSQL) buildConnectionString() string {
 	query := url.Values{}
 	query.Add("database", m.config.Database)
 
-	// Set encrypt parameter based on SSL configuration
-	// SSL modes: "disable" -> encrypt=disable, "require"/"verify-*" -> encrypt=true
+	// Set encrypt parameter based on SSL configuration.
 	if m.config.SSLConfiguration == nil {
 		query.Add("encrypt", "disable")
 	} else {
@@ -108,13 +107,12 @@ func (m *MSSQL) buildConnectionString() string {
 		switch sslmode {
 		case utils.SSLModeDisable:
 			query.Add("encrypt", "disable")
-		case utils.SSLModeRequire, utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
+		case utils.SSLModeRequire:
 			query.Add("encrypt", "true")
-			// TODO: Add support for certificate-based validation (verify-ca, verify-full)
-			if sslmode == utils.SSLModeRequire {
-				query.Add("TrustServerCertificate", "true")
-			}
+			// For "require" we trust the server certificate by default.
+			query.Add("TrustServerCertificate", "true")
 		default:
+			// Fallback to disable for unsupported modes (e.g., verify-ca, verify-full).
 			query.Add("encrypt", "disable")
 		}
 	}
