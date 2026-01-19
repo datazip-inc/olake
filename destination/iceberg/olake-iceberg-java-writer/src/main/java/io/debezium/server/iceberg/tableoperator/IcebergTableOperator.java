@@ -235,7 +235,7 @@ public class IcebergTableOperator {
     }
   }
 
-     public void accumulateDataFiles(String threadId, Table table, String filePath,
+     public void registerDataFiles(String threadId, Table table, String filePath,
                List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
@@ -270,7 +270,7 @@ public class IcebergTableOperator {
           }
      }
 
-     public void accumulateDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
+     public void registerEqDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
                long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
@@ -305,7 +305,7 @@ public class IcebergTableOperator {
           }
      }
 
-     public void accumulatePositionalDeleteFiles(String threadId, Table table, String filePath,
+     public void registerPosDeleteFiles(String threadId, Table table, String filePath,
                long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();

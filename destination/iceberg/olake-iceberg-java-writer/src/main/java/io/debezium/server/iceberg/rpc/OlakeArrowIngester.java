@@ -110,7 +110,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                    case FILE_TYPE_EQUALITY_DELETE -> {
                                         NestedField olakeIdFieldForDelete = icebergTable.schema().findField("_olake_id");
                                         int fieldId = olakeIdFieldForDelete.fieldId();
-                                        icebergTableOperator.accumulateDeleteFiles(
+                                        icebergTableOperator.registerEqDeleteFiles(
                                                   threadId,
                                                   icebergTable,
                                                   filePath,
@@ -122,7 +122,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                    }
 
                                    case FILE_TYPE_POSITIONAL_DELETE -> {
-                                        icebergTableOperator.accumulatePositionalDeleteFiles(
+                                        icebergTableOperator.registerPosDeleteFiles(
                                                   threadId,
                                                   icebergTable,
                                                   filePath,
@@ -133,7 +133,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                                    }
 
                                    case FILE_TYPE_DATA -> {
-                                        icebergTableOperator.accumulateDataFiles(
+                                        icebergTableOperator.registerDataFiles(
                                                   threadId,
                                                   icebergTable,
                                                   filePath,
