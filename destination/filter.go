@@ -195,16 +195,7 @@ func matches(
 	logger.Debugf("[matches] logicalOp=%s isAnd=%v", logicalOp, isAnd)
 
 	for _, cond := range conditions {
-		recordVal, exists := record.Data[cond.column]
-
-		// 🚨 CDC-safe behavior
-		if !exists {
-			logger.Debugf(
-				"[matches] column missing (CDC) → skipping condition column=%s",
-				cond.column,
-			)
-			continue
-		}
+		recordVal, _ := record.Data[cond.column]
 
 		ok := evaluate(recordVal, cond.value, cond.operator)
 
