@@ -101,10 +101,12 @@ func (c *Config) URI() string {
 
 // buildTLSConfig builds a custom TLS configuration for certificate-based SSL
 func (c *Config) buildTLSConfig() (*tls.Config, error) {
-	// This encrypts the connection but doesn't verify server identity
+	// For 'require' mode: encrypt the connection but don't verify server identity.
+	// This is the intended behavior per MySQL SSL mode specification.
+	// #nosec G402 -- InsecureSkipVerify is intentional for 'require' mode
 	if c.SSLConfiguration.Mode == utils.SSLModeRequire {
 		return &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: true, // #nosec G402
 			MinVersion:         tls.VersionTLS12,
 		}, nil
 	}
