@@ -125,6 +125,12 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
 		}
+		// Normalize MySQL binlog FLOAT values based on column metadata
+		if columnTypes[i] == "FLOAT" {
+			if f64, ok := convertedVal.(float64); ok {
+				convertedVal = float32(f64)
+			}
+		}
 		record[columns[i]] = convertedVal
 	}
 	return record, nil
