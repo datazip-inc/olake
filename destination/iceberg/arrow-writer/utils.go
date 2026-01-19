@@ -7,7 +7,6 @@ import (
 	"io"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -231,7 +230,7 @@ func createFields(schema map[string]string, fieldIDs map[string]int32) []arrow.F
 	return fields
 }
 
-func createDeleteArrowRecord(records []string, allocator memory.Allocator, schema *arrow.Schema) (arrow.Record) {
+func createDeleteArrowRecord(records []string, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
@@ -429,18 +428,4 @@ func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
 		return schema.NewPrimitiveNodeLogical(field.Name, repetition, logicalType, pqType, int(typeLength), fieldID)
 	}
 	return schema.NewPrimitiveNode(field.Name, repetition, pqType, fieldID, typeLength)
-}
-
-// writerKey creates a map key for writers
-func writerKey(fileType, partitionKey string) string {
-	return fileType + ":" + partitionKey
-}
-
-// parseWriterKey extracts fileType and partitionKey from a writer key.
-func parseWriterKey(key string) (fileType, partitionKey string) {
-	parts := strings.SplitN(key, ":", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
-	}
-	return parts[0], ""
 }
