@@ -60,13 +60,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			return tx.QueryContext(ctx, query, args...)
 		})
 
-		return reader.Capture(func(rows *sql.Rows) error {
-			record := make(types.Record)
-			if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
-				return fmt.Errorf("failed to scan record data as map: %s", err)
-			}
-			return onMessage(ctx, record)
-		})
+		return jdbc.MapScanConcurrent(reader, m.dataTypeConverter, onMessage)
 	})
 }
 
