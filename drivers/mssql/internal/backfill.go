@@ -56,11 +56,11 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 		logger.Debugf("Executing chunk query: %s", stmt)
 
-		reader := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
 
-		return jdbc.MapScanConcurrent(reader, m.dataTypeConverter, onMessage)
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage)
 	})
 }
 
