@@ -96,10 +96,10 @@ func TestCompare(t *testing.T) {
 		{"empty_string_vs_empty_string", "", "", 0},
 		{"empty_string_vs_non_empty_string", "", "1", -1},
 		{"non_empty_string_vs_empty_string", "a", "", 1},
-		{"case_sensitive_comparision", "Apple", "apple", -1},
+		{"case_sensitive_comparison", "Apple", "apple", -1},
 		{"numeric_string_lex_order_1", "10", "9", -1},
 		{"numeric_string_lex_order_2", "2", "100", 1},
-		{"unicode_comparision_less", "α", "β", -1},
+		{"unicode_comparison_less", "α", "β", -1},
 
 		// fallback
 		{"fallback_string_vs_int", "123", 123, 0},
