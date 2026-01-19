@@ -203,7 +203,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	}
 	// test for s3 permissions
 	if p.s3Client != nil {
-		testKey := fmt.Sprintf("olake_writer_test/%s", utils.TimestampedFileName(".txt"))
+		testKey := filepath.Join(p.config.Path, "olake_writer_test/%s", utils.TimestampedFileName(".txt"))
 		// Try to upload a small test file
 		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
 			Bucket: aws.String(p.config.Bucket),
