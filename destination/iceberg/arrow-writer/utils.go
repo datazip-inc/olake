@@ -149,13 +149,6 @@ func (fw *parquetWriter) Close() error {
 	return nil
 }
 
-func (fw *parquetWriter) NumRows() int {
-	if fw.wr != nil {
-		return fw.wr.NumRows()
-	}
-	return 0
-}
-
 func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
 	if fw.rgw != nil {
 		return fw.rgw.TotalBytesWritten()
