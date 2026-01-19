@@ -337,6 +337,23 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 		assertions  func(t *testing.T, tlsCfg *tls.Config)
 		description string
 	}{
+		// Builds require mode with simple skip-verify config.
+		{
+			name:      "require builds with InsecureSkipVerify",
+			config:    &Config{SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire}},
+			expectErr: false,
+			assertions: func(t *testing.T, tlsCfg *tls.Config) {
+				if !tlsCfg.InsecureSkipVerify {
+					t.Fatalf("expected InsecureSkipVerify to be true for require mode")
+				}
+				if tlsCfg.RootCAs != nil {
+					t.Fatalf("expected RootCAs to be nil for require mode (no CA verification)")
+				}
+				if tlsCfg.MinVersion != tls.VersionTLS12 {
+					t.Fatalf("expected MinVersion to be TLS 1.2")
+				}
+			},
+		},
 		// Builds verify-ca config enabling custom verification callback.
 		{
 			name:      "verify-ca builds with CA and callback",

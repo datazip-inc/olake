@@ -101,6 +101,14 @@ func (c *Config) URI() string {
 
 // buildTLSConfig builds a custom TLS configuration for certificate-based SSL
 func (c *Config) buildTLSConfig() (*tls.Config, error) {
+	// This encrypts the connection but doesn't verify server identity
+	if c.SSLConfiguration.Mode == utils.SSLModeRequire {
+		return &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+		}, nil
+	}
+
 	rootCertPool := x509.NewCertPool()
 
 	if c.SSLConfiguration.ServerCA != "" {
