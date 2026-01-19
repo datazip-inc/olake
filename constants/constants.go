@@ -56,3 +56,6 @@ var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 
 var SkipCDCDrivers = []DriverType{Oracle, DB2}
+
+// DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
+var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}

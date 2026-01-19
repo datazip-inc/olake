@@ -51,9 +51,7 @@
                     "default": "disable",
                     "enum": [
                         "require",
-                        "disable",
-                        "verify-ca",
-                        "verify-full"
+                        "disable"
                     ]
                 }
             },

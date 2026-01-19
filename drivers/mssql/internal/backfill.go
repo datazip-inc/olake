@@ -56,17 +56,11 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 		logger.Debugf("Executing chunk query: %s", stmt)
 
-		reader := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
 
-		return reader.Capture(func(rows *sql.Rows) error {
-			record := make(types.Record)
-			if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
-				return fmt.Errorf("failed to scan record data as map: %s", err)
-			}
-			return onMessage(ctx, record)
-		})
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage)
 	})
 }
 
