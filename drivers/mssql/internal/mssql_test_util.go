@@ -303,8 +303,8 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_bit": true,
 
 	// money
-	"col_smallmoney": "1.2500",
-	"col_money":      "2.5000",
+	"col_smallmoney": float64(1.25),
+	"col_money":      float64(2.5),
 
 	// strings
 	"col_char":     "char_val__",
@@ -384,8 +384,8 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_bigint":             "bigint",
 	"col_decimal":            "double",
 	"col_numeric":            "double",
-	"col_smallmoney":         "string",
-	"col_money":              "string",
+	"col_smallmoney":         "number",
+	"col_money":              "number",
 	"col_float":              "double",
 	"col_real":               "real",
 	"col_bit":                "boolean",
@@ -418,8 +418,8 @@ var UpdatedMSSQLToDestinationSchema = map[string]string{
 	"col_bigint":             "bigint",
 	"col_decimal":            "double",
 	"col_numeric":            "double",
-	"col_smallmoney":         "string",
-	"col_money":              "string",
+	"col_smallmoney":         "number",
+	"col_money":              "number",
 	"col_float":              "double",
 	"col_real":               "real",
 	"col_bit":                "boolean",
