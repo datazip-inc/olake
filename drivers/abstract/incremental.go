@@ -82,7 +82,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 				}
 				threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
 				if err != nil {
 					return fmt.Errorf("failed to create new writer thread: %s", err)
 				}

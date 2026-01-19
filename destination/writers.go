@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -22,6 +23,7 @@ type (
 		Number     int64
 		Backfill   bool
 		ThreadID   string
+		DriverType constants.DriverType
 	}
 
 	ThreadOptions func(opt *Options)
@@ -81,6 +83,11 @@ func WithBackfill(backfill bool) ThreadOptions {
 func WithThreadID(threadID string) ThreadOptions {
 	return func(opt *Options) {
 		opt.ThreadID = threadID
+	}
+}
+func WithDriverType(driverType constants.DriverType) ThreadOptions {
+	return func(opt *Options) {
+		opt.DriverType = driverType
 	}
 }
 

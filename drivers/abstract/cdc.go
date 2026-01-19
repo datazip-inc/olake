@@ -58,7 +58,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 				a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
 					index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 					threadID := fmt.Sprintf("%s_%s", streams[index].ID(), utils.ULID())
-					inserter, err := pool.NewWriter(ctx, streams[index], destination.WithThreadID(threadID))
+					inserter, err := pool.NewWriter(ctx, streams[index], destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
 					if err != nil {
 						return fmt.Errorf("failed to create new thread in pool, error: %s", err)
 					}
@@ -135,7 +135,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						// reader can read from multiple streams in kafka which we cant decide (r1 -> s1, s2, r2 -> s2, s3)
 						// so creating writer for stream which read by reader in kafka
 						threadID := fmt.Sprintf("%s_%s", readerID, message.Stream.ID())
-						inserter, err = pool.NewWriter(ctx, message.Stream, destination.WithThreadID(threadID))
+						inserter, err = pool.NewWriter(ctx, message.Stream, destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
 						if err != nil {
 							return fmt.Errorf("failed to create writer for stream %s: %s", message.Stream.ID(), err)
 						}
@@ -160,7 +160,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 		inserters := make(map[types.StreamInterface]*destination.WriterThread)
 		err = utils.ForEach(streams, func(stream types.StreamInterface) error {
 			threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-			inserters[stream], err = pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+			inserters[stream], err = pool.NewWriter(ctx, stream, destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
 			if err != nil {
 				logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, stream.ID())
 			}

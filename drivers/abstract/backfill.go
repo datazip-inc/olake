@@ -41,7 +41,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 	// TODO: create writer instance again on retry
 	chunkProcessor := func(ctx context.Context, chunk types.Chunk) (err error) {
 		threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+		inserter, err := pool.NewWriter(ctx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}

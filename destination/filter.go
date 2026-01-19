@@ -46,6 +46,7 @@ func FilterRecords(
 
 	conditions := make([]parsedCondition, len(filter.Conditions))
 	for i, cond := range filter.Conditions {
+		cond.Column = utils.Reformat(cond.Column)
 		logger.Debugf(
 			"[FilterRecords] parsing condition[%d]: column=%s operator=%s value=%v (%T)",
 			i,
@@ -77,7 +78,7 @@ func FilterRecords(
 		)
 
 		conditions[i] = parsedCondition{
-			column:   utils.Reformat(cond.Column),
+			column:   cond.Column,
 			operator: cond.Operator,
 			value:    parsedVal,
 		}

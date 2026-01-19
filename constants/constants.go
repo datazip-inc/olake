@@ -49,6 +49,7 @@ const (
 )
 
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2}
+var FilterInFullRefreshDrivers = []DriverType{S3, Kafka}
 
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 

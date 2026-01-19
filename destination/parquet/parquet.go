@@ -386,8 +386,14 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}); err != nil {
 		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 	}
-
-	if !p.options.Backfill {
+	needFilter := !p.options.Backfill
+	for _, driver := range constants.FilterInFullRefreshDrivers {
+		if p.options.DriverType == driver {
+			needFilter = true
+			break
+		}
+	}
+	if needFilter {
 		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
