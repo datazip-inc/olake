@@ -258,7 +258,22 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 		return rw, nil
 	}
 
-	return nil, w.flush(ctx, rw, partitionKey)
+	if err := w.flush(ctx, rw, partitionKey); err != nil {
+		return nil, err
+	}
+
+	newWriter, err := w.newRollingWriter(ctx, *w.arrowSchema[rw.fileType], rw.fileType, rw.partitionValues, rw.filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new rolling writer after flush: %s", err)
+	}
+
+	newFilePath, err := w.allocateFilePath(ctx, partitionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate new file path after flush: %s", err)
+	}
+	newWriter.filePath = newFilePath
+
+	return newWriter, nil
 }
 
 func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey string) error {
@@ -326,27 +341,38 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {
-	for key, writer := range w.writers {
+	for partitionKey, writer := range w.writers {
+		if writer == nil {
+			continue
+		}
+
 		if w.upsertMode {
 			if writer.equalityDeleteWriter != nil {
-				if err := w.flush(ctx, writer.equalityDeleteWriter, fileTypeEqualityDelete); err != nil {
+				if err := w.flush(ctx, writer.equalityDeleteWriter, partitionKey); err != nil {
 					return err
 				}
+				writer.equalityDeleteWriter = nil
 			}
 			if writer.positionalDeleteWriter != nil {
-				if err := w.flush(ctx, writer.positionalDeleteWriter, fileTypePositionalDelete); err != nil {
+				if err := w.flush(ctx, writer.positionalDeleteWriter, partitionKey); err != nil {
 					return err
 				}
+				writer.positionalDeleteWriter = nil
 			}
 		}
 
 		if writer.dataWriter != nil {
-			if err := w.flush(ctx, writer.dataWriter, fileTypeData); err != nil {
+			if err := w.flush(ctx, writer.dataWriter, partitionKey); err != nil {
 				return err
 			}
+			writer.dataWriter = nil
 		}
 
-		w.writers[key] = nil
+		// Clear the writer state but keep the partition entry
+		writer.data = nil
+		writer.equalityDeletes = nil
+		writer.positionalDeletes = nil
+		writer.olakeIDPosition = make(map[string]PositionalDelete)
 	}
 
 	return nil
@@ -526,8 +552,11 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 		PartitionValues: protoPartitionValues,
 	}
 
-	pf := &PartitionFiles{}
-	w.createdFiles[partitionKey] = pf
+	pf, exists := w.createdFiles[partitionKey]
+	if !exists {
+		pf = &PartitionFiles{}
+		w.createdFiles[partitionKey] = pf
+	}
 
 	switch rw.fileType {
 	case fileTypeData:
