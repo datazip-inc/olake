@@ -47,22 +47,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	switch operation {
 	case "create":
-		// create the database if it doesn't exist
-		_, err := db.ExecContext(ctx, `IF DB_ID('olake_mssql_test') IS NULL BEGIN CREATE DATABASE olake_mssql_test; END;`)
-		require.NoError(t, err, "failed to ensure olake_mssql_test database exists")
-
-		_, err = db.ExecContext(ctx, `USE olake_mssql_test;`)
-		require.NoError(t, err, "failed to USE olake_mssql_test")
-
-		// enable CDC at DB level
-		_, err = db.ExecContext(ctx, `
-			IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test' AND is_cdc_enabled = 0)
-			BEGIN
-				EXEC sys.sp_cdc_enable_db;
-			END;
-		`)
-		require.NoError(t, err, "failed to enable CDC at DB level")
-
 		// Create the table in dbo schema
 		createTable := fmt.Sprintf(`
 			IF OBJECT_ID('dbo.%s', 'U') IS NULL
@@ -114,45 +98,22 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 		// Enable CDC for table
 		enableTableCDC := fmt.Sprintf(`
-		IF NOT EXISTS (
-			SELECT 1
-			FROM cdc.change_tables
-			WHERE capture_instance = N'%s'
-		)
-		BEGIN
-			EXEC sys.sp_cdc_enable_table
-				@source_schema = N'dbo',
-				@source_name   = N'%s',
-				@capture_instance = N'%s',
-				@role_name     = NULL,
-				@supports_net_changes = 0;
-		END;
-		`, captureInstance, integrationTestTable, captureInstance)
+				IF NOT EXISTS (
+					SELECT 1
+					FROM cdc.change_tables
+					WHERE source_object_id = OBJECT_ID('dbo.%s')
+				)
+				BEGIN
+					EXEC sys.sp_cdc_enable_table
+						@source_schema = N'dbo',
+						@source_name   = N'%s',
+						@capture_instance = N'%s',
+						@role_name     = NULL,
+						@supports_net_changes = 0;
+				END;
+				`, integrationTestTable, integrationTestTable, captureInstance)
 		_, err = db.ExecContext(ctx, enableTableCDC)
 		require.NoError(t, err, "failed to enable CDC on integration test table")
-
-		// Verify CDC setup by logging change_tables
-		t.Log("[MSSQL DEBUG] Verifying CDC setup in sys.databases and cdc.change_tables...")
-		var dbCDC int
-		err = db.GetContext(ctx, &dbCDC, "SELECT is_cdc_enabled FROM sys.databases WHERE name = 'olake_mssql_test'")
-		if err == nil {
-			t.Logf("[MSSQL DEBUG] Database 'olake_mssql_test' is_cdc_enabled: %v", dbCDC == 1)
-		}
-
-		type cdcCapture struct {
-			SourceObjectID  int    `db:"source_object_id"`
-			CaptureInstance string `db:"capture_instance"`
-			StartLSN        []byte `db:"start_lsn"`
-		}
-		var captures []cdcCapture
-		err = db.SelectContext(ctx, &captures, "SELECT source_object_id, capture_instance, start_lsn FROM cdc.change_tables")
-		if err == nil {
-			for _, c := range captures {
-				t.Logf("[MSSQL DEBUG] Capture Instance: %s, table_id: %d, start_lsn: %x", c.CaptureInstance, c.SourceObjectID, c.StartLSN)
-			}
-		} else {
-			t.Logf("[MSSQL DEBUG] Failed to query cdc.change_tables: %v", err)
-		}
 
 	case "drop":
 		// Disable CDC before dropping table to ensure capture instance is cleaned up
