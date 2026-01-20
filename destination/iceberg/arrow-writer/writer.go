@@ -383,7 +383,6 @@ func (w *ArrowWriter) completeWriters(ctx context.Context) error {
 		writer.data = nil
 		writer.equalityDeletes = nil
 		writer.positionalDeletes = nil
-		writer.olakeIDPosition = make(map[string]PositionalDelete)
 	}
 
 	return nil
