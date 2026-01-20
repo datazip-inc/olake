@@ -46,10 +46,16 @@ const (
 	DB2      DriverType = "db2"
 	S3       DriverType = "s3"
 	Kafka    DriverType = "kafka"
+	MSSQL    DriverType = "mssql"
 )
 
-var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2}
+var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
+
+var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 
 var SkipCDCDrivers = []DriverType{Oracle, DB2}
+
+// DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
+var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
