@@ -6492,6 +6492,17 @@ public final class RecordIngest {
          */
         double getDoubleValue();
 
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return Whether the boolValue field is set.
+         */
+        boolean hasBoolValue();
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return The boolValue.
+         */
+        boolean getBoolValue();
+
         public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.ValueCase getValueCase();
       }
       /**
@@ -6544,6 +6555,7 @@ public final class RecordIngest {
           STRING_VALUE(3),
           FLOAT_VALUE(4),
           DOUBLE_VALUE(5),
+          BOOL_VALUE(6),
           VALUE_NOT_SET(0);
           private final int value;
           private ValueCase(int value) {
@@ -6566,6 +6578,7 @@ public final class RecordIngest {
               case 3: return STRING_VALUE;
               case 4: return FLOAT_VALUE;
               case 5: return DOUBLE_VALUE;
+              case 6: return BOOL_VALUE;
               case 0: return VALUE_NOT_SET;
               default: return null;
             }
@@ -6717,6 +6730,27 @@ public final class RecordIngest {
           return 0D;
         }
 
+        public static final int BOOL_VALUE_FIELD_NUMBER = 6;
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return Whether the boolValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasBoolValue() {
+          return valueCase_ == 6;
+        }
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return The boolValue.
+         */
+        @java.lang.Override
+        public boolean getBoolValue() {
+          if (valueCase_ == 6) {
+            return (java.lang.Boolean) value_;
+          }
+          return false;
+        }
+
         private byte memoizedIsInitialized = -1;
         @java.lang.Override
         public final boolean isInitialized() {
@@ -6750,6 +6784,10 @@ public final class RecordIngest {
             output.writeDouble(
                 5, (double)((java.lang.Double) value_));
           }
+          if (valueCase_ == 6) {
+            output.writeBool(
+                6, (boolean)((java.lang.Boolean) value_));
+          }
           getUnknownFields().writeTo(output);
         }
 
@@ -6781,6 +6819,11 @@ public final class RecordIngest {
             size += com.google.protobuf.CodedOutputStream
               .computeDoubleSize(
                   5, (double)((java.lang.Double) value_));
+          }
+          if (valueCase_ == 6) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeBoolSize(
+                  6, (boolean)((java.lang.Boolean) value_));
           }
           size += getUnknownFields().getSerializedSize();
           memoizedSize = size;
@@ -6821,6 +6864,10 @@ public final class RecordIngest {
                   != java.lang.Double.doubleToLongBits(
                       other.getDoubleValue())) return false;
               break;
+            case 6:
+              if (getBoolValue()
+                  != other.getBoolValue()) return false;
+              break;
             case 0:
             default:
           }
@@ -6858,6 +6905,11 @@ public final class RecordIngest {
               hash = (37 * hash) + DOUBLE_VALUE_FIELD_NUMBER;
               hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
                   java.lang.Double.doubleToLongBits(getDoubleValue()));
+              break;
+            case 6:
+              hash = (37 * hash) + BOOL_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+                  getBoolValue());
               break;
             case 0:
             default:
@@ -7101,6 +7153,10 @@ public final class RecordIngest {
                 setDoubleValue(other.getDoubleValue());
                 break;
               }
+              case BOOL_VALUE: {
+                setBoolValue(other.getBoolValue());
+                break;
+              }
               case VALUE_NOT_SET: {
                 break;
               }
@@ -7157,6 +7213,11 @@ public final class RecordIngest {
                     valueCase_ = 5;
                     break;
                   } // case 41
+                  case 48: {
+                    value_ = input.readBool();
+                    valueCase_ = 6;
+                    break;
+                  } // case 48
                   default: {
                     if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                       done = true; // was an endgroup tag
@@ -7443,6 +7504,48 @@ public final class RecordIngest {
            */
           public Builder clearDoubleValue() {
             if (valueCase_ == 5) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return Whether the boolValue field is set.
+           */
+          public boolean hasBoolValue() {
+            return valueCase_ == 6;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return The boolValue.
+           */
+          public boolean getBoolValue() {
+            if (valueCase_ == 6) {
+              return (java.lang.Boolean) value_;
+            }
+            return false;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @param value The boolValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setBoolValue(boolean value) {
+            
+            valueCase_ = 6;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearBoolValue() {
+            if (valueCase_ == 6) {
               valueCase_ = 0;
               value_ = null;
               onChanged();
@@ -12086,41 +12189,41 @@ java.lang.String defaultValue) {
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
       "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\345\006\n\014ArrowPayload\022F\n\004type\030\001" +
+      "success\030\002 \001(\010\"\373\006\n\014ArrowPayload\022F\n\004type\030\001" +
       " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
       "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
       "25.io.debezium.server.iceberg.rpc.ArrowP" +
-      "ayload.Metadata\032\274\002\n\014FileMetadata\022\021\n\tfile" +
+      "ayload.Metadata\032\322\002\n\014FileMetadata\022\021\n\tfile" +
       "_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record" +
       "_count\030\003 \001(\003\022b\n\020partition_values\030\005 \003(\0132H" +
       ".io.debezium.server.iceberg.rpc.ArrowPay" +
-      "load.FileMetadata.PartitionValue\032\213\001\n\016Par" +
+      "load.FileMetadata.PartitionValue\032\241\001\n\016Par" +
       "titionValue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong" +
       "_value\030\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025" +
       "\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 " +
-      "\001(\001H\000B\007\n\005value\0329\n\021FileUploadRequest\022\021\n\tf" +
-      "ile_data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001(\t\032\362\001\n\010Me" +
-      "tadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tthrea" +
-      "d_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowPayload." +
-      "FileMetadata\022X\n\013file_upload\030\004 \001(\0132>.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowPayload." +
-      "FileUploadRequestH\000\210\001\001B\016\n\014_file_upload\"U" +
-      "\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGIST" +
-      "ER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEP" +
-      "ATH\020\003\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030" +
-      "\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debez" +
-      "ium.server.iceberg.rpc.ArrowIngestRespon" +
-      "se.IcebergSchemasEntry\0325\n\023IcebergSchemas" +
-      "Entry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001" +
-      "\n\023RecordIngestService\022s\n\013SendRecords\022..i" +
-      "o.debezium.server.iceberg.rpc.IcebergPay" +
-      "load\0324.io.debezium.server.iceberg.rpc.Re" +
-      "cordIngestResponse2\205\001\n\022ArrowIngestServic" +
-      "e\022o\n\nIcebergAPI\022,.io.debezium.server.ice" +
-      "berg.rpc.ArrowPayload\0323.io.debezium.serv" +
-      "er.iceberg.rpc.ArrowIngestResponseb\006prot" +
-      "o3"
+      "\001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021" +
+      "FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\t" +
+      "file_path\030\002 \001(\t\032\362\001\n\010Metadata\022\027\n\017dest_tab" +
+      "le_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile" +
+      "_metadata\030\003 \003(\01329.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileMetadata\022X\n\013fi" +
+      "le_upload\030\004 \001(\0132>.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileUploadRequestH" +
+      "\000\210\001\001B\016\n\014_file_upload\"U\n\013PayloadType\022\017\n\013U" +
+      "PLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001\022\016\n" +
+      "\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\"\275\001\n\023ArrowIng" +
+      "estResponse\022\016\n\006result\030\001 \001(\t\022_\n\016icebergSc" +
+      "hemas\030\002 \003(\0132G.io.debezium.server.iceberg" +
+      ".rpc.ArrowIngestResponse.IcebergSchemasE" +
+      "ntry\0325\n\023IcebergSchemasEntry\022\013\n\003key\030\001 \001(\t" +
+      "\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n\023RecordIngestServ" +
+      "ice\022s\n\013SendRecords\022..io.debezium.server." +
+      "iceberg.rpc.IcebergPayload\0324.io.debezium" +
+      ".server.iceberg.rpc.RecordIngestResponse" +
+      "2\205\001\n\022ArrowIngestService\022o\n\nIcebergAPI\022,." +
+      "io.debezium.server.iceberg.rpc.ArrowPayl" +
+      "oad\0323.io.debezium.server.iceberg.rpc.Arr" +
+      "owIngestResponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -12179,7 +12282,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor,
-        new java.lang.String[] { "IntValue", "LongValue", "StringValue", "FloatValue", "DoubleValue", "Value", });
+        new java.lang.String[] { "IntValue", "LongValue", "StringValue", "FloatValue", "DoubleValue", "BoolValue", "Value", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_fieldAccessorTable = new

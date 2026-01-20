@@ -82,6 +82,7 @@ message ArrowPayload {
         string string_value = 3;
         float float_value = 4;
         double double_value = 5;
+        bool bool_value = 6;
       }
     }
 

@@ -884,6 +884,7 @@ type ArrowPayload_FileMetadata_PartitionValue struct {
 	//	*ArrowPayload_FileMetadata_PartitionValue_StringValue
 	//	*ArrowPayload_FileMetadata_PartitionValue_FloatValue
 	//	*ArrowPayload_FileMetadata_PartitionValue_DoubleValue
+	//	*ArrowPayload_FileMetadata_PartitionValue_BoolValue
 	Value         isArrowPayload_FileMetadata_PartitionValue_Value `protobuf_oneof:"value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -971,6 +972,15 @@ func (x *ArrowPayload_FileMetadata_PartitionValue) GetDoubleValue() float64 {
 	return 0
 }
 
+func (x *ArrowPayload_FileMetadata_PartitionValue) GetBoolValue() bool {
+	if x != nil {
+		if x, ok := x.Value.(*ArrowPayload_FileMetadata_PartitionValue_BoolValue); ok {
+			return x.BoolValue
+		}
+	}
+	return false
+}
+
 type isArrowPayload_FileMetadata_PartitionValue_Value interface {
 	isArrowPayload_FileMetadata_PartitionValue_Value()
 }
@@ -995,6 +1005,10 @@ type ArrowPayload_FileMetadata_PartitionValue_DoubleValue struct {
 	DoubleValue float64 `protobuf:"fixed64,5,opt,name=double_value,json=doubleValue,proto3,oneof"`
 }
 
+type ArrowPayload_FileMetadata_PartitionValue_BoolValue struct {
+	BoolValue bool `protobuf:"varint,6,opt,name=bool_value,json=boolValue,proto3,oneof"`
+}
+
 func (*ArrowPayload_FileMetadata_PartitionValue_IntValue) isArrowPayload_FileMetadata_PartitionValue_Value() {
 }
 
@@ -1008,6 +1022,9 @@ func (*ArrowPayload_FileMetadata_PartitionValue_FloatValue) isArrowPayload_FileM
 }
 
 func (*ArrowPayload_FileMetadata_PartitionValue_DoubleValue) isArrowPayload_FileMetadata_PartitionValue_Value() {
+}
+
+func (*ArrowPayload_FileMetadata_PartitionValue_BoolValue) isArrowPayload_FileMetadata_PartitionValue_Value() {
 }
 
 var File_records_ingest_proto protoreflect.FileDescriptor
@@ -1057,15 +1074,15 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x14REFRESH_TABLE_SCHEMA\x10\x05\"H\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\"\xa9\b\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\"\xca\b\n" +
 	"\fArrowPayload\x12L\n" +
 	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
-	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xa9\x03\n" +
+	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xca\x03\n" +
 	"\fFileMetadata\x12\x1b\n" +
 	"\tfile_type\x18\x01 \x01(\tR\bfileType\x12\x1b\n" +
 	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x12!\n" +
 	"\frecord_count\x18\x03 \x01(\x03R\vrecordCount\x12s\n" +
-	"\x10partition_values\x18\x05 \x03(\v2H.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\xc6\x01\n" +
+	"\x10partition_values\x18\x05 \x03(\v2H.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\xe7\x01\n" +
 	"\x0ePartitionValue\x12\x1d\n" +
 	"\tint_value\x18\x01 \x01(\x05H\x00R\bintValue\x12\x1f\n" +
 	"\n" +
@@ -1073,7 +1090,9 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\fstring_value\x18\x03 \x01(\tH\x00R\vstringValue\x12!\n" +
 	"\vfloat_value\x18\x04 \x01(\x02H\x00R\n" +
 	"floatValue\x12#\n" +
-	"\fdouble_value\x18\x05 \x01(\x01H\x00R\vdoubleValueB\a\n" +
+	"\fdouble_value\x18\x05 \x01(\x01H\x00R\vdoubleValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x06 \x01(\bH\x00R\tboolValueB\a\n" +
 	"\x05value\x1aM\n" +
 	"\x11FileUploadRequest\x12\x1b\n" +
 	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12\x1b\n" +
@@ -1179,6 +1198,7 @@ func file_records_ingest_proto_init() {
 		(*ArrowPayload_FileMetadata_PartitionValue_StringValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_FloatValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_DoubleValue)(nil),
+		(*ArrowPayload_FileMetadata_PartitionValue_BoolValue)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

@@ -261,9 +261,9 @@ public class IcebergTableOperator {
 
                DataFile dataFile = dataFileBuilder.build();
                dataFiles.add(dataFile);
-               LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath, dataFiles.size());
+               LOGGER.info("Thread {}: registered ata file {} (total: {})", threadId, filePath, dataFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId, filePath,
+               String errorMsg = String.format("Thread %s: failed to register data file %s: %s", threadId, filePath,
                          e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
@@ -295,10 +295,10 @@ public class IcebergTableOperator {
 
                DeleteFile deleteFile = deleteFileBuilder.build();
                deleteFiles.add(deleteFile);
-               LOGGER.info("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
+               LOGGER.info("Thread {}: registered delete file {} with equality field ID {} (total: {})",
                          threadId, filePath, equalityFieldId, deleteFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId, filePath,
+               String errorMsg = String.format("Thread %s: failed to register delete file %s: %s", threadId, filePath,
                          e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
@@ -330,10 +330,10 @@ public class IcebergTableOperator {
 
                DeleteFile deleteFile = deleteFileBuilder.build();
                deleteFiles.add(deleteFile);
-               LOGGER.info("Thread {}: accumulated positional delete file {} (total delete files: {})",
+               LOGGER.info("Thread {}: registered positional delete file {} (total delete files: {})",
                          threadId, filePath, deleteFiles.size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate positional delete file %s: %s",
+               String errorMsg = String.format("Thread %s: failed to register positional delete file %s: %s",
                          threadId, filePath, e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
@@ -355,6 +355,7 @@ public class IcebergTableOperator {
                     case FLOAT_VALUE -> protoValue.getFloatValue();
                     case DOUBLE_VALUE -> protoValue.getDoubleValue();
                     case STRING_VALUE -> protoValue.getStringValue();
+                    case BOOL_VALUE -> protoValue.getBoolValue();
                     case VALUE_NOT_SET -> null;
                };
                partitionData.set(i, value);

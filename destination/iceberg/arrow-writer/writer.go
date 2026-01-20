@@ -35,10 +35,12 @@ type Writer struct {
 	dataWriter             *RollingWriter
 	equalityDeleteWriter   *RollingWriter
 	positionalDeleteWriter *RollingWriter
-	olakeIDPosition        map[string]PositionalDelete // stores the latest position of olake_id
-	data                   []types.RawRecord
-	equalityDeletes        []string
-	positionalDeletes      []PositionalDelete
+	// stores the latest position of olake_id (thread level property)
+	// a data writer might flush multiple data files during cdc, to properly handle duplicate _olake_id values across multiple data files, we only empty it when the thread closes
+	olakeIDPosition   map[string]PositionalDelete
+	data              []types.RawRecord
+	equalityDeletes   []string
+	positionalDeletes []PositionalDelete
 }
 
 type RollingWriter struct {
@@ -114,44 +116,53 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 	return strings.Join(paths, "/"), values, nil
 }
 
+// getOrCreateWriter retrieves an existing writer for the partition key or creates a new one with all necessary rolling writers.
+func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values []any) (*Writer, error) {
+	writer, exists := w.writers[pKey]
+	if exists {
+		return writer, nil
+	}
+
+	writer = &Writer{
+		olakeIDPosition: make(map[string]PositionalDelete),
+	}
+
+	var err error
+	if writer.dataWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeData], fileTypeData); err != nil {
+		return nil, err
+	}
+
+	if w.upsertMode {
+		if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
+			return nil, err
+		}
+		if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
+			return nil, err
+		}
+	}
+
+	w.writers[pKey] = writer
+	return writer, nil
+}
+
 // extract partitions records and tracks deletes for upsert mode.
 func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord, olakeTimestamp time.Time) error {
-	for idx, rec := range records {
+	for _, rec := range records {
 		pKey, values, err := w.getRecordPartition(rec, olakeTimestamp)
 		if err != nil {
 			return err
 		}
 
-		writer, exists := w.writers[pKey]
-		if !exists {
-			writer = &Writer{
-				olakeIDPosition: make(map[string]PositionalDelete),
-			}
-			w.writers[pKey] = writer
-		}
-
-		if writer.dataWriter == nil {
-			if writer.dataWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeData], fileTypeData); err != nil {
-				return err
-			}
+		writer, err := w.getOrCreateWriter(ctx, pKey, values)
+		if err != nil {
+			return err
 		}
 
 		writer.data = append(writer.data, rec)
 
 		// Track deletes for upsert operations (d, u, c all need delete handling)
 		if w.upsertMode && (rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c") {
-			if writer.equalityDeleteWriter == nil {
-				if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
-					return err
-				}
-			}
-			if writer.positionalDeleteWriter == nil {
-				if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
-					return err
-				}
-			}
-
-			filePosition := writer.dataWriter.currentRowCount + int64(idx)
+			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
 			if _, exists := writer.olakeIDPosition[rec.OlakeID]; !exists {
 				// first time, add to equality deletes and track position
@@ -230,7 +241,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		if err := writer.dataWriter.currentWriter.WriteBuffered(record); err != nil {
 			record.Release()
 
-			return fmt.Errorf("failed to write equality delete record: %s", err)
+			return fmt.Errorf("failed to write data record: %s", err)
 		}
 
 		writer.dataWriter.currentRowCount += record.NumRows()
@@ -379,7 +390,7 @@ func (w *ArrowWriter) completeWriters(ctx context.Context) error {
 }
 
 func (w *ArrowWriter) initialize(ctx context.Context) error {
-	if err := w.fetchfileschemajson(ctx); err != nil {
+	if err := w.fetchFileSchemaJSON(ctx); err != nil {
 		return err
 	}
 
@@ -570,7 +581,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	return nil
 }
 
-func (w *ArrowWriter) fetchfileschemajson(ctx context.Context) error {
+func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,
 		Metadata: &proto.ArrowPayload_Metadata{

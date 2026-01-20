@@ -272,8 +272,7 @@ func toProtoPartitionValues(values []any) ([]*proto.ArrowPayload_FileMetadata_Pa
 		case string:
 			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_StringValue{StringValue: v}
 		case bool:
-			// Booleans stored as string "true"/"false" per Iceberg convention
-			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_StringValue{StringValue: fmt.Sprintf("%t", v)}
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_BoolValue{BoolValue: v}
 		default:
 			return nil, fmt.Errorf("unsupported partition value type: %T", v)
 		}
