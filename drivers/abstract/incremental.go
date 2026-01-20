@@ -13,7 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 
@@ -47,10 +47,10 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 					threadID := fmt.Sprintf("%s_%x", stream.ID(), hash)
 					logger.Debugf("Recovering incremental state for stream %s with threadID %s", stream.ID(), threadID)
 
-					inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+					inserter, err := pool.NewWriter(mainCtx, stream, destination.WithThreadID(threadID))
 					if err == nil {
-						committed, err := inserter.IsThreadCommitted(ctx, threadID)
-						_ = inserter.Close(ctx)
+						committed, err := inserter.IsThreadCommitted(mainCtx, threadID)
+						_ = inserter.Close(mainCtx)
 						if err == nil && committed {
 							logger.Infof("Recovering committed state for stream %s", stream.ID())
 
@@ -76,7 +76,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			// Reset only mentioned cursor state while preserving other state values
 			a.state.ResetCursor(stream.Self())
 
-			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(mainCtx, stream)
 			if err != nil {
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
@@ -93,78 +93,73 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			}
 		}
 
-		return a.Backfill(ctx, backfillWaitChannel, pool, stream)
+		return a.Backfill(mainCtx, backfillWaitChannel, pool, stream)
 	})
 	if err != nil {
 		return fmt.Errorf("backfill failed: %s", err)
 	}
 
 	// Wait for all backfill processes to complete
-	backfilledStreams := make([]string, 0, len(streams))
-	for len(backfilledStreams) < len(streams) {
-		select {
-		case <-ctx.Done():
-			// if main context stuck in error
-			return ctx.Err()
-		case <-a.GlobalConnGroup.Ctx().Done():
-			// if global conn group stuck in error
-			return nil
-		case streamID, ok := <-backfillWaitChannel:
-			if !ok {
-				return fmt.Errorf("backfill channel closed unexpectedly")
+	err = a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
+		a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(gCtx context.Context) (err error) {
+			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
+			stream := streams[index]
+			primaryCursor, secondaryCursor := stream.Cursor()
+			// TODO: make inremental state consistent save it as string and typecast while reading
+			// get cursor column from state and typecast it to cursor column type for comparisons
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
+			if err != nil {
+				return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 			}
-			backfilledStreams = append(backfilledStreams, streamID)
-			a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
-				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				stream := streams[index]
-				primaryCursor, secondaryCursor := stream.Cursor()
-				// TODO: make inremental state consistent save it as string and typecast while reading
-				// get cursor column from state and typecast it to cursor column type for comparisons
-				maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-				if err != nil {
-					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
-				}
-				rawCtx := fmt.Sprintf("primaryCursor_%v_secondaryCursor_%v", maxPrimaryCursorValue, maxSecondaryCursorValue)
-				hash := sha256.Sum256([]byte(rawCtx))
-				threadID := fmt.Sprintf("%s_%x", stream.ID(), hash)
-				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
-				if err != nil {
-					return fmt.Errorf("failed to create new writer thread: %s", err)
-				}
-				defer func() {
+
+			// create incremental context, so that main context not affected if incremental retries
+			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
+			defer incrementalCtxCancel()
+
+			rawCtx := fmt.Sprintf("primaryCursor_%v_secondaryCursor_%v", maxPrimaryCursorValue, maxSecondaryCursorValue)
+			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(rawCtx)))
+			threadID := generateThreadID(stream.ID(), hash)
+			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+			if err != nil {
+				return fmt.Errorf("failed to create new writer thread: %s", err)
+			}
+
+			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
+
+			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID,
+				func(ctx context.Context) error {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", primaryCursor), typeutils.FormatCursorValue(maxPrimaryCursorValue))
 					if secondaryCursor != "" {
 						a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", secondaryCursor), typeutils.FormatCursorValue(maxSecondaryCursorValue))
 					}
-
-					if threadErr := inserter.Close(ctx); threadErr != nil {
-						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
+					return nil
+				},
+				func(ctx context.Context) error {
+					if ctx.Err() != nil {
+						return ctx.Err()
 					}
+					// Save cursor state on success
+					a.commitIncrementalState(stream, primaryCursor, maxPrimaryCursorValue, secondaryCursor, maxSecondaryCursorValue)
+					return nil
+				}, nil)()
 
-					// check for panics before saving state
-					if r := recover(); r != nil {
-						err = fmt.Errorf("panic recovered in incremental sync: %v, prev error: %s", r, err)
-					}
-
-					// set state (no comparison)
-					if err == nil {
-						a.commitIncrementalState(stream, primaryCursor, maxPrimaryCursorValue, secondaryCursor, maxSecondaryCursorValue)
-					} else {
-						err = fmt.Errorf("thread[%s]: %s", threadID, err)
-					}
-				}()
-				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-					return a.driver.StreamIncrementalChanges(ctx, stream, func(ctx context.Context, record map[string]any) error {
-						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
-						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
-						id := utils.GetKeysHash(record, pk...)
-						return inserter.Push(ctx, types.CreateRawRecord(id, record, "u", nil))
-					})
-				})
+			// No retry logic here - retry happens at Read level
+			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
+				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
+				return inserter.Push(ctx, types.CreateRawRecord(utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...), record, "u", nil))
 			})
-		}
+		})
+		return nil
+	})
+	if err == constants.ErrGlobalContextGroup {
+		// err will be captured in err group block statement
+		return nil
 	}
-	return nil
+
+	return err
 }
 
 // RefomratCursorValue to parse the cursor value to the correct type

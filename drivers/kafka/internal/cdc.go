@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/types"
@@ -15,6 +16,10 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
 )
+
+func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
+	return false, true, false // parallel change streams supported
+}
 
 func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	if len(streams) == 0 {
@@ -52,7 +57,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
-func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, processFn abstract.CDCMsgFn) error {
+func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstract.CDCMsgFn) error {
 	// get reader
 	reader := k.readerManager.GetReader(readerID)
 	if reader == nil {
@@ -112,63 +117,124 @@ func (k *Kafka) PartitionStreamChanges(ctx context.Context, readerID string, pro
 	})
 }
 
-func (k *Kafka) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, readerID string) error {
-	if !noErr {
-		return nil
-	}
-
-	// Get accumulated messages for this reader
-	lastMessagesMeta, hasMessages := k.checkpointMessage.Load(readerID)
-	if !hasMessages {
-		logger.Infof("reader %s has no accumulated offsets to commit", readerID)
-		return nil
-	}
-
-	// Type assert and validate messages
-	lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]kafka.Message)
-	if !isValid || len(lastMessages) == 0 {
-		logger.Infof("reader %s has no accumulated offsets to commit", readerID)
-		return nil
-	}
-
-	// Prepare messages for commit and track affected streams
-	messages := make([]kafka.Message, 0, len(lastMessages))
-	syncedStreams := make(map[string]types.StreamInterface)
-
-	for partitionKey, message := range lastMessages {
-		messages = append(messages, message)
-
-		// Resolve stream for this partition
-		partitionID := fmt.Sprintf("%s:%d", partitionKey.Topic, partitionKey.Partition)
-		if partitionMeta, exists := k.readerManager.GetPartitionIndex(partitionID); exists && partitionMeta.Stream != nil {
-			syncedStreams[partitionMeta.Stream.ID()] = partitionMeta.Stream
-		}
-	}
-
-	// Commit messages if any exist
-	if len(messages) > 0 {
-		reader := k.readerManager.GetReader(readerID)
-		if reader == nil {
-			return fmt.Errorf("reader %s not found for commit", readerID)
+func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		readerID, _ := k.readerManager.GetReaderIDAndClientID(readerIdx)
+		// Get accumulated messages for this reader
+		lastMessagesMeta, hasMessages := k.checkpointMessage.Load(readerIdx)
+		if !hasMessages {
+			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
+			return nil
 		}
 
-		if err := reader.CommitMessages(ctx, messages...); err != nil {
-			return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
+		// Type assert and validate messages
+		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]kafka.Message)
+		if !isValid || len(lastMessages) == 0 {
+			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
+			return nil
 		}
 
-		logger.Infof("committed %d partitions for reader %s", len(messages), readerID)
+		// Prepare messages for commit and track affected streams
+		messages := make([]kafka.Message, 0, len(lastMessages))
+		syncedStreams := make(map[string]types.StreamInterface)
+
+		for partitionKey, message := range lastMessages {
+			messages = append(messages, message)
+
+			// Resolve stream for this partition
+			partitionID := fmt.Sprintf("%s:%d", partitionKey.Topic, partitionKey.Partition)
+			if partitionMeta, exists := k.readerManager.GetPartitionIndex(partitionID); exists && partitionMeta.Stream != nil {
+				syncedStreams[partitionMeta.Stream.ID()] = partitionMeta.Stream
+			}
+		}
+
+		// Commit messages if any exist
+		if len(messages) > 0 {
+			reader := k.readerManager.GetReader(readerIdx)
+			if reader == nil {
+				return fmt.Errorf("reader %s not found for commit", readerID)
+			}
+
+			if err := reader.CommitMessages(ctx, messages...); err != nil {
+				return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
+			}
+
+			logger.Infof("committed %d partitions for reader %s", len(messages), readerID)
+		}
+
+		// Update global state with consumer group ID and affected streams
+		streamIDs := make([]string, 0, len(syncedStreams))
+		for streamID := range syncedStreams {
+			streamIDs = append(streamIDs, streamID)
+		}
+
+		k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
+		logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
+
+		k.checkpointMessage.Delete(readerIdx)
+		return nil
 	}
+}
 
-	// Update global state with consumer group ID and affected streams
-	streamIDs := make([]string, 0, len(syncedStreams))
-	for streamID := range syncedStreams {
-		streamIDs = append(streamIDs, streamID)
-	}
+func (k *Kafka) GetCDCPosition() string {
+	return k.consumerGroupID
+}
 
-	k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
-	logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
+func (k *Kafka) GetCDCStartPosition() string {
+	return k.consumerGroupID // Kafka uses consumer group ID as stable identifier
+}
 
-	k.checkpointMessage.Delete(readerID)
+func (k *Kafka) SetNextCDCPosition(position string) {
+	// Kafka uses consumer group offsets managed by Kafka brokers
+}
+
+func (k *Kafka) GetNextCDCPosition() string {
+	// Kafka uses consumer group offsets managed by Kafka brokers
+	return ""
+}
+
+func (k *Kafka) SetCurrentCDCPosition(position string) {
+	// Kafka uses consumer group offsets managed by Kafka brokers
+}
+
+func (k *Kafka) SetProcessingStreams(streamIDs []string) {
+	// Kafka uses consumer group offsets managed by Kafka brokers
+}
+
+func (k *Kafka) RemoveProcessingStream(streamID string) {
+	// Kafka uses consumer group offsets managed by Kafka brokers
+}
+
+func (k *Kafka) GetProcessingStreams() []string {
+	// Kafka uses consumer group offsets managed by Kafka brokers
+	return nil
+}
+
+func (k *Kafka) SetTargetCDCPosition(position string) {
+	// Kafka has per-stream positions, no global target position
+}
+
+func (k *Kafka) GetTargetCDCPosition() string {
+	// Kafka has per-stream positions
+	return ""
+}
+
+// SaveNextCDCPositionForStream - no-op for Kafka
+func (k *Kafka) SaveNextCDCPositionForStream(streamID string) {}
+
+// CommitCDCPositionForStream - no-op for Kafka
+func (k *Kafka) CommitCDCPositionForStream(streamID string) {}
+
+// CheckPerStreamRecovery - no-op for Kafka
+func (k *Kafka) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
+	return nil
+}
+
+// AcknowledgeCDCPosition - no-op for Kafka
+func (k *Kafka) AcknowledgeCDCPosition(ctx context.Context, position string) error {
 	return nil
 }
 
@@ -207,9 +273,5 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 			break
 		}
 	}
-	return nil
-}
-
-func (k *Kafka) StreamChanges(_ context.Context, _ types.StreamInterface, _ abstract.CDCMsgFn) error {
 	return nil
 }

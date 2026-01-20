@@ -2,12 +2,14 @@ package driver
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -34,6 +36,10 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
+func (m *Mongo) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, true // concurrent change streams supported, stream can start after finishing full load
+}
+
 func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
@@ -54,12 +60,13 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
-		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
+	m.streams = streams
 	return nil
 }
 
-func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
+	stream := m.streams[streamIndex]
 	// lastOplogTime is the latest timestamp of any operation applied in the MongoDB cluster
 	lastOplogTime, err := m.getClusterOpTime(ctx, m.config.Database)
 	if err != nil {
@@ -74,13 +81,13 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	// Seed resume token from previously saved cursor (if any)
-	resumeToken, ok := m.cdcCursor.Load(stream.ID())
-	if !ok {
+	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if prevResumeToken == nil {
 		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
 	}
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: resumeToken})
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), resumeToken)
+
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -95,7 +102,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 		}
 
 		if hasNext {
-			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
+			if err := m.handleChangeDoc(ctx, cursor, stream, prevResumeToken.(string), OnMessage); err != nil {
 				return err
 			}
 		}
@@ -146,7 +153,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 	return nil
 }
 
-func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, startingResumeToken string, OnMessage abstract.CDCMsgFn) error {
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
 		return fmt.Errorf("error while decoding: %s", err)
@@ -169,23 +176,162 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
+		Position:  startingResumeToken,
+	}
+
+	if err := OnMessage(ctx, change); err != nil {
+		return err
 	}
 
 	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
 		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
 	}
-	return OnMessage(ctx, change)
+	return nil
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
-	if noErr {
-		val, ok := m.cdcCursor.Load(stream.ID())
+func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		finalToken := m.streams[streamIndex].ID()
+		val, ok := m.cdcCursor.Load(finalToken)
 		if ok {
-			m.state.SetCursor(stream.Self(), cdcCursorField, val)
+			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
 		} else {
-			logger.Warnf("no resume token found for stream: %s", stream.ID())
+			logger.Warnf("no resume token found for stream: %s", finalToken)
+		}
+		return nil
+	}
+}
+
+func (m *Mongo) GetCDCPosition() string {
+	// MongoDB has per-stream resume tokens, return empty for global
+	// Use GetCDCPositionForStream for per-stream position
+	return ""
+}
+
+// GetCDCStartPosition returns empty for MongoDB (per-stream tokens are used)
+func (m *Mongo) GetCDCStartPosition() string {
+	return ""
+}
+
+func (m *Mongo) GetCDCPositionForStream(streamID string) string {
+	val, ok := m.cdcCursor.Load(streamID)
+	if ok {
+		return val.(string)
+	}
+	return ""
+}
+
+func (m *Mongo) SetNextCDCPosition(position string) {
+	// MongoDB has per-stream positions, this is a no-op for global
+}
+
+func (m *Mongo) GetNextCDCPosition() string {
+	// MongoDB has per-stream positions, no global next position
+	return ""
+}
+
+func (m *Mongo) SetCurrentCDCPosition(position string) {
+	// MongoDB has per-stream positions, this is a no-op for global
+}
+
+func (m *Mongo) SetProcessingStreams(streamIDs []string) {
+	// MongoDB has per-stream positions, no global processing array needed
+}
+
+func (m *Mongo) RemoveProcessingStream(streamID string) {
+	// MongoDB has per-stream positions, no global processing array needed
+}
+
+func (m *Mongo) GetProcessingStreams() []string {
+	// MongoDB has per-stream positions, no global processing array
+	return nil
+}
+
+func (m *Mongo) SetTargetCDCPosition(position string) {
+	// MongoDB has per-stream positions, no global target position
+}
+
+func (m *Mongo) GetTargetCDCPosition() string {
+	// MongoDB has per-stream positions
+	return ""
+}
+
+// SaveNextCDCPositionForStream saves current position as next_data before commit (for 2PC)
+func (m *Mongo) SaveNextCDCPositionForStream(streamID string) {
+	val, ok := m.cdcCursor.Load(streamID)
+	if ok {
+		// Save current position as next_data in state
+		for _, stream := range m.streams {
+			if stream.ID() == streamID {
+				m.state.SetCursor(stream.Self(), "next_data", val)
+				logger.Debugf("Saved next_data for stream %s: %s", streamID, val)
+				break
+			}
 		}
 	}
+}
+
+// CommitCDCPositionForStream moves next_data to _data after successful commit
+func (m *Mongo) CommitCDCPositionForStream(streamID string) {
+	for _, stream := range m.streams {
+		if stream.ID() == streamID {
+			nextData := m.state.GetCursor(stream.Self(), "next_data")
+			if nextData != nil {
+				// Move next_data to _data
+				m.state.SetCursor(stream.Self(), cdcCursorField, nextData)
+				// Clear next_data
+				m.state.SetCursor(stream.Self(), "next_data", nil)
+				logger.Debugf("Committed _data for stream %s: %s", streamID, nextData)
+			}
+			break
+		}
+	}
+}
+
+// CheckPerStreamRecovery checks if next_data exists for this stream, verifies commit status, and updates or rollbacks.
+// This implements 2PC recovery for MongoDB per-stream positions.
+func (m *Mongo) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
+	nextData := m.state.GetCursor(stream.Self(), "next_data")
+	if nextData == nil {
+		return nil // No recovery needed for this stream
+	}
+
+	currentData := m.state.GetCursor(stream.Self(), cdcCursorField)
+
+	// Generate threadID using _data (the position at which we started the sync)
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(currentData.(string))))
+	threadID := fmt.Sprintf("%s_%s", stream.ID(), hash)
+
+	// Create temporary writer to check commit status
+	writer, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+	if err != nil {
+		return fmt.Errorf("failed to create writer for recovery check: %s", err)
+	}
+
+	committed, err := writer.IsThreadCommitted(ctx, threadID)
+	if err != nil {
+		return fmt.Errorf("failed to check commit status for stream %s: %s", stream.ID(), err)
+	}
+
+	if committed {
+		// Thread committed successfully - move next_data to _data
+		logger.Infof("Recovery: Stream %s (thread %s) committed, updating _data to %s", stream.ID(), threadID, nextData)
+		m.state.SetCursor(stream.Self(), cdcCursorField, nextData)
+		m.state.SetCursor(stream.Self(), "next_data", nil)
+	} else {
+		// Thread not committed - rollback by removing next_data (keep old _data)
+		logger.Infof("Recovery: Stream %s (thread %s) not committed, rolling back (keeping _data=%s)", stream.ID(), threadID, currentData)
+		m.state.SetCursor(stream.Self(), "next_data", nil)
+	}
+
+	return nil
+}
+
+// AcknowledgeCDCPosition - no-op for MongoDB
+func (m *Mongo) AcknowledgeCDCPosition(ctx context.Context, position string) error {
 	return nil
 }
 

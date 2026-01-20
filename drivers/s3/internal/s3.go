@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
@@ -390,13 +391,83 @@ func (s *S3) PreCDC(ctx context.Context, streams []types.StreamInterface) error 
 }
 
 // StreamChanges is not supported for S3
-func (s *S3) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.CDCMsgFn) error {
+func (s *S3) StreamChanges(ctx context.Context, streamIndex int, processFn abstract.CDCMsgFn) error {
 	return fmt.Errorf("CDC is not supported for S3 source")
 }
 
 // PostCDC is not supported for S3
-func (s *S3) PostCDC(ctx context.Context, stream types.StreamInterface, success bool, readerID string) error {
+func (s *S3) PostCDC(ctx context.Context, streamIndex int) error {
 	return fmt.Errorf("CDC is not supported for S3 source")
+}
+
+// ChangeStreamConfig returns the change stream configuration for S3
+func (s *S3) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, false
+}
+
+func (s *S3) GetCDCPosition() string {
+	// S3 doesn't support CDC
+	return ""
+}
+
+func (s *S3) GetCDCStartPosition() string {
+	// S3 doesn't support CDC
+	return ""
+}
+func (s *S3) SetNextCDCPosition(position string) {
+	// S3 doesn't support CDC
+}
+
+func (s *S3) GetNextCDCPosition() string {
+	// S3 doesn't support CDC
+	return ""
+}
+
+func (s *S3) SetCurrentCDCPosition(position string) {
+	// S3 doesn't support CDC
+}
+
+func (s *S3) SetProcessingStreams(streamIDs []string) {
+	// S3 doesn't support CDC
+}
+
+func (s *S3) RemoveProcessingStream(streamID string) {
+	// S3 doesn't support CDC
+}
+
+func (s *S3) GetProcessingStreams() []string {
+	// S3 doesn't support CDC
+	return nil
+}
+
+func (s *S3) CheckCDCRecovery(ctx context.Context, pool *destination.WriterPool, streams []types.StreamInterface) error {
+	// S3 doesn't support CDC
+	return nil
+}
+
+func (s *S3) SetTargetCDCPosition(position string) {
+	// S3 doesn't support CDC
+}
+
+func (s *S3) GetTargetCDCPosition() string {
+	// S3 doesn't support CDC
+	return ""
+}
+
+// SaveNextCDCPositionForStream - no-op for S3
+func (s *S3) SaveNextCDCPositionForStream(streamID string) {}
+
+// CommitCDCPositionForStream - no-op for S3
+func (s *S3) CommitCDCPositionForStream(streamID string) {}
+
+// CheckPerStreamRecovery - no-op for S3
+func (s *S3) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
+	return nil
+}
+
+// AcknowledgeCDCPosition - no-op for S3
+func (s *S3) AcknowledgeCDCPosition(ctx context.Context, position string) error {
+	return nil
 }
 
 // getFileReader returns a reader for an S3 file with decompression applied (S3-specific logic)

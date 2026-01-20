@@ -31,19 +31,13 @@ func (p *pgoutputReplicator) Socket() *Socket {
 }
 
 func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
-	var slot ReplicationSlot
-	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, p.socket.ReplicationSlot)); err != nil {
-		return fmt.Errorf("failed to get replication slot: %s", err)
-	}
-	p.socket.CurrentWalPosition = slot.CurrentLSN
-
-	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, p.socket.ReplicationSlot, p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
+	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {
 		return fmt.Errorf("failed to start replication: %v", err)
 	}
 
-	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
+	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.GetEndPosition())
 
 	cdcStartTime := time.Now()
 	messageReceived := false
@@ -56,11 +50,11 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			return nil
 		default:
 			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
-				return fmt.Errorf("%s, try increasing it or do full load", constants.NoRecordsFoundError)
+				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrNonRetryable)
 			}
 
-			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
-				logger.Infof("finishing sync, reached wal position: %s", p.socket.CurrentWalPosition)
+			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.GetEndPosition() {
+				logger.Infof("finishing sync, reached wal position: %s", p.socket.GetEndPosition())
 				return nil
 			}
 
@@ -70,7 +64,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			cancel()
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
+					return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrNonRetryable)
 				}
 
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {
@@ -102,7 +96,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
-					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
+					if err := AcknowledgeLSN(ctx, db, p.socket, true, p.socket.ClientXLogPos); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)
 					}
 				}
@@ -186,7 +180,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "insert", Data: values})
+	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "insert", Data: values, Position: p.socket.ConfirmedFlushLSN.String()})
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
@@ -205,7 +199,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "update", Data: values})
+	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "update", Data: values, Position: p.socket.ConfirmedFlushLSN.String()})
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -224,7 +218,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})
+	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values, Position: p.socket.ConfirmedFlushLSN.String()})
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

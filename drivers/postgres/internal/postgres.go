@@ -39,13 +39,15 @@ const (
 )
 
 type Postgres struct {
-	client     *sqlx.DB
-	sshClient  *ssh.Client
-	config     *Config // postgres driver connection config
-	CDCSupport bool    // indicates if the Postgres instance supports CDC
-	cdcConfig  CDC
-	replicator waljs.Replicator
-	state      *types.State // reference to globally present state
+	client         *sqlx.DB
+	sshClient      *ssh.Client
+	config         *Config // postgres driver connection config
+	CDCSupport     bool    // indicates if the Postgres instance supports CDC
+	cdcConfig      CDC
+	replicator     waljs.Replicator
+	state          *types.State // reference to globally present state
+	streams        []types.StreamInterface
+	targetPosition string // target position for bounded recovery sync
 }
 
 func (p *Postgres) CDCSupported() bool {
@@ -223,6 +225,11 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		// add primary keys for stream
 		for _, column := range primaryKeyOutput {
 			stream.WithPrimaryKey(column.Name)
+		}
+
+		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		if p.CDCSupported() {
+			stream.WithSyncMode(types.CDC, types.STRICTCDC)
 		}
 
 		return stream, nil

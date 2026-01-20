@@ -24,19 +24,23 @@ import (
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
-	config     *Config
-	client     *sqlx.DB
-	sshClient  *ssh.Client
-	CDCSupport bool // indicates if the MySQL instance supports CDC
-	cdcConfig  CDC
-	BinlogConn *binlog.Connection
-	state      *types.State // reference to globally present state
+	config         *Config
+	client         *sqlx.DB
+	sshClient      *ssh.Client
+	CDCSupport     bool // indicates if the MySQL instance supports CDC
+	cdcConfig      CDC
+	BinlogConn     *binlog.Connection
+	streams        []types.StreamInterface
+	state          *types.State // reference to globally present state
+	targetPosition string       // target position for bounded recovery sync (empty = use latest)
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
 type MySQLGlobalState struct {
-	ServerID uint32        `json:"server_id"`
-	State    binlog.Binlog `json:"state"`
+	ServerID   uint32        `json:"server_id"`
+	State      binlog.Binlog `json:"state"`
+	NextCDCPos string        `json:"next_cdc_pos,omitempty"` // For 2PC recovery - position before writers commit
+	Processing []string      `json:"processing,omitempty"`   // Stream IDs currently being processed in CDC
 }
 
 func (m *MySQL) CDCSupported() bool {
@@ -211,6 +215,12 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, nil
 }
 

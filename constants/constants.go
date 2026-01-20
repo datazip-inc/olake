@@ -1,6 +1,7 @@
 package constants
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -9,7 +10,6 @@ const (
 	DefaultThreadCount     = 3
 	DefaultDiscoverTimeout = 5 * time.Minute
 	DefaultRetryTimeout    = 60 * time.Second
-	DestError              = "destination error"
 	ParquetFileExt         = "parquet"
 	PartitionRegexIceberg  = `\{([^,]+),\s*([^}]+)\}`
 	PartitionRegexParquet  = `\{([^}]+)\}`
@@ -26,8 +26,6 @@ const (
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
-	LSNNotUpdatedError     = "LSN not updated after 5 minutes"
-	NoRecordsFoundError    = "no records found in given initial wait time"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
@@ -46,7 +44,6 @@ const (
 )
 
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
-
-var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
-
+var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
+var ErrGlobalContextGroup = fmt.Errorf("global context group error")
 var SkipCDCDrivers = []DriverType{Oracle}
