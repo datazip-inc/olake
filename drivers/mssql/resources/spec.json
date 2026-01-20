@@ -1,0 +1,70 @@
+{
+    "type": "object",
+    "properties": {
+        "host": {
+            "type": "string",
+            "title": "MSSQL Host",
+            "description": "Database host address for connection"
+        },
+        "port": {
+            "type": "integer",
+            "title": "MSSQL Port",
+            "description": "Database server listening port",
+            "default": 1433
+        },
+        "database": {
+            "type": "string",
+            "title": "Database Name",
+            "description": "The name of the database to use for connection"
+        },
+        "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Username used to authenticate with the database"
+        },
+        "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "Password for database authentication",
+            "format": "password",
+            "minLength": 1
+        },
+        "max_threads": {
+            "type": "integer",
+            "title": "Max Threads",
+            "description": "Max parallel threads for chunk snapshotting",
+            "default": 3
+        },
+        "retry_count": {
+            "type": "integer",
+            "title": "Retry Count",
+            "description": "Number of sync retry attempts using exponential backoff",
+            "default": 3
+        },
+        "ssl": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "title": "SSL Mode",
+                    "description": "Database connection SSL/encryption configuration",
+                    "default": "disable",
+                    "enum": [
+                        "require",
+                        "disable"
+                    ]
+                }
+            },
+            "required": [
+                "mode"
+            ]
+        }
+    },
+    "required": [
+        "host",
+        "port",
+        "database",
+        "username",
+        "password"
+    ]
+}
