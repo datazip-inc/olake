@@ -300,7 +300,7 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 func getOlakeCLIVersion() string {
 	version := os.Getenv("DRIVER_VERSION")
 	if version == "" {
-		return "version not embedded"
+		return "Not Available"
 	}
 	return version
 }
