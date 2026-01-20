@@ -131,16 +131,32 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("CDC is not enabled for table %s.%s", stream.Namespace(), stream.Name())
 	}
 
-	// TODO: research how to handle schema evolution
-
-	// Select the newest capture instance whose startLSN is <= fromLSN.
-	// This allows seamless continuation across CDC capture re-creation
-	// during schema evolution.
+	// TODO: research how to handle schema evolution.
+	//
+	// When multiple capture instances exist for the same table (due to schema
+	// evolution), pick the newest instance whose startLSN is <= fromLSN.
+	// This guarantees we continue from an instance that was valid at our last
+	// processed LSN.
+	//
+	// If there is a newer capture instance after the one we select, clamp
+	// targetLSN to that newer instance's startLSN so we do not read rows that
+	// conceptually belong to the new schema from the old capture instance.
 	var selectedCapture *captureInstance
+
 	for i := len(captures) - 1; i >= 0; i-- {
 		// LSNs are fixed-length hex strings and can be compared lexicographically
 		if captures[i].startLSN <= fromLSN {
 			selectedCapture = &captures[i]
+
+			// If a newer capture instance exists, restrict the upper bound of this
+			// read to that newer instance's start LSN.
+			nextIdx := i + 1
+			if nextIdx < len(captures) {
+				newerCapture := captures[nextIdx]
+				if targetLSN > newerCapture.startLSN {
+					targetLSN = newerCapture.startLSN
+				}
+			}
 			break
 		}
 	}
@@ -202,8 +218,11 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		return fmt.Errorf("failed to parse toLSN: %s", err)
 	}
 
+	// Build and log the CDC query for this capture instance.
+	query := jdbc.MSSQLCDCGetChangesQuery(capture.instanceName)
+
 	// Query CDC rows for this capture instance between the two LSNs.
-	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCGetChangesQuery(capture.instanceName), fromLSNBytes, toLSNBytes)
+	rows, err := m.client.QueryContext(ctx, query, fromLSNBytes, toLSNBytes)
 	if err != nil {
 		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
 	}
