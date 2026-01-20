@@ -22,8 +22,10 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	switch driver {
 	case constants.MySQL:
 		return fmt.Sprintf("`%s`", identifier) // MySQL uses backticks for quoting identifiers
-	case constants.Postgres, constants.DB2, constants.Oracle:
+	case constants.Postgres, constants.DB2:
 		return fmt.Sprintf("%q", identifier)
+	case constants.Oracle:
+		return fmt.Sprintf("%q", strings.ToUpper(identifier))
 	case constants.MSSQL:
 		return fmt.Sprintf("[%s]", identifier)
 	default:
