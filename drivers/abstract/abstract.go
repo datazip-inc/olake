@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type CDCChange struct {
@@ -64,25 +63,6 @@ func (a *AbstractDriver) GetKafkaInterface() (KafkaInterface, bool) {
 	return kafkaInterface, ok
 }
 
-// CDCSupported checks if CDC is supported for a specific stream.
-func (a *AbstractDriver) CDCSupported(ctx context.Context, stream *types.Stream) bool {
-	// MSSQL requires table-level CDC check
-	if a.driver.Type() == string(constants.MSSQL) {
-		if mssqlDriver, ok := a.driver.(interface {
-			IsTableCDCEnabled(ctx context.Context, namespace, name string) (bool, error)
-		}); ok {
-			enabled, err := mssqlDriver.IsTableCDCEnabled(ctx, stream.Namespace, stream.Name)
-			if err != nil {
-				logger.Warnf("failed to check table-level CDC support for %s.%s: %s, falling back to CDC not supported", stream.Namespace, stream.Name, err)
-				return false
-			}
-			return enabled
-		}
-	}
-	// For other drivers, use database-level check
-	return a.driver.CDCSupported()
-}
-
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
 	if a.driver.MaxConnections() > 0 {
@@ -122,7 +102,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		}
 
 		_, isKafkaDriver := a.GetKafkaInterface()
-		if a.CDCSupported(ctx, convStream) && !isKafkaDriver {
+		if a.driver.CDCSupported() && !isKafkaDriver {
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
 		} else {

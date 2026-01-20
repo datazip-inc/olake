@@ -82,8 +82,17 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("failed to get MSSQL current max LSN: %w", err)
 	}
 
-	// Initialize LSN for each stream if not present
 	for _, stream := range streams {
+		// check if CDC is enabled for each stream
+		enabled, err := m.isStreamCDCEnabled(ctx, stream.Namespace(), stream.Name())
+		if err != nil {
+			return err
+		}
+		if !enabled {
+			return fmt.Errorf("CDC is not enabled for table %s.%s", stream.Namespace(), stream.Name())
+		}
+
+		// Initialize LSN for each stream if not present
 		lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey)
 		if lsnVal == nil {
 			// New stream or first run: start from current max LSN
@@ -119,8 +128,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	// Get capture instance info
 	captures, ok := m.capturesMap[stream.ID()]
 	if !ok || len(captures) == 0 {
-		logger.Warnf("No capture instance found for stream %s, skipping", stream.ID())
-		return nil
+		return fmt.Errorf("CDC is not enabled for table %s.%s", stream.Namespace(), stream.Name())
 	}
 
 	// TODO: research how to handle schema evolution
