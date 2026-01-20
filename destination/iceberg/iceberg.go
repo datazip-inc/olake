@@ -254,41 +254,6 @@ func (i *Iceberg) Type() string {
 
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
-	// dedup records according to cdc timestamp and olakeID
-	dedupRecords := func(records []types.RawRecord) []types.RawRecord {
-		// only dedup if it is upsert mode
-		if !isUpsertMode(i.stream, i.options.Backfill) {
-			return records
-		}
-
-		// map olakeID -> index of record to keep (index into original slice)
-		keepIdx := make(map[string]int, len(records))
-		for idx, record := range records {
-			existingIdx, ok := keepIdx[record.OlakeID]
-			if !ok {
-				keepIdx[record.OlakeID] = idx
-				continue
-			}
-			if record.CdcTimestamp == nil {
-				keepIdx[record.OlakeID] = idx // keep latest reord (in incremental)
-				continue
-			}
-
-			ex := records[existingIdx]
-			if ex.CdcTimestamp.Before(*record.CdcTimestamp) {
-				keepIdx[record.OlakeID] = idx // keep latest reord (w.r.t cdc timestamp)
-			}
-		}
-
-		out := make([]types.RawRecord, 0, len(keepIdx))
-		for rIdx, record := range records {
-			if idx, ok := keepIdx[record.OlakeID]; ok && idx == rIdx {
-				out = append(out, record)
-			}
-		}
-		return out
-	}
-
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {
@@ -386,8 +351,6 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 		return diffThreadSchema.Load(), schemaMap, err
 	}
-
-	records = dedupRecords(records)
 
 	if !i.stream.NormalizationEnabled() {
 		return false, records, i.schema, nil
