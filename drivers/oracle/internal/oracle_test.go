@@ -31,7 +31,7 @@ func TestOracleIntegration(t *testing.T) {
                         {
                             "column": "col_timestamp",
                             "operator": ">=",
-                            "value": "2022-07-01T15:30:00.000+00:00"
+                            "value": "01-JUL-22 03.30.00.000000 PM"
                         }
                     ]
                 }`,

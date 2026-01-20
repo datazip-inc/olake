@@ -212,7 +212,7 @@ func matches(
 	logger.Debugf("[matches] logicalOp=%s isAnd=%v", logicalOp, isAnd)
 
 	for _, cond := range conditions {
-		recordVal, _ := record.Data[cond.column]
+		recordVal := record.Data[cond.column]
 
 		ok := evaluate(recordVal, cond.value, cond.operator)
 

@@ -1066,7 +1066,7 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 			"order_id":    int64(1004),
 			"customer_id": int64(503),
 			"total":       float64(50.25),
-			"status":      "cancelled",
+			"status":      "canceled",
 			"priority":    int32(3),
 			"is_express":  false,
 		}),
@@ -1103,12 +1103,12 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 		assert.Len(t, result, 3) // orders 1001, 1003, 1005
 	})
 
-	t.Run("completed or cancelled orders", func(t *testing.T) {
+	t.Run("completed or canceled orders", func(t *testing.T) {
 		filter := types.FilterInput{
 			LogicalOperator: "OR",
 			Conditions: []types.FilterCondition{
 				{Column: "status", Operator: "=", Value: "completed"},
-				{Column: "status", Operator: "=", Value: "cancelled"},
+				{Column: "status", Operator: "=", Value: "canceled"},
 			},
 		}
 
