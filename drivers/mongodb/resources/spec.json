@@ -76,6 +76,12 @@
             "description": "Enable this option to use IAM-based authentication instead of username and password",
             "default": false
         },
+        "additional_params": {
+            "type": "object",
+            "title": "Additional Connection Parameters",
+            "description": "Additional MongoDB connection string parameters (e.g., authMechanism). Each parameter will be added to the connection URI.",
+            "additionalProperties": true
+        },
         "ssh_config": {
             "title": "SSH Config",
             "description": "OLake uses SSH to connect to the database.",
