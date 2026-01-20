@@ -621,8 +621,23 @@ func SQLFilter(
 		var valueSQL string
 		switch v := cond.Value.(type) {
 		case string:
-			escaped := strings.ReplaceAll(v, "'", "''")
-			valueSQL = fmt.Sprintf("'%s'", escaped)
+			// For Oracle, check if this is a timestamp string (ISO 8601 format)
+			if driverType == constants.Oracle && strings.Contains(v, "T") && (strings.Contains(v, "Z") || strings.Contains(v, "+") || (strings.Contains(v, "-") && len(v) > 19)) {
+				// Try to parse as RFC3339 timestamp
+				if t, err := time.Parse(time.RFC3339, v); err == nil {
+					// Format as Oracle timestamp: YYYY-MM-DD HH24:MI:SS.FF
+					timestampStr := t.Format("2006-01-02 15:04:05.000")
+					escaped := strings.ReplaceAll(timestampStr, "'", "''")
+					valueSQL = fmt.Sprintf("TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')", escaped)
+				} else {
+					// Fallback: simple string escaping
+					escaped := strings.ReplaceAll(v, "'", "''")
+					valueSQL = fmt.Sprintf("'%s'", escaped)
+				}
+			} else {
+				escaped := strings.ReplaceAll(v, "'", "''")
+				valueSQL = fmt.Sprintf("'%s'", escaped)
+			}
 		case bool:
 			// SQL standard boolean
 			if v {

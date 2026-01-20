@@ -248,7 +248,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority
 		) VALUES (
-			-1, 999, 111111111111111,
+			-1, 998, 111111111111111,
 			0, 0, 0, 0,
 			0, 0, 0, 0,
 			0, 0,
