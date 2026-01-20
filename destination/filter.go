@@ -160,6 +160,23 @@ func filterConcurrently(
 		record types.RawRecord,
 		idx int,
 	) error {
+		// Delete operations should always be synced, regardless of filter conditions.
+		// This is because:
+		// 1. If a record was previously synced, we need to delete it
+		// 2. If a record was never synced (filtered out), deleting it is a no-op anyway
+		// 3. Delete operations in MongoDB CDC only contain the document key, not full document fields,
+		//    so filter conditions that require those fields cannot be evaluated
+		if record.OperationType == "d" {
+			logger.Debugf(
+				"[filterConcurrently] record[%d] is delete operation → skipping filter",
+				idx,
+			)
+			mu.Lock()
+			filtered = append(filtered, record)
+			mu.Unlock()
+			return nil
+		}
+
 		match := matches(record, conditions, logicalOp)
 
 		logger.Debugf(
