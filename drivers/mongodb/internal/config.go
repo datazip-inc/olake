@@ -49,10 +49,6 @@ func (c *Config) URI() string {
 		query.Set("authSource", c.AuthDB)
 	}
 
-	for key, value := range c.AdditionalParams {
-		query.Set(key, value)
-	}
-
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
 		if c.ReadPreference == "" {
@@ -62,6 +58,10 @@ func (c *Config) URI() string {
 	}
 
 	host := strings.Join(c.Hosts, ",")
+
+	for key, value := range c.AdditionalParams {
+		query.Set(key, value)
+	}
 
 	// Construct final URI using url.URL
 	u := &url.URL{
