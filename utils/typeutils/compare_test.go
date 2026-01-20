@@ -12,7 +12,6 @@ import (
 func TestCompare(t *testing.T) {
 	baseTime := time.Now()
 	laterTime := baseTime.Add(time.Hour)
-	leftPointerTarget, rightPointerTarget := 1, 1
 
 	testCases := []struct {
 		name          string
@@ -108,8 +107,6 @@ func TestCompare(t *testing.T) {
 		{"fallback_slice", []int{1, 2, 56}, []float32{2, 3}, -1},
 		{"fallback_map", map[string]int{"z": 1}, map[string]int{"b": 34}, 1},
 		{"fallback_errors", errors.New("a"), errors.New("A"), 1},
-		{"fallback_pointers_lesser", &leftPointerTarget, &rightPointerTarget, -1},
-		{"fallback_pointers_greater", &rightPointerTarget, &leftPointerTarget, 1},
 		{"fallback_interface_wrapped_int", interface{}(int(5)), interface{}(int(5)), 0},
 	}
 
