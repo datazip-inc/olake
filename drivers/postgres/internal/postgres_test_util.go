@@ -109,6 +109,34 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
 				'<(5,5),3.5>'::circle
 			)`, integrationTestTable)
+		_, err := db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// insert a filtered doc
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_bool, col_char, col_character,
+				col_character_varying, col_date, col_decimal,
+				col_double_precision, col_float4, col_int, col_int2,
+				col_integer, col_interval, col_json, col_jsonb,
+				col_name, col_numeric, col_real, col_text,
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
+				col_point, col_polygon, col_circle
+			) VALUES (
+				-1, 111111111111111, FALSE, 'x', 'filtered',
+				'filtered_val', '2021-06-15', 50.123,
+				50.123, 50.0, 0, 0, 0,
+				'0 hours', '{"filtered": true}', '{"filtered": true}',
+				'filtered_name', 50.123, 50.0, 'filtered text',
+				'2021-06-15 10:00:00', '2021-06-15 10:00:00+00',
+				'00000000-0000-0000-0000-000000000000', B'000000',
+				'<filtered>value</filtered>',
+				'(0.0,0.0)'::point,
+				'((0,0),(0,0),(0,0),(0,0),(0,0))'::polygon,
+				'<(0,0),0.0>'::circle
+			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+		return
 
 	case "update":
 		query = fmt.Sprintf(`
@@ -219,6 +247,31 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")
 	}
+	// insert a filtered doc
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			col_cursor, col_bigint, col_bigserial, col_bool, col_char, col_character,
+			col_character_varying, col_date, col_decimal,
+			col_double_precision, col_float4, col_int, col_int2, col_integer,
+			col_interval, col_json, col_jsonb, col_name, col_numeric,
+			col_real, col_text, col_timestamp, col_timestamptz,
+			col_uuid, col_varbit, col_xml,
+			col_point, col_polygon, col_circle
+		) VALUES (
+			-1, 111111111111111, DEFAULT, FALSE, 'x', 'filtered',
+			'filtered_val', '2021-06-15', 500234.123,
+			500234.123, 500234.0, 0, 0, 0, '0 hours', '{"filtered": true}',
+			'{"filtered": true}', 'filtered_name', 500234.123, 500234.0,
+			'filtered text', '2021-06-15 10:00:00',
+			'2021-06-15 10:00:00+00',
+			'00000000-0000-0000-0000-000000000000', B'000000',
+			'<filtered>value</filtered>',
+			'(0.0,0.0)'::point,
+			'((0,0),(0,0),(0,0),(0,0),(0,0))'::polygon,
+			'<(0,0),0.0>'::circle
+		)`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
 var ExpectedPostgresData = map[string]interface{}{

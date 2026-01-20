@@ -85,6 +85,27 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				TIMESTAMP '2023-01-01 12:00:00+00:00',
 				TIMESTAMP '2023-01-01 12:00:00+05:30'
 			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// insert a filtered doc
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_char, col_character,
+				col_varchar2, col_date, col_decimal,
+				col_double_precision, col_float, col_int, col_smallint,
+				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+			) VALUES (
+				-1, 111111111111111, 'x', 'filtered',
+				'filtered_val', TO_DATE('2022-06-15', 'YYYY-MM-DD'), 50.123,
+				50.123, 50.0, 0, 0, 0,
+				'filtered text', 'filtered nclob',
+				TIMESTAMP '2022-06-15 10:00:00',
+				TIMESTAMP '2022-06-15 10:00:00+00:00',
+				TIMESTAMP '2022-06-15 10:00:00+05:30'
+			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+		return
 
 	case "update":
 		query = fmt.Sprintf(`
@@ -130,6 +151,24 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")
 	}
+	// insert a filtered doc
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			col_cursor, col_bigint, col_char, col_character,
+			col_varchar2, col_date, col_decimal,
+			col_double_precision, col_float, col_int, col_smallint,
+			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+		) VALUES (
+			-1, 111111111111111, 'x', 'filtered',
+			'filtered_val', TO_DATE('2021-06-15', 'YYYY-MM-DD'), 500234.123,
+			500234.123, 500234.0, 0, 0, 0,
+			'filtered text', 'filtered nclob',
+			TIMESTAMP '2021-06-15 10:00:00',
+			TIMESTAMP '2021-06-15 10:00:00+00:00',
+			TIMESTAMP '2021-06-15 10:00:00+05:30'
+		)`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
 var ExpectedOracleData = map[string]interface{}{

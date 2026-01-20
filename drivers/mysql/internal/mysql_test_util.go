@@ -115,6 +115,35 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high'
 		)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// insert a filtered doc
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active,
+			long_varchar, name_bool, status, priority
+		) VALUES (
+			-1, 999, 111111111111111,
+			0, 0, 0, 0,
+			0, 0, 0, 0,
+			0, 0,
+			50.123, 50.12, 50.123,
+			50.123, 50.0, 50.123, 50.123,
+			'x', 'filtered_val', 'filtered text', 'filtered tiny',
+			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
+			'2021-06-15 10:00:00', 0,
+			'filtered long varchar', 0, 'inactive', 'low'
+		)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+		return
 
 	case "update":
 		query = fmt.Sprintf(`
@@ -207,6 +236,30 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
+	// insert a filtered doc
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active, long_varchar, name_bool, status, priority
+		) VALUES (
+			-1, 999, 111111111111111,
+			0, 0, 0, 0,
+			0, 0, 0, 0,
+			0, 0,
+			500234.123, 500234.12, 500234.123,
+			500234.123, 500234.0, 500234.123, 500234.123,
+			'x', 'filtered_val', 'filtered text', 'filtered tiny',
+			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
+			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low'
+		)`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
 var ExpectedMySQLData = map[string]interface{}{
