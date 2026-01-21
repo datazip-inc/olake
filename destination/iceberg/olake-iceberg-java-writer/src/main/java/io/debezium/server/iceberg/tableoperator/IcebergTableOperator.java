@@ -387,9 +387,13 @@ public class IcebergTableOperator {
                }
 
                DeleteFile deleteFile = deleteFileBuilder.build();
-               deleteFiles.add(deleteFile);
-               LOGGER.info("Thread {}: registered positional delete file {} (total delete files: {})",
-                         threadId, filePath, deleteFiles.size());
+               if (filesToCommit.size() > 0) {
+                    filesToCommit.get(0).first().add(deleteFile);
+               } else {
+                    filesToCommit.add(Pair.of(new ArrayList<>(Arrays.asList(deleteFile)), new ArrayList<DataFile>()));
+               }
+               LOGGER.info("Thread {}: accumulated positional delete file {} (total: {})",
+                         threadId, filePath, filesToCommit.get(0).first().size());
           } catch (Exception e) {
                String errorMsg = String.format("Thread %s: failed to register positional delete file %s: %s",
                          threadId, filePath, e.getMessage());
