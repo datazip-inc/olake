@@ -601,3 +601,4 @@ func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	w.fileschemajson = resp.(*proto.ArrowIngestResponse).GetIcebergSchemas()
 	return nil
 }
+

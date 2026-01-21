@@ -2,6 +2,9 @@ name: Integration Tests
 on:
   push:
     branches:
+      - "feat/arrow-improvements-integration-test-fix"
+      - "staging"
+      - "feat/arrow-improvements"
       - "*"
     paths:
       - '**/*.go'
