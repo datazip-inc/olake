@@ -131,35 +131,9 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("CDC is not enabled for table %s.%s", stream.Namespace(), stream.Name())
 	}
 
-	// TODO: research how to handle schema evolution.
-	//
-	// When multiple capture instances exist for the same table (due to schema
-	// evolution), pick the newest instance whose startLSN is <= fromLSN.
-	// This guarantees we continue from an instance that was valid at our last
-	// processed LSN.
-	//
-	// If there is a newer capture instance after the one we select, clamp
-	// targetLSN to that newer instance's startLSN so we do not read rows that
-	// conceptually belong to the new schema from the old capture instance.
+	// Select the appropriate capture instance and clamp targetLSN if needed
 	var selectedCapture *captureInstance
-
-	for i := len(captures) - 1; i >= 0; i-- {
-		// LSNs are fixed-length hex strings and can be compared lexicographically
-		if captures[i].startLSN <= fromLSN {
-			selectedCapture = &captures[i]
-
-			// If a newer capture instance exists, restrict the upper bound of this
-			// read to that newer instance's start LSN.
-			nextIdx := i + 1
-			if nextIdx < len(captures) {
-				newerCapture := captures[nextIdx]
-				if targetLSN > newerCapture.startLSN {
-					targetLSN = newerCapture.startLSN
-				}
-			}
-			break
-		}
-	}
+	selectedCapture, targetLSN = m.selectCaptureInstance(captures, fromLSN, targetLSN, stream)
 
 	if selectedCapture == nil {
 		return fmt.Errorf(
@@ -198,6 +172,47 @@ func (m *MSSQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 		}
 	}
 	return nil
+}
+
+// TODO: research how to handle schema evolution.
+
+// selectCaptureInstance selects the appropriate capture instance for a given LSN range.
+// When multiple capture instances exist for the same table (due to schema
+// evolution), pick the newest instance whose startLSN is <= fromLSN.
+// This guarantees we continue from an instance that was valid at our last
+// processed LSN.
+//
+// If there is a newer capture instance after the one we select, clamp
+// targetLSN to that newer instance's startLSN so we do not read rows that
+// conceptually belong to the new schema from the old capture instance.
+//
+// Returns the selected capture instance and the targetLSN.
+func (m *MSSQL) selectCaptureInstance(captures []captureInstance, fromLSN, targetLSN string, stream types.StreamInterface) (*captureInstance, string) {
+	var selectedCapture *captureInstance
+
+	for i := len(captures) - 1; i >= 0; i-- {
+		// LSNs are fixed-length hex strings and can be compared lexicographically
+		if captures[i].startLSN <= fromLSN {
+			selectedCapture = &captures[i]
+
+			// If a newer capture instance exists, restrict the upper bound of this
+			// read to that newer instance's start LSN.
+			nextIdx := i + 1
+			if nextIdx < len(captures) && targetLSN > captures[nextIdx].startLSN {
+				newerCapture := captures[nextIdx]
+				logger.Warnf(
+					"Newer capture instance [%s] detected for stream %s at LSN %s. Clamping targetLSN",
+					newerCapture.instanceName,
+					stream.ID(),
+					newerCapture.startLSN,
+				)
+				targetLSN = newerCapture.startLSN
+			}
+			break
+		}
+	}
+
+	return selectedCapture, targetLSN
 }
 
 // fetchTableChangesInLSNRange fetches and emits CDC changes for a single table/capture-instance within an LSN range.
