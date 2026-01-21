@@ -287,6 +287,9 @@ func (a *AbstractDriver) PrepareRecovery(ctx context.Context, pool *destination.
 		if err != nil {
 			return false, nil, fmt.Errorf("failed to check commit status for stream %s: %s", streamID, err)
 		}
+		if closeErr := writer.Close(ctx); closeErr != nil {
+			logger.Warnf("Failed to close recovery check writer for stream %s: %s", streamID, closeErr)
+		}
 
 		if committed {
 			logger.Infof("Stream %s (thread %s) already committed, removing from processing", streamID, threadID)

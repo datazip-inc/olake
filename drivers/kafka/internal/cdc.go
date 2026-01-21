@@ -179,64 +179,21 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 	}
 }
 
-func (k *Kafka) GetCDCPosition() string {
-	return k.consumerGroupID
-}
-
-func (k *Kafka) GetCDCStartPosition() string {
-	return k.consumerGroupID // Kafka uses consumer group ID as stable identifier
-}
-
-func (k *Kafka) SetNextCDCPosition(position string) {
-	// Kafka uses consumer group offsets managed by Kafka brokers
-}
-
-func (k *Kafka) GetNextCDCPosition() string {
-	// Kafka uses consumer group offsets managed by Kafka brokers
-	return ""
-}
-
-func (k *Kafka) SetCurrentCDCPosition(position string) {
-	// Kafka uses consumer group offsets managed by Kafka brokers
-}
-
-func (k *Kafka) SetProcessingStreams(streamIDs []string) {
-	// Kafka uses consumer group offsets managed by Kafka brokers
-}
-
-func (k *Kafka) RemoveProcessingStream(streamID string) {
-	// Kafka uses consumer group offsets managed by Kafka brokers
-}
-
-func (k *Kafka) GetProcessingStreams() []string {
-	// Kafka uses consumer group offsets managed by Kafka brokers
-	return nil
-}
-
-func (k *Kafka) SetTargetCDCPosition(position string) {
-	// Kafka has per-stream positions, no global target position
-}
-
-func (k *Kafka) GetTargetCDCPosition() string {
-	// Kafka has per-stream positions
-	return ""
-}
-
-// SaveNextCDCPositionForStream - no-op for Kafka
-func (k *Kafka) SaveNextCDCPositionForStream(streamID string) {}
-
-// CommitCDCPositionForStream - no-op for Kafka
-func (k *Kafka) CommitCDCPositionForStream(streamID string) {}
-
-// CheckPerStreamRecovery - no-op for Kafka
-func (k *Kafka) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
-	return nil
-}
-
-// AcknowledgeCDCPosition - no-op for Kafka
-func (k *Kafka) AcknowledgeCDCPosition(ctx context.Context, position string) error {
-	return nil
-}
+// TODO: Add 2PC support for Kafka
+func (k *Kafka) GetCDCPosition() string      { return k.consumerGroupID }
+func (k *Kafka) GetCDCStartPosition() string { return k.consumerGroupID }
+func (k *Kafka) SetNextCDCPosition(position string)      {}
+func (k *Kafka) GetNextCDCPosition() string              { return "" }
+func (k *Kafka) SetCurrentCDCPosition(position string)   {}
+func (k *Kafka) SetProcessingStreams(streamIDs []string) {}
+func (k *Kafka) RemoveProcessingStream(streamID string)  {}
+func (k *Kafka) GetProcessingStreams() []string          { return nil }
+func (k *Kafka) SetTargetCDCPosition(position string)    {}
+func (k *Kafka) GetTargetCDCPosition() string            { return "" }
+func (k *Kafka) SaveNextCDCPositionForStream(string)     {}
+func (k *Kafka) CommitCDCPositionForStream(string)       {}
+func (k *Kafka) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error { return nil }
+func (k *Kafka) AcknowledgeCDCPosition(ctx context.Context, position string) error { return nil }
 
 // for processing messages from a Kafka reader.
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {

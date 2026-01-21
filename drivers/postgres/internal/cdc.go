@@ -185,6 +185,7 @@ func (p *Postgres) SetCurrentCDCPosition(position string) {
 func (p *Postgres) SetProcessingStreams(streamIDs []string) {
 	globalState := p.state.GetGlobal()
 	if globalState == nil {
+		logger.Warnf("SetProcessingStreams called but global state is nil")
 		return
 	}
 	var walState waljs.WALState
@@ -200,6 +201,7 @@ func (p *Postgres) SetProcessingStreams(streamIDs []string) {
 func (p *Postgres) RemoveProcessingStream(streamID string) {
 	globalState := p.state.GetGlobal()
 	if globalState == nil {
+		logger.Warnf("RemoveProcessingStream called but global state is nil")
 		return
 	}
 	var walState waljs.WALState

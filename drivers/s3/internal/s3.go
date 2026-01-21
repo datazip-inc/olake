@@ -405,70 +405,26 @@ func (s *S3) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, false
 }
 
-func (s *S3) GetCDCPosition() string {
-	// S3 doesn't support CDC
-	return ""
-}
-
-func (s *S3) GetCDCStartPosition() string {
-	// S3 doesn't support CDC
-	return ""
-}
-func (s *S3) SetNextCDCPosition(position string) {
-	// S3 doesn't support CDC
-}
-
-func (s *S3) GetNextCDCPosition() string {
-	// S3 doesn't support CDC
-	return ""
-}
-
-func (s *S3) SetCurrentCDCPosition(position string) {
-	// S3 doesn't support CDC
-}
-
-func (s *S3) SetProcessingStreams(streamIDs []string) {
-	// S3 doesn't support CDC
-}
-
-func (s *S3) RemoveProcessingStream(streamID string) {
-	// S3 doesn't support CDC
-}
-
-func (s *S3) GetProcessingStreams() []string {
-	// S3 doesn't support CDC
-	return nil
-}
-
+// S3 doesn't support CDC - no-op implementations
+func (s *S3) GetCDCPosition() string                  { return "" }
+func (s *S3) GetCDCStartPosition() string             { return "" }
+func (s *S3) SetNextCDCPosition(position string)      {}
+func (s *S3) GetNextCDCPosition() string              { return "" }
+func (s *S3) SetCurrentCDCPosition(position string)   {}
+func (s *S3) SetProcessingStreams(streamIDs []string) {}
+func (s *S3) RemoveProcessingStream(streamID string)  {}
+func (s *S3) GetProcessingStreams() []string          { return nil }
 func (s *S3) CheckCDCRecovery(ctx context.Context, pool *destination.WriterPool, streams []types.StreamInterface) error {
-	// S3 doesn't support CDC
 	return nil
 }
-
-func (s *S3) SetTargetCDCPosition(position string) {
-	// S3 doesn't support CDC
-}
-
-func (s *S3) GetTargetCDCPosition() string {
-	// S3 doesn't support CDC
-	return ""
-}
-
-// SaveNextCDCPositionForStream - no-op for S3
-func (s *S3) SaveNextCDCPositionForStream(streamID string) {}
-
-// CommitCDCPositionForStream - no-op for S3
-func (s *S3) CommitCDCPositionForStream(streamID string) {}
-
-// CheckPerStreamRecovery - no-op for S3
+func (s *S3) SetTargetCDCPosition(position string) {}
+func (s *S3) GetTargetCDCPosition() string         { return "" }
+func (s *S3) SaveNextCDCPositionForStream(string)  {}
+func (s *S3) CommitCDCPositionForStream(string)    {}
 func (s *S3) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
 	return nil
 }
-
-// AcknowledgeCDCPosition - no-op for S3
-func (s *S3) AcknowledgeCDCPosition(ctx context.Context, position string) error {
-	return nil
-}
+func (s *S3) AcknowledgeCDCPosition(ctx context.Context, position string) error { return nil }
 
 // getFileReader returns a reader for an S3 file with decompression applied (S3-specific logic)
 // Returns (reader, fileSize, error)

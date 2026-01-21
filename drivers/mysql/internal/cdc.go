@@ -135,6 +135,7 @@ func (m *MySQL) GetCDCStartPosition() string {
 func (m *MySQL) SetNextCDCPosition(position string) {
 	globalState := m.state.GetGlobal()
 	if globalState == nil {
+		logger.Warnf("SetNextCDCPosition called but global state is nil")
 		return
 	}
 	var mysqlState MySQLGlobalState
@@ -162,6 +163,7 @@ func (m *MySQL) GetNextCDCPosition() string {
 func (m *MySQL) SetCurrentCDCPosition(position string) {
 	globalState := m.state.GetGlobal()
 	if globalState == nil {
+		logger.Warnf("SetCurrentCDCPosition called but global state is nil")
 		return
 	}
 	var mysqlState MySQLGlobalState
@@ -193,6 +195,7 @@ func (m *MySQL) SetCurrentCDCPosition(position string) {
 func (m *MySQL) SetProcessingStreams(streamIDs []string) {
 	globalState := m.state.GetGlobal()
 	if globalState == nil {
+		logger.Warnf("SetProcessingStreams called but global state is nil")
 		return
 	}
 	var mysqlState MySQLGlobalState
@@ -208,6 +211,7 @@ func (m *MySQL) SetProcessingStreams(streamIDs []string) {
 func (m *MySQL) RemoveProcessingStream(streamID string) {
 	globalState := m.state.GetGlobal()
 	if globalState == nil {
+		logger.Warnf("RemoveProcessingStream called but global state is nil")
 		return
 	}
 	var mysqlState MySQLGlobalState

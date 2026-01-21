@@ -315,6 +315,9 @@ func (m *Mongo) CheckPerStreamRecovery(ctx context.Context, pool *destination.Wr
 	if err != nil {
 		return fmt.Errorf("failed to check commit status for stream %s: %s", stream.ID(), err)
 	}
+	if closeErr := writer.Close(ctx); closeErr != nil {
+		logger.Warnf("Failed to close recovery check writer for stream %s: %s", stream.ID(), closeErr)
+	}
 
 	if committed {
 		// Thread committed successfully - move next_data to _data
