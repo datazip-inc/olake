@@ -2,7 +2,7 @@ name: Go Build and Lint
 on:
   push:
     branches:
-      - "master"
+      - "*"
   pull_request:
     branches:
       - "*"

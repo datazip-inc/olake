@@ -2,7 +2,7 @@ name: Integration Tests
 on:
   push:
     branches:
-      - "master"
+      - "*"
     paths:
       - '**/*.go'
       - '**/*.java'
@@ -60,7 +60,7 @@ jobs:
           retry_wait_seconds: 5
           command: |
             docker exec olake_postgres-test psql -h localhost -U postgres -d postgres -c "SELECT 1"
-      
+
       - name: Wait for MongoDB
         uses: nick-fields/retry@v2
         with:
