@@ -95,7 +95,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
         UPDATE %s SET
             col_cursor = NULL,
-            col_smallint = 321
+            col_smallint = 321,
+			col_timestamp = TIMESTAMP('2024-01-01-12.00.00.000000')
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -183,7 +184,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_smallint":   int64(321),
 	"col_clob":       "sample text",
 	"col_blob":       "BLOB DATA ONE",
-	"col_timestamp":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamp":  arrow.Timestamp(time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_time":       "12:00:00",
 	"col_graphic":    "graphic_val",
 	"col_vargraphic": "vargraphic_val",
