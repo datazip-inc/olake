@@ -21,7 +21,7 @@ import (
 type ArrowWriter struct {
 	fileschemajson map[string]string // file type -> iceberg schema JSON
 	schema         map[string]string
-	arrowSchema    map[string]*arrow.Schema // file type -> arrow schema
+	arrowSchema    map[string]*arrow.Schema // file type (data, equality delete, or positional) -> arrow schema
 	allocator      memory.Allocator
 	stream         types.StreamInterface
 	server         internal.ServerClient
