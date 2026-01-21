@@ -18,7 +18,7 @@ func TestDB2Integration(t *testing.T) {
 		UpdatedDestinationDataTypeSchema: UpdatedDB2ToDestinationSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "db2_testdb_db2inst1",
-		CursorField:                      "COL_CURSOR:COL_SMALLINT",
+		CursorField:                      "COL_CURSOR:COL_TIMESTAMP",
 		PartitionRegex:                   "/{id, identity}",
 	}
 	testConfig.TestIntegration(t)

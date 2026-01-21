@@ -50,6 +50,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_real REAL,
 				col_int INTEGER,
 				col_smallint SMALLINT,
+				col_bool BOOLEAN,
 				col_clob CLOB(1M),
 				col_blob BLOB(1M),
 				col_timestamp TIMESTAMP,
@@ -77,7 +78,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varchar, col_date, col_decimal,
 				col_double, col_real, col_int, col_smallint,
 				col_clob, col_blob, col_timestamp, col_time,
-				col_graphic, col_vargraphic
+				col_graphic, col_vargraphic, col_bool
 			) VALUES (
 				6, 12345678901234, 'c', 'char_val',
 				'varchar_val', DATE('2023-01-01'), 123.45,
@@ -86,7 +87,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				TIMESTAMP('2023-01-01-12.00.00.000000'),
 				TIME('12.00.00'),
 				GRAPHIC('graphic_val'),
-				VARGRAPHIC('vargraphic_val')
+				VARGRAPHIC('vargraphic_val'),
+				TRUE
 			)`, integrationTestTable)
 
 	case "update":
@@ -100,8 +102,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		// edge-case : where parquet might break during schema evolution due to schema of both uppercase (from streams) and lowercase columns (from data),
-		// where schema might get overriden, throwing error of schema mismatch in parquet writer
 		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_SMALLINT SET DATA TYPE BIGINT`, integrationTestTable)
 		_, err = db.ExecContext(ctx, evolveQuery)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
@@ -131,7 +131,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_varchar, col_date, col_decimal,
 			col_double, col_real, col_int, col_smallint,
 			col_clob, col_blob, col_timestamp, col_time,
-			col_graphic, col_vargraphic
+			col_graphic, col_vargraphic, col_bool
 		) VALUES (
 			%d, 12345678901234, 'c', 'char_val',
 			'varchar_val', DATE('2023-01-01'), 123.45,
@@ -140,7 +140,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			TIMESTAMP('2023-01-01-12.00.00.000000'),
 			TIME('12.00.00'),
 			GRAPHIC('graphic_val'),
-			VARGRAPHIC('vargraphic_val')
+			VARGRAPHIC('vargraphic_val'),
+			TRUE
 		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -151,6 +152,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 var ExpectedDB2Data = map[string]interface{}{
 	"col_bigint":     int64(12345678901234),
 	"col_char":       "c",
+	"col_bool":       true,
 	"col_character":  "char_val",
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -171,6 +173,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_bigint":     int64(12345678901234),
 	"col_char":       "c",
 	"col_character":  "char_val",
+	"col_bool":       true,
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":    float64(123.45),
@@ -192,6 +195,7 @@ var DB2ToDestinationSchema = map[string]string{
 	"col_bigint":     "bigint",
 	"col_char":       "string",
 	"col_character":  "string",
+	"col_bool":       "boolean",
 	"col_varchar":    "string",
 	"col_date":       "timestamp",
 	"col_decimal":    "double",
@@ -213,6 +217,7 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_bigint":     "bigint",
 	"col_char":       "string",
 	"col_character":  "string",
+	"col_bool":       "boolean",
 	"col_varchar":    "string",
 	"col_date":       "timestamp",
 	"col_decimal":    "double",

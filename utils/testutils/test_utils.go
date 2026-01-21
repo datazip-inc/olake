@@ -27,13 +27,13 @@ import (
 )
 
 const (
-	icebergCatalog         = "olake_iceberg"
-	sparkConnectAddress    = "sc://localhost:15002"
-	installCmd             = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
-	db2CLIDriverInstallCmd = "go run github.com/ibmdb/go_ibm_db/installer@v0.5.4" // db2 CLIDriver
-	SyncTimeout            = 10 * time.Minute
-	BenchmarkThreshold     = 0.9
-	maxRPSHistorySize      = 5
+	icebergCatalog      = "olake_iceberg"
+	sparkConnectAddress = "sc://localhost:15002"
+	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
+	// db2CLIDriverInstallCmd = "go run github.com/ibmdb/go_ibm_db/installer@v0.5.4" // db2 CLIDriver
+	SyncTimeout        = 10 * time.Minute
+	BenchmarkThreshold = 0.9
+	maxRPSHistorySize  = 5
 )
 
 type IntegrationTest struct {
@@ -753,12 +753,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 					"TELEMETRY_DISABLED": "true",
 				}
 				// Add DB2-specific environment variables
-				if cfg.TestConfig.Driver == string(constants.DB2) {
-					env["IBM_DB_HOME"] = "/go/pkg/mod/github.com/ibmdb/clidriver"
-					env["CGO_CFLAGS"] = "-I/go/pkg/mod/github.com/ibmdb/clidriver/include"
-					env["CGO_LDFLAGS"] = "-L/go/pkg/mod/github.com/ibmdb/clidriver/lib -Wl,-rpath,/go/pkg/mod/github.com/ibmdb/clidriver/lib"
-					env["LD_LIBRARY_PATH"] = "/go/pkg/mod/github.com/ibmdb/clidriver/lib"
-				}
+				// if cfg.TestConfig.Driver == string(constants.DB2) {
+				// 	env["IBM_DB_HOME"] = "/go/pkg/mod/github.com/ibmdb/clidriver"
+				// 	env["CGO_CFLAGS"] = "-I/go/pkg/mod/github.com/ibmdb/clidriver/include"
+				// 	env["CGO_LDFLAGS"] = "-L/go/pkg/mod/github.com/ibmdb/clidriver/lib -Wl,-rpath,/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+				// 	env["LD_LIBRARY_PATH"] = "/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+				// }
 				return env
 			}(),
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
@@ -771,11 +771,11 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// 1b. Install DB2 CLI driver if needed
-							if cfg.TestConfig.Driver == string(constants.DB2) {
-								if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
-									return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
-								}
-							}
+							// if cfg.TestConfig.Driver == string(constants.DB2) {
+							// 	if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
+							// 		return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
+							// 	}
+							// }
 
 							// 2. Query on test table
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
@@ -843,12 +843,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 					"TELEMETRY_DISABLED": "true",
 				}
 				// Add DB2-specific environment variables
-				if cfg.TestConfig.Driver == string(constants.DB2) {
-					env["IBM_DB_HOME"] = "/go/pkg/mod/github.com/ibmdb/clidriver"
-					env["CGO_CFLAGS"] = "-I/go/pkg/mod/github.com/ibmdb/clidriver/include"
-					env["CGO_LDFLAGS"] = "-L/go/pkg/mod/github.com/ibmdb/clidriver/lib -Wl,-rpath,/go/pkg/mod/github.com/ibmdb/clidriver/lib"
-					env["LD_LIBRARY_PATH"] = "/go/pkg/mod/github.com/ibmdb/clidriver/lib"
-				}
+				// if cfg.TestConfig.Driver == string(constants.DB2) {
+				// 	env["IBM_DB_HOME"] = "/go/pkg/mod/github.com/ibmdb/clidriver"
+				// 	env["CGO_CFLAGS"] = "-I/go/pkg/mod/github.com/ibmdb/clidriver/include"
+				// 	env["CGO_LDFLAGS"] = "-L/go/pkg/mod/github.com/ibmdb/clidriver/lib -Wl,-rpath,/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+				// 	env["LD_LIBRARY_PATH"] = "/go/pkg/mod/github.com/ibmdb/clidriver/lib"
+				// }
 				return env
 			}(),
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
@@ -861,11 +861,11 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// 1b. Install DB2 CLI driver if needed
-							if cfg.TestConfig.Driver == string(constants.DB2) {
-								if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
-									return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
-								}
-							}
+							// if cfg.TestConfig.Driver == string(constants.DB2) {
+							// 	if code, out, err := utils.ExecCommand(ctx, c, db2CLIDriverInstallCmd); err != nil || code != 0 {
+							// 		return fmt.Errorf("db2 cli driver install failed (%d): %s\n%s", code, err, out)
+							// 	}
+							// }
 
 							// 2. Query on test table
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
