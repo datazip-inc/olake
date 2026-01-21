@@ -310,6 +310,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 	}
 
 	w.schema = newSchema
+	w.writers = make(map[string]*Writer)
 
 	if err := w.initialize(ctx); err != nil {
 		return fmt.Errorf("failed to reinitialize with evolved schema: %s", err)
