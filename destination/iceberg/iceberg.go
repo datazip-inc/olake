@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -363,14 +364,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
-	needFilter := !i.options.Backfill
-	for _, driver := range constants.FilterInFullRefreshDrivers {
-		if i.options.DriverType == driver {
-			needFilter = true
-			break
-		}
-	}
-	if needFilter {
+	if !i.options.Backfill || slices.Contains(constants.FilterInFullRefreshDrivers, i.options.DriverType) {
 		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)

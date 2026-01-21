@@ -22,40 +22,26 @@ func FilterRecords(
 	legacy bool,
 	schema any,
 ) ([]types.RawRecord, error) {
-	logger.Debugf(
-		"[FilterRecords] called: legacy=%v, conditions=%d, records=%d",
-		legacy,
-		len(filter.Conditions),
-		len(records),
-	)
+	logger.Infof("filtering records with filter: %+v", filter)
 
 	if legacy {
-		logger.Debug("[FilterRecords] legacy filter detected → skipping destination filtering")
+		logger.Warnf("legacy filter detected, skipping destination filtering")
 		return records, nil
 	}
 
 	if len(filter.Conditions) == 0 {
-		logger.Debug("[FilterRecords] no filter conditions → returning records as-is")
+		logger.Warnf("no filter conditions, returning records as-is")
 		return records, nil
 	}
 
 	if len(records) == 0 {
-		logger.Debug("[FilterRecords] no records to filter")
+		logger.Warnf("no records to filter")
 		return records, nil
 	}
 
 	conditions := make([]parsedCondition, len(filter.Conditions))
 	for i, cond := range filter.Conditions {
 		cond.Column = utils.Reformat(cond.Column)
-		logger.Debugf(
-			"[FilterRecords] parsing condition[%d]: column=%s operator=%s value=%v (%T)",
-			i,
-			cond.Column,
-			cond.Operator,
-			cond.Value,
-			cond.Value,
-		)
-
 		dataType := resolveColumnType(cond.Column, schema)
 		if dataType == types.Unknown {
 			return nil, fmt.Errorf("unknown datatype for column [%s]", cond.Column)
@@ -69,22 +55,12 @@ func FilterRecords(
 				err,
 			)
 		}
-
-		logger.Debugf(
-			"[FilterRecords] parsed condition[%d] value → %v (%T)",
-			i,
-			parsedVal,
-			parsedVal,
-		)
-
 		conditions[i] = parsedCondition{
 			column:   cond.Column,
 			operator: cond.Operator,
 			value:    parsedVal,
 		}
 	}
-
-	logger.Debug("[FilterRecords] starting concurrent filtering")
 	return filterConcurrently(ctx, records, conditions, filter.LogicalOperator)
 }
 
@@ -97,11 +73,8 @@ type parsedCondition struct {
 
 // resolveColumnType resolves datatype from schema (iceberg or parquet)
 func resolveColumnType(column string, schema any) types.DataType {
-	logger.Debugf("[resolveColumnType] resolving datatype for column=%s", column)
-
 	switch s := schema.(type) {
 	case map[string]string: // iceberg schema
-		logger.Debug("[resolveColumnType] iceberg schema detected")
 		switch s[column] {
 		case "boolean":
 			return types.Bool
@@ -119,7 +92,6 @@ func resolveColumnType(column string, schema any) types.DataType {
 			return types.Timestamp
 		}
 	case typeutils.Fields: // parquet schema
-		logger.Debug("[resolveColumnType] parquet schema detected")
 		if field, ok := s[column]; ok {
 			for _, t := range field.Types() {
 				if t != types.Null {
@@ -128,8 +100,6 @@ func resolveColumnType(column string, schema any) types.DataType {
 			}
 		}
 	}
-
-	logger.Debugf("[resolveColumnType] unknown datatype for column=%s", column)
 	return types.Unknown
 }
 
@@ -140,18 +110,7 @@ func filterConcurrently(
 	conditions []parsedCondition,
 	logicalOp string,
 ) ([]types.RawRecord, error) {
-	logger.Debugf(
-		"[filterConcurrently] records=%d conditions=%d logicalOp=%s",
-		len(records),
-		len(conditions),
-		logicalOp,
-	)
-
-	concurrency := runtime.GOMAXPROCS(0)
-	if concurrency < 1 {
-		concurrency = 1
-	}
-
+	concurrency := runtime.GOMAXPROCS(0) * 16
 	var mu sync.Mutex
 	filtered := make([]types.RawRecord, 0, len(records))
 
@@ -167,10 +126,6 @@ func filterConcurrently(
 		// 3. Delete operations in MongoDB CDC only contain the document key, not full document fields,
 		//    so filter conditions that require those fields cannot be evaluated
 		if record.OperationType == "d" {
-			logger.Debugf(
-				"[filterConcurrently] record[%d] is delete operation → skipping filter",
-				idx,
-			)
 			mu.Lock()
 			filtered = append(filtered, record)
 			mu.Unlock()
@@ -178,13 +133,6 @@ func filterConcurrently(
 		}
 
 		match := matches(record, conditions, logicalOp)
-
-		logger.Debugf(
-			"[filterConcurrently] record[%d] match=%v",
-			idx,
-			match,
-		)
-
 		if match {
 			mu.Lock()
 			filtered = append(filtered, record)
@@ -192,13 +140,6 @@ func filterConcurrently(
 		}
 		return nil
 	})
-
-	logger.Debugf(
-		"[filterConcurrently] finished: input=%d output=%d",
-		len(records),
-		len(filtered),
-	)
-
 	return filtered, err
 }
 
@@ -209,48 +150,24 @@ func matches(
 	logicalOp string,
 ) bool {
 	isAnd := !strings.EqualFold(strings.TrimSpace(logicalOp), "OR")
-	logger.Debugf("[matches] logicalOp=%s isAnd=%v", logicalOp, isAnd)
 
 	for _, cond := range conditions {
 		recordVal := record.Data[cond.column]
 
 		ok := evaluate(recordVal, cond.value, cond.operator)
-
-		logger.Debugf(
-			"[matches] column=%s operator=%s recordVal=%v filterVal=%v result=%v",
-			cond.column,
-			cond.operator,
-			recordVal,
-			cond.value,
-			ok,
-		)
-
 		if isAnd && !ok {
-			logger.Debug("[matches] AND condition failed → record rejected")
 			return false
 		}
 
 		if !isAnd && ok {
-			logger.Debug("[matches] OR condition satisfied → record accepted")
 			return true
 		}
 	}
-
-	logger.Debugf("[matches] final result=%v", isAnd)
 	return isAnd
 }
 
 // evaluate compares values using typeutils.Compare
 func evaluate(recordVal, filterVal any, operator string) bool {
-	logger.Debugf(
-		"[evaluate] recordVal=%v (%T) filterVal=%v (%T) operator=%s",
-		recordVal,
-		recordVal,
-		filterVal,
-		filterVal,
-		operator,
-	)
-
 	if recordVal == nil || filterVal == nil {
 		switch operator {
 		case "=":
@@ -263,8 +180,6 @@ func evaluate(recordVal, filterVal any, operator string) bool {
 	}
 
 	cmp := typeutils.Compare(recordVal, filterVal)
-
-	logger.Debugf("[evaluate] compare result=%d", cmp)
 
 	switch operator {
 	case "=":
@@ -280,7 +195,6 @@ func evaluate(recordVal, filterVal any, operator string) bool {
 	case "<=":
 		return cmp <= 0
 	default:
-		logger.Debugf("[evaluate] unsupported operator=%s", operator)
 		return false
 	}
 }

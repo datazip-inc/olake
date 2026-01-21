@@ -1128,37 +1128,29 @@ func SQLFilter(
 		var valueSQL string
 		switch v := cond.Value.(type) {
 		case string:
-			// For Oracle, check if this is a timestamp string (ISO 8601 format)
-			if driverType == constants.Oracle {
-				// Check if it's an ISO 8601 timestamp (contains T and timezone info)
-				isTimestampString := strings.Contains(v, "T") && (strings.Contains(v, "Z") || strings.Contains(v, "+") || (strings.Contains(v, "-") && len(v) > 19))
-				if isTimestampString {
-					// Try to parse as RFC3339 timestamp
-					if t, err := time.Parse(time.RFC3339, v); err == nil {
-						// Format as Oracle timestamp: YYYY-MM-DD HH24:MI:SS.FF
-						timestampStr := t.Format("2006-01-02 15:04:05.000")
-						escaped := strings.ReplaceAll(timestampStr, "'", "''")
-						valueSQL = fmt.Sprintf("TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')", escaped)
-					} else {
-						// Fallback: simple string escaping
-						escaped := strings.ReplaceAll(v, "'", "''")
-						valueSQL = fmt.Sprintf("'%s'", escaped)
-					}
-				} else {
-					escaped := strings.ReplaceAll(v, "'", "''")
-					valueSQL = fmt.Sprintf("'%s'", escaped)
+			// default: treat as escaped string
+			escaped := strings.ReplaceAll(v, "'", "''")
+			valueSQL = fmt.Sprintf("'%s'", escaped)
+
+			// Oracle-specific timestamp handling
+			if driverType == constants.Oracle &&
+				strings.Contains(v, "T") &&
+				(strings.Contains(v, "Z") ||
+					strings.Contains(v, "+") ||
+					(strings.Contains(v, "-") && len(v) > 19)) {
+
+				if t, err := time.Parse(time.RFC3339, v); err == nil {
+					timestampStr := t.Format("2006-01-02 15:04:05.000")
+					valueSQL = fmt.Sprintf(
+						"TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')",
+						timestampStr,
+					)
 				}
-			} else {
-				escaped := strings.ReplaceAll(v, "'", "''")
-				valueSQL = fmt.Sprintf("'%s'", escaped)
 			}
+
 		case bool:
 			// SQL standard boolean
-			if v {
-				valueSQL = "TRUE"
-			} else {
-				valueSQL = "FALSE"
-			}
+			valueSQL = utils.Ternary(v, "TRUE", "FALSE").(string)
 		case int:
 			valueSQL = strconv.Itoa(v)
 		case int64:

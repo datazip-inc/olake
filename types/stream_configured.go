@@ -14,19 +14,6 @@ type ConfiguredStream struct {
 	Stream         *Stream        `json:"stream,omitempty"`
 }
 
-// // Condition represents a single condition in a filter
-// type Condition struct {
-// 	Column   string
-// 	Operator string
-// 	Value    string
-// }
-
-// // Filter represents the parsed filter
-// type Filter struct {
-// 	Conditions      []Condition // a > b, a < b
-// 	LogicalOperator string      // condition[0] and/or condition[1], single and/or supported
-// }
-
 func (s *ConfiguredStream) ID() string {
 	return s.Stream.ID()
 }
