@@ -1,1 +1,14 @@
-{"type":"STREAM","streams":[{"stream":"test-logs","namespace":"elasticsearch","sync_mode":"","state":{"chunks":[],"timestamp":"2026-01-14T10:45:00Z"}}]}
+{
+  "type": "STREAM",
+  "version": 1,
+  "streams": [
+    {
+      "stream": "test-incremental-timestamp",
+      "namespace": "elasticsearch",
+      "sync_mode": "incremental",
+      "state": {
+        "timestamp_field": 1769026162494
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "title": "Host",
+      "description": "Elasticsearch host address (e.g., localhost or elasticsearch.example.com)",
+      "examples": ["localhost", "elasticsearch.example.com"]
+    },
+    "port": {
+      "type": "integer",
+      "title": "Port",
+      "description": "Elasticsearch port number",
+      "default": 9200,
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Username for Elasticsearch authentication"
+    },
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "Password for Elasticsearch authentication",
+      "format": "password"
+    },
+    "api_key": {
+      "type": "string",
+      "title": "API Key",
+      "description": "API key for Elasticsearch authentication (alternative to username/password)",
+      "format": "password"
+    },
+    "cloud_id": {
+      "type": "string",
+      "title": "Cloud ID",
+      "description": "Elasticsearch Cloud ID for cloud-hosted instances"
+    },
+    "use_ssl": {
+      "type": "boolean",
+      "title": "Use SSL",
+      "description": "Enable SSL/TLS for secure connection",
+      "default": false
+    },
+    "index": {
+      "type": "string",
+      "title": "Index Pattern",
+      "description": "Elasticsearch index name or pattern (e.g., 'my-index' or 'logs-*')",
+      "examples": ["my-index", "logs-*", "test-*"]
+    },
+    "max_threads": {
+      "type": "integer",
+      "title": "Max Threads",
+      "description": "Maximum number of parallel threads for data sync",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 100
+    },
+    "retry_count": {
+      "type": "integer",
+      "title": "Retry Count",
+      "description": "Number of retry attempts for failed operations",
+      "default": 2,
+      "minimum": 0,
+      "maximum": 10
+    }
+  },
+  "required": ["host", "port", "index"],
+  "oneOf": [
+    {
+      "required": ["username", "password"]
+    },
+    {
+      "required": ["api_key"]
+    },
+    {
+      "required": ["cloud_id"]
+    }
+  ]
+}
