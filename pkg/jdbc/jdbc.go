@@ -1131,14 +1131,8 @@ func SQLFilter(
 			// default: treat as escaped string
 			escaped := strings.ReplaceAll(v, "'", "''")
 			valueSQL = fmt.Sprintf("'%s'", escaped)
-
 			// Oracle-specific timestamp handling
-			if driverType == constants.Oracle &&
-				strings.Contains(v, "T") &&
-				(strings.Contains(v, "Z") ||
-					strings.Contains(v, "+") ||
-					(strings.Contains(v, "-") && len(v) > 19)) {
-
+			if driverType == constants.Oracle && strings.Contains(v, "T") && (strings.Contains(v, "Z") || strings.Contains(v, "+") || (strings.Contains(v, "-") && len(v) > 19)) {
 				if t, err := time.Parse(time.RFC3339, v); err == nil {
 					timestampStr := t.Format("2006-01-02 15:04:05.000")
 					valueSQL = fmt.Sprintf(

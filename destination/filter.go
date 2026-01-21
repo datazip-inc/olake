@@ -117,7 +117,7 @@ func filterConcurrently(
 	err := utils.Concurrent(ctx, records, concurrency, func(
 		_ context.Context,
 		record types.RawRecord,
-		idx int,
+		_ int,
 	) error {
 		// Delete operations should always be synced, regardless of filter conditions.
 		// This is because:
