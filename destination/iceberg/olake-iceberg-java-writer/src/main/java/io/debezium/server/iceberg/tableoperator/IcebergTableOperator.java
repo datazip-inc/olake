@@ -188,12 +188,13 @@ public class IcebergTableOperator {
           }
   
           RowDelta delta = txn.newRowDelta();
-  
-          if (eqDeletes != null) {
-            eqDeletes.forEach(delta::addDeletes);
-          }
+
           if (dataFiles != null) {
             dataFiles.forEach(delta::addRows);
+          }
+
+          if (eqDeletes != null) {
+            eqDeletes.forEach(delta::addDeletes);
           }
   
           delta.commit();
@@ -314,9 +315,13 @@ public class IcebergTableOperator {
                }
 
                DataFile dataFile = dataFileBuilder.build();
-               filesToCommit.get(filesToCommit.size() - 1).second().add(dataFile);
+               if (filesToCommit.size() > 0) {
+                filesToCommit.get(0).second().add(dataFile);
+               } else {
+                filesToCommit.add(Pair.of(new ArrayList<DeleteFile>(), new ArrayList<>(Arrays.asList(dataFile))));
+               }
                LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
-                         filesToCommit.get(filesToCommit.size() - 1).second().size());
+                         filesToCommit.get(0).second().size());
           } catch (Exception e) {
                String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId,
                          filePath, e.getMessage());
@@ -357,9 +362,13 @@ public class IcebergTableOperator {
                }
 
                DeleteFile deleteFile = deleteFileBuilder.build();
-               filesToCommit.get(filesToCommit.size() - 1).first().add(deleteFile);
+               if (filesToCommit.size() > 0) {
+                filesToCommit.get(0).first().add(deleteFile);
+               } else {
+                filesToCommit.add(Pair.of(new ArrayList<>(Arrays.asList(deleteFile)), new ArrayList<DataFile>()));
+               }
                LOGGER.info("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
-                         threadId, filePath, equalityFieldId, filesToCommit.get(filesToCommit.size() - 1).first().size());
+                         threadId, filePath, equalityFieldId, filesToCommit.get(0).first().size());
           } catch (Exception e) {
                String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId,
                          filePath, e.getMessage());
