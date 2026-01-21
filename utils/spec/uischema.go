@@ -26,7 +26,7 @@ const MongoDBUISchema = `{
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
-        { "ssh_config": 12 }
+        { "additional_params": 12, "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
