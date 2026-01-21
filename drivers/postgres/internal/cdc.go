@@ -30,6 +30,11 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 }
 
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+	// Validate that all selected CDC streams are subscribed in the publication
+	if err := validateStreamsInPublication(ctx, p.client, p.cdcConfig.Publication, streams); err != nil {
+		return fmt.Errorf("publication validation failed: %s", err)
+	}
+
 	config, err := p.prepareWALJSConfig(streams...)
 	if err != nil {
 		return fmt.Errorf("failed to prepare wal config: %s", err)
@@ -122,5 +127,59 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 	if slot.Plugin == "pgoutput" && publication == "" {
 		return fmt.Errorf("publication is required for pgoutput")
 	}
+	return nil
+}
+
+// getPublicationTables returns a set of table names (schema.table) subscribed to the given publication
+func getPublicationTables(ctx context.Context, conn *sqlx.DB, publication string) (*types.Set[string], error) {
+	tables := types.NewSet[string]()
+
+	// Query pg_publication_tables to get all tables in the publication
+	rows, err := conn.QueryContext(ctx, `SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = $1`, publication)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query publication tables: %s", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var schemaName, tableName string
+		if err := rows.Scan(&schemaName, &tableName); err != nil {
+			return nil, fmt.Errorf("failed to scan publication table: %s", err)
+		}
+		tables.Insert(fmt.Sprintf("%s.%s", schemaName, tableName))
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating publication tables: %s", err)
+	}
+
+	return tables, nil
+}
+
+// validateStreamsInPublication checks if all selected CDC streams are subscribed in the publication
+func validateStreamsInPublication(ctx context.Context, conn *sqlx.DB, publication string, streams []types.StreamInterface) error {
+	pubTables, err := getPublicationTables(ctx, conn, publication)
+	if err != nil {
+		return err
+	}
+
+	if pubTables.Len() == 0 {
+		return fmt.Errorf("publication '%s' has no tables subscribed", publication)
+	}
+
+	var missingStreams []string
+	for _, stream := range streams {
+		streamID := stream.ID() // format: schema.table
+		if !pubTables.Exists(streamID) {
+			missingStreams = append(missingStreams, streamID)
+		}
+	}
+
+	if len(missingStreams) > 0 {
+		return fmt.Errorf("the following tables selected in streams.json are not subscribed in publication '%s': %v. "+
+			"Please add these tables to the publication or remove them from streams.json", publication, missingStreams)
+	}
+
+	logger.Infof("All %d selected CDC streams are subscribed in publication '%s'", len(streams), publication)
 	return nil
 }
