@@ -6,13 +6,6 @@ import (
 )
 
 var uiSchemaMap = map[string]string{
-	"mongodb":  MongoDBUISchema,
-	"postgres": PostgresUISchema,
-	"mysql":    MySQLUISchema,
-	"oracle":   OracleUISchema,
-	"parquet":  ParquetUISchema,
-	"iceberg":  IcebergUISchema,
-	"kafka":    KafkaUISchema,
 	"mongodb":      MongoDBUISchema,
 	"postgres":     PostgresUISchema,
 	"mysql":        MySQLUISchema,
@@ -244,6 +237,18 @@ const KafkaUISchema = `{
     "threads_equal_total_partitions": {
       "ui:widget": "boolean"
     }
+}`
+
+const S3UISchema = `{
+  "ui:grid": [
+    { "bucket": 12, "region": 12 },
+    { "access_key": 12, "secret_key": 12 },
+    { "endpoint": 12, "path_style": 12 },
+    { "max_threads": 12, "retry_count": 12 }
+  ],
+  "path_style": {
+    "ui:widget": "boolean"
+  }
 }`
 
 const ElasticsearchUISchema = `{

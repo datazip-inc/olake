@@ -5,9 +5,11 @@ go 1.24.0
 toolchain go1.24.3
 
 require (
-	github.com/datazip-inc/olake v0.0.0-20250414061859-a168ad00bb4b
+	github.com/datazip-inc/olake v0.0.0-00010101000000-000000000000
 	github.com/elastic/go-elasticsearch/v8 v8.11.1
 )
+
+replace github.com/datazip-inc/olake => ../..
 
 require (
 	github.com/andybalholm/brotli v1.1.1 // indirect

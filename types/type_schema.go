@@ -132,9 +132,15 @@ func (t *TypeSchema) ToParquet() *parquet.Schema {
 }
 
 func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
+	if t == nil {
+		return nil
+	}
 	var icebergFields []*proto.IcebergPayload_SchemaField
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		if prop == nil {
+			return true // skip nil properties
+		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
 			Key:     prop.getDestinationColumnName(key.(string)),
