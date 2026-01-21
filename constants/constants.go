@@ -31,7 +31,9 @@ const (
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
-	EffectiveParquetSize = int64(256) * 1024 * 1024 * int64(8)
+	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
+	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
+	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
 )
 
 type DriverType string
@@ -41,12 +43,19 @@ const (
 	Postgres DriverType = "postgres"
 	MySQL    DriverType = "mysql"
 	Oracle   DriverType = "oracle"
+	DB2      DriverType = "db2"
 	S3       DriverType = "s3"
 	Kafka    DriverType = "kafka"
+	MSSQL    DriverType = "mssql"
 )
 
-var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle}
+var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
+
+var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 
 var NonRetryableErrors = []string{DestError, "context canceled", NoRecordsFoundError, LSNNotUpdatedError, "lsn mismatch"}
 
-var SkipCDCDrivers = []DriverType{Oracle}
+var SkipCDCDrivers = []DriverType{Oracle, DB2}
+
+// DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
+var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
