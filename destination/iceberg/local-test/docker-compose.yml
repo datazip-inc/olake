@@ -2,7 +2,7 @@ version: "3"
 
 services:
   lakekeeper:
-    image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:latest-main}
+    image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:v0.11.1}
     pull_policy: &lakekeeper-pull-policy always
     environment: &lakekeeper-environment
       - LAKEKEEPER__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
