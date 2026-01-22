@@ -10,6 +10,7 @@ var uiSchemaMap = map[string]string{
 	"postgres": PostgresUISchema,
 	"mysql":    MySQLUISchema,
 	"oracle":   OracleUISchema,
+	"mssql":    MSSQLUISchema,
 	"s3":       S3UISchema,
 	"parquet":  ParquetUISchema,
 	"iceberg":  IcebergUISchema,
@@ -25,7 +26,7 @@ const MongoDBUISchema = `{
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
-        { "ssh_config": 12 }
+        { "additional_params": 12, "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
@@ -165,6 +166,30 @@ const MySQLUISchema = `{
     }
   }
 }`
+
+const MSSQLUISchema = `{
+  "ui:grid": [
+    { "host": 12, "database": 12 },
+    { "username": 12, "password": 12 },
+    { "port": 12, "max_threads": 12 },
+    { "retry_count": 12, "ssl": 12 },
+    { "update_method": 12 }
+  ],
+  "ssl": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    }
+  },
+  "update_method": {
+    "ui:widget": "radio",
+    "ui:options": {
+      "title": false,
+      "description": false
+    }
+  }
+}`
+
 const OracleUISchema = `{
   "ui:grid": [
     { "host": 12, "connection_type": 12 },

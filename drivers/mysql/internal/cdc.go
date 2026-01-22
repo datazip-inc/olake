@@ -89,7 +89,7 @@ func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr
 				Position: m.BinlogConn.CurrentPos,
 			},
 		})
-		// TODO: Research about acknowledgment of binlogs in mysql
+		// TODO: Research about acknowledgment of binlogs in mysql and mssql
 	}
 	m.BinlogConn.Cleanup()
 	return nil
