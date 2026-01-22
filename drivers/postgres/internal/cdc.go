@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
@@ -15,6 +14,10 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jmoiron/sqlx"
 )
+
+// Ensure Postgres implements GlobalPosition2PC and PositionAcknowledgment interfaces
+var _ abstract.GlobalPosition2PC = (*Postgres)(nil)
+var _ abstract.PositionAcknowledgment = (*Postgres)(nil)
 
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
@@ -242,17 +245,6 @@ func (p *Postgres) SetTargetCDCPosition(position string) {
 
 func (p *Postgres) GetTargetCDCPosition() string {
 	return p.targetPosition
-}
-
-// SaveNextCDCPositionForStream - no-op for Postgres (uses global position)
-func (p *Postgres) SaveNextCDCPositionForStream(streamID string) {}
-
-// CommitCDCPositionForStream - no-op for Postgres (uses global position)
-func (p *Postgres) CommitCDCPositionForStream(streamID string) {}
-
-// CheckPerStreamRecovery - no-op for Postgres (uses global position)
-func (p *Postgres) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
-	return nil
 }
 
 // AcknowledgeCDCPosition acknowledges LSN to Postgres for recovery

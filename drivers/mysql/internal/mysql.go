@@ -22,7 +22,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// MySQL represents the MySQL database driver
 type MySQL struct {
 	config         *Config
 	client         *sqlx.DB

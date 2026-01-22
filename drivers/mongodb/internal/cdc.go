@@ -21,6 +21,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
+// Ensure Mongo implements PerStreamPosition2PC interface
+var _ abstract.PerStreamPosition2PC = (*Mongo)(nil)
+
 const (
 	maxAwait               = 2 * time.Second
 	changeStreamRetryDelay = 500 * time.Millisecond
@@ -205,57 +208,12 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	}
 }
 
-func (m *Mongo) GetCDCPosition() string {
-	// MongoDB has per-stream resume tokens, return empty for global
-	// Use GetCDCPositionForStream for per-stream position
-	return ""
-}
-
-// GetCDCStartPosition returns empty for MongoDB (per-stream tokens are used)
-func (m *Mongo) GetCDCStartPosition() string {
-	return ""
-}
-
+// GetCDCPositionForStream returns the current CDC position for a specific stream
 func (m *Mongo) GetCDCPositionForStream(streamID string) string {
 	val, ok := m.cdcCursor.Load(streamID)
 	if ok {
 		return val.(string)
 	}
-	return ""
-}
-
-func (m *Mongo) SetNextCDCPosition(position string) {
-	// MongoDB has per-stream positions, this is a no-op for global
-}
-
-func (m *Mongo) GetNextCDCPosition() string {
-	// MongoDB has per-stream positions, no global next position
-	return ""
-}
-
-func (m *Mongo) SetCurrentCDCPosition(position string) {
-	// MongoDB has per-stream positions, this is a no-op for global
-}
-
-func (m *Mongo) SetProcessingStreams(streamIDs []string) {
-	// MongoDB has per-stream positions, no global processing array needed
-}
-
-func (m *Mongo) RemoveProcessingStream(streamID string) {
-	// MongoDB has per-stream positions, no global processing array needed
-}
-
-func (m *Mongo) GetProcessingStreams() []string {
-	// MongoDB has per-stream positions, no global processing array
-	return nil
-}
-
-func (m *Mongo) SetTargetCDCPosition(position string) {
-	// MongoDB has per-stream positions, no global target position
-}
-
-func (m *Mongo) GetTargetCDCPosition() string {
-	// MongoDB has per-stream positions
 	return ""
 }
 
@@ -330,11 +288,6 @@ func (m *Mongo) CheckPerStreamRecovery(ctx context.Context, pool *destination.Wr
 		m.state.SetCursor(stream.Self(), "next_data", nil)
 	}
 
-	return nil
-}
-
-// AcknowledgeCDCPosition - no-op for MongoDB
-func (m *Mongo) AcknowledgeCDCPosition(ctx context.Context, position string) error {
 	return nil
 }
 

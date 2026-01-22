@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/types"
@@ -16,6 +15,8 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/segmentio/kafka-go"
 )
+
+// TODO: Add 2PC support for Kafka
 
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 	return false, true, false // parallel change streams supported
@@ -178,22 +179,6 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 		return nil
 	}
 }
-
-// TODO: Add 2PC support for Kafka
-func (k *Kafka) GetCDCPosition() string      { return k.consumerGroupID }
-func (k *Kafka) GetCDCStartPosition() string { return k.consumerGroupID }
-func (k *Kafka) SetNextCDCPosition(position string)      {}
-func (k *Kafka) GetNextCDCPosition() string              { return "" }
-func (k *Kafka) SetCurrentCDCPosition(position string)   {}
-func (k *Kafka) SetProcessingStreams(streamIDs []string) {}
-func (k *Kafka) RemoveProcessingStream(streamID string)  {}
-func (k *Kafka) GetProcessingStreams() []string          { return nil }
-func (k *Kafka) SetTargetCDCPosition(position string)    {}
-func (k *Kafka) GetTargetCDCPosition() string            { return "" }
-func (k *Kafka) SaveNextCDCPositionForStream(string)     {}
-func (k *Kafka) CommitCDCPositionForStream(string)       {}
-func (k *Kafka) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error { return nil }
-func (k *Kafka) AcknowledgeCDCPosition(ctx context.Context, position string) error { return nil }
 
 // for processing messages from a Kafka reader.
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {

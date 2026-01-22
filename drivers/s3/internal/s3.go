@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
@@ -404,27 +403,6 @@ func (s *S3) PostCDC(ctx context.Context, streamIndex int) error {
 func (s *S3) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, false
 }
-
-// S3 doesn't support CDC - no-op implementations
-func (s *S3) GetCDCPosition() string                  { return "" }
-func (s *S3) GetCDCStartPosition() string             { return "" }
-func (s *S3) SetNextCDCPosition(position string)      {}
-func (s *S3) GetNextCDCPosition() string              { return "" }
-func (s *S3) SetCurrentCDCPosition(position string)   {}
-func (s *S3) SetProcessingStreams(streamIDs []string) {}
-func (s *S3) RemoveProcessingStream(streamID string)  {}
-func (s *S3) GetProcessingStreams() []string          { return nil }
-func (s *S3) CheckCDCRecovery(ctx context.Context, pool *destination.WriterPool, streams []types.StreamInterface) error {
-	return nil
-}
-func (s *S3) SetTargetCDCPosition(position string) {}
-func (s *S3) GetTargetCDCPosition() string         { return "" }
-func (s *S3) SaveNextCDCPositionForStream(string)  {}
-func (s *S3) CommitCDCPositionForStream(string)    {}
-func (s *S3) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
-	return nil
-}
-func (s *S3) AcknowledgeCDCPosition(ctx context.Context, position string) error { return nil }
 
 // getFileReader returns a reader for an S3 file with decompression applied (S3-specific logic)
 // Returns (reader, fileSize, error)

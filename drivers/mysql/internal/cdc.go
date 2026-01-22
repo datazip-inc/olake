@@ -7,13 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
+
+// Ensure MySQL implements GlobalPosition2PC interface
+var _ abstract.GlobalPosition2PC = (*MySQL)(nil)
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, error) {
 	savedState := m.state.GetGlobal()
@@ -252,20 +254,4 @@ func (m *MySQL) SetTargetCDCPosition(position string) {
 
 func (m *MySQL) GetTargetCDCPosition() string {
 	return m.targetPosition
-}
-
-// SaveNextCDCPositionForStream - no-op for MySQL (uses global position)
-func (m *MySQL) SaveNextCDCPositionForStream(streamID string) {}
-
-// CommitCDCPositionForStream - no-op for MySQL (uses global position)
-func (m *MySQL) CommitCDCPositionForStream(streamID string) {}
-
-// CheckPerStreamRecovery - no-op for MySQL (uses global position)
-func (m *MySQL) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
-	return nil
-}
-
-// AcknowledgeCDCPosition - no-op for MySQL
-func (m *MySQL) AcknowledgeCDCPosition(ctx context.Context, position string) error {
-	return nil
 }
