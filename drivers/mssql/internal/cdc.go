@@ -131,8 +131,8 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("CDC is not enabled for table %s.%s", stream.Namespace(), stream.Name())
 	}
 
-	// TODO: research how to handle schema evolution.
-	//
+	// TODO: research how to handle schema evolution
+
 	// When multiple capture instances exist for the same table (due to schema
 	// evolution), pick the newest instance whose startLSN is <= fromLSN.
 	// This guarantees we continue from an instance that was valid at our last
