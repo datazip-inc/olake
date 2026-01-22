@@ -24,12 +24,6 @@ type captureInstance struct {
 	startLSN     string
 }
 
-// ddlHistoryEntry represents a DDL change history entry for a capture instance
-type ddlHistoryEntry struct {
-	ddlLSN     string
-	ddlCommand string
-}
-
 // prepareCaptureInstances discovers capture instances for selected streams
 func (m *MSSQL) prepareCaptureInstances(ctx context.Context, streams []types.StreamInterface) error {
 	// TODO: query capture instances per-stream in StreamChanges and remove capturesMap
