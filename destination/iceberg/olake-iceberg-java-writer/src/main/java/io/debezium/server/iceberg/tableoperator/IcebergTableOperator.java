@@ -22,7 +22,7 @@ import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionData;
-import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -41,6 +41,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
 
+import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 
@@ -283,13 +284,8 @@ public class IcebergTableOperator {
     }
   }
 
-     public void accumulateDataFiles(String threadId, Table table, String filePath,
-               List<String> partitionValues) {
-          if (table == null) {
-               LOGGER.warn("No table found for thread: {}", threadId);
-               return;
-          }
-
+     public void registerDataFiles(String threadId, Table table, String filePath,
+               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
                MetricsConfig metricsConfig = MetricsConfig.forTable(table);
@@ -304,9 +300,7 @@ public class IcebergTableOperator {
                          .withMetrics(metrics);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                              table.spec(),
-                              partitionValues);
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
                     dataFileBuilder.withPartition(partitionData);
                     LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId,
                               partitionValues.size());
@@ -323,23 +317,17 @@ public class IcebergTableOperator {
                LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
                          filesToCommit.get(0).second().size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId,
-                         filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to register data file %s: %s", threadId, filePath,
+                         e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
-     public void accumulateDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
-               long recordCount, List<String> partitionValues) {
-          if (table == null) {
-               LOGGER.warn("No table found for thread: {}", threadId);
-               return;
-          }
-
+     public void registerEqDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
+               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
-
                InputFile inputFile = fileIO.newInputFile(filePath);
                long fileSize = inputFile.getLength();
 
@@ -351,9 +339,7 @@ public class IcebergTableOperator {
                          .withRecordCount(recordCount);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                              table.spec(),
-                              partitionValues);
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
                     deleteFileBuilder.withPartition(partitionData);
                     LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
                               partitionValues.size());
@@ -370,79 +356,71 @@ public class IcebergTableOperator {
                LOGGER.info("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
                          threadId, filePath, equalityFieldId, filesToCommit.get(0).first().size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId,
-                         filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to register delete file %s: %s", threadId, filePath,
+                         e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
-     private org.apache.iceberg.PartitionData createPartitionDataFromValues(org.apache.iceberg.PartitionSpec spec,
-               List<String> partitionValues) {
-          PartitionData partitionData = new org.apache.iceberg.PartitionData(spec.partitionType());
+     public void registerPosDeleteFiles(String threadId, Table table, String filePath,
+               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+          try {
+               FileIO fileIO = table.io();
+               InputFile inputFile = fileIO.newInputFile(filePath);
+               long fileSize = inputFile.getLength();
+
+               FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
+                         .ofPositionDeletes()
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(fileSize)
+                         .withRecordCount(recordCount);
+
+               if (partitionValues != null && !partitionValues.isEmpty()) {
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
+                    deleteFileBuilder.withPartition(partitionData);
+                    LOGGER.debug("Thread {}: positional delete file scoped to partition with {} values", threadId,
+                              partitionValues.size());
+               } else {
+                    LOGGER.debug("Thread {}: positional delete file scoped to global (unpartitioned)", threadId);
+               }
+
+               DeleteFile deleteFile = deleteFileBuilder.build();
+               if (filesToCommit.size() > 0) {
+                    filesToCommit.get(0).first().add(deleteFile);
+               } else {
+                    filesToCommit.add(Pair.of(new ArrayList<>(Arrays.asList(deleteFile)), new ArrayList<DataFile>()));
+               }
+               LOGGER.info("Thread {}: accumulated positional delete file {} (total: {})",
+                         threadId, filePath, filesToCommit.get(0).first().size());
+          } catch (Exception e) {
+               String errorMsg = String.format("Thread %s: failed to register positional delete file %s: %s",
+                         threadId, filePath, e.getMessage());
+               LOGGER.error(errorMsg, e);
+               throw new RuntimeException(e);
+          }
+     }
+
+     private PartitionData partitionDataFromTypedValues(PartitionSpec spec,
+               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+          PartitionData partitionData = new PartitionData(spec.partitionType());
           if (partitionValues == null || partitionValues.isEmpty()) {
                return partitionData;
           }
 
-          // Set each value in the PartitionData
           for (int i = 0; i < partitionValues.size() && i < spec.fields().size(); i++) {
-               String stringValue = partitionValues.get(i);
-               org.apache.iceberg.types.Type fieldType = partitionData.getType(i);
-               PartitionField partitionField = spec.fields().get(i);
-               String transformName = partitionField.transform().toString().toLowerCase();
-
-               // Convert string value to proper type, handling nulls
-               Object typedValue = null;
-               if (stringValue != null && !"null".equals(stringValue)) {
-                    try {
-                         typedValue = org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
-                    } catch (NumberFormatException | UnsupportedOperationException e) {
-                         try {
-                              if (transformName.equals("identity")
-                                        && fieldType.typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP) {
-                                   java.time.OffsetDateTime offsetDateTime = java.time.OffsetDateTime
-                                             .parse(stringValue);
-                                   java.time.Instant instant = offsetDateTime.toInstant();
-                                   typedValue = instant.toEpochMilli() * 1000;
-                              } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
-                                   typedValue = Integer.parseInt(stringValue);
-                              } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
-                                   String[] parts = stringValue.split("-");
-                                   int year = Integer.parseInt(parts[0]);
-                                   int month = Integer.parseInt(parts[1]);
-                                   typedValue = (year - 1970) * 12 + (month - 1);
-                              } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                                   java.time.LocalDate date = java.time.LocalDate.parse(stringValue);
-                                   java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
-                                   typedValue = (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
-                              } else if (transformName.contains("hour")
-                                        && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
-                                   String[] parts = stringValue.split("-");
-                                   java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
-                                             Integer.parseInt(parts[0]),
-                                             Integer.parseInt(parts[1]),
-                                             Integer.parseInt(parts[2]),
-                                             Integer.parseInt(parts[3]),
-                                             0);
-                                   java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
-                                   typedValue = (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
-                              } else {
-                                   throw new RuntimeException(
-                                             "Cannot parse partition value '" + stringValue + "' for transform "
-                                                       + transformName,
-                                             e);
-                              }
-                         } catch (Exception parseError) {
-                              LOGGER.warn("Failed to parse partition value '{}': {}", stringValue,
-                                        parseError.getMessage());
-                              throw new RuntimeException(
-                                        "Cannot parse partition value '" + stringValue + "' for transform "
-                                                  + transformName,
-                                        parseError);
-                         }
-                    }
-               }
-               partitionData.set(i, typedValue);
+               ArrowPayload.FileMetadata.PartitionValue protoValue = partitionValues.get(i);
+               Object value = switch (protoValue.getValueCase()) {
+                    case INT_VALUE -> protoValue.getIntValue();
+                    case LONG_VALUE -> protoValue.getLongValue();
+                    case FLOAT_VALUE -> protoValue.getFloatValue();
+                    case DOUBLE_VALUE -> protoValue.getDoubleValue();
+                    case STRING_VALUE -> protoValue.getStringValue();
+                    case BOOL_VALUE -> protoValue.getBoolValue();
+                    case VALUE_NOT_SET -> null;
+               };
+               partitionData.set(i, value);
           }
 
           return partitionData;
