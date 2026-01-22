@@ -24,6 +24,12 @@ type captureInstance struct {
 	startLSN     string
 }
 
+// ddlHistoryEntry represents a DDL change history entry for a capture instance
+type ddlHistoryEntry struct {
+	ddlLSN     string
+	ddlCommand string
+}
+
 // prepareCaptureInstances discovers capture instances for selected streams
 func (m *MSSQL) prepareCaptureInstances(ctx context.Context, streams []types.StreamInterface) error {
 	// TODO: query capture instances per-stream in StreamChanges and remove capturesMap
@@ -142,7 +148,6 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	// targetLSN to that newer instance's startLSN so we do not read rows that
 	// conceptually belong to the new schema from the old capture instance.
 	var selectedCapture *captureInstance
-
 	for i := len(captures) - 1; i >= 0; i-- {
 		// Skip if this capture started after fromLSN
 		if captures[i].startLSN > fromLSN {
@@ -169,6 +174,11 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 			fromLSN,
 			stream.ID(),
 		)
+	}
+
+	// Validate that no schema evolution occurred without a new capture instance
+	if err := m.validateNoMissingCaptureInstance(ctx, stream, selectedCapture, captures, fromLSN); err != nil {
+		return err
 	}
 
 	logger.Infof(
@@ -301,6 +311,84 @@ func (m *MSSQL) advanceLSN(ctx context.Context, lsnHex string) (string, error) {
 	}
 
 	return hex.EncodeToString(nextLSNBytes), nil
+}
+
+// getDDLHistory fetches DDL change history for a capture instance
+func (m *MSSQL) getDDLHistory(ctx context.Context, captureInstanceName string) ([]ddlHistoryEntry, error) {
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDDLHistoryQuery(), captureInstanceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query DDL history for capture instance %s: %w", captureInstanceName, err)
+	}
+	defer rows.Close()
+
+	var history []ddlHistoryEntry
+	for rows.Next() {
+		var entry ddlHistoryEntry
+		var ddlLSN []byte
+
+		err := rows.Scan(
+			&ddlLSN,
+			&entry.ddlCommand,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan DDL history row: %w", err)
+		}
+
+		entry.ddlLSN = hex.EncodeToString(ddlLSN)
+		history = append(history, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return history, nil
+}
+
+// validateNoMissingCaptureInstance checks if any DDL changes occurred without a corresponding
+// new capture instance being created. Any DDL change (ADD/DROP/ALTER column, etc.) in the
+// processing range should have a newer capture instance to ensure data consistency.
+func (m *MSSQL) validateNoMissingCaptureInstance(ctx context.Context, stream types.StreamInterface, selectedCapture *captureInstance, captures []captureInstance, fromLSN string) error {
+	ddlHistory, err := m.getDDLHistory(ctx, selectedCapture.instanceName)
+	if err != nil {
+		return fmt.Errorf("failed to get DDL history for validation: %w", err)
+	}
+
+	// Check each DDL entry that occurred in our processing range
+	for _, ddl := range ddlHistory {
+		// Skip DDLs that occurred before our processing range
+		if ddl.ddlLSN <= fromLSN {
+			continue
+		}
+
+		// Check if a newer capture instance exists that covers this DDL
+		// A newer capture instance should have startLSN >= ddl.ddlLSN
+		// and be different from the selected one
+		hasNewerCapture := false
+		for _, capture := range captures {
+			// A newer capture instance must:
+			// 1. Start at or after the DDL LSN (>=)
+			// 2. Be different from the selected capture instance
+			// 3. Start after the selected capture instance (to be truly "newer")
+			if capture.startLSN >= ddl.ddlLSN &&
+				capture.instanceName != selectedCapture.instanceName &&
+				capture.startLSN > selectedCapture.startLSN {
+				hasNewerCapture = true
+				break
+			}
+		}
+
+		if !hasNewerCapture {
+			return fmt.Errorf(
+				"schema evolution detected at LSN %s (DDL: %s) for stream %s, "+
+					"but no new capture instance was created. This may cause data inconsistency. "+
+					"Please ensure CDC is properly configured to handle schema changes",
+				ddl.ddlLSN, ddl.ddlCommand, stream.ID(),
+			)
+		}
+	}
+
+	return nil
 }
 
 // operationTypeFromCDCCode converts SQL Server CDC __$operation codes to our operationType string.
