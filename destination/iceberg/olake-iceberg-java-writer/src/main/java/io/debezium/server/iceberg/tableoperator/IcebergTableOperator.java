@@ -22,10 +22,11 @@ import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionData;
-import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
@@ -33,12 +34,14 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
+import org.apache.iceberg.util.Pair;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
 
+import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
 
@@ -54,8 +57,7 @@ public class IcebergTableOperator {
 
   BaseTaskWriter<Record> writer;
 
-  ArrayList<DataFile> dataFiles = new ArrayList<>();
-  ArrayList<DeleteFile> deleteFiles = new ArrayList<>();
+  ArrayList<Pair<ArrayList<DeleteFile>, ArrayList<DataFile>>> filesToCommit = new ArrayList<>();
 
   public IcebergTableOperator(boolean upsert_records) {
     writerFactory2 = new IcebergTableWriterFactory();
@@ -118,55 +120,102 @@ public class IcebergTableOperator {
       LOGGER.warn("No table found for thread: {}", threadId);
       return;
     }
-
+  
+    completeWriter();
+  
+    if (filesToCommit.isEmpty()) {
+      LOGGER.info("No files to commit for thread: {}", threadId);
+      return;
+    }
+  
+    // Refresh once before committing
+    table.refresh();
+  
+    boolean hasAnyDeletes = false;
+    int totalDataFiles = 0;
+    int totalDeleteFiles = 0;
+  
+    for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
+      ArrayList<DeleteFile> deletes = unit.first();
+      ArrayList<DataFile> data = unit.second();
+  
+      int del = (deletes == null) ? 0 : deletes.size();
+      int df = (data == null) ? 0 : data.size();
+  
+      totalDeleteFiles += del;
+      totalDataFiles += df;
+  
+      if (del > 0) {
+        hasAnyDeletes = true;
+      }
+    }
+  
+    if (totalDataFiles == 0 && totalDeleteFiles == 0) {
+      LOGGER.info("No files to commit for thread: {}", threadId);
+      filesToCommit.clear();
+      return;
+    }
+  
     try {
-      completeWriter();
-
-      // Calculate total files across all WriteResults
-      int totalDataFiles = dataFiles.size();
-      int totalDeleteFiles = deleteFiles.size();
-
-      LOGGER.info("Committing {} data files and {} delete files for thread: {}",
-          totalDataFiles, totalDeleteFiles, threadId);
-
-      // If no files were generated, nothing to commit
-      if (totalDataFiles == 0 && totalDeleteFiles == 0) {
-        LOGGER.info("No files to commit for thread: {}", threadId);
-        return;
-      }
-
-      // Commit the files
-      try {
-        // Refresh table before committing
-        table.refresh();
-
-        // Check if any WriteResult has delete files
-        boolean hasDeleteFiles = totalDeleteFiles > 0;
-
-        if (hasDeleteFiles) {
-          RowDelta rowDelta = table.newRowDelta();
-          // Add all data and delete files from all WriteResults
-          dataFiles.forEach(rowDelta::addRows);
-          deleteFiles.forEach(rowDelta::addDeletes);
-          rowDelta.commit();
-        } else {
-          AppendFiles appendFiles = table.newAppend();
-          // Add all data files from all WriteResults
-          dataFiles.forEach(appendFiles::appendFile);
-          appendFiles.commit();
+      if (!hasAnyDeletes) {
+        AppendFiles append = table.newAppend();
+  
+        for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
+          ArrayList<DataFile> dataFiles = unit.second();
+          if (dataFiles == null || dataFiles.isEmpty()) {
+            continue;
+          }
+          for (DataFile df : dataFiles) {
+            append.appendFile(df);
+          }
         }
-
-        LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
+  
+        append.commit();
+  
+        LOGGER.info("Append-only commit success: {} data files ({} deletes) for thread: {}",
             totalDataFiles, totalDeleteFiles, threadId);
-      } catch (Exception e) {
-        String errorMsg = String.format("Failed to commit data for thread %s: %s", threadId, e.getMessage());
-        LOGGER.error(errorMsg, e);
-        throw new RuntimeException(errorMsg, e);
+  
+      } else {
+        Transaction txn = table.newTransaction();
+        for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
+          ArrayList<DeleteFile> eqDeletes = unit.first();
+          ArrayList<DataFile> dataFiles = unit.second();
+  
+          int del = (eqDeletes == null) ? 0 : eqDeletes.size();
+          int df = (dataFiles == null) ? 0 : dataFiles.size();
+  
+          if (del == 0 && df == 0) {
+            continue;
+          }
+  
+          RowDelta delta = txn.newRowDelta();
+
+          if (dataFiles != null) {
+            dataFiles.forEach(delta::addRows);
+          }
+
+          if (eqDeletes != null) {
+            eqDeletes.forEach(delta::addDeletes);
+          }
+  
+          delta.commit();
+        }
+  
+        txn.commitTransaction();
+  
+        LOGGER.info("Txn commit success: {} data files + {} equality delete files for thread: {}",
+            totalDataFiles, totalDeleteFiles, threadId);
       }
-    } catch (RuntimeException e) {
-      throw new RuntimeException("Failed to commit", e);
+  
+      filesToCommit.clear();
+  
+    } catch (Exception e) {
+      String msg = String.format("Failed to commit for thread %s: %s", threadId, e.getMessage());
+      LOGGER.error(msg, e);
+      throw new RuntimeException(msg, e);
     }
   }
+  
 
   public void completeWriter() {
     try {
@@ -175,8 +224,9 @@ public class IcebergTableOperator {
         return;
       }
       WriteResult writerResult = writer.complete();
-      deleteFiles.addAll(Arrays.asList(writerResult.deleteFiles()));
-      dataFiles.addAll(Arrays.asList(writerResult.dataFiles()));
+      ArrayList<DeleteFile> deleteFiles = new ArrayList<>(Arrays.asList(writerResult.deleteFiles()));
+      ArrayList<DataFile> dataFiles = new ArrayList<>(Arrays.asList(writerResult.dataFiles()));
+      filesToCommit.add(filesToCommit.size(), Pair.of(deleteFiles, dataFiles));
     } catch (IOException e) {
       LOGGER.error("Failed to complete writer", e);
       throw new RuntimeException("Failed to complete writer", e);
@@ -234,13 +284,8 @@ public class IcebergTableOperator {
     }
   }
 
-     public void accumulateDataFiles(String threadId, Table table, String filePath,
-               List<String> partitionValues) {
-          if (table == null) {
-               LOGGER.warn("No table found for thread: {}", threadId);
-               return;
-          }
-
+     public void registerDataFiles(String threadId, Table table, String filePath,
+               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
                MetricsConfig metricsConfig = MetricsConfig.forTable(table);
@@ -255,9 +300,7 @@ public class IcebergTableOperator {
                          .withMetrics(metrics);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                              table.spec(),
-                              partitionValues);
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
                     dataFileBuilder.withPartition(partitionData);
                     LOGGER.debug("Thread {}: data file scoped to partition with {} values", threadId,
                               partitionValues.size());
@@ -266,27 +309,25 @@ public class IcebergTableOperator {
                }
 
                DataFile dataFile = dataFileBuilder.build();
-               dataFiles.add(dataFile);
+               if (filesToCommit.size() > 0) {
+                filesToCommit.get(0).second().add(dataFile);
+               } else {
+                filesToCommit.add(Pair.of(new ArrayList<DeleteFile>(), new ArrayList<>(Arrays.asList(dataFile))));
+               }
                LOGGER.info("Thread {}: accumulated data file {} (total: {})", threadId, filePath,
-                         dataFiles.size());
+                         filesToCommit.get(0).second().size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate data file %s: %s", threadId,
-                         filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to register data file %s: %s", threadId, filePath,
+                         e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
-     public void accumulateDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
-               long recordCount, List<String> partitionValues) {
-          if (table == null) {
-               LOGGER.warn("No table found for thread: {}", threadId);
-               return;
-          }
-
+     public void registerEqDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
+               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
-
                InputFile inputFile = fileIO.newInputFile(filePath);
                long fileSize = inputFile.getLength();
 
@@ -298,9 +339,7 @@ public class IcebergTableOperator {
                          .withRecordCount(recordCount);
 
                if (partitionValues != null && !partitionValues.isEmpty()) {
-                    org.apache.iceberg.PartitionData partitionData = createPartitionDataFromValues(
-                              table.spec(),
-                              partitionValues);
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
                     deleteFileBuilder.withPartition(partitionData);
                     LOGGER.debug("Thread {}: delete file scoped to partition with {} values", threadId,
                               partitionValues.size());
@@ -309,83 +348,79 @@ public class IcebergTableOperator {
                }
 
                DeleteFile deleteFile = deleteFileBuilder.build();
-               deleteFiles.add(deleteFile);
+               if (filesToCommit.size() > 0) {
+                filesToCommit.get(0).first().add(deleteFile);
+               } else {
+                filesToCommit.add(Pair.of(new ArrayList<>(Arrays.asList(deleteFile)), new ArrayList<DataFile>()));
+               }
                LOGGER.info("Thread {}: accumulated delete file {} with equality field ID {} (total: {})",
-                         threadId, filePath, equalityFieldId, deleteFiles.size());
+                         threadId, filePath, equalityFieldId, filesToCommit.get(0).first().size());
           } catch (Exception e) {
-               String errorMsg = String.format("Thread %s: failed to accumulate delete file %s: %s", threadId,
-                         filePath, e.getMessage());
+               String errorMsg = String.format("Thread %s: failed to register delete file %s: %s", threadId, filePath,
+                         e.getMessage());
                LOGGER.error(errorMsg, e);
                throw new RuntimeException(e);
           }
      }
 
-     private org.apache.iceberg.PartitionData createPartitionDataFromValues(org.apache.iceberg.PartitionSpec spec,
-               List<String> partitionValues) {
-          PartitionData partitionData = new org.apache.iceberg.PartitionData(spec.partitionType());
+     public void registerPosDeleteFiles(String threadId, Table table, String filePath,
+               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+          try {
+               FileIO fileIO = table.io();
+               InputFile inputFile = fileIO.newInputFile(filePath);
+               long fileSize = inputFile.getLength();
+
+               FileMetadata.Builder deleteFileBuilder = FileMetadata.deleteFileBuilder(table.spec())
+                         .ofPositionDeletes()
+                         .withPath(filePath)
+                         .withFormat(FileFormat.PARQUET)
+                         .withFileSizeInBytes(fileSize)
+                         .withRecordCount(recordCount);
+
+               if (partitionValues != null && !partitionValues.isEmpty()) {
+                    PartitionData partitionData = partitionDataFromTypedValues(table.spec(), partitionValues);
+                    deleteFileBuilder.withPartition(partitionData);
+                    LOGGER.debug("Thread {}: positional delete file scoped to partition with {} values", threadId,
+                              partitionValues.size());
+               } else {
+                    LOGGER.debug("Thread {}: positional delete file scoped to global (unpartitioned)", threadId);
+               }
+
+               DeleteFile deleteFile = deleteFileBuilder.build();
+               if (filesToCommit.size() > 0) {
+                    filesToCommit.get(0).first().add(deleteFile);
+               } else {
+                    filesToCommit.add(Pair.of(new ArrayList<>(Arrays.asList(deleteFile)), new ArrayList<DataFile>()));
+               }
+               LOGGER.info("Thread {}: accumulated positional delete file {} (total: {})",
+                         threadId, filePath, filesToCommit.get(0).first().size());
+          } catch (Exception e) {
+               String errorMsg = String.format("Thread %s: failed to register positional delete file %s: %s",
+                         threadId, filePath, e.getMessage());
+               LOGGER.error(errorMsg, e);
+               throw new RuntimeException(e);
+          }
+     }
+
+     private PartitionData partitionDataFromTypedValues(PartitionSpec spec,
+               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+          PartitionData partitionData = new PartitionData(spec.partitionType());
           if (partitionValues == null || partitionValues.isEmpty()) {
                return partitionData;
           }
 
-          // Set each value in the PartitionData
           for (int i = 0; i < partitionValues.size() && i < spec.fields().size(); i++) {
-               String stringValue = partitionValues.get(i);
-               org.apache.iceberg.types.Type fieldType = partitionData.getType(i);
-               PartitionField partitionField = spec.fields().get(i);
-               String transformName = partitionField.transform().toString().toLowerCase();
-
-               // Convert string value to proper type, handling nulls
-               Object typedValue = null;
-               if (stringValue != null && !"null".equals(stringValue)) {
-                    try {
-                         typedValue = org.apache.iceberg.types.Conversions.fromPartitionString(fieldType, stringValue);
-                    } catch (NumberFormatException | UnsupportedOperationException e) {
-                         try {
-                              if (transformName.equals("identity")
-                                        && fieldType.typeId() == org.apache.iceberg.types.Type.TypeID.TIMESTAMP) {
-                                   java.time.OffsetDateTime offsetDateTime = java.time.OffsetDateTime
-                                             .parse(stringValue);
-                                   java.time.Instant instant = offsetDateTime.toInstant();
-                                   typedValue = instant.toEpochMilli() * 1000;
-                              } else if (transformName.contains("year") && stringValue.matches("\\d{4}")) {
-                                   typedValue = Integer.parseInt(stringValue);
-                              } else if (transformName.contains("month") && stringValue.matches("\\d{4}-\\d{2}")) {
-                                   String[] parts = stringValue.split("-");
-                                   int year = Integer.parseInt(parts[0]);
-                                   int month = Integer.parseInt(parts[1]);
-                                   typedValue = (year - 1970) * 12 + (month - 1);
-                              } else if (transformName.contains("day") && stringValue.matches("\\d{4}-\\d{2}-\\d{2}")) {
-                                   java.time.LocalDate date = java.time.LocalDate.parse(stringValue);
-                                   java.time.LocalDate epoch = java.time.LocalDate.of(1970, 1, 1);
-                                   typedValue = (int) java.time.temporal.ChronoUnit.DAYS.between(epoch, date);
-                              } else if (transformName.contains("hour")
-                                        && stringValue.matches("\\d{4}-\\d{2}-\\d{2}-\\d{2}")) {
-                                   String[] parts = stringValue.split("-");
-                                   java.time.LocalDateTime dateTime = java.time.LocalDateTime.of(
-                                             Integer.parseInt(parts[0]),
-                                             Integer.parseInt(parts[1]),
-                                             Integer.parseInt(parts[2]),
-                                             Integer.parseInt(parts[3]),
-                                             0);
-                                   java.time.LocalDateTime epoch = java.time.LocalDateTime.of(1970, 1, 1, 0, 0);
-                                   typedValue = (int) java.time.temporal.ChronoUnit.HOURS.between(epoch, dateTime);
-                              } else {
-                                   throw new RuntimeException(
-                                             "Cannot parse partition value '" + stringValue + "' for transform "
-                                                       + transformName,
-                                             e);
-                              }
-                         } catch (Exception parseError) {
-                              LOGGER.warn("Failed to parse partition value '{}': {}", stringValue,
-                                        parseError.getMessage());
-                              throw new RuntimeException(
-                                        "Cannot parse partition value '" + stringValue + "' for transform "
-                                                  + transformName,
-                                        parseError);
-                         }
-                    }
-               }
-               partitionData.set(i, typedValue);
+               ArrowPayload.FileMetadata.PartitionValue protoValue = partitionValues.get(i);
+               Object value = switch (protoValue.getValueCase()) {
+                    case INT_VALUE -> protoValue.getIntValue();
+                    case LONG_VALUE -> protoValue.getLongValue();
+                    case FLOAT_VALUE -> protoValue.getFloatValue();
+                    case DOUBLE_VALUE -> protoValue.getDoubleValue();
+                    case STRING_VALUE -> protoValue.getStringValue();
+                    case BOOL_VALUE -> protoValue.getBoolValue();
+                    case VALUE_NOT_SET -> null;
+               };
+               partitionData.set(i, value);
           }
 
           return partitionData;
