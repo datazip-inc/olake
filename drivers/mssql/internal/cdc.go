@@ -145,19 +145,19 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	// Note: we expect column-level data loss (e.g., new columns missing)
 	// in the LSN range between the DDL and when the new capture instance becomes active.
 	var selectedCapture *captureInstance
-	for i := len(captures) - 1; i >= 0; i-- {
+	for captureIdx := len(captures) - 1; captureIdx >= 0; captureIdx-- {
 		// Skip if this capture started after fromLSN
-		if captures[i].startLSN > fromLSN {
+		if captures[captureIdx].startLSN > fromLSN {
 			continue
 		}
 
 		// Select the capture instance
-		selectedCapture = &captures[i]
+		selectedCapture = &captures[captureIdx]
 
 		// If a newer capture instance exists, restrict the targetLSN to the newer instance's startLSN
-		nextIdx := i + 1
-		if nextIdx < len(captures) && targetLSN > captures[nextIdx].startLSN {
-			newerCapture := captures[nextIdx]
+		nextCaptureIdx := captureIdx + 1
+		if nextCaptureIdx < len(captures) && targetLSN > captures[nextCaptureIdx].startLSN {
+			newerCapture := captures[nextCaptureIdx]
 			logger.Warnf("Newer capture instance [%s] detected for stream %s at LSN %s. Clamping targetLSN", newerCapture.instanceName, stream.ID(), newerCapture.startLSN)
 			targetLSN = newerCapture.startLSN
 		}
