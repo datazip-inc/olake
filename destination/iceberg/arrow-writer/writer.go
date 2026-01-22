@@ -37,7 +37,7 @@ type Writer struct {
 	positionalDeleteWriter *RollingWriter
 	// stores the latest position of olake_id (thread level property)
 	// a data writer might flush multiple data files during cdc, to properly handle duplicate _olake_id values across multiple data files, we only empty it when the thread closes
-	olakeIDPosition   map[string]PositionalDelete
+	olakeIDPosition   map[string]PositionalDelete // should only be emptied while closing the thread
 	data              []types.RawRecord
 	equalityDeletes   []string
 	positionalDeletes []PositionalDelete
@@ -119,25 +119,29 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 // getOrCreateWriter retrieves an existing writer for the partition key or creates a new one with all necessary rolling writers.
 func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values []any) (*Writer, error) {
 	writer, exists := w.writers[pKey]
-	if exists {
-		return writer, nil
-	}
-
-	writer = &Writer{
-		olakeIDPosition: make(map[string]PositionalDelete),
+	if !exists {
+		writer = &Writer{
+			olakeIDPosition: make(map[string]PositionalDelete),
+		}
 	}
 
 	var err error
-	if writer.dataWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeData], fileTypeData); err != nil {
-		return nil, err
+	if writer.dataWriter == nil {
+		if writer.dataWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeData], fileTypeData); err != nil {
+			return nil, err
+		}
 	}
 
 	if w.upsertMode {
-		if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
-			return nil, err
+		if writer.equalityDeleteWriter == nil {
+			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
+				return nil, err
+			}
 		}
-		if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
-			return nil, err
+		if writer.positionalDeleteWriter == nil {
+			if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -310,7 +314,6 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 	}
 
 	w.schema = newSchema
-	w.writers = make(map[string]*Writer)
 
 	if err := w.initialize(ctx); err != nil {
 		return fmt.Errorf("failed to reinitialize with evolved schema: %s", err)
