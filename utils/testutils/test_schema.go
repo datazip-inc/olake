@@ -26,12 +26,13 @@ var GlobalTypeMapping = map[string]string{
 	"year":      "bigint",
 
 	// Floating Point Types
-	"float":   "float",
-	"real":    "float",
-	"decimal": "double",
-	"numeric": "double",
-	"float4":  "float",
-	"money":   "float",
+	"float":      "float",
+	"real":       "float",
+	"decimal":    "double",
+	"numeric":    "double",
+	"float4":     "float",
+	"money":      "float",
+	"smallmoney": "float",
 
 	"double":           "double",
 	"float8":           "double",

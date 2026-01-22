@@ -108,8 +108,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 						@source_schema = N'dbo',
 						@source_name   = N'%s',
 						@capture_instance = N'%s',
-						@role_name     = NULL,
-						@supports_net_changes = 0;
+						@role_name     = NULL
 				END;
 				`, integrationTestTable, integrationTestTable, captureInstance)
 		_, err = db.ExecContext(ctx, enableTableCDC)
@@ -342,40 +341,6 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_tinyint":            "tinyint",
 	"col_smallint":           "smallint",
 	"col_int":                "int",
-	"col_bigint":             "bigint",
-	"col_decimal":            "double",
-	"col_numeric":            "double",
-	"col_smallmoney":         "number",
-	"col_money":              "number",
-	"col_float":              "double",
-	"col_real":               "real",
-	"col_bit":                "boolean",
-	"col_char":               "string",
-	"col_varchar":            "string",
-	"col_text":               "string",
-	"col_nchar":              "string",
-	"col_nvarchar":           "string",
-	"col_ntext":              "string",
-	"col_date":               "timestamp",
-	"col_time":               "string",
-	"col_smalldatetime":      "timestamp",
-	"col_datetime":           "timestamp",
-	"col_datetime2":          "timestamp",
-	"col_datetimeoffset":     "timestamp",
-	"col_uniqueidentifier":   "string",
-	"col_xml":                "string",
-	"col_sysname":            "string",
-	"col_int_nullable":       "int",
-	"col_varchar_nullable":   "string",
-	"col_datetime2_nullable": "timestamp",
-	"created_at":             "timestamp",
-}
-
-var UpdatedMSSQLToDestinationSchema = map[string]string{
-	"id":                     "int",
-	"col_tinyint":            "tinyint",
-	"col_smallint":           "smallint",
-	"col_int":                "bigint", // evolved
 	"col_bigint":             "bigint",
 	"col_decimal":            "double",
 	"col_numeric":            "double",
