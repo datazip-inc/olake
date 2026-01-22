@@ -1,0 +1,5 @@
+{"level":"info","message":"Found CDC Configuration","time":"2026-01-17T19:39:55Z"}
+{"level":"info","time":"2026-01-17T19:39:55Z","message":"CDC initial wait time set to: 120"}
+{"level":"info","time":"2026-01-17T19:39:55Z","message":"CDC on_lsn_mismatch behavior set to: fail"}
+{"level":"debug","time":"2026-01-17T19:39:55Z","message":"replication slot[olake_slot] with pluginType[pgoutput] found"}
+{"level":"info","message":{"type":"CONNECTION_STATUS","connectionStatus":{"status":"SUCCEEDED"}},"time":"2026-01-17T19:39:55Z"}

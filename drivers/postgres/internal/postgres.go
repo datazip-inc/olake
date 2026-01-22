@@ -113,7 +113,16 @@ func (p *Postgres) Setup(ctx context.Context) error {
 			return fmt.Errorf("the CDC initial wait time must be at least 120 seconds")
 		}
 
+		// validate on_lsn_mismatch field (default to "fail" if not set)
+		if cdc.OnLSNMismatch == "" {
+			cdc.OnLSNMismatch = "fail"
+		}
+		if cdc.OnLSNMismatch != "fail" && cdc.OnLSNMismatch != "full_load" {
+			return fmt.Errorf("invalid on_lsn_mismatch value '%s': must be 'fail' or 'full_load'", cdc.OnLSNMismatch)
+		}
+
 		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
+		logger.Infof("CDC on_lsn_mismatch behavior set to: %s", cdc.OnLSNMismatch)
 
 		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
 		if err != nil {
