@@ -17,20 +17,14 @@ func (sc *SelectedColumns) GetSelectedColumns() []string {
 
 // setSelectedColumnsMap sets the selected columns map for the selected columns
 func (sc *SelectedColumns) setSelectedColumnsMap() {
-	sc.Map = make(map[string]struct{})
+	sc.Map = make(map[string]struct{}, len(sc.Columns))
 	for _, col := range sc.Columns {
-		if _, exists := sc.Map[col]; exists {
-			continue
-		}
 		sc.Map[col] = struct{}{}
 	}
 }
 
 // GetSelectedColumnsMap returns the selected columns map
 func (sc *SelectedColumns) GetSelectedColumnsMap() map[string]struct{} {
-	if sc.Map == nil {
-		return nil
-	}
 	return sc.Map
 }
 
@@ -54,29 +48,24 @@ func (sc *SelectedColumns) checkAllColumnsSelected(newStream *Stream) bool {
 
 	var (
 		schemaColumnCount int
-		allSelected       bool
 	)
-
-	allSelected = true
 
 	newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
 		schemaColumnCount++
 
 		colName, ok := key.(string)
 		if !ok {
-			allSelected = false
 			return false
 		}
 
 		if _, exists := selectedMap[colName]; !exists {
-			allSelected = false
 			return false
 		}
 
 		return true
 	})
 
-	return allSelected && len(selectedMap) == schemaColumnCount
+	return len(selectedMap) == schemaColumnCount
 }
 
 // FilterDataBySelectedColumns filters the data based on the selected columns
@@ -169,6 +158,15 @@ func MergeSelectedColumns(
 	oldSchema := oldStream.Schema
 	newSchema := newStream.Schema
 
+	finalizeSelectedColumns := func() {
+		// set the selected columns map
+		metadata.SelectedColumns.setSelectedColumnsMap()
+		// ensure mandatory columns are included
+		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
+		// set the all selected flag
+		metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
+	}
+
 	// when selectedColumns property is not present or empty, initialize with columns
 	// default behavior is OFF (sync_new_columns = false)
 	// - If sync_new_columns is true: sync all columns from new schema
@@ -190,29 +188,30 @@ func MergeSelectedColumns(
 				Columns: oldSchemaColumns,
 			}
 		}
-		metadata.SelectedColumns.setSelectedColumnsMap()
-		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
-		metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
+		finalizeSelectedColumns()
 		return
 	}
 
 	// if the old and new schemas have same columns, so no need to check for presence in both old and new schemas
 	// and call ensureMandatoryColumns to ensure mandatory columns are included
 	if schemasHaveSameColumns(oldSchema, newSchema) {
-		metadata.SelectedColumns.setSelectedColumnsMap()
-		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
-		metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
+		finalizeSelectedColumns()
 		return
 	}
 
 	// when selectedColumns property is present and not empty
 	var preservedSelectedColumns []string
+	preservedSelectedColumnsMap := make(map[string]struct{})
 	for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
 		// check if the column exists in both old and new schemas
 		_, existsInOld := oldSchema.Properties.Load(previouslySelectedCol)
 		_, existsInNew := newSchema.Properties.Load(previouslySelectedCol)
 		if existsInOld && existsInNew {
-			preservedSelectedColumns = append(preservedSelectedColumns, previouslySelectedCol)
+			// don't add duplicate columns
+			if _, exists := preservedSelectedColumnsMap[previouslySelectedCol]; !exists {
+				preservedSelectedColumns = append(preservedSelectedColumns, previouslySelectedCol)
+				preservedSelectedColumnsMap[previouslySelectedCol] = struct{}{}
+			}
 		}
 	}
 
@@ -228,14 +227,7 @@ func MergeSelectedColumns(
 		}
 	}
 
-	// set the selected columns map
-	metadata.SelectedColumns.setSelectedColumnsMap()
-
-	// ensure mandatory columns are included
-	metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
-
-	// set the all selected flag
-	metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
+	finalizeSelectedColumns()
 }
 
 // ensureMandatoryColumns ensures that mandatory columns are always in SelectedColumns:
@@ -245,12 +237,6 @@ func MergeSelectedColumns(
 // 4. system generated fields
 func (sc *SelectedColumns) ensureMandatoryColumns(oldStream, newStream *Stream) map[string]struct{} {
 	selectedMap := sc.GetSelectedColumnsMap()
-
-	// if the selected columns map is not set, set it
-	if selectedMap == nil {
-		sc.setSelectedColumnsMap()
-		selectedMap = sc.GetSelectedColumnsMap()
-	}
 
 	// Add system generated fields
 	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
