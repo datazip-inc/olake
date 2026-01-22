@@ -288,9 +288,8 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	return isEnabled, nil
 }
 
-// IsTableCDCEnabled checks if CDC is enabled for a specific table.
-// This is used during discover to determine if CDC sync modes should be available for a stream.
-func (m *MSSQL) IsTableCDCEnabled(ctx context.Context, namespace, name string) (bool, error) {
+// isStreamCDCEnabled checks if CDC is enabled for a specific table.
+func (m *MSSQL) isStreamCDCEnabled(ctx context.Context, namespace, name string) (bool, error) {
 	if !m.cdcSupported {
 		return false, nil
 	}
