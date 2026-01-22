@@ -6217,6 +6217,10 @@ public final class RecordIngest {
        * <code>JSONSCHEMA = 2;</code>
        */
       JSONSCHEMA(2),
+      /**
+       * <code>FILEPATH = 3;</code>
+       */
+      FILEPATH(3),
       UNRECOGNIZED(-1),
       ;
 
@@ -6232,6 +6236,10 @@ public final class RecordIngest {
        * <code>JSONSCHEMA = 2;</code>
        */
       public static final int JSONSCHEMA_VALUE = 2;
+      /**
+       * <code>FILEPATH = 3;</code>
+       */
+      public static final int FILEPATH_VALUE = 3;
 
 
       public final int getNumber() {
@@ -6261,6 +6269,7 @@ public final class RecordIngest {
           case 0: return UPLOAD_FILE;
           case 1: return REGISTER_AND_COMMIT;
           case 2: return JSONSCHEMA;
+          case 3: return FILEPATH;
           default: return null;
         }
       }
@@ -6352,29 +6361,28 @@ public final class RecordIngest {
       long getRecordCount();
 
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @return A list containing the partitionValues.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
-      java.util.List<java.lang.String>
+      java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue> 
           getPartitionValuesList();
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @return The count of partitionValues.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+       */
+      io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue getPartitionValues(int index);
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
       int getPartitionValuesCount();
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @param index The index of the element to return.
-       * @return The partitionValues at the given index.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
-      java.lang.String getPartitionValues(int index);
+      java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder> 
+          getPartitionValuesOrBuilderList();
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @param index The index of the value to return.
-       * @return The bytes of the partitionValues at the given index.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
-      com.google.protobuf.ByteString
-          getPartitionValuesBytes(int index);
+      io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder getPartitionValuesOrBuilder(
+          int index);
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata}
@@ -6391,7 +6399,7 @@ public final class RecordIngest {
       private FileMetadata() {
         fileType_ = "";
         filePath_ = "";
-        partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+        partitionValues_ = java.util.Collections.emptyList();
       }
 
       @java.lang.Override
@@ -6417,6 +6425,1195 @@ public final class RecordIngest {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
                 io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.class, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.Builder.class);
+      }
+
+      public interface PartitionValueOrBuilder extends
+          // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue)
+          com.google.protobuf.MessageOrBuilder {
+
+        /**
+         * <code>int32 int_value = 1;</code>
+         * @return Whether the intValue field is set.
+         */
+        boolean hasIntValue();
+        /**
+         * <code>int32 int_value = 1;</code>
+         * @return The intValue.
+         */
+        int getIntValue();
+
+        /**
+         * <code>int64 long_value = 2;</code>
+         * @return Whether the longValue field is set.
+         */
+        boolean hasLongValue();
+        /**
+         * <code>int64 long_value = 2;</code>
+         * @return The longValue.
+         */
+        long getLongValue();
+
+        /**
+         * <code>string string_value = 3;</code>
+         * @return Whether the stringValue field is set.
+         */
+        boolean hasStringValue();
+        /**
+         * <code>string string_value = 3;</code>
+         * @return The stringValue.
+         */
+        java.lang.String getStringValue();
+        /**
+         * <code>string string_value = 3;</code>
+         * @return The bytes for stringValue.
+         */
+        com.google.protobuf.ByteString
+            getStringValueBytes();
+
+        /**
+         * <code>float float_value = 4;</code>
+         * @return Whether the floatValue field is set.
+         */
+        boolean hasFloatValue();
+        /**
+         * <code>float float_value = 4;</code>
+         * @return The floatValue.
+         */
+        float getFloatValue();
+
+        /**
+         * <code>double double_value = 5;</code>
+         * @return Whether the doubleValue field is set.
+         */
+        boolean hasDoubleValue();
+        /**
+         * <code>double double_value = 5;</code>
+         * @return The doubleValue.
+         */
+        double getDoubleValue();
+
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return Whether the boolValue field is set.
+         */
+        boolean hasBoolValue();
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return The boolValue.
+         */
+        boolean getBoolValue();
+
+        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.ValueCase getValueCase();
+      }
+      /**
+       * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue}
+       */
+      public static final class PartitionValue extends
+          com.google.protobuf.GeneratedMessageV3 implements
+          // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue)
+          PartitionValueOrBuilder {
+      private static final long serialVersionUID = 0L;
+        // Use PartitionValue.newBuilder() to construct.
+        private PartitionValue(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+          super(builder);
+        }
+        private PartitionValue() {
+        }
+
+        @java.lang.Override
+        @SuppressWarnings({"unused"})
+        protected java.lang.Object newInstance(
+            UnusedPrivateParameter unused) {
+          return new PartitionValue();
+        }
+
+        @java.lang.Override
+        public final com.google.protobuf.UnknownFieldSet
+        getUnknownFields() {
+          return this.unknownFields;
+        }
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor;
+        }
+
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.class, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder.class);
+        }
+
+        private int valueCase_ = 0;
+        private java.lang.Object value_;
+        public enum ValueCase
+            implements com.google.protobuf.Internal.EnumLite,
+                com.google.protobuf.AbstractMessage.InternalOneOfEnum {
+          INT_VALUE(1),
+          LONG_VALUE(2),
+          STRING_VALUE(3),
+          FLOAT_VALUE(4),
+          DOUBLE_VALUE(5),
+          BOOL_VALUE(6),
+          VALUE_NOT_SET(0);
+          private final int value;
+          private ValueCase(int value) {
+            this.value = value;
+          }
+          /**
+           * @param value The number of the enum to look for.
+           * @return The enum associated with the given number.
+           * @deprecated Use {@link #forNumber(int)} instead.
+           */
+          @java.lang.Deprecated
+          public static ValueCase valueOf(int value) {
+            return forNumber(value);
+          }
+
+          public static ValueCase forNumber(int value) {
+            switch (value) {
+              case 1: return INT_VALUE;
+              case 2: return LONG_VALUE;
+              case 3: return STRING_VALUE;
+              case 4: return FLOAT_VALUE;
+              case 5: return DOUBLE_VALUE;
+              case 6: return BOOL_VALUE;
+              case 0: return VALUE_NOT_SET;
+              default: return null;
+            }
+          }
+          public int getNumber() {
+            return this.value;
+          }
+        };
+
+        public ValueCase
+        getValueCase() {
+          return ValueCase.forNumber(
+              valueCase_);
+        }
+
+        public static final int INT_VALUE_FIELD_NUMBER = 1;
+        /**
+         * <code>int32 int_value = 1;</code>
+         * @return Whether the intValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasIntValue() {
+          return valueCase_ == 1;
+        }
+        /**
+         * <code>int32 int_value = 1;</code>
+         * @return The intValue.
+         */
+        @java.lang.Override
+        public int getIntValue() {
+          if (valueCase_ == 1) {
+            return (java.lang.Integer) value_;
+          }
+          return 0;
+        }
+
+        public static final int LONG_VALUE_FIELD_NUMBER = 2;
+        /**
+         * <code>int64 long_value = 2;</code>
+         * @return Whether the longValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasLongValue() {
+          return valueCase_ == 2;
+        }
+        /**
+         * <code>int64 long_value = 2;</code>
+         * @return The longValue.
+         */
+        @java.lang.Override
+        public long getLongValue() {
+          if (valueCase_ == 2) {
+            return (java.lang.Long) value_;
+          }
+          return 0L;
+        }
+
+        public static final int STRING_VALUE_FIELD_NUMBER = 3;
+        /**
+         * <code>string string_value = 3;</code>
+         * @return Whether the stringValue field is set.
+         */
+        public boolean hasStringValue() {
+          return valueCase_ == 3;
+        }
+        /**
+         * <code>string string_value = 3;</code>
+         * @return The stringValue.
+         */
+        public java.lang.String getStringValue() {
+          java.lang.Object ref = "";
+          if (valueCase_ == 3) {
+            ref = value_;
+          }
+          if (ref instanceof java.lang.String) {
+            return (java.lang.String) ref;
+          } else {
+            com.google.protobuf.ByteString bs = 
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            if (valueCase_ == 3) {
+              value_ = s;
+            }
+            return s;
+          }
+        }
+        /**
+         * <code>string string_value = 3;</code>
+         * @return The bytes for stringValue.
+         */
+        public com.google.protobuf.ByteString
+            getStringValueBytes() {
+          java.lang.Object ref = "";
+          if (valueCase_ == 3) {
+            ref = value_;
+          }
+          if (ref instanceof java.lang.String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            if (valueCase_ == 3) {
+              value_ = b;
+            }
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+
+        public static final int FLOAT_VALUE_FIELD_NUMBER = 4;
+        /**
+         * <code>float float_value = 4;</code>
+         * @return Whether the floatValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasFloatValue() {
+          return valueCase_ == 4;
+        }
+        /**
+         * <code>float float_value = 4;</code>
+         * @return The floatValue.
+         */
+        @java.lang.Override
+        public float getFloatValue() {
+          if (valueCase_ == 4) {
+            return (java.lang.Float) value_;
+          }
+          return 0F;
+        }
+
+        public static final int DOUBLE_VALUE_FIELD_NUMBER = 5;
+        /**
+         * <code>double double_value = 5;</code>
+         * @return Whether the doubleValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasDoubleValue() {
+          return valueCase_ == 5;
+        }
+        /**
+         * <code>double double_value = 5;</code>
+         * @return The doubleValue.
+         */
+        @java.lang.Override
+        public double getDoubleValue() {
+          if (valueCase_ == 5) {
+            return (java.lang.Double) value_;
+          }
+          return 0D;
+        }
+
+        public static final int BOOL_VALUE_FIELD_NUMBER = 6;
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return Whether the boolValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasBoolValue() {
+          return valueCase_ == 6;
+        }
+        /**
+         * <code>bool bool_value = 6;</code>
+         * @return The boolValue.
+         */
+        @java.lang.Override
+        public boolean getBoolValue() {
+          if (valueCase_ == 6) {
+            return (java.lang.Boolean) value_;
+          }
+          return false;
+        }
+
+        private byte memoizedIsInitialized = -1;
+        @java.lang.Override
+        public final boolean isInitialized() {
+          byte isInitialized = memoizedIsInitialized;
+          if (isInitialized == 1) return true;
+          if (isInitialized == 0) return false;
+
+          memoizedIsInitialized = 1;
+          return true;
+        }
+
+        @java.lang.Override
+        public void writeTo(com.google.protobuf.CodedOutputStream output)
+                            throws java.io.IOException {
+          if (valueCase_ == 1) {
+            output.writeInt32(
+                1, (int)((java.lang.Integer) value_));
+          }
+          if (valueCase_ == 2) {
+            output.writeInt64(
+                2, (long)((java.lang.Long) value_));
+          }
+          if (valueCase_ == 3) {
+            com.google.protobuf.GeneratedMessageV3.writeString(output, 3, value_);
+          }
+          if (valueCase_ == 4) {
+            output.writeFloat(
+                4, (float)((java.lang.Float) value_));
+          }
+          if (valueCase_ == 5) {
+            output.writeDouble(
+                5, (double)((java.lang.Double) value_));
+          }
+          if (valueCase_ == 6) {
+            output.writeBool(
+                6, (boolean)((java.lang.Boolean) value_));
+          }
+          getUnknownFields().writeTo(output);
+        }
+
+        @java.lang.Override
+        public int getSerializedSize() {
+          int size = memoizedSize;
+          if (size != -1) return size;
+
+          size = 0;
+          if (valueCase_ == 1) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeInt32Size(
+                  1, (int)((java.lang.Integer) value_));
+          }
+          if (valueCase_ == 2) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeInt64Size(
+                  2, (long)((java.lang.Long) value_));
+          }
+          if (valueCase_ == 3) {
+            size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, value_);
+          }
+          if (valueCase_ == 4) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeFloatSize(
+                  4, (float)((java.lang.Float) value_));
+          }
+          if (valueCase_ == 5) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeDoubleSize(
+                  5, (double)((java.lang.Double) value_));
+          }
+          if (valueCase_ == 6) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeBoolSize(
+                  6, (boolean)((java.lang.Boolean) value_));
+          }
+          size += getUnknownFields().getSerializedSize();
+          memoizedSize = size;
+          return size;
+        }
+
+        @java.lang.Override
+        public boolean equals(final java.lang.Object obj) {
+          if (obj == this) {
+           return true;
+          }
+          if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue)) {
+            return super.equals(obj);
+          }
+          io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue other = (io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue) obj;
+
+          if (!getValueCase().equals(other.getValueCase())) return false;
+          switch (valueCase_) {
+            case 1:
+              if (getIntValue()
+                  != other.getIntValue()) return false;
+              break;
+            case 2:
+              if (getLongValue()
+                  != other.getLongValue()) return false;
+              break;
+            case 3:
+              if (!getStringValue()
+                  .equals(other.getStringValue())) return false;
+              break;
+            case 4:
+              if (java.lang.Float.floatToIntBits(getFloatValue())
+                  != java.lang.Float.floatToIntBits(
+                      other.getFloatValue())) return false;
+              break;
+            case 5:
+              if (java.lang.Double.doubleToLongBits(getDoubleValue())
+                  != java.lang.Double.doubleToLongBits(
+                      other.getDoubleValue())) return false;
+              break;
+            case 6:
+              if (getBoolValue()
+                  != other.getBoolValue()) return false;
+              break;
+            case 0:
+            default:
+          }
+          if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+          return true;
+        }
+
+        @java.lang.Override
+        public int hashCode() {
+          if (memoizedHashCode != 0) {
+            return memoizedHashCode;
+          }
+          int hash = 41;
+          hash = (19 * hash) + getDescriptor().hashCode();
+          switch (valueCase_) {
+            case 1:
+              hash = (37 * hash) + INT_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + getIntValue();
+              break;
+            case 2:
+              hash = (37 * hash) + LONG_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+                  getLongValue());
+              break;
+            case 3:
+              hash = (37 * hash) + STRING_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + getStringValue().hashCode();
+              break;
+            case 4:
+              hash = (37 * hash) + FLOAT_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + java.lang.Float.floatToIntBits(
+                  getFloatValue());
+              break;
+            case 5:
+              hash = (37 * hash) + DOUBLE_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+                  java.lang.Double.doubleToLongBits(getDoubleValue()));
+              break;
+            case 6:
+              hash = (37 * hash) + BOOL_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+                  getBoolValue());
+              break;
+            case 0:
+            default:
+          }
+          hash = (29 * hash) + getUnknownFields().hashCode();
+          memoizedHashCode = hash;
+          return hash;
+        }
+
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            java.nio.ByteBuffer data)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            java.nio.ByteBuffer data,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            com.google.protobuf.ByteString data)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            com.google.protobuf.ByteString data,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(byte[] data)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            byte[] data,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          return PARSER.parseFrom(data, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(java.io.InputStream input)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            java.io.InputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseDelimitedFrom(java.io.InputStream input)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseDelimitedWithIOException(PARSER, input);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseDelimitedFrom(
+            java.io.InputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            com.google.protobuf.CodedInputStream input)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input);
+        }
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          return com.google.protobuf.GeneratedMessageV3
+              .parseWithIOException(PARSER, input, extensionRegistry);
+        }
+
+        @java.lang.Override
+        public Builder newBuilderForType() { return newBuilder(); }
+        public static Builder newBuilder() {
+          return DEFAULT_INSTANCE.toBuilder();
+        }
+        public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue prototype) {
+          return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+        }
+        @java.lang.Override
+        public Builder toBuilder() {
+          return this == DEFAULT_INSTANCE
+              ? new Builder() : new Builder().mergeFrom(this);
+        }
+
+        @java.lang.Override
+        protected Builder newBuilderForType(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          Builder builder = new Builder(parent);
+          return builder;
+        }
+        /**
+         * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue}
+         */
+        public static final class Builder extends
+            com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+            // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue)
+            io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder {
+          public static final com.google.protobuf.Descriptors.Descriptor
+              getDescriptor() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor;
+          }
+
+          @java.lang.Override
+          protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+              internalGetFieldAccessorTable() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_fieldAccessorTable
+                .ensureFieldAccessorsInitialized(
+                    io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.class, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder.class);
+          }
+
+          // Construct using io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.newBuilder()
+          private Builder() {
+
+          }
+
+          private Builder(
+              com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+            super(parent);
+
+          }
+          @java.lang.Override
+          public Builder clear() {
+            super.clear();
+            bitField0_ = 0;
+            valueCase_ = 0;
+            value_ = null;
+            return this;
+          }
+
+          @java.lang.Override
+          public com.google.protobuf.Descriptors.Descriptor
+              getDescriptorForType() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor;
+          }
+
+          @java.lang.Override
+          public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue getDefaultInstanceForType() {
+            return io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.getDefaultInstance();
+          }
+
+          @java.lang.Override
+          public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue build() {
+            io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue result = buildPartial();
+            if (!result.isInitialized()) {
+              throw newUninitializedMessageException(result);
+            }
+            return result;
+          }
+
+          @java.lang.Override
+          public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue buildPartial() {
+            io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue result = new io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue(this);
+            if (bitField0_ != 0) { buildPartial0(result); }
+            buildPartialOneofs(result);
+            onBuilt();
+            return result;
+          }
+
+          private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue result) {
+            int from_bitField0_ = bitField0_;
+          }
+
+          private void buildPartialOneofs(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue result) {
+            result.valueCase_ = valueCase_;
+            result.value_ = this.value_;
+          }
+
+          @java.lang.Override
+          public Builder clone() {
+            return super.clone();
+          }
+          @java.lang.Override
+          public Builder setField(
+              com.google.protobuf.Descriptors.FieldDescriptor field,
+              java.lang.Object value) {
+            return super.setField(field, value);
+          }
+          @java.lang.Override
+          public Builder clearField(
+              com.google.protobuf.Descriptors.FieldDescriptor field) {
+            return super.clearField(field);
+          }
+          @java.lang.Override
+          public Builder clearOneof(
+              com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+            return super.clearOneof(oneof);
+          }
+          @java.lang.Override
+          public Builder setRepeatedField(
+              com.google.protobuf.Descriptors.FieldDescriptor field,
+              int index, java.lang.Object value) {
+            return super.setRepeatedField(field, index, value);
+          }
+          @java.lang.Override
+          public Builder addRepeatedField(
+              com.google.protobuf.Descriptors.FieldDescriptor field,
+              java.lang.Object value) {
+            return super.addRepeatedField(field, value);
+          }
+          @java.lang.Override
+          public Builder mergeFrom(com.google.protobuf.Message other) {
+            if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue) {
+              return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue)other);
+            } else {
+              super.mergeFrom(other);
+              return this;
+            }
+          }
+
+          public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue other) {
+            if (other == io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.getDefaultInstance()) return this;
+            switch (other.getValueCase()) {
+              case INT_VALUE: {
+                setIntValue(other.getIntValue());
+                break;
+              }
+              case LONG_VALUE: {
+                setLongValue(other.getLongValue());
+                break;
+              }
+              case STRING_VALUE: {
+                valueCase_ = 3;
+                value_ = other.value_;
+                onChanged();
+                break;
+              }
+              case FLOAT_VALUE: {
+                setFloatValue(other.getFloatValue());
+                break;
+              }
+              case DOUBLE_VALUE: {
+                setDoubleValue(other.getDoubleValue());
+                break;
+              }
+              case BOOL_VALUE: {
+                setBoolValue(other.getBoolValue());
+                break;
+              }
+              case VALUE_NOT_SET: {
+                break;
+              }
+            }
+            this.mergeUnknownFields(other.getUnknownFields());
+            onChanged();
+            return this;
+          }
+
+          @java.lang.Override
+          public final boolean isInitialized() {
+            return true;
+          }
+
+          @java.lang.Override
+          public Builder mergeFrom(
+              com.google.protobuf.CodedInputStream input,
+              com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+              throws java.io.IOException {
+            if (extensionRegistry == null) {
+              throw new java.lang.NullPointerException();
+            }
+            try {
+              boolean done = false;
+              while (!done) {
+                int tag = input.readTag();
+                switch (tag) {
+                  case 0:
+                    done = true;
+                    break;
+                  case 8: {
+                    value_ = input.readInt32();
+                    valueCase_ = 1;
+                    break;
+                  } // case 8
+                  case 16: {
+                    value_ = input.readInt64();
+                    valueCase_ = 2;
+                    break;
+                  } // case 16
+                  case 26: {
+                    java.lang.String s = input.readStringRequireUtf8();
+                    valueCase_ = 3;
+                    value_ = s;
+                    break;
+                  } // case 26
+                  case 37: {
+                    value_ = input.readFloat();
+                    valueCase_ = 4;
+                    break;
+                  } // case 37
+                  case 41: {
+                    value_ = input.readDouble();
+                    valueCase_ = 5;
+                    break;
+                  } // case 41
+                  case 48: {
+                    value_ = input.readBool();
+                    valueCase_ = 6;
+                    break;
+                  } // case 48
+                  default: {
+                    if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                      done = true; // was an endgroup tag
+                    }
+                    break;
+                  } // default:
+                } // switch (tag)
+              } // while (!done)
+            } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+              throw e.unwrapIOException();
+            } finally {
+              onChanged();
+            } // finally
+            return this;
+          }
+          private int valueCase_ = 0;
+          private java.lang.Object value_;
+          public ValueCase
+              getValueCase() {
+            return ValueCase.forNumber(
+                valueCase_);
+          }
+
+          public Builder clearValue() {
+            valueCase_ = 0;
+            value_ = null;
+            onChanged();
+            return this;
+          }
+
+          private int bitField0_;
+
+          /**
+           * <code>int32 int_value = 1;</code>
+           * @return Whether the intValue field is set.
+           */
+          public boolean hasIntValue() {
+            return valueCase_ == 1;
+          }
+          /**
+           * <code>int32 int_value = 1;</code>
+           * @return The intValue.
+           */
+          public int getIntValue() {
+            if (valueCase_ == 1) {
+              return (java.lang.Integer) value_;
+            }
+            return 0;
+          }
+          /**
+           * <code>int32 int_value = 1;</code>
+           * @param value The intValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setIntValue(int value) {
+            
+            valueCase_ = 1;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>int32 int_value = 1;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearIntValue() {
+            if (valueCase_ == 1) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>int64 long_value = 2;</code>
+           * @return Whether the longValue field is set.
+           */
+          public boolean hasLongValue() {
+            return valueCase_ == 2;
+          }
+          /**
+           * <code>int64 long_value = 2;</code>
+           * @return The longValue.
+           */
+          public long getLongValue() {
+            if (valueCase_ == 2) {
+              return (java.lang.Long) value_;
+            }
+            return 0L;
+          }
+          /**
+           * <code>int64 long_value = 2;</code>
+           * @param value The longValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setLongValue(long value) {
+            
+            valueCase_ = 2;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>int64 long_value = 2;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearLongValue() {
+            if (valueCase_ == 2) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>string string_value = 3;</code>
+           * @return Whether the stringValue field is set.
+           */
+          @java.lang.Override
+          public boolean hasStringValue() {
+            return valueCase_ == 3;
+          }
+          /**
+           * <code>string string_value = 3;</code>
+           * @return The stringValue.
+           */
+          @java.lang.Override
+          public java.lang.String getStringValue() {
+            java.lang.Object ref = "";
+            if (valueCase_ == 3) {
+              ref = value_;
+            }
+            if (!(ref instanceof java.lang.String)) {
+              com.google.protobuf.ByteString bs =
+                  (com.google.protobuf.ByteString) ref;
+              java.lang.String s = bs.toStringUtf8();
+              if (valueCase_ == 3) {
+                value_ = s;
+              }
+              return s;
+            } else {
+              return (java.lang.String) ref;
+            }
+          }
+          /**
+           * <code>string string_value = 3;</code>
+           * @return The bytes for stringValue.
+           */
+          @java.lang.Override
+          public com.google.protobuf.ByteString
+              getStringValueBytes() {
+            java.lang.Object ref = "";
+            if (valueCase_ == 3) {
+              ref = value_;
+            }
+            if (ref instanceof String) {
+              com.google.protobuf.ByteString b = 
+                  com.google.protobuf.ByteString.copyFromUtf8(
+                      (java.lang.String) ref);
+              if (valueCase_ == 3) {
+                value_ = b;
+              }
+              return b;
+            } else {
+              return (com.google.protobuf.ByteString) ref;
+            }
+          }
+          /**
+           * <code>string string_value = 3;</code>
+           * @param value The stringValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setStringValue(
+              java.lang.String value) {
+            if (value == null) { throw new NullPointerException(); }
+            valueCase_ = 3;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>string string_value = 3;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearStringValue() {
+            if (valueCase_ == 3) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+          /**
+           * <code>string string_value = 3;</code>
+           * @param value The bytes for stringValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setStringValueBytes(
+              com.google.protobuf.ByteString value) {
+            if (value == null) { throw new NullPointerException(); }
+            checkByteStringIsUtf8(value);
+            valueCase_ = 3;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+
+          /**
+           * <code>float float_value = 4;</code>
+           * @return Whether the floatValue field is set.
+           */
+          public boolean hasFloatValue() {
+            return valueCase_ == 4;
+          }
+          /**
+           * <code>float float_value = 4;</code>
+           * @return The floatValue.
+           */
+          public float getFloatValue() {
+            if (valueCase_ == 4) {
+              return (java.lang.Float) value_;
+            }
+            return 0F;
+          }
+          /**
+           * <code>float float_value = 4;</code>
+           * @param value The floatValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setFloatValue(float value) {
+            
+            valueCase_ = 4;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>float float_value = 4;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearFloatValue() {
+            if (valueCase_ == 4) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>double double_value = 5;</code>
+           * @return Whether the doubleValue field is set.
+           */
+          public boolean hasDoubleValue() {
+            return valueCase_ == 5;
+          }
+          /**
+           * <code>double double_value = 5;</code>
+           * @return The doubleValue.
+           */
+          public double getDoubleValue() {
+            if (valueCase_ == 5) {
+              return (java.lang.Double) value_;
+            }
+            return 0D;
+          }
+          /**
+           * <code>double double_value = 5;</code>
+           * @param value The doubleValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setDoubleValue(double value) {
+            
+            valueCase_ = 5;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>double double_value = 5;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearDoubleValue() {
+            if (valueCase_ == 5) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return Whether the boolValue field is set.
+           */
+          public boolean hasBoolValue() {
+            return valueCase_ == 6;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return The boolValue.
+           */
+          public boolean getBoolValue() {
+            if (valueCase_ == 6) {
+              return (java.lang.Boolean) value_;
+            }
+            return false;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @param value The boolValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setBoolValue(boolean value) {
+            
+            valueCase_ = 6;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>bool bool_value = 6;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearBoolValue() {
+            if (valueCase_ == 6) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+          @java.lang.Override
+          public final Builder setUnknownFields(
+              final com.google.protobuf.UnknownFieldSet unknownFields) {
+            return super.setUnknownFields(unknownFields);
+          }
+
+          @java.lang.Override
+          public final Builder mergeUnknownFields(
+              final com.google.protobuf.UnknownFieldSet unknownFields) {
+            return super.mergeUnknownFields(unknownFields);
+          }
+
+
+          // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue)
+        }
+
+        // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue)
+        private static final io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue DEFAULT_INSTANCE;
+        static {
+          DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue();
+        }
+
+        public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue getDefaultInstance() {
+          return DEFAULT_INSTANCE;
+        }
+
+        private static final com.google.protobuf.Parser<PartitionValue>
+            PARSER = new com.google.protobuf.AbstractParser<PartitionValue>() {
+          @java.lang.Override
+          public PartitionValue parsePartialFrom(
+              com.google.protobuf.CodedInputStream input,
+              com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+              throws com.google.protobuf.InvalidProtocolBufferException {
+            Builder builder = newBuilder();
+            try {
+              builder.mergeFrom(input, extensionRegistry);
+            } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+              throw e.setUnfinishedMessage(builder.buildPartial());
+            } catch (com.google.protobuf.UninitializedMessageException e) {
+              throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+            } catch (java.io.IOException e) {
+              throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                  .setUnfinishedMessage(builder.buildPartial());
+            }
+            return builder.buildPartial();
+          }
+        };
+
+        public static com.google.protobuf.Parser<PartitionValue> parser() {
+          return PARSER;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Parser<PartitionValue> getParserForType() {
+          return PARSER;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue getDefaultInstanceForType() {
+          return DEFAULT_INSTANCE;
+        }
+
       }
 
       public static final int FILE_TYPE_FIELD_NUMBER = 1;
@@ -6510,38 +7707,43 @@ public final class RecordIngest {
 
       public static final int PARTITION_VALUES_FIELD_NUMBER = 5;
       @SuppressWarnings("serial")
-      private com.google.protobuf.LazyStringList partitionValues_;
+      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue> partitionValues_;
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @return A list containing the partitionValues.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
-      public com.google.protobuf.ProtocolStringList
-          getPartitionValuesList() {
+      @java.lang.Override
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue> getPartitionValuesList() {
         return partitionValues_;
       }
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @return The count of partitionValues.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
+      @java.lang.Override
+      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder> 
+          getPartitionValuesOrBuilderList() {
+        return partitionValues_;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+       */
+      @java.lang.Override
       public int getPartitionValuesCount() {
         return partitionValues_.size();
       }
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @param index The index of the element to return.
-       * @return The partitionValues at the given index.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
-      public java.lang.String getPartitionValues(int index) {
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue getPartitionValues(int index) {
         return partitionValues_.get(index);
       }
       /**
-       * <code>repeated string partition_values = 5;</code>
-       * @param index The index of the value to return.
-       * @return The bytes of the partitionValues at the given index.
+       * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
        */
-      public com.google.protobuf.ByteString
-          getPartitionValuesBytes(int index) {
-        return partitionValues_.getByteString(index);
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder getPartitionValuesOrBuilder(
+          int index) {
+        return partitionValues_.get(index);
       }
 
       private byte memoizedIsInitialized = -1;
@@ -6568,7 +7770,7 @@ public final class RecordIngest {
           output.writeInt64(3, recordCount_);
         }
         for (int i = 0; i < partitionValues_.size(); i++) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 5, partitionValues_.getRaw(i));
+          output.writeMessage(5, partitionValues_.get(i));
         }
         getUnknownFields().writeTo(output);
       }
@@ -6589,13 +7791,9 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeInt64Size(3, recordCount_);
         }
-        {
-          int dataSize = 0;
-          for (int i = 0; i < partitionValues_.size(); i++) {
-            dataSize += computeStringSizeNoTag(partitionValues_.getRaw(i));
-          }
-          size += dataSize;
-          size += 1 * getPartitionValuesList().size();
+        for (int i = 0; i < partitionValues_.size(); i++) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeMessageSize(5, partitionValues_.get(i));
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -6774,7 +7972,12 @@ public final class RecordIngest {
           fileType_ = "";
           filePath_ = "";
           recordCount_ = 0L;
-          partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+          if (partitionValuesBuilder_ == null) {
+            partitionValues_ = java.util.Collections.emptyList();
+          } else {
+            partitionValues_ = null;
+            partitionValuesBuilder_.clear();
+          }
           bitField0_ = (bitField0_ & ~0x00000008);
           return this;
         }
@@ -6809,11 +8012,15 @@ public final class RecordIngest {
         }
 
         private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata result) {
-          if (((bitField0_ & 0x00000008) != 0)) {
-            partitionValues_ = partitionValues_.getUnmodifiableView();
-            bitField0_ = (bitField0_ & ~0x00000008);
+          if (partitionValuesBuilder_ == null) {
+            if (((bitField0_ & 0x00000008) != 0)) {
+              partitionValues_ = java.util.Collections.unmodifiableList(partitionValues_);
+              bitField0_ = (bitField0_ & ~0x00000008);
+            }
+            result.partitionValues_ = partitionValues_;
+          } else {
+            result.partitionValues_ = partitionValuesBuilder_.build();
           }
-          result.partitionValues_ = partitionValues_;
         }
 
         private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata result) {
@@ -6886,15 +8093,31 @@ public final class RecordIngest {
           if (other.getRecordCount() != 0L) {
             setRecordCount(other.getRecordCount());
           }
-          if (!other.partitionValues_.isEmpty()) {
-            if (partitionValues_.isEmpty()) {
-              partitionValues_ = other.partitionValues_;
-              bitField0_ = (bitField0_ & ~0x00000008);
-            } else {
-              ensurePartitionValuesIsMutable();
-              partitionValues_.addAll(other.partitionValues_);
+          if (partitionValuesBuilder_ == null) {
+            if (!other.partitionValues_.isEmpty()) {
+              if (partitionValues_.isEmpty()) {
+                partitionValues_ = other.partitionValues_;
+                bitField0_ = (bitField0_ & ~0x00000008);
+              } else {
+                ensurePartitionValuesIsMutable();
+                partitionValues_.addAll(other.partitionValues_);
+              }
+              onChanged();
             }
-            onChanged();
+          } else {
+            if (!other.partitionValues_.isEmpty()) {
+              if (partitionValuesBuilder_.isEmpty()) {
+                partitionValuesBuilder_.dispose();
+                partitionValuesBuilder_ = null;
+                partitionValues_ = other.partitionValues_;
+                bitField0_ = (bitField0_ & ~0x00000008);
+                partitionValuesBuilder_ = 
+                  com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                     getPartitionValuesFieldBuilder() : null;
+              } else {
+                partitionValuesBuilder_.addAllMessages(other.partitionValues_);
+              }
+            }
           }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
@@ -6938,9 +8161,16 @@ public final class RecordIngest {
                   break;
                 } // case 24
                 case 42: {
-                  java.lang.String s = input.readStringRequireUtf8();
-                  ensurePartitionValuesIsMutable();
-                  partitionValues_.add(s);
+                  io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue m =
+                      input.readMessage(
+                          io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.parser(),
+                          extensionRegistry);
+                  if (partitionValuesBuilder_ == null) {
+                    ensurePartitionValuesIsMutable();
+                    partitionValues_.add(m);
+                  } else {
+                    partitionValuesBuilder_.addMessage(m);
+                  }
                   break;
                 } // case 42
                 default: {
@@ -7136,108 +8366,244 @@ public final class RecordIngest {
           return this;
         }
 
-        private com.google.protobuf.LazyStringList partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+        private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue> partitionValues_ =
+          java.util.Collections.emptyList();
         private void ensurePartitionValuesIsMutable() {
           if (!((bitField0_ & 0x00000008) != 0)) {
-            partitionValues_ = new com.google.protobuf.LazyStringArrayList(partitionValues_);
+            partitionValues_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue>(partitionValues_);
             bitField0_ |= 0x00000008;
            }
         }
+
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder> partitionValuesBuilder_;
+
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @return A list containing the partitionValues.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
-        public com.google.protobuf.ProtocolStringList
-            getPartitionValuesList() {
-          return partitionValues_.getUnmodifiableView();
+        public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue> getPartitionValuesList() {
+          if (partitionValuesBuilder_ == null) {
+            return java.util.Collections.unmodifiableList(partitionValues_);
+          } else {
+            return partitionValuesBuilder_.getMessageList();
+          }
         }
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @return The count of partitionValues.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
         public int getPartitionValuesCount() {
-          return partitionValues_.size();
+          if (partitionValuesBuilder_ == null) {
+            return partitionValues_.size();
+          } else {
+            return partitionValuesBuilder_.getCount();
+          }
         }
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @param index The index of the element to return.
-         * @return The partitionValues at the given index.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
-        public java.lang.String getPartitionValues(int index) {
-          return partitionValues_.get(index);
+        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue getPartitionValues(int index) {
+          if (partitionValuesBuilder_ == null) {
+            return partitionValues_.get(index);
+          } else {
+            return partitionValuesBuilder_.getMessage(index);
+          }
         }
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @param index The index of the value to return.
-         * @return The bytes of the partitionValues at the given index.
-         */
-        public com.google.protobuf.ByteString
-            getPartitionValuesBytes(int index) {
-          return partitionValues_.getByteString(index);
-        }
-        /**
-         * <code>repeated string partition_values = 5;</code>
-         * @param index The index to set the value at.
-         * @param value The partitionValues to set.
-         * @return This builder for chaining.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
         public Builder setPartitionValues(
-            int index, java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          ensurePartitionValuesIsMutable();
-          partitionValues_.set(index, value);
-          onChanged();
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue value) {
+          if (partitionValuesBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensurePartitionValuesIsMutable();
+            partitionValues_.set(index, value);
+            onChanged();
+          } else {
+            partitionValuesBuilder_.setMessage(index, value);
+          }
           return this;
         }
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @param value The partitionValues to add.
-         * @return This builder for chaining.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public Builder setPartitionValues(
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder builderForValue) {
+          if (partitionValuesBuilder_ == null) {
+            ensurePartitionValuesIsMutable();
+            partitionValues_.set(index, builderForValue.build());
+            onChanged();
+          } else {
+            partitionValuesBuilder_.setMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public Builder addPartitionValues(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue value) {
+          if (partitionValuesBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensurePartitionValuesIsMutable();
+            partitionValues_.add(value);
+            onChanged();
+          } else {
+            partitionValuesBuilder_.addMessage(value);
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
         public Builder addPartitionValues(
-            java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          ensurePartitionValuesIsMutable();
-          partitionValues_.add(value);
-          onChanged();
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue value) {
+          if (partitionValuesBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensurePartitionValuesIsMutable();
+            partitionValues_.add(index, value);
+            onChanged();
+          } else {
+            partitionValuesBuilder_.addMessage(index, value);
+          }
           return this;
         }
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @param values The partitionValues to add.
-         * @return This builder for chaining.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public Builder addPartitionValues(
+            io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder builderForValue) {
+          if (partitionValuesBuilder_ == null) {
+            ensurePartitionValuesIsMutable();
+            partitionValues_.add(builderForValue.build());
+            onChanged();
+          } else {
+            partitionValuesBuilder_.addMessage(builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public Builder addPartitionValues(
+            int index, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder builderForValue) {
+          if (partitionValuesBuilder_ == null) {
+            ensurePartitionValuesIsMutable();
+            partitionValues_.add(index, builderForValue.build());
+            onChanged();
+          } else {
+            partitionValuesBuilder_.addMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
         public Builder addAllPartitionValues(
-            java.lang.Iterable<java.lang.String> values) {
-          ensurePartitionValuesIsMutable();
-          com.google.protobuf.AbstractMessageLite.Builder.addAll(
-              values, partitionValues_);
-          onChanged();
+            java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue> values) {
+          if (partitionValuesBuilder_ == null) {
+            ensurePartitionValuesIsMutable();
+            com.google.protobuf.AbstractMessageLite.Builder.addAll(
+                values, partitionValues_);
+            onChanged();
+          } else {
+            partitionValuesBuilder_.addAllMessages(values);
+          }
           return this;
         }
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @return This builder for chaining.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
         public Builder clearPartitionValues() {
-          partitionValues_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-          bitField0_ = (bitField0_ & ~0x00000008);
-          onChanged();
+          if (partitionValuesBuilder_ == null) {
+            partitionValues_ = java.util.Collections.emptyList();
+            bitField0_ = (bitField0_ & ~0x00000008);
+            onChanged();
+          } else {
+            partitionValuesBuilder_.clear();
+          }
           return this;
         }
         /**
-         * <code>repeated string partition_values = 5;</code>
-         * @param value The bytes of the partitionValues to add.
-         * @return This builder for chaining.
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
          */
-        public Builder addPartitionValuesBytes(
-            com.google.protobuf.ByteString value) {
-          if (value == null) { throw new NullPointerException(); }
-          checkByteStringIsUtf8(value);
-          ensurePartitionValuesIsMutable();
-          partitionValues_.add(value);
-          onChanged();
+        public Builder removePartitionValues(int index) {
+          if (partitionValuesBuilder_ == null) {
+            ensurePartitionValuesIsMutable();
+            partitionValues_.remove(index);
+            onChanged();
+          } else {
+            partitionValuesBuilder_.remove(index);
+          }
           return this;
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder getPartitionValuesBuilder(
+            int index) {
+          return getPartitionValuesFieldBuilder().getBuilder(index);
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder getPartitionValuesOrBuilder(
+            int index) {
+          if (partitionValuesBuilder_ == null) {
+            return partitionValues_.get(index);  } else {
+            return partitionValuesBuilder_.getMessageOrBuilder(index);
+          }
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder> 
+             getPartitionValuesOrBuilderList() {
+          if (partitionValuesBuilder_ != null) {
+            return partitionValuesBuilder_.getMessageOrBuilderList();
+          } else {
+            return java.util.Collections.unmodifiableList(partitionValues_);
+          }
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder addPartitionValuesBuilder() {
+          return getPartitionValuesFieldBuilder().addBuilder(
+              io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.getDefaultInstance());
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder addPartitionValuesBuilder(
+            int index) {
+          return getPartitionValuesFieldBuilder().addBuilder(
+              index, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.getDefaultInstance());
+        }
+        /**
+         * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 5;</code>
+         */
+        public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder> 
+             getPartitionValuesBuilderList() {
+          return getPartitionValuesFieldBuilder().getBuilderList();
+        }
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder> 
+            getPartitionValuesFieldBuilder() {
+          if (partitionValuesBuilder_ == null) {
+            partitionValuesBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+                io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.Builder, io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder>(
+                    partitionValues_,
+                    ((bitField0_ & 0x00000008) != 0),
+                    getParentForChildren(),
+                    isClean());
+            partitionValues_ = null;
+          }
+          return partitionValuesBuilder_;
         }
         @java.lang.Override
         public final Builder setUnknownFields(
@@ -7314,16 +8680,16 @@ public final class RecordIngest {
       com.google.protobuf.ByteString getFileData();
 
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The filePath.
        */
-      java.lang.String getPartitionKey();
+      java.lang.String getFilePath();
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The bytes for partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The bytes for filePath.
        */
       com.google.protobuf.ByteString
-          getPartitionKeyBytes();
+          getFilePathBytes();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest}
@@ -7339,7 +8705,7 @@ public final class RecordIngest {
       }
       private FileUploadRequest() {
         fileData_ = com.google.protobuf.ByteString.EMPTY;
-        partitionKey_ = "";
+        filePath_ = "";
       }
 
       @java.lang.Override
@@ -7378,39 +8744,39 @@ public final class RecordIngest {
         return fileData_;
       }
 
-      public static final int PARTITION_KEY_FIELD_NUMBER = 2;
+      public static final int FILE_PATH_FIELD_NUMBER = 2;
       @SuppressWarnings("serial")
-      private volatile java.lang.Object partitionKey_ = "";
+      private volatile java.lang.Object filePath_ = "";
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The filePath.
        */
       @java.lang.Override
-      public java.lang.String getPartitionKey() {
-        java.lang.Object ref = partitionKey_;
+      public java.lang.String getFilePath() {
+        java.lang.Object ref = filePath_;
         if (ref instanceof java.lang.String) {
           return (java.lang.String) ref;
         } else {
           com.google.protobuf.ByteString bs = 
               (com.google.protobuf.ByteString) ref;
           java.lang.String s = bs.toStringUtf8();
-          partitionKey_ = s;
+          filePath_ = s;
           return s;
         }
       }
       /**
-       * <code>string partition_key = 2;</code>
-       * @return The bytes for partitionKey.
+       * <code>string file_path = 2;</code>
+       * @return The bytes for filePath.
        */
       @java.lang.Override
       public com.google.protobuf.ByteString
-          getPartitionKeyBytes() {
-        java.lang.Object ref = partitionKey_;
+          getFilePathBytes() {
+        java.lang.Object ref = filePath_;
         if (ref instanceof java.lang.String) {
           com.google.protobuf.ByteString b = 
               com.google.protobuf.ByteString.copyFromUtf8(
                   (java.lang.String) ref);
-          partitionKey_ = b;
+          filePath_ = b;
           return b;
         } else {
           return (com.google.protobuf.ByteString) ref;
@@ -7434,8 +8800,8 @@ public final class RecordIngest {
         if (!fileData_.isEmpty()) {
           output.writeBytes(1, fileData_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, partitionKey_);
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, filePath_);
         }
         getUnknownFields().writeTo(output);
       }
@@ -7450,8 +8816,8 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeBytesSize(1, fileData_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(partitionKey_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, partitionKey_);
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, filePath_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -7470,8 +8836,8 @@ public final class RecordIngest {
 
         if (!getFileData()
             .equals(other.getFileData())) return false;
-        if (!getPartitionKey()
-            .equals(other.getPartitionKey())) return false;
+        if (!getFilePath()
+            .equals(other.getFilePath())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -7485,8 +8851,8 @@ public final class RecordIngest {
         hash = (19 * hash) + getDescriptor().hashCode();
         hash = (37 * hash) + FILE_DATA_FIELD_NUMBER;
         hash = (53 * hash) + getFileData().hashCode();
-        hash = (37 * hash) + PARTITION_KEY_FIELD_NUMBER;
-        hash = (53 * hash) + getPartitionKey().hashCode();
+        hash = (37 * hash) + FILE_PATH_FIELD_NUMBER;
+        hash = (53 * hash) + getFilePath().hashCode();
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -7617,7 +8983,7 @@ public final class RecordIngest {
           super.clear();
           bitField0_ = 0;
           fileData_ = com.google.protobuf.ByteString.EMPTY;
-          partitionKey_ = "";
+          filePath_ = "";
           return this;
         }
 
@@ -7655,7 +9021,7 @@ public final class RecordIngest {
             result.fileData_ = fileData_;
           }
           if (((from_bitField0_ & 0x00000002) != 0)) {
-            result.partitionKey_ = partitionKey_;
+            result.filePath_ = filePath_;
           }
         }
 
@@ -7706,8 +9072,8 @@ public final class RecordIngest {
           if (other.getFileData() != com.google.protobuf.ByteString.EMPTY) {
             setFileData(other.getFileData());
           }
-          if (!other.getPartitionKey().isEmpty()) {
-            partitionKey_ = other.partitionKey_;
+          if (!other.getFilePath().isEmpty()) {
+            filePath_ = other.filePath_;
             bitField0_ |= 0x00000002;
             onChanged();
           }
@@ -7743,7 +9109,7 @@ public final class RecordIngest {
                   break;
                 } // case 10
                 case 18: {
-                  partitionKey_ = input.readStringRequireUtf8();
+                  filePath_ = input.readStringRequireUtf8();
                   bitField0_ |= 0x00000002;
                   break;
                 } // case 18
@@ -7796,73 +9162,73 @@ public final class RecordIngest {
           return this;
         }
 
-        private java.lang.Object partitionKey_ = "";
+        private java.lang.Object filePath_ = "";
         /**
-         * <code>string partition_key = 2;</code>
-         * @return The partitionKey.
+         * <code>string file_path = 2;</code>
+         * @return The filePath.
          */
-        public java.lang.String getPartitionKey() {
-          java.lang.Object ref = partitionKey_;
+        public java.lang.String getFilePath() {
+          java.lang.Object ref = filePath_;
           if (!(ref instanceof java.lang.String)) {
             com.google.protobuf.ByteString bs =
                 (com.google.protobuf.ByteString) ref;
             java.lang.String s = bs.toStringUtf8();
-            partitionKey_ = s;
+            filePath_ = s;
             return s;
           } else {
             return (java.lang.String) ref;
           }
         }
         /**
-         * <code>string partition_key = 2;</code>
-         * @return The bytes for partitionKey.
+         * <code>string file_path = 2;</code>
+         * @return The bytes for filePath.
          */
         public com.google.protobuf.ByteString
-            getPartitionKeyBytes() {
-          java.lang.Object ref = partitionKey_;
+            getFilePathBytes() {
+          java.lang.Object ref = filePath_;
           if (ref instanceof String) {
             com.google.protobuf.ByteString b = 
                 com.google.protobuf.ByteString.copyFromUtf8(
                     (java.lang.String) ref);
-            partitionKey_ = b;
+            filePath_ = b;
             return b;
           } else {
             return (com.google.protobuf.ByteString) ref;
           }
         }
         /**
-         * <code>string partition_key = 2;</code>
-         * @param value The partitionKey to set.
+         * <code>string file_path = 2;</code>
+         * @param value The filePath to set.
          * @return This builder for chaining.
          */
-        public Builder setPartitionKey(
+        public Builder setFilePath(
             java.lang.String value) {
           if (value == null) { throw new NullPointerException(); }
-          partitionKey_ = value;
+          filePath_ = value;
           bitField0_ |= 0x00000002;
           onChanged();
           return this;
         }
         /**
-         * <code>string partition_key = 2;</code>
+         * <code>string file_path = 2;</code>
          * @return This builder for chaining.
          */
-        public Builder clearPartitionKey() {
-          partitionKey_ = getDefaultInstance().getPartitionKey();
+        public Builder clearFilePath() {
+          filePath_ = getDefaultInstance().getFilePath();
           bitField0_ = (bitField0_ & ~0x00000002);
           onChanged();
           return this;
         }
         /**
-         * <code>string partition_key = 2;</code>
-         * @param value The bytes for partitionKey to set.
+         * <code>string file_path = 2;</code>
+         * @param value The bytes for filePath to set.
          * @return This builder for chaining.
          */
-        public Builder setPartitionKeyBytes(
+        public Builder setFilePathBytes(
             com.google.protobuf.ByteString value) {
           if (value == null) { throw new NullPointerException(); }
           checkByteStringIsUtf8(value);
-          partitionKey_ = value;
+          filePath_ = value;
           bitField0_ |= 0x00000002;
           onChanged();
           return this;
@@ -10765,6 +12131,11 @@ java.lang.String defaultValue) {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
@@ -10818,35 +12189,41 @@ java.lang.String defaultValue) {
       "_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREA" +
       "TE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\"7\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\202\005\n\014ArrowPayload\022F\n\004type\030\001" +
+      "success\030\002 \001(\010\"\373\006\n\014ArrowPayload\022F\n\004type\030\001" +
       " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
       "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
       "25.io.debezium.server.iceberg.rpc.ArrowP" +
-      "ayload.Metadata\032d\n\014FileMetadata\022\021\n\tfile_" +
-      "type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_" +
-      "count\030\003 \001(\003\022\030\n\020partition_values\030\005 \003(\t\032=\n" +
-      "\021FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\025\n" +
-      "\rpartition_key\030\002 \001(\t\032\362\001\n\010Metadata\022\027\n\017des" +
-      "t_table_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n" +
-      "\rfile_metadata\030\003 \003(\01329.io.debezium.serve" +
-      "r.iceberg.rpc.ArrowPayload.FileMetadata\022" +
-      "X\n\013file_upload\030\004 \001(\0132>.io.debezium.serve" +
-      "r.iceberg.rpc.ArrowPayload.FileUploadReq" +
-      "uestH\000\210\001\001B\016\n\014_file_upload\"G\n\013PayloadType" +
-      "\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT" +
-      "\020\001\022\016\n\nJSONSCHEMA\020\002\"\275\001\n\023ArrowIngestRespon" +
-      "se\022\016\n\006result\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003" +
-      "(\0132G.io.debezium.server.iceberg.rpc.Arro" +
-      "wIngestResponse.IcebergSchemasEntry\0325\n\023I" +
-      "cebergSchemasEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value" +
-      "\030\002 \001(\t:\0028\0012\212\001\n\023RecordIngestService\022s\n\013Se" +
-      "ndRecords\022..io.debezium.server.iceberg.r" +
-      "pc.IcebergPayload\0324.io.debezium.server.i" +
-      "ceberg.rpc.RecordIngestResponse2\205\001\n\022Arro" +
-      "wIngestService\022o\n\nIcebergAPI\022,.io.debezi" +
-      "um.server.iceberg.rpc.ArrowPayload\0323.io." +
-      "debezium.server.iceberg.rpc.ArrowIngestR" +
-      "esponseb\006proto3"
+      "ayload.Metadata\032\322\002\n\014FileMetadata\022\021\n\tfile" +
+      "_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record" +
+      "_count\030\003 \001(\003\022b\n\020partition_values\030\005 \003(\0132H" +
+      ".io.debezium.server.iceberg.rpc.ArrowPay" +
+      "load.FileMetadata.PartitionValue\032\241\001\n\016Par" +
+      "titionValue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong" +
+      "_value\030\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025" +
+      "\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 " +
+      "\001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021" +
+      "FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\t" +
+      "file_path\030\002 \001(\t\032\362\001\n\010Metadata\022\027\n\017dest_tab" +
+      "le_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile" +
+      "_metadata\030\003 \003(\01329.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileMetadata\022X\n\013fi" +
+      "le_upload\030\004 \001(\0132>.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileUploadRequestH" +
+      "\000\210\001\001B\016\n\014_file_upload\"U\n\013PayloadType\022\017\n\013U" +
+      "PLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001\022\016\n" +
+      "\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\"\275\001\n\023ArrowIng" +
+      "estResponse\022\016\n\006result\030\001 \001(\t\022_\n\016icebergSc" +
+      "hemas\030\002 \003(\0132G.io.debezium.server.iceberg" +
+      ".rpc.ArrowIngestResponse.IcebergSchemasE" +
+      "ntry\0325\n\023IcebergSchemasEntry\022\013\n\003key\030\001 \001(\t" +
+      "\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n\023RecordIngestServ" +
+      "ice\022s\n\013SendRecords\022..io.debezium.server." +
+      "iceberg.rpc.IcebergPayload\0324.io.debezium" +
+      ".server.iceberg.rpc.RecordIngestResponse" +
+      "2\205\001\n\022ArrowIngestService\022o\n\nIcebergAPI\022,." +
+      "io.debezium.server.iceberg.rpc.ArrowPayl" +
+      "oad\0323.io.debezium.server.iceberg.rpc.Arr" +
+      "owIngestResponseb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -10900,12 +12277,18 @@ java.lang.String defaultValue) {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_descriptor,
         new java.lang.String[] { "FileType", "FilePath", "RecordCount", "PartitionValues", });
+    internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor =
+      internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_descriptor.getNestedTypes().get(0);
+    internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor,
+        new java.lang.String[] { "IntValue", "LongValue", "StringValue", "FloatValue", "DoubleValue", "BoolValue", "Value", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor,
-        new java.lang.String[] { "FileData", "PartitionKey", });
+        new java.lang.String[] { "FileData", "FilePath", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(2);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new
