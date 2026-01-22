@@ -735,20 +735,6 @@ func MSSQLCDCGetChangesQuery(captureInstance string) string {
 	`, captureInstance)
 }
 
-// MSSQLCDCDDLHistoryQuery returns the query to fetch DDL history for a capture instance
-func MSSQLCDCDDLHistoryQuery() string {
-	return `
-		SELECT
-			hist.ddl_lsn,
-			hist.ddl_command
-		FROM cdc.ddl_history AS hist
-		JOIN cdc.change_tables AS ct
-			ON hist.object_id = ct.object_id
-		WHERE ct.capture_instance = @p1
-		ORDER BY hist.ddl_lsn ASC
-	`
-}
-
 // MSSQLTableExistsQuery returns the query to check if a table has any rows
 func MSSQLTableExistsQuery(stream types.StreamInterface) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
