@@ -30,6 +30,7 @@ var DateTimeFormats = []string{
 	"2006-01-02 15:04:05 -07:00",
 	"2006-01-02 15:04:05-07:00",
 	"2006-01-02 15:04:05 -0700 MST",
+	"2006-01-02-15.04.05.000000",
 	"2006-01-02T15:04:05",
 	"2006-01-02T15:04:05.000000",
 	"2006-01-02T15:04:05.999999999Z07:00",
@@ -37,6 +38,7 @@ var DateTimeFormats = []string{
 	"2020-08-17T05:50:22.895Z",
 	"2006-01-02 15:04:05.999999-07",
 	"2006-01-02 15:04:05.999999+00",
+	"2006-01-02T15:04:05.000000000Z",
 }
 
 var GeospatialTypes = []string{"geometry", "point", "polygon", "linestring", "multi"}
@@ -111,10 +113,6 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		if value, isArray := v.([]any); isArray {
 			return value, nil
 		}
-		// Handle byte arrays, convert to string
-		if byteArray, ok := v.([]byte); ok {
-			return string(byteArray), nil
-		}
 		// make it an array
 		return []any{v}, nil
 	default:
@@ -142,8 +140,6 @@ func ReformatBool(v interface{}) (bool, error) {
 		default:
 			return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 		}
-	case []uint8:
-		return string(booleanValue) == "t", nil
 	default:
 		return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 	}
@@ -284,6 +280,7 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 	return time.Unix(0, 0).UTC(), nil
 }
 
+// TODO: Add bytes array handling of int64 and other datatypes. Also add unit test cases for it.
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
 	case json.Number:
@@ -323,13 +320,6 @@ func ReformatInt64(v any) (int64, error) {
 		intValue, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return int64(0), fmt.Errorf("failed to change string %v to int64: %v", v, err)
-		}
-		return intValue, nil
-	case []uint8:
-		strVal := string(v)
-		intValue, err := strconv.ParseInt(strVal, 10, 64)
-		if err != nil {
-			return int64(0), fmt.Errorf("failed to change []byte %v to int64: %v", v, err)
 		}
 		return intValue, nil
 	case *any:
@@ -389,12 +379,10 @@ func ReformatInt32(v any) (int32, error) {
 		//nolint:gosec,G115
 		return int32(intValue), nil
 	case []uint8:
-		strVal := string(v)
-		intValue, err := strconv.ParseInt(strVal, 10, 32)
-		if err != nil {
-			return 0, fmt.Errorf("failed to change []byte %v to int32: %v", v, err)
+		if len(v) == 1 {
+			return int32(v[0]), nil
 		}
-		return int32(intValue), nil
+		return 0, fmt.Errorf("unsupported []uint8 of length %d: %v", len(v), v)
 	case *any:
 		return ReformatInt32(*v)
 	}
@@ -579,13 +567,16 @@ func ReformatGeoType(v any) (any, error) {
 	}
 }
 
-// FormatCursorValue is used to make time format and object id format consistent to be saved in state
-func FormatCursorValue(cursorValue any) any {
-	if _, ok := cursorValue.(time.Time); ok {
-		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
+// ReformatTimeValue is used to make time format consistent as per db
+func ReformatTimeValue(value any) (string, error) {
+	switch t := value.(type) {
+	case time.Time:
+		return t.Format("15:04:05"), nil
+	case []byte:
+		return string(t), nil
+	case string:
+		return t, nil
+	default:
+		return fmt.Sprintf("%v", value), nil
 	}
-	if oid, ok := cursorValue.(primitive.ObjectID); ok {
-		return oid.Hex()
-	}
-	return cursorValue
 }
