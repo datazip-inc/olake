@@ -141,6 +141,9 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	// If there is a newer capture instance after the one we select, clamp
 	// targetLSN to that newer instance's startLSN so we do not read rows that
 	// conceptually belong to the new schema from the old capture instance.
+	//
+	// Note: we expect column-level data loss (e.g., new columns missing)
+	// in the LSN range between the DDL and when the new capture instance becomes active.
 	var selectedCapture *captureInstance
 	for i := len(captures) - 1; i >= 0; i-- {
 		// Skip if this capture started after fromLSN
