@@ -704,7 +704,7 @@ func MSSQLCDCDiscoverQuery(streamID string) string {
 			ON t.schema_id = s.schema_id
 		JOIN cdc.change_tables c
 			ON t.object_id = c.source_object_id
-		WHERE CONCAT(s.name, '.', t.name) IN (%s)
+		WHERE CONCAT(s.name, '.', t.name) IN ('%s')
 		ORDER BY
 			s.name ASC,
 			t.name ASC,
