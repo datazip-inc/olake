@@ -271,7 +271,7 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 			*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
 		}
 
-		// cancel context if error occured after closing writers
+		// cancel context if error occurred after closing writers
 		if *err != nil {
 			cancel()
 		}
