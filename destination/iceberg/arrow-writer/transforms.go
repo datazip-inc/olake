@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
+
 	"github.com/twmb/murmur3"
 )
 
@@ -18,10 +20,10 @@ import (
 // As OLake starts supporting more data types, we will update the transformations logic here.
 //
 // Supported Transforms:
-//   - Identity, Void: 		All data types
-//   - Bucket: 			int, long, string, timestamptz
-//   - Truncate: int, long, string
-//   - Year, Month, Day, Hour: timestamptz
+//   - Identity, Void: 			All data types
+//   - Bucket: 				int, long, string, timestamptz
+//   - Truncate: 				int, long, string
+//   - Year, Month, Day, Hour: 	timestamptz
 
 const NULL = "null"
 
@@ -59,43 +61,73 @@ func hashString(s string) uint32 {
 	return murmur3.Sum32([]byte(s))
 }
 
-func identityTransform(val any, colType string) (string, error) {
+func identityTransform(val any, colType string) (pathStr string, typedVal any, err error) {
 	switch colType {
 	case "boolean":
-		return strconv.FormatBool(val.(bool)), nil
+		b := val.(bool)
+		return strconv.FormatBool(b), b, nil
+	case "int":
+		v := val.(int32)
+		return fmt.Sprintf("%d", v), v, nil
+	case "long":
+		v := val.(int64)
+		return fmt.Sprintf("%d", v), v, nil
+	case "float":
+		v := val.(float32)
+		return fmt.Sprintf("%g", v), v, nil
+	case "double":
+		v := val.(float64)
+		return fmt.Sprintf("%g", v), v, nil
+	case "string":
+		s := val.(string)
+		return s, s, nil
 	case "timestamptz":
 		t := val.(time.Time).UTC()
-		return t.Format("2006-01-02T15:04:05-07:00"), nil
+		if t.IsZero() {
+			return NULL, nil, nil
+		}
+		pathStr = t.Format("2006-01-02T15:04:05-07:00")
+		typedVal = t.UnixMicro()
+		return pathStr, typedVal, nil
 	default:
-		return fmt.Sprintf("%v", val), nil
+		return fmt.Sprintf("%v", val), val, nil
 	}
 }
 
-func timeTransform(val any, unit string, colType string) (string, error) {
+func timeTransform(val any, unit string, colType string) (pathStr string, typedVal any, err error) {
 	if colType != "timestamptz" {
-		return "", fmt.Errorf("unsupported time transform %q", unit)
+		return "", nil, fmt.Errorf("unsupported time transform %q", unit)
 	}
 
 	v, _ := val.(time.Time)
 	v = v.UTC()
+	if v.IsZero() {
+		return NULL, nil, nil
+	}
+	epoch := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	switch unit {
 	case "year":
-		return strconv.Itoa(v.Year()), nil
+		year := v.Year()
+		yearsFrom1970 := int32(year - 1970) // #nosec G115 -- year range is bounded and safe for int32
+		return strconv.Itoa(year), yearsFrom1970, nil
 	case "month":
-		return v.Format("2006-01"), nil
+		monthsFrom1970 := int32((v.Year()-1970)*12 + int(v.Month()-1)) // #nosec G115 -- month calculation is bounded and safe for int32
+		return v.Format("2006-01"), monthsFrom1970, nil
 	case "day":
-		return v.Format("2006-01-02"), nil
+		daysFrom1970 := int32(v.Sub(epoch).Hours() / 24)
+		return v.Format("2006-01-02"), daysFrom1970, nil
 	case "hour":
-		return v.Format("2006-01-02-15"), nil
+		hoursFrom1970 := int32(v.Sub(epoch).Hours())
+		return v.Format("2006-01-02-15"), hoursFrom1970, nil
 	default:
-		return "", fmt.Errorf("unsupported time transform %q", unit)
+		return "", nil, fmt.Errorf("unsupported time transform %q", unit)
 	}
 }
 
-func bucketTransform(val any, num int, colType string) (string, error) {
+func bucketTransform(val any, num int, colType string) (pathStr string, typedVal any, err error) {
 	if num <= 0 {
-		return "", fmt.Errorf("invalid number of buckets: %d (must be > 0)", num)
+		return "", nil, fmt.Errorf("invalid number of buckets: %d (must be > 0)", num)
 	}
 
 	var h uint32
@@ -109,62 +141,60 @@ func bucketTransform(val any, num int, colType string) (string, error) {
 	case "timestamptz":
 		tm, ok := val.(time.Time)
 		if !ok {
-			return "", fmt.Errorf("expected time.Time for colType %q, got %T", colType, val)
+			return "", nil, fmt.Errorf("expected time.Time for colType %q, got %T", colType, val)
+		}
+		if tm.IsZero() {
+			return NULL, nil, nil
 		}
 		h = hashInt(tm.UnixMicro())
 	case "string":
 		str, ok := val.(string)
 		if !ok {
-			return "", fmt.Errorf("expected string for colType %q, got %T", colType, val)
+			return "", nil, fmt.Errorf("expected string for colType %q, got %T", colType, val)
 		}
 		h = hashString(str)
 	default:
-		return "", fmt.Errorf("unsupported colType %q for bucket transform", colType)
+		return "", nil, fmt.Errorf("unsupported colType %q for bucket transform", colType)
 	}
 
 	masked := int(h & 0x7FFFFFFF)
-	bucket := masked % num
-	return strconv.Itoa(bucket), nil
+	bucket := int32(masked % num) // #nosec G115 -- modulo result is bounded by num parameter
+	return strconv.Itoa(int(bucket)), bucket, nil
 }
 
-func truncateTransform(val any, n int, colType string) (string, error) {
+func truncateTransform(val any, n int, colType string) (pathStr string, typedVal any, err error) {
 	if n <= 0 {
-		return "", fmt.Errorf("invalid truncate width: %d (must be > 0)", n)
+		return "", nil, fmt.Errorf("invalid truncate width: %d (must be > 0)", n)
 	}
 
 	switch colType {
 	case "int":
 		v, _ := val.(int32)
 		if n > math.MaxInt32 {
-			return "", fmt.Errorf("truncate width %d exceeds int32 range", n)
+			return "", nil, fmt.Errorf("truncate width %d exceeds int32 range", n)
 		}
 		n32 := int32(n)
-		// Using Iceberg's formula for proper negative number handling
 		trunc := v - (((v % n32) + n32) % n32)
-
-		return fmt.Sprintf("%d", trunc), nil
+		return fmt.Sprintf("%d", trunc), trunc, nil
 	case "long":
 		v, _ := val.(int64)
 		n64 := int64(n)
 		// Using Iceberg's formula for proper negative number handling
 		trunc := v - (((v % n64) + n64) % n64)
-
-		return fmt.Sprintf("%d", trunc), nil
+		return fmt.Sprintf("%d", trunc), trunc, nil
 	case "string":
 		v, ok := val.(string)
 		if !ok {
-			return "", fmt.Errorf("expected string for colType %q, got %T", colType, val)
+			return "", nil, fmt.Errorf("expected string for colType %q, got %T", colType, val)
 		}
-
-		// Truncate by unicode code points, not bytes
 		runes := []rune(v)
 		if len(runes) <= n {
-			return v, nil
+			return v, v, nil
 		}
-
-		return string(runes[:n]), nil
+		truncated := string(runes[:n])
+		return truncated, truncated, nil
 	default:
-		return "", fmt.Errorf("unsupported colType %q for truncate transform", colType)
+		return "", nil, fmt.Errorf("unsupported colType %q for truncate transform", colType)
 	}
 }
 
@@ -188,22 +218,25 @@ func ConstructColPath(valueStr, field, transform string) string {
 	}
 }
 
-func TransformValue(val any, transform string, colType string) (string, error) {
+// TransformValue applies a partition transform and returns both:
+// 1. pathStr: human-readable string for partition directory names (e.g., "null", "2024-01-05")
+// 2. typedVal: properly typed value for Iceberg PartitionData (e.g., nil, int32, int64, string)
+func TransformValue(val any, transform string, colType string) (pathStr string, typedVal any, err error) {
 	transform = strings.TrimSpace(strings.ToLower(transform))
 	if val == nil {
-		return NULL, nil
+		return NULL, nil, nil
 	}
 
 	base, arg, err := parseTransform(transform)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	switch base {
 	case "identity":
 		return identityTransform(val, colType)
 	case "void":
-		return NULL, nil
+		return NULL, nil, nil
 	case "year", "month", "day", "hour":
 		return timeTransform(val, base, colType)
 	case "bucket":
@@ -211,6 +244,41 @@ func TransformValue(val any, transform string, colType string) (string, error) {
 	case "truncate":
 		return truncateTransform(val, arg, colType)
 	default:
-		return "", fmt.Errorf("unknown partition transform %q", transform)
+		return "", nil, fmt.Errorf("unknown partition transform %q", transform)
 	}
+}
+
+func toProtoPartitionValues(values []any) ([]*proto.ArrowPayload_FileMetadata_PartitionValue, error) {
+	result := make([]*proto.ArrowPayload_FileMetadata_PartitionValue, len(values))
+
+	for i, val := range values {
+		pv := &proto.ArrowPayload_FileMetadata_PartitionValue{}
+
+		if val == nil {
+			// nil values remain as empty proto message (all oneof fields unset)
+			result[i] = pv
+			continue
+		}
+
+		switch v := val.(type) {
+		case int32:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_IntValue{IntValue: v}
+		case int64:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_LongValue{LongValue: v}
+		case float32:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_FloatValue{FloatValue: v}
+		case float64:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_DoubleValue{DoubleValue: v}
+		case string:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_StringValue{StringValue: v}
+		case bool:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_BoolValue{BoolValue: v}
+		default:
+			return nil, fmt.Errorf("unsupported partition value type: %T", v)
+		}
+
+		result[i] = pv
+	}
+
+	return result, nil
 }

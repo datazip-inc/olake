@@ -1,9 +1,12 @@
 package arrowwriter
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -11,16 +14,21 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
+	"github.com/apache/arrow-go/v18/parquet/file"
+	"github.com/apache/arrow-go/v18/parquet/metadata"
+	"github.com/apache/arrow-go/v18/parquet/pqarrow"
+	"github.com/apache/arrow-go/v18/parquet/schema"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 const (
-	fileTypeData         = "data"
-	fileTypeDelete       = "delete"
-	targetDataFileSize   = int64(512 * 1024 * 1024) // 512 MB
-	targetDeleteFileSize = int64(64 * 1024 * 1024)  // 64 MB
+	fileTypeData             = "data"
+	fileTypeEqualityDelete   = "equalityDelete"
+	fileTypePositionalDelete = "positionalDelete"
+	targetDataFileSize       = int64(512 * 1024 * 1024) // 512 MB
+	targetDeleteFileSize     = int64(64 * 1024 * 1024)  // 64 MB
 )
 
 func getDefaultWriterProps() []parquet.WriterProperty {
@@ -54,6 +62,98 @@ func getDefaultWriterProps() []parquet.WriterProperty {
 		// iceberg writes root name as "table" in parquet's meta
 		parquet.WithRootName("table"),
 	}
+}
+
+// parquet writer for arrow
+type parquetWriter struct {
+	wr     *file.Writer
+	schema *arrow.Schema
+	rgw    file.BufferedRowGroupWriter
+	ctx    context.Context
+	closed bool
+}
+
+func newParquetWriter(ctx context.Context, arrSchema *arrow.Schema, w io.Writer, writerOpts []parquet.WriterProperty, kvMeta metadata.KeyValueMetadata) (*parquetWriter, error) {
+	props := parquet.NewWriterProperties(writerOpts...)
+	pqSchema, err := arrowToParquetSchema(arrSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	baseWriter := file.NewParquetWriter(w, pqSchema.Root(),
+		file.WithWriterProps(props),
+		file.WithWriteMetadata(kvMeta))
+
+	return &parquetWriter{
+		wr:     baseWriter,
+		schema: arrSchema,
+		ctx:    pqarrow.NewArrowWriteContext(ctx, nil),
+	}, nil
+}
+
+func (fw *parquetWriter) newBufferedRowGroup() {
+	if fw.rgw != nil {
+		fw.rgw.Close()
+	}
+	fw.rgw = fw.wr.AppendBufferedRowGroup()
+}
+
+func (fw *parquetWriter) WriteBuffered(rec arrow.Record) error {
+	if fw.rgw == nil {
+		fw.newBufferedRowGroup()
+	}
+
+	numRows := int(rec.NumRows())
+	for colIdx := 0; colIdx < int(rec.NumCols()); colIdx++ {
+		col := rec.Column(colIdx)
+		field := fw.schema.Field(colIdx)
+
+		cw, err := fw.rgw.Column(colIdx)
+		if err != nil {
+			return fmt.Errorf("failed to get column writer %d: %s", colIdx, err)
+		}
+
+		// for flat schemas, generating definition levels for nullable columns
+		// 0 == value is NULL
+		// 1 == value is present
+		var defLevels []int16
+		if field.Nullable {
+			defLevels = make([]int16, numRows)
+			for i := 0; i < numRows; i++ {
+				if col.IsNull(i) {
+					defLevels[i] = 0
+				} else {
+					defLevels[i] = 1
+				}
+			}
+		}
+
+		if err := pqarrow.WriteArrowToColumn(fw.ctx, cw, col, defLevels, nil, field.Nullable); err != nil {
+			return fmt.Errorf("failed to write column %d (%s): %w", colIdx, field.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (fw *parquetWriter) Close() error {
+	if !fw.closed {
+		fw.closed = true
+		if fw.rgw != nil {
+			if err := fw.rgw.Close(); err != nil {
+				return err
+			}
+		}
+		return fw.wr.Close()
+	}
+	return nil
+}
+
+func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
+	if fw.rgw != nil {
+		return fw.rgw.TotalBytesWritten()
+	}
+	return 0
 }
 
 func toArrowType(icebergType string) arrow.DataType {
@@ -123,28 +223,33 @@ func createFields(schema map[string]string, fieldIDs map[string]int32) []arrow.F
 	return fields
 }
 
-func createDeleteArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema) (arrow.Record, error) {
+func createDeleteArrowRecord(records []string, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
 	for _, rec := range records {
-		recordBuilder.Field(0).(*array.StringBuilder).Append(rec.OlakeID)
+		recordBuilder.Field(0).(*array.StringBuilder).Append(rec)
 	}
 
-	arrowRec := recordBuilder.NewRecord()
-
-	return arrowRec, nil
+	return recordBuilder.NewRecord()
 }
 
-func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool) (arrow.Record, error) {
-	if len(records) == 0 {
-		return nil, fmt.Errorf("no records provided")
-	}
-
+func createPositionalDeleteArrowRecord(posDeletes []PositionalDelete, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 
-	olakeTimestamp := time.Now().UTC()
+	for _, del := range posDeletes {
+		recordBuilder.Field(0).(*array.StringBuilder).Append(del.FilePath)
+		recordBuilder.Field(1).(*array.Int64Builder).Append(del.Position)
+	}
+
+	return recordBuilder.NewRecord()
+}
+
+func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool, olakeTimestamp time.Time) (arrow.Record, error) {
+	recordBuilder := array.NewRecordBuilder(allocator, schema)
+	defer recordBuilder.Release()
+
 	for _, record := range records {
 		for idx, field := range schema.Fields() {
 			var val any
@@ -152,7 +257,6 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 			case constants.OlakeID:
 				val = record.OlakeID
 			case constants.OlakeTimestamp:
-				// for olake timestamp, set current timestamp
 				val = olakeTimestamp
 			case constants.OpType:
 				val = record.OperationType
@@ -237,4 +341,84 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 		return fmt.Errorf("unsupported builder type: %T", builder)
 	}
 	return nil
+}
+
+func arrowToParquetSchema(arrowSchema *arrow.Schema) (*schema.Schema, error) {
+	nodes := make(schema.FieldList, 0, arrowSchema.NumFields())
+
+	for _, field := range arrowSchema.Fields() {
+		node, err := arrowFieldsToParquet(field)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert field %s: %s", field.Name, err)
+		}
+		nodes = append(nodes, node)
+	}
+
+	// creating root group node with name "table"
+	root, err := schema.NewGroupNode("table", parquet.Repetitions.Required, nodes, -1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create root group node: %s", err)
+	}
+
+	return schema.NewSchema(root), nil
+}
+
+// this is important as it does not sets LogicalTypes for types like INT32/INT64
+// (eg, IntLogicalType for INT32/INT64)
+func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
+	repetition := parquet.Repetitions.Required
+	if field.Nullable {
+		repetition = parquet.Repetitions.Optional
+	}
+
+	// extracting field ID from metadata
+	fieldID := int32(-1)
+	if field.Metadata.Len() > 0 {
+		if idStr, ok := field.Metadata.GetValue("PARQUET:field_id"); ok {
+			if id, err := strconv.ParseInt(idStr, 10, 32); err == nil {
+				fieldID = int32(id)
+			}
+		}
+	}
+
+	var pqType parquet.Type
+	var logicalType schema.LogicalType
+	var typeLength int32 = -1
+
+	switch field.Type.ID() {
+	case arrow.BOOL:
+		pqType = parquet.Types.Boolean
+
+	case arrow.INT32:
+		pqType = parquet.Types.Int32
+
+	case arrow.INT64:
+		pqType = parquet.Types.Int64
+
+	case arrow.FLOAT32:
+		pqType = parquet.Types.Float
+
+	case arrow.FLOAT64:
+		pqType = parquet.Types.Double
+
+	case arrow.STRING:
+		pqType = parquet.Types.ByteArray
+		logicalType = schema.StringLogicalType{}
+
+	case arrow.TIMESTAMP:
+		pqType = parquet.Types.Int64
+		tsType := field.Type.(*arrow.TimestampType)
+		adjustedToUTC := tsType.TimeZone != ""
+		logicalType = schema.NewTimestampLogicalType(adjustedToUTC, schema.TimeUnitMicros)
+
+	default:
+		// Default to string for any unsupported types
+		pqType = parquet.Types.ByteArray
+		logicalType = schema.StringLogicalType{}
+	}
+
+	if logicalType != nil {
+		return schema.NewPrimitiveNodeLogical(field.Name, repetition, logicalType, pqType, int(typeLength), fieldID)
+	}
+	return schema.NewPrimitiveNode(field.Name, repetition, pqType, fieldID, typeLength)
 }
