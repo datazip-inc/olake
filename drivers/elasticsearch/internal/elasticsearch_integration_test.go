@@ -1,258 +1,382 @@
 package driver
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
-	"github.com/datazip-inc/olake/types"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/stretchr/testify/require"
 )
 
-// TestElasticsearchIntegration is a placeholder for integration tests
-// These tests require a running Elasticsearch instance and are typically run manually
-// To run: ES_INTEGRATION_TEST=1 go test -v ./drivers/elasticsearch/...
-func TestElasticsearchIntegration(t *testing.T) {
-	t.Skip("Integration tests require a running Elasticsearch instance")
-}
+// Elasticsearch test constants
+const (
+	ElasticsearchPort = 9200
+	ElasticsearchURL  = "http://localhost:9200"
+	TestIndex         = "olake_test_integration"
+	TestNamespace     = "elasticsearch_test"
+)
 
-// TestStreamConfiguration verifies that streams are properly configured
-func TestStreamConfiguration(t *testing.T) {
-	stream := types.NewStream("test_index", "elasticsearch", nil)
-
-	// Verify stream is created
-	require.NotNil(t, stream)
-	require.Equal(t, "test_index", stream.Name)
-	require.Equal(t, "elasticsearch", stream.Namespace)
-
-	// Verify schema is initialized
-	require.NotNil(t, stream.Schema)
-
-	// Add fields to stream
-	stream.UpsertField("id", types.String, false)
-	stream.UpsertField("name", types.String, true)
-	stream.UpsertField("age", types.Int64, true)
-	stream.UpsertField("score", types.Float64, true)
-	stream.UpsertField("is_active", types.Bool, true)
-	stream.UpsertField("created_date", types.Timestamp, true)
-
-	// Verify fields were added
-	idFound, _ := stream.Schema.GetProperty("id")
-	require.True(t, idFound, "id field should be in schema")
-
-	nameFound, _ := stream.Schema.GetProperty("name")
-	require.True(t, nameFound, "name field should be in schema")
-
-	// Verify datatypes
-	idType, err := stream.Schema.GetType("id")
-	require.NoError(t, err)
-	require.Equal(t, types.String, idType)
-
-	ageType, err := stream.Schema.GetType("age")
-	require.NoError(t, err)
-	require.Equal(t, types.Int64, ageType)
-
-	scoreType, err := stream.Schema.GetType("score")
-	require.NoError(t, err)
-	require.Equal(t, types.Float64, scoreType)
-
-	isActiveType, err := stream.Schema.GetType("is_active")
-	require.NoError(t, err)
-	require.Equal(t, types.Bool, isActiveType)
-
-	createdDateType, err := stream.Schema.GetType("created_date")
-	require.NoError(t, err)
-	require.Equal(t, types.Timestamp, createdDateType)
-}
-
-// TestElasticsearchTypeMapping verifies all Elasticsearch types are correctly mapped
-func TestElasticsearchTypeMapping(t *testing.T) {
-	tests := []struct {
-		name     string
-		esType   string
-		expected types.DataType
-	}{
-		{"text", "text", types.String},
-		{"keyword", "keyword", types.String},
-		{"long", "long", types.Int64},
-		{"integer", "integer", types.Int64},
-		{"short", "short", types.Int64},
-		{"byte", "byte", types.Int64},
-		{"double", "double", types.Float64},
-		{"float", "float", types.Float64},
-		{"half_float", "half_float", types.Float64},
-		{"scaled_float", "scaled_float", types.Float64},
-		{"date", "date", types.Timestamp},
-		{"boolean", "boolean", types.Bool},
-		{"binary", "binary", types.String},
-		{"object", "object", types.String},
-		{"nested", "nested", types.String},
-		{"geo_point", "geo_point", types.String},
-		{"geo_shape", "geo_shape", types.String},
-		{"ip", "ip", types.String},
+// Test data variables
+var (
+	ExpectedElasticsearchData = map[string]interface{}{
+		"id":         "1",
+		"name":       "John Doe",
+		"age":        30,
+		"salary":     75000.50,
+		"active":     true,
+		"created_at": arrow.Timestamp(time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"tags":       `["tag1","tag2"]`,
+		"metadata":   `{"department":"Engineering","level":5}`,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, exists := esTypeToDataTypes[tt.esType]
-			require.True(t, exists, "Type %s not found in mapping", tt.esType)
-			require.Equal(t, tt.expected, got, "Type mapping mismatch for %s", tt.esType)
-		})
-	}
-}
-
-// TestIncrementalQueryBuilder verifies query building for incremental syncs
-func TestIncrementalQueryBuilder(t *testing.T) {
-	driver := &Elasticsearch{}
-
-	tests := []struct {
-		name        string
-		cursorField string
-		lastCursor  interface{}
-		expectRange bool
-	}{
-		{
-			name:        "with string cursor",
-			cursorField: "@timestamp",
-			lastCursor:  "2024-01-18T14:30:00Z",
-			expectRange: true,
-		},
-		{
-			name:        "with numeric cursor",
-			cursorField: "user_id",
-			lastCursor:  1001,
-			expectRange: true,
-		},
-		{
-			name:        "without cursor",
-			cursorField: "@timestamp",
-			lastCursor:  nil,
-			expectRange: false,
-		},
+	ExpectedUpdatedData = map[string]interface{}{
+		"id":         "1",
+		"name":       "John Smith",
+		"age":        31,
+		"salary":     85000.75,
+		"active":     false,
+		"created_at": arrow.Timestamp(time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"tags":       `["tag1","tag2","tag3"]`,
+		"metadata":   `{"department":"Management","level":7}`,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			query := driver.buildIncrementalQuery(tt.cursorField, tt.lastCursor)
-			require.NotNil(t, query, "Query should not be nil")
+	ElasticsearchToDestinationSchema = map[string]string{
+		"id":         "string",
+		"name":       "string",
+		"age":        "bigint",
+		"salary":     "double",
+		"active":     "boolean",
+		"created_at": "timestamp",
+		"tags":       "string",
+		"metadata":   "string",
+	}
 
-			queryObj, ok := query["query"].(map[string]interface{})
-			require.True(t, ok, "Query should have 'query' field")
+	UpdatedElasticsearchToDestinationSchema = map[string]string{
+		"id":         "string",
+		"name":       "string",
+		"age":        "bigint",
+		"salary":     "double",
+		"active":     "boolean",
+		"created_at": "timestamp",
+		"tags":       "string",
+		"metadata":   "string",
+	}
+)
 
-			if tt.expectRange {
-				_, hasRange := queryObj["range"]
-				require.True(t, hasRange, "Query should have 'range' clause")
-			} else {
-				_, hasMatchAll := queryObj["match_all"]
-				require.True(t, hasMatchAll, "Query should have 'match_all' clause")
-			}
-		})
+// ExecuteQuery manages test data in Elasticsearch
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+	t.Helper()
+
+	indexName := streams[0]
+
+	switch operation {
+	case "create":
+		createTestIndex(ctx, t, indexName)
+
+	case "drop":
+		deleteTestIndex(ctx, t, indexName)
+
+	case "clean":
+		deleteTestIndex(ctx, t, indexName)
+		createTestIndex(ctx, t, indexName)
+
+	case "add":
+		createTestIndex(ctx, t, indexName)
+		insertInitialTestData(ctx, t, indexName)
+
+	case "insert":
+		insertIncrementalData(ctx, t, indexName)
+
+	case "update":
+		updateTestData(ctx, t, indexName)
+
+	case "delete":
+		deleteTestData(ctx, t, indexName)
+
+	case "evolve-schema":
+		// For Elasticsearch, schema evolution is implicit when adding new fields or changing types
+		// We'll add a new optional field to the document
+		addNewFieldToDocument(ctx, t, indexName)
+
+	default:
+		t.Logf("Unknown operation: %s", operation)
 	}
 }
 
-// TestProcessPropertiesWithNestedObjects verifies nested object handling
-func TestProcessPropertiesWithNestedObjects(t *testing.T) {
-	driver := &Elasticsearch{}
-	stream := types.NewStream("test_index", "elasticsearch", nil)
+// createTestIndex creates a new Elasticsearch index for testing
+func createTestIndex(ctx context.Context, t *testing.T, indexName string) {
+	t.Helper()
 
-	properties := map[string]interface{}{
-		"id": map[string]interface{}{
-			"type": "keyword",
-		},
-		"metadata": map[string]interface{}{
-			"type": "object",
+	// First, delete if exists
+	req, err := http.NewRequestWithContext(ctx, "DELETE", fmt.Sprintf("%s/%s", ElasticsearchURL, indexName), nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Create index with mapping
+	mapping := map[string]interface{}{
+		"mappings": map[string]interface{}{
 			"properties": map[string]interface{}{
-				"department": map[string]interface{}{
+				"id": map[string]interface{}{
 					"type": "keyword",
 				},
-				"level": map[string]interface{}{
-					"type": "integer",
-				},
-			},
-		},
-		"addresses": map[string]interface{}{
-			"type": "nested",
-			"properties": map[string]interface{}{
-				"street": map[string]interface{}{
+				"name": map[string]interface{}{
 					"type": "text",
 				},
-				"city": map[string]interface{}{
-					"type": "keyword",
+				"age": map[string]interface{}{
+					"type": "integer",
+				},
+				"salary": map[string]interface{}{
+					"type": "double",
+				},
+				"active": map[string]interface{}{
+					"type": "boolean",
+				},
+				"created_at": map[string]interface{}{
+					"type":   "date",
+					"format": "strict_date_optional_time||epoch_millis",
+				},
+				"tags": map[string]interface{}{
+					"type": "text",
+				},
+				"metadata": map[string]interface{}{
+					"type": "object",
 				},
 			},
 		},
 	}
 
-	driver.processProperties(stream, properties, "")
+	body, err := json.Marshal(mapping)
+	require.NoError(t, err)
 
-	// Verify all fields were added including nested ones
-	expectedFields := []string{
-		"id", "metadata.department", "metadata.level",
-		"addresses.street", "addresses.city",
+	req, err = http.NewRequestWithContext(ctx, "PUT", fmt.Sprintf("%s/%s", ElasticsearchURL, indexName), bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.True(t, resp.StatusCode >= 200 && resp.StatusCode < 300, "Failed to create index, status: %d", resp.StatusCode)
+	t.Logf("Created index: %s", indexName)
+}
+
+// deleteTestIndex deletes an Elasticsearch index
+func deleteTestIndex(ctx context.Context, t *testing.T, indexName string) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", fmt.Sprintf("%s/%s", ElasticsearchURL, indexName), nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	t.Logf("Deleted index: %s", indexName)
+}
+
+// insertInitialTestData inserts test documents
+func insertInitialTestData(ctx context.Context, t *testing.T, indexName string) {
+	t.Helper()
+
+	doc := map[string]interface{}{
+		"id":         "1",
+		"name":       "John Doe",
+		"age":        30,
+		"salary":     75000.50,
+		"active":     true,
+		"created_at": "2023-01-01T10:00:00Z",
+		"tags":       []string{"tag1", "tag2"},
+		"metadata": map[string]interface{}{
+			"department": "Engineering",
+			"level":      5,
+		},
 	}
 
-	for _, field := range expectedFields {
-		found, _ := stream.Schema.GetProperty(field)
-		require.True(t, found, "Field %s not found in schema", field)
+	// Insert 5 documents for full refresh test
+	for i := 1; i <= 5; i++ {
+		doc["id"] = fmt.Sprintf("%d", i)
+		doc["name"] = fmt.Sprintf("Person %d", i)
+		doc["age"] = 25 + i
+		doc["salary"] = 70000.0 + float64(i*1000)
+
+		body, err := json.Marshal(doc)
+		require.NoError(t, err)
+
+		req, err := http.NewRequestWithContext(ctx, "POST",
+			fmt.Sprintf("%s/%s/_doc/%d?refresh=true", ElasticsearchURL, indexName, i),
+			bytes.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.True(t, resp.StatusCode >= 200 && resp.StatusCode < 300,
+			"Failed to insert document, status: %d", resp.StatusCode)
 	}
 
-	// Verify datatypes
-	idType, _ := stream.Schema.GetType("id")
-	require.Equal(t, types.String, idType)
-
-	deptType, _ := stream.Schema.GetType("metadata.department")
-	require.Equal(t, types.String, deptType)
-
-	levelType, _ := stream.Schema.GetType("metadata.level")
-	require.Equal(t, types.Int64, levelType)
-
-	streetType, _ := stream.Schema.GetType("addresses.street")
-	require.Equal(t, types.String, streetType)
-
-	cityType, _ := stream.Schema.GetType("addresses.city")
-	require.Equal(t, types.String, cityType)
+	t.Logf("Inserted 5 test documents into index: %s", indexName)
 }
 
-// TestCursorFieldSelection verifies cursor field handling
-func TestCursorFieldSelection(t *testing.T) {
-	stream := types.NewStream("test_index", "elasticsearch", nil)
+// insertIncrementalData inserts new documents for incremental sync
+func insertIncrementalData(ctx context.Context, t *testing.T, indexName string) {
+	t.Helper()
 
-	// Add various field types that could be used as cursors
-	stream.UpsertField("id", types.String, false)
-	stream.UpsertField("user_id", types.Int64, true)
-	stream.UpsertField("created_at", types.Timestamp, true)
-	stream.UpsertField("updated_at", types.Timestamp, true)
+	doc := map[string]interface{}{
+		"id":         "6",
+		"name":       "Jane Doe",
+		"age":        28,
+		"salary":     80000.00,
+		"active":     true,
+		"created_at": "2024-01-15T14:30:00Z",
+		"tags":       []string{"tag1"},
+		"metadata": map[string]interface{}{
+			"department": "Sales",
+			"level":      3,
+		},
+	}
 
-	// Verify all fields are available as cursor candidates
-	idFound, _ := stream.Schema.GetProperty("id")
-	require.True(t, idFound)
+	body, err := json.Marshal(doc)
+	require.NoError(t, err)
 
-	userIDFound, _ := stream.Schema.GetProperty("user_id")
-	require.True(t, userIDFound)
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		fmt.Sprintf("%s/%s/_doc/6?refresh=true", ElasticsearchURL, indexName),
+		bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
 
-	createdAtFound, _ := stream.Schema.GetProperty("created_at")
-	require.True(t, createdAtFound)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
 
-	updatedAtFound, _ := stream.Schema.GetProperty("updated_at")
-	require.True(t, updatedAtFound)
+	require.True(t, resp.StatusCode >= 200 && resp.StatusCode < 300,
+		"Failed to insert incremental document, status: %d", resp.StatusCode)
+
+	t.Logf("Inserted incremental document into index: %s", indexName)
 }
 
-// TestSyncModeSupport verifies sync mode configuration
-func TestSyncModeSupport(t *testing.T) {
-	stream := types.NewStream("test_index", "elasticsearch", nil)
+// updateTestData updates test documents for incremental sync
+func updateTestData(ctx context.Context, t *testing.T, indexName string) {
+	t.Helper()
 
-	// Add supported sync modes
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	updateDoc := map[string]interface{}{
+		"doc": map[string]interface{}{
+			"id":     "1",
+			"name":   "John Smith",
+			"age":    31,
+			"salary": 85000.75,
+			"active": false,
+			"tags":   []string{"tag1", "tag2", "tag3"},
+			"metadata": map[string]interface{}{
+				"department": "Management",
+				"level":      7,
+			},
+		},
+	}
 
-	// Verify sync modes are supported
-	require.True(t, stream.SupportedSyncModes.Len() > 0)
+	body, err := json.Marshal(updateDoc)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		fmt.Sprintf("%s/%s/_update/1?refresh=true", ElasticsearchURL, indexName),
+		bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.True(t, resp.StatusCode >= 200 && resp.StatusCode < 300,
+		"Failed to update document, status: %d", resp.StatusCode)
+
+	t.Logf("Updated document in index: %s", indexName)
 }
 
-// TestPrimaryKeyConfiguration verifies primary key setup
-func TestPrimaryKeyConfiguration(t *testing.T) {
-	stream := types.NewStream("test_index", "elasticsearch", nil)
+// deleteTestData deletes a document
+func deleteTestData(ctx context.Context, t *testing.T, indexName string) {
+	t.Helper()
 
-	// Add primary key
-	stream.WithPrimaryKey("_id")
+	req, err := http.NewRequestWithContext(ctx, "DELETE",
+		fmt.Sprintf("%s/%s/_doc/1?refresh=true", ElasticsearchURL, indexName), nil)
+	require.NoError(t, err)
 
-	// Verify primary key is set
-	require.True(t, stream.SourceDefinedPrimaryKey.Len() > 0)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.True(t, resp.StatusCode >= 200 && resp.StatusCode < 300,
+		"Failed to delete document, status: %d", resp.StatusCode)
+
+	t.Logf("Deleted document from index: %s", indexName)
+}
+
+// addNewFieldToDocument adds a new field to simulate schema evolution
+func addNewFieldToDocument(ctx context.Context, t *testing.T, indexName string) {
+	t.Helper()
+
+	updateDoc := map[string]interface{}{
+		"doc": map[string]interface{}{
+			"email": "john.smith@example.com",
+		},
+	}
+
+	body, err := json.Marshal(updateDoc)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		fmt.Sprintf("%s/%s/_update/1?refresh=true", ElasticsearchURL, indexName),
+		bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.True(t, resp.StatusCode >= 200 && resp.StatusCode < 300,
+		"Failed to add field for schema evolution, status: %d", resp.StatusCode)
+
+	t.Logf("Added new field for schema evolution in index: %s", indexName)
+}
+
+// TestElasticsearchIntegration tests full integration of Elasticsearch driver
+func TestElasticsearchIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		TestConfig:                       testutils.GetTestConfig(string(constants.Elasticsearch)),
+		Namespace:                        TestNamespace,
+		ExpectedData:                     ExpectedElasticsearchData,
+		ExpectedUpdatedData:              ExpectedUpdatedData,
+		DestinationDataTypeSchema:        ElasticsearchToDestinationSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedElasticsearchToDestinationSchema,
+		ExecuteQuery:                     ExecuteQuery,
+		DestinationDB:                    "elasticsearch_elasticsearch_test",
+		CursorField:                      "created_at",
+		PartitionRegex:                   "/{id}",
+	}
+	testConfig.TestIntegration(t)
+}
+
+// TestElasticsearchPerformance tests performance of Elasticsearch driver
+func TestElasticsearchPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:      testutils.GetTestConfig(string(constants.Elasticsearch)),
+		Namespace:       TestNamespace,
+		BackfillStreams: []string{TestIndex},
+		CDCStreams:      []string{TestIndex + "_cdc"},
+		ExecuteQuery:    ExecuteQuery,
+	}
+
+	config.TestPerformance(t)
 }
