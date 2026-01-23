@@ -240,8 +240,8 @@ func (m *Mongo) CommitCDCPositionForStream(streamID string) {
 			if nextData != nil {
 				// Move next_data to _data
 				m.state.SetCursor(stream.Self(), cdcCursorField, nextData)
-				// Clear next_data
-				m.state.SetCursor(stream.Self(), "next_data", nil)
+				// Clear next_data by deleting the key
+				m.state.DeleteCursor(stream.Self(), "next_data")
 				logger.Debugf("Committed _data for stream %s: %s", streamID, nextData)
 			}
 			break
@@ -281,11 +281,11 @@ func (m *Mongo) CheckPerStreamRecovery(ctx context.Context, pool *destination.Wr
 		// Thread committed successfully - move next_data to _data
 		logger.Infof("Recovery: Stream %s (thread %s) committed, updating _data to %s", stream.ID(), threadID, nextData)
 		m.state.SetCursor(stream.Self(), cdcCursorField, nextData)
-		m.state.SetCursor(stream.Self(), "next_data", nil)
+		m.state.DeleteCursor(stream.Self(), "next_data")
 	} else {
 		// Thread not committed - rollback by removing next_data (keep old _data)
 		logger.Infof("Recovery: Stream %s (thread %s) not committed, rolling back (keeping _data=%s)", stream.ID(), threadID, currentData)
-		m.state.SetCursor(stream.Self(), "next_data", nil)
+		m.state.DeleteCursor(stream.Self(), "next_data")
 	}
 
 	return nil
