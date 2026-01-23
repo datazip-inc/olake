@@ -114,7 +114,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	return a.driver.StreamChanges(cdcCtx, streamIndex, func(ctx context.Context, change CDCChange) error {
 		writer := writers[change.Stream.ID()]
 		if writer == nil {
-			threadID := fmt.Sprintf("%d_%s", streamIndex, change.Stream.ID())
+			threadID := generateThreadID(change.Stream.ID(), "")
 			writer, err = pool.NewWriter(ctx, change.Stream, destination.WithThreadID(threadID))
 			if err != nil {
 				return fmt.Errorf("failed to create writer for stream %s: %s", change.Stream.ID(), err)

@@ -73,7 +73,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
 			defer incrementalCtxCancel()
 
-			threadID := generateThreadID(stream.ID())
+			threadID := generateThreadID(stream.ID(), "")
 			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
 			if err != nil {
 				return fmt.Errorf("failed to create new writer thread: %s", err)
