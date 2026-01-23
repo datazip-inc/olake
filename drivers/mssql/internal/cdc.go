@@ -158,7 +158,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, stream types.StreamInterface,
 		nextCaptureIdx := captureIdx + 1
 		if nextCaptureIdx < len(captures) && targetLSN > captures[nextCaptureIdx].startLSN {
 			newerCapture := captures[nextCaptureIdx]
-			logger.Warnf("Newer capture instance [%s] detected for stream %s at LSN %s. Clamping targetLSN", newerCapture.instanceName, stream.ID(), newerCapture.startLSN)
+			logger.Warnf("Newer capture instance [%s] detected for stream %s at LSN %s, but not using it in this sync. Clamping targetLSN to %s. It will be picked up in the next CDC sync", newerCapture.instanceName, stream.ID(), newerCapture.startLSN, newerCapture.startLSN)
 			targetLSN = newerCapture.startLSN
 		}
 
