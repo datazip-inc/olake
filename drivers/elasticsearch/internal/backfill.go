@@ -18,10 +18,14 @@ func (e *Elasticsearch) GetOrSplitChunks(ctx context.Context, pool *destination.
 		e.client.Count.WithIndex(stream.Name()),
 		e.client.Count.WithContext(ctx),
 	)
-	if err != nil {
+if err != nil {
 		return nil, fmt.Errorf("failed to get document count: %s", err)
 	}
-	defer countRes.Body.Close()
+	defer func() {
+		if err := countRes.Body.Close(); err != nil {
+			logger.Warnf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if countRes.IsError() {
 		return nil, fmt.Errorf("elasticsearch count error: %s", countRes.String())
@@ -91,7 +95,11 @@ func (e *Elasticsearch) searchAfterIteration(ctx context.Context, stream types.S
 		if err != nil {
 			return fmt.Errorf("search request failed: %s", err)
 		}
-		defer res.Body.Close()
+		defer func() {
+			if err := res.Body.Close(); err != nil {
+				logger.Warnf("Failed to close response body: %v", err)
+			}
+		}()
 
 		if res.IsError() {
 			bodyBytes, _ := io.ReadAll(res.Body)

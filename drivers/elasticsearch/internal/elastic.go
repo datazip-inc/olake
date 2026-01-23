@@ -87,7 +87,7 @@ func (e *Elasticsearch) Setup(ctx context.Context) error {
 	if e.config.UseSSL {
 		cfg.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: true, // #nosec - self-signed certificates allowed for development/testing
 			},
 		}
 	}
@@ -97,11 +97,15 @@ func (e *Elasticsearch) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to create elasticsearch client: %s", err)
 	}
 
-	res, err := client.Info()
+res, err := client.Info()
 	if err != nil {
 		return fmt.Errorf("failed to connect to elasticsearch: %s", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			logger.Warnf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if res.IsError() {
 		return fmt.Errorf("elasticsearch returned error: %s", res.String())
@@ -160,7 +164,11 @@ func (e *Elasticsearch) GetStreamNames(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve indices: %s", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			logger.Warnf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if res.IsError() {
 		return nil, fmt.Errorf("elasticsearch returned error: %s", res.String())
@@ -193,7 +201,11 @@ func (e *Elasticsearch) ProduceSchema(ctx context.Context, streamName string) (*
 	if err != nil {
 		return stream, fmt.Errorf("failed to get mapping for index %s: %s", streamName, err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			logger.Warnf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if res.IsError() {
 		return stream, fmt.Errorf("elasticsearch returned error: %s", res.String())

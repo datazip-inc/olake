@@ -48,7 +48,11 @@ func (e *Elasticsearch) FetchMaxCursorValues(ctx context.Context, stream types.S
 	if err != nil {
 		return nil, nil, fmt.Errorf("aggregation query failed: %s", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			logger.Warnf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if res.IsError() {
 		return nil, nil, fmt.Errorf("elasticsearch aggregation error: %s", res.String())
@@ -160,7 +164,11 @@ func (e *Elasticsearch) incrementalSearchAfter(ctx context.Context, stream types
 		if err != nil {
 			return fmt.Errorf("incremental search failed: %s", err)
 		}
-		defer res.Body.Close()
+		defer func() {
+			if err := res.Body.Close(); err != nil {
+				logger.Warnf("Failed to close response body: %v", err)
+			}
+		}()
 
 		if res.IsError() {
 			// Read the error response body
