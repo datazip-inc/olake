@@ -318,6 +318,11 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	inferredStream.UpsertField(lastModifiedField, types.String, false)
 	inferredStream.WithCursorField(lastModifiedField)
 
+	inferredStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if s.CDCSupported() {
+		inferredStream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return inferredStream, nil
 }
 

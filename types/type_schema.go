@@ -124,6 +124,7 @@ func (t *TypeSchema) ToParquet() *parquet.Schema {
 	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		// Todo: check we can use field name instead of destination column name
 		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
 		return true
 	})
