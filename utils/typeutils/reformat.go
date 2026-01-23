@@ -2,11 +2,13 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/paulmach/orb/encoding/wkb"
@@ -28,6 +30,7 @@ var DateTimeFormats = []string{
 	"2006-01-02 15:04:05 -07:00",
 	"2006-01-02 15:04:05-07:00",
 	"2006-01-02 15:04:05 -0700 MST",
+	"2006-01-02-15.04.05.000000",
 	"2006-01-02T15:04:05",
 	"2006-01-02T15:04:05.000000",
 	"2006-01-02T15:04:05.999999999Z07:00",
@@ -35,6 +38,7 @@ var DateTimeFormats = []string{
 	"2020-08-17T05:50:22.895Z",
 	"2006-01-02 15:04:05.999999-07",
 	"2006-01-02 15:04:05.999999+00",
+	"2006-01-02T15:04:05.000000000Z",
 }
 
 var GeospatialTypes = []string{"geometry", "point", "polygon", "linestring", "multi"}
@@ -83,7 +87,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	case types.Int32:
 		return ReformatInt32(v)
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
-		return ReformatDate(v)
+		return ReformatDate(v, true)
 	case types.String:
 		switch v := v.(type) {
 		case int, int8, int16, int32, int64:
@@ -109,7 +113,6 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		if value, isArray := v.([]any); isArray {
 			return value, nil
 		}
-
 		// make it an array
 		return []any{v}, nil
 	default:
@@ -144,20 +147,20 @@ func ReformatBool(v interface{}) (bool, error) {
 	return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
 }
 
-// reformat date
-func ReformatDate(v interface{}) (time.Time, error) {
+// reformat date expects value and isTimestampInDB boolean which is used in parseStringTimestamp function
+func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 	parsed, err := func() (time.Time, error) {
 		switch v := v.(type) {
 		case []uint8:
 			strVal := string(v)
-			return parseStringTimestamp(strVal)
+			return parseStringTimestamp(strVal, isTimestampInDB)
 		case []int8:
 			b := make([]byte, 0, len(v))
 			for _, i := range v {
 				b = append(b, byte(i))
 			}
 			strVal := string(b)
-			return parseStringTimestamp(strVal)
+			return parseStringTimestamp(strVal, isTimestampInDB)
 		case int64:
 			return time.Unix(v, 0), nil
 		case *int64:
@@ -193,16 +196,16 @@ func ReformatDate(v interface{}) (time.Time, error) {
 		case nil:
 			return time.Time{}, nil
 		case string:
-			return parseStringTimestamp(v)
+			return parseStringTimestamp(v, isTimestampInDB)
 		case *string:
 			if v == nil || *v == "" {
 				return time.Time{}, fmt.Errorf("empty string passed")
 			}
-			return parseStringTimestamp(*v)
+			return parseStringTimestamp(*v, isTimestampInDB)
 		case primitive.DateTime:
 			return v.Time(), nil
 		case *any:
-			return ReformatDate(*v)
+			return ReformatDate(*v, isTimestampInDB)
 		}
 		return time.Time{}, fmt.Errorf("unhandled type[%T] passed: unable to parse into time", v)
 	}()
@@ -224,7 +227,10 @@ func ReformatDate(v interface{}) (time.Time, error) {
 	return parsed, nil
 }
 
-func parseStringTimestamp(value string) (time.Time, error) {
+// parseStringTimestamp expects value and isTimestampInDB boolean
+// if this is a timestamp and unable to parse into correct format it will return epoch start time
+// if its a string and unable to parse into correct time format it will be returned as string
+func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error) {
 	// Check if the string starts with a date pattern (YYYY-MM-DD)
 	startsWithDatePattern := func(value string) bool {
 		if len(value) < 10 {
@@ -266,11 +272,19 @@ func parseStringTimestamp(value string) (time.Time, error) {
 		}
 	}
 
+	// time unable to be parsed string will be returned as it is for state version != 0 (backward compatibility)
+	if !isTimestampInDB && constants.LoadedStateVersion != 0 {
+		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
+	}
+
 	return time.Unix(0, 0).UTC(), nil
 }
 
+// TODO: Add bytes array handling of int64 and other datatypes. Also add unit test cases for it.
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
+	case json.Number:
+		return v.Int64()
 	case float32:
 		return int64(v), nil
 	case float64:
@@ -357,6 +371,13 @@ func ReformatInt32(v any) (int32, error) {
 			return 0, fmt.Errorf("failed to change string %v to int32: %v", v, err)
 		}
 		return int32(intValue), nil
+	case json.Number:
+		intValue, err := v.Int64()
+		if err != nil {
+			return 0, err
+		}
+		//nolint:gosec,G115
+		return int32(intValue), nil
 	case []uint8:
 		if len(v) == 1 {
 			return int32(v[0]), nil
@@ -371,6 +392,8 @@ func ReformatInt32(v any) (int32, error) {
 
 func ReformatFloat64(v interface{}) (float64, error) {
 	switch v := v.(type) {
+	case json.Number:
+		return v.Float64()
 	case []uint8:
 		// Convert byte slice to string first
 		strVal := string(v)
@@ -421,6 +444,12 @@ func ReformatFloat64(v interface{}) (float64, error) {
 
 func ReformatFloat32(v interface{}) (float32, error) {
 	switch v := v.(type) {
+	case json.Number:
+		f64, err := v.Float64()
+		if err != nil {
+			return 0, err
+		}
+		return float32(f64), nil
 	case []uint8:
 		// Convert byte slice to string first
 		strVal := string(v)
@@ -538,13 +567,16 @@ func ReformatGeoType(v any) (any, error) {
 	}
 }
 
-// FormatCursorValue is used to make time format and object id format consistent to be saved in state
-func FormatCursorValue(cursorValue any) any {
-	if _, ok := cursorValue.(time.Time); ok {
-		return cursorValue.(time.Time).UTC().Format("2006-01-02T15:04:05.000000000Z")
+// ReformatTimeValue is used to make time format consistent as per db
+func ReformatTimeValue(value any) (string, error) {
+	switch t := value.(type) {
+	case time.Time:
+		return t.Format("15:04:05"), nil
+	case []byte:
+		return string(t), nil
+	case string:
+		return t, nil
+	default:
+		return fmt.Sprintf("%v", value), nil
 	}
-	if oid, ok := cursorValue.(primitive.ObjectID); ok {
-		return oid.Hex()
-	}
-	return cursorValue
 }

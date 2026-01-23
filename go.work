@@ -10,4 +10,8 @@ use (
 	./drivers/mysql
 	./drivers/oracle
 	./drivers/postgres
+	./drivers/s3
+	./drivers/kafka
+	./drivers/mssql
+	./drivers/db2
 )

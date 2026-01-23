@@ -92,7 +92,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 					}
 					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}})
 				case "timestamptz":
-					timeValue, err := typeutils.ReformatDate(val)
+					timeValue, err := typeutils.ReformatDate(val, true)
 					if err != nil {
 						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as time value: %s", val, val, err)
 					}
@@ -127,7 +127,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	}
 
 	// Send to gRPC server with timeout
-	reqCtx, cancel := context.WithTimeout(ctx, 3600*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
 	// Send the batch to the server
@@ -158,7 +158,7 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	}
 
 	// Send commit request with timeout
-	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
 	res, err := w.server.SendClientRequest(ctx, request)

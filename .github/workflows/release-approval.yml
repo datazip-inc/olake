@@ -19,7 +19,7 @@ jobs:
     
     strategy:
       matrix:
-        driver: [mongodb, mysql, postgres, oracle, kafka] # Add new drivers here as they become available
+        driver: [mongodb, mysql, postgres, oracle, kafka, s3, db2, mssql] # Add new drivers here as they become available
 
     uses: ./.github/workflows/build-and-release-driver.yml
     with:
