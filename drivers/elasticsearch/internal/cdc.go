@@ -22,3 +22,9 @@ func (e *Elasticsearch) StreamChanges(_ context.Context, _ types.StreamInterface
 func (e *Elasticsearch) PostCDC(_ context.Context, _ types.StreamInterface, _ bool, _ string) error {
 	return fmt.Errorf("CDC is not supported for Elasticsearch")
 }
+
+// ChangeStreamConfig configures change stream settings. Not applicable for Elasticsearch.
+// Returns (supportsChangeStreams, requiresRestart, isConfigured)
+func (e *Elasticsearch) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, false
+}
