@@ -31,24 +31,33 @@ func (sc *SelectedColumns) setSelectedColumnsMap() {
 }
 
 // setUnSelectedColumnsMap sets the unselected columns map
-// if no columns are selected, it means all columns are selected and no columns are unselected
-func (sc *SelectedColumns) setUnSelectedColumnsMap(newStream *Stream) {
+// When sync_new_columns=true: Only columns from old schema that are not selected go to UnSelectedMap
+// When sync_new_columns=false: No need to set UnSelectedMap as this will not be used in this case.
+func (sc *SelectedColumns) setUnSelectedColumnsMap(oldStream *Stream, syncNewColumns bool) {
 	sc.UnSelectedMap = make(map[string]struct{})
 
 	if len(sc.Columns) == 0 {
 		return
 	}
 
-	newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
-		colName, ok := key.(string)
-		if !ok {
+	if syncNewColumns {
+		// only exclude columns from old schema that are not selected, and add them to UnSelectedMap
+		// New columns (not in old schema) should be selected and not added to UnSelectedMap
+		oldStream.Schema.Properties.Range(func(key, _ interface{}) bool {
+			colName, ok := key.(string)
+			if !ok {
+				return true
+			}
+			// Only add to UnSelectedMap if column exists in old schema AND is not selected
+			if _, exists := sc.SelectedMap[colName]; !exists {
+				sc.UnSelectedMap[colName] = struct{}{}
+			}
 			return true
-		}
-		if _, exists := sc.SelectedMap[colName]; !exists {
-			sc.UnSelectedMap[colName] = struct{}{}
-		}
-		return true
-	})
+		})
+	} else {
+		// this map will not be used in this case, so no need to set it when sync_new_columns is false
+		return
+	}
 }
 
 // GetSelectedColumnsMap returns the selected columns map
@@ -172,7 +181,7 @@ func MergeSelectedColumns(
 	finalizeSelectedColumns := func() {
 		metadata.SelectedColumns.setSelectedColumnsMap()
 		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
-		metadata.SelectedColumns.setUnSelectedColumnsMap(newStream)
+		metadata.SelectedColumns.setUnSelectedColumnsMap(oldStream, metadata.SyncNewColumns)
 		metadata.SelectedColumns.SetAllSelectedColumnsFlag()
 	}
 
