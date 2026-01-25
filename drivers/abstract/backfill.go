@@ -67,6 +67,9 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			})()
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
+
+			filteredData := types.FilterDataBySelectedColumns(data, stream)
+
 			// persist cdc timestamp for cdc full load
 			var cdcTimestamp *time.Time
 			if stream.GetSyncMode() == types.CDC {
@@ -74,7 +77,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				cdcTimestamp = &t
 			}
 
-			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
+			return inserter.Push(ctx, types.CreateRawRecord(olakeID, filteredData, "r", cdcTimestamp))
 		})
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)

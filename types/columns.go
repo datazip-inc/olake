@@ -68,7 +68,11 @@ func (sc *SelectedColumns) checkAllColumnsSelected(newStream *Stream) bool {
 
 // FilterDataBySelectedColumns filters the data based on the selected columns
 // Returns the original data if no columns are selected or all columns are selected
-func FilterDataBySelectedColumns(data map[string]interface{}, selectedMap map[string]struct{}, allSelected bool) map[string]interface{} {
+func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInterface) map[string]interface{} {
+	selectedCols := stream.Self().StreamMetadata.SelectedColumns
+	selectedMap := selectedCols.GetSelectedColumnsMap()
+	allSelected := selectedCols.GetAllSelectedColumnsFlag()
+
 	if allSelected {
 		return data
 	}
