@@ -22,6 +22,7 @@ type Config struct {
 	RetryCount   int         `json:"retry_count"`
 }
 
+// Validate checks the configuration parameters for the Elasticsearch connector.
 func (c *Config) Validate() error {
 	if c.CloudID == "" && c.Host == "" {
 		return fmt.Errorf("either host or cloud_id must be provided")
@@ -37,8 +38,13 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.CloudID == "" && c.APIKey == "" && c.Username == "" {
-		return fmt.Errorf("either api_key or username/password must be provided")
+	// Require authentication for all connections
+	if c.CloudID != "" && c.APIKey == "" && c.Username == "" {
+		return fmt.Errorf("either api_key or username/password must be provided for cloud_id")
+	}
+
+	if c.CloudID == "" && c.Username == "" && c.APIKey == "" {
+		return fmt.Errorf("authentication is required: provide username/password or api_key")
 	}
 
 	if c.Username != "" && c.Password == "" {

@@ -6,16 +6,16 @@ import (
 )
 
 var uiSchemaMap = map[string]string{
-	"mongodb":      MongoDBUISchema,
-	"postgres":     PostgresUISchema,
-	"mysql":        MySQLUISchema,
-	"oracle":       OracleUISchema,
-	"mssql":        MSSQLUISchema,
-	"s3":           S3UISchema,
-	"parquet":      ParquetUISchema,
-	"iceberg":      IcebergUISchema,
-	"db2":          DB2UISchema,
-	"kafka":        KafkaUISchema,
+	"mongodb":       MongoDBUISchema,
+	"postgres":      PostgresUISchema,
+	"mysql":         MySQLUISchema,
+	"oracle":        OracleUISchema,
+	"mssql":         MSSQLUISchema,
+	"s3":            S3UISchema,
+	"parquet":       ParquetUISchema,
+	"iceberg":       IcebergUISchema,
+	"db2":           DB2UISchema,
+	"kafka":         KafkaUISchema,
 	"elasticsearch": ElasticsearchUISchema,
 }
 

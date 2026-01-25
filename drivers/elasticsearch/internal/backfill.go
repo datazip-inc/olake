@@ -1,3 +1,4 @@
+// Package driver provides Elasticsearch/OpenSearch connector implementation for the Olake data pipeline.
 package driver
 
 import (
@@ -13,12 +14,13 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// GetOrSplitChunks retrieves or creates data chunks for parallel processing of the Elasticsearch index.
 func (e *Elasticsearch) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	countRes, err := e.client.Count(
 		e.client.Count.WithIndex(stream.Name()),
 		e.client.Count.WithContext(ctx),
 	)
-if err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("failed to get document count: %s", err)
 	}
 	defer func() {
@@ -50,7 +52,8 @@ if err != nil {
 	return chunks, nil
 }
 
-func (e *Elasticsearch) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+// ChunkIterator processes a specific chunk of data from the Elasticsearch index.
+func (e *Elasticsearch) ChunkIterator(ctx context.Context, stream types.StreamInterface, _ types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	logger.Infof("Starting backfill for index: %s", stream.Name())
 
 	query := map[string]interface{}{

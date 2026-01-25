@@ -66,16 +66,5 @@
       "maximum": 10
     }
   },
-  "required": ["host", "port", "index"],
-  "oneOf": [
-    {
-      "required": ["username", "password"]
-    },
-    {
-      "required": ["api_key"]
-    },
-    {
-      "required": ["cloud_id"]
-    }
-  ]
+  "required": ["host", "port", "index"]
 }

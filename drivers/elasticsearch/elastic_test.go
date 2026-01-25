@@ -1,3 +1,4 @@
+// Package main provides the Elasticsearch connector entry point.
 package main
 
 import (

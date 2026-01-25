@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// FetchMaxCursorValues retrieves the minimum and maximum cursor values for incremental sync.
 func (e *Elasticsearch) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
 	primaryCursor, _ := stream.Self().Cursor()
 	if primaryCursor == "" {
@@ -78,6 +79,7 @@ func (e *Elasticsearch) FetchMaxCursorValues(ctx context.Context, stream types.S
 	return minValue, maxValue, nil
 }
 
+// StreamIncrementalChanges processes incremental changes from Elasticsearch using cursor-based pagination.
 func (e *Elasticsearch) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
 	primaryCursor, _ := stream.Self().Cursor()
 	if primaryCursor == "" {

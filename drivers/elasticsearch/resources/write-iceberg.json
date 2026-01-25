@@ -3,7 +3,13 @@
   "writer": {
     "catalog_type": "rest",
     "rest_catalog_url": "http://localhost:8181",
-    "iceberg_s3_path": "file:///tmp/warehouse",
-    "aws_region": "us-east-1"
+    "iceberg_s3_path": "s3://warehouse/",
+    "s3_endpoint": "http://localhost:9090",
+    "aws_access_key": "minio",
+    "aws_secret_key": "minio123",
+    "aws_region": "us-east-1",
+    "s3_path_style": true,
+    "s3_use_ssl": false,
+    "rest_signing_v_4": false
   }
 }

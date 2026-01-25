@@ -1,13 +1,14 @@
 {
   "type": "ICEBERG",
   "writer": {
-    "catalog_type": "jdbc",
-    "jdbc_url": "jdbc:postgresql://localhost:5432/iceberg?user=iceberg&password=password",
-    "iceberg_s3_path": "s3a://warehouse/olake_iceberg",
-    "s3_endpoint": "http://localhost:9000",
-    "aws_access_key": "admin",
-    "aws_secret_key": "password",
+    "catalog_type": "rest",
+    "rest_catalog_url": "http://localhost:8181",
+    "iceberg_s3_path": "s3://warehouse/",
+    "s3_endpoint": "http://localhost:9090",
+    "aws_access_key": "minio",
+    "aws_secret_key": "minio123",
     "aws_region": "us-east-1",
-    "s3_path_style": true
+    "s3_path_style": true,
+    "s3_use_ssl": false
   }
 }

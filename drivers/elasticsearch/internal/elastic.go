@@ -57,7 +57,7 @@ func (e *Elasticsearch) CDCSupported() bool {
 	return e.CDCSupport
 }
 
-func (e *Elasticsearch) Setup(ctx context.Context) error {
+func (e *Elasticsearch) Setup(_ context.Context) error {
 	err := e.config.Validate()
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
@@ -97,7 +97,7 @@ func (e *Elasticsearch) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to create elasticsearch client: %s", err)
 	}
 
-res, err := client.Info()
+	res, err := client.Info()
 	if err != nil {
 		return fmt.Errorf("failed to connect to elasticsearch: %s", err)
 	}
