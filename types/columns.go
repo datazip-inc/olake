@@ -31,33 +31,25 @@ func (sc *SelectedColumns) setSelectedColumnsMap() {
 }
 
 // setUnSelectedColumnsMap sets the unselected columns map
-// When sync_new_columns=true: Only columns from old schema that are not selected go to UnSelectedMap
-// When sync_new_columns=false: No need to set UnSelectedMap as this will not be used in this case.
-func (sc *SelectedColumns) setUnSelectedColumnsMap(oldStream *Stream, syncNewColumns bool) {
+
+func (sc *SelectedColumns) setUnSelectedColumnsMap(oldStream *Stream) {
 	sc.UnSelectedMap = make(map[string]struct{})
 
 	if len(sc.Columns) == 0 {
 		return
 	}
 
-	if syncNewColumns {
-		// only exclude columns from old schema that are not selected, and add them to UnSelectedMap
-		// New columns (not in old schema) should be selected and not added to UnSelectedMap
-		oldStream.Schema.Properties.Range(func(key, _ interface{}) bool {
-			colName, ok := key.(string)
-			if !ok {
-				return true
-			}
-			// Only add to UnSelectedMap if column exists in old schema AND is not selected
-			if _, exists := sc.SelectedMap[colName]; !exists {
-				sc.UnSelectedMap[colName] = struct{}{}
-			}
+	oldStream.Schema.Properties.Range(func(key, _ interface{}) bool {
+		colName, ok := key.(string)
+		if !ok {
 			return true
-		})
-	} else {
-		// this map will not be used in this case, so no need to set it when sync_new_columns is false
-		return
-	}
+		}
+		// Only add to UnSelectedMap if column exists in old schema AND is not selected
+		if _, exists := sc.SelectedMap[colName]; !exists {
+			sc.UnSelectedMap[colName] = struct{}{}
+		}
+		return true
+	})
 }
 
 // GetSelectedColumnsMap returns the selected columns map
@@ -181,7 +173,7 @@ func MergeSelectedColumns(
 	finalizeSelectedColumns := func() {
 		metadata.SelectedColumns.setSelectedColumnsMap()
 		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
-		metadata.SelectedColumns.setUnSelectedColumnsMap(oldStream, metadata.SyncNewColumns)
+		metadata.SelectedColumns.setUnSelectedColumnsMap(oldStream)
 		metadata.SelectedColumns.SetAllSelectedColumnsFlag()
 	}
 
