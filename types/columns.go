@@ -5,9 +5,10 @@ import (
 )
 
 type SelectedColumns struct {
-	Columns     []string            `json:"columns"`
-	SelectedMap map[string]struct{} `json:"-"`
-	AllSelected bool                `json:"-"`
+	Columns            []string            `json:"columns"` // all columns that are selected
+	SelectedMap        map[string]struct{} `json:"-"`       // map of columns that are selected
+	UnSelectedMap      map[string]struct{} `json:"-"`       // map of columns that are unselected
+	AllColumnsSelected bool                `json:"-"`       // true if all columns in the schema are selected
 }
 
 // GetSelectedColumns returns the selected columns
@@ -15,12 +16,39 @@ func (sc *SelectedColumns) GetSelectedColumns() []string {
 	return sc.Columns
 }
 
-// setSelectedColumnsMap sets the selected columns map for the selected columns
+// setSelectedColumnsMap sets the selected columns map
+// if no columns are selected, it means all columns are selected
 func (sc *SelectedColumns) setSelectedColumnsMap() {
 	sc.SelectedMap = make(map[string]struct{}, len(sc.Columns))
+
+	if len(sc.Columns) == 0 {
+		return
+	}
+
 	for _, col := range sc.Columns {
 		sc.SelectedMap[col] = struct{}{}
 	}
+}
+
+// setUnSelectedColumnsMap sets the unselected columns map
+// if no columns are selected, it means all columns are selected and no columns are unselected
+func (sc *SelectedColumns) setUnSelectedColumnsMap(newStream *Stream) {
+	sc.UnSelectedMap = make(map[string]struct{})
+
+	if len(sc.Columns) == 0 {
+		return
+	}
+
+	newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
+		colName, ok := key.(string)
+		if !ok {
+			return true
+		}
+		if _, exists := sc.SelectedMap[colName]; !exists {
+			sc.UnSelectedMap[colName] = struct{}{}
+		}
+		return true
+	})
 }
 
 // GetSelectedColumnsMap returns the selected columns map
@@ -28,49 +56,39 @@ func (sc *SelectedColumns) GetSelectedColumnsMap() map[string]struct{} {
 	return sc.SelectedMap
 }
 
-// SetAllSelectedColumnsFlag sets the all selected flag for the selected columns
-func (sc *SelectedColumns) SetAllSelectedColumnsFlag(newStream *Stream) {
-	sc.AllSelected = sc.checkAllColumnsSelected(newStream)
+// GetUnSelectedColumnsMap returns the unselected columns map
+func (sc *SelectedColumns) GetUnSelectedColumnsMap() map[string]struct{} {
+	return sc.UnSelectedMap
 }
 
-// GetAllSelectedColumnsFlag returns the all selected flag for the selected columns
-func (sc *SelectedColumns) GetAllSelectedColumnsFlag() bool {
-	return sc.AllSelected
-}
-
-// checkAllColumnsSelected checks if all columns in the schema are selected by the user
-// Returns true if all columns are selected or no columns are selected, otherwise returns false
-func (sc *SelectedColumns) checkAllColumnsSelected(newStream *Stream) bool {
-	selectedMap := sc.GetSelectedColumnsMap()
-	if len(selectedMap) == 0 {
-		return true
+// SetAllSelectedColumnsFlag sets the all selected flag
+// Return true if no columns are selected or no columns are unselected
+// Return false if some columns are selected and some columns are unselected
+func (sc *SelectedColumns) SetAllSelectedColumnsFlag() {
+	if len(sc.Columns) == 0 || len(sc.UnSelectedMap) == 0 {
+		sc.AllColumnsSelected = true
+		return
 	}
 
-	var schemaColumnCount int
-
-	newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
-		schemaColumnCount++
-
-		colName, ok := key.(string)
-		if !ok {
-			return false
-		}
-
-		if _, exists := selectedMap[colName]; !exists {
-			return false
-		}
-
-		return true
-	})
-
-	return len(selectedMap) == schemaColumnCount
+	sc.AllColumnsSelected = false
 }
 
-// FilterDataBySelectedColumns filters the data based on the selected columns
-// Returns the original data if no columns are selected or all columns are selected
+// GetAllSelectedColumnsFlag returns the all selected flag
+func (sc *SelectedColumns) GetAllSelectedColumnsFlag() bool {
+	return sc.AllColumnsSelected
+}
+
+// FilterDataBySelectedColumns filters data based on the following rules:
+// - sync_new_columns=true:
+//   - Specific columns selected: Only selected columns sync; newly added columns are automatically included
+//   - All columns selected: All columns sync, including newly added columns.
+//
+// - sync_new_columns=false:
+//   - Specific columns selected: Only explicitly selected columns sync
+//   - All columns selected: All existing columns sync; newly added columns are NOT synced
 func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInterface) map[string]interface{} {
 	selectedCols := stream.Self().StreamMetadata.SelectedColumns
-	selectedMap := selectedCols.GetSelectedColumnsMap()
+	syncNewColumns := stream.Self().StreamMetadata.SyncNewColumns
 	allSelected := selectedCols.GetAllSelectedColumnsFlag()
 
 	if allSelected {
@@ -78,9 +96,22 @@ func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInter
 	}
 
 	filtered := make(map[string]interface{})
-	for key, value := range data {
-		if _, exists := selectedMap[key]; exists {
-			filtered[key] = value
+	if syncNewColumns {
+		// emit all columns except those that are unselected
+		// this ensures all columns that are new are selected by default
+		unSelectedMap := selectedCols.GetUnSelectedColumnsMap()
+		for key, value := range data {
+			if _, excluded := unSelectedMap[key]; !excluded {
+				filtered[key] = value
+			}
+		}
+	} else {
+		// emit only columns that are selected
+		selectedMap := selectedCols.GetSelectedColumnsMap()
+		for key, value := range data {
+			if _, exists := selectedMap[key]; exists {
+				filtered[key] = value
+			}
 		}
 	}
 	return filtered
@@ -122,36 +153,14 @@ func schemasHaveSameColumns(oldSchema, newSchema *TypeSchema) bool {
 	return true
 }
 
-// getColumnsDelta compares oldSchema and newSchema to identify column differences.
-// Returns common columns (present in both) and newly added columns (only in newSchema).
-func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
-	var (
-		common   []string
-		newAdded []string
-	)
-
-	newSchema.Properties.Range(func(k, _ interface{}) bool {
-		col := k.(string)
-
-		if _, exists := oldSchema.Properties.Load(col); exists {
-			common = append(common, col)
-		} else {
-			newAdded = append(newAdded, col)
-		}
-		return true
-	})
-
-	return common, newAdded
-}
-
-// MergeSelectedColumns merges selected columns with newly discovered columns based on SyncNewColumns flag. It:
-// 1. when selectedColumns property is not present or empty, use all columns from new schema or only columns that existed in old schema
-// 2. when selectedColumns property is present and not empty, filter selected columns to only those present in both old and new schemas
+// MergeSelectedColumns merges the selected columns based on the following rules:
+// 1. if selectedColumns property is not present or empty, initialize with columns from new schema
+// 2. if selectedColumns property is present and not empty, filter the selected columns to only those present in both old and new schemas
 // 3. if the old and new schemas have same columns, so no need to check for presence in both old and new schemas
-// 4. add newly discovered columns if SyncNewColumns is true
-// 5. ensure mandatory columns are included
-// 6. set the all selected flag
-// 7. set the selected columns map
+// 4. ensure mandatory columns are included
+// 5. set the selected columns map
+// 6. set the unselected columns map
+// 7. set the all selected flag
 func MergeSelectedColumns(
 	metadata *StreamMetadata,
 	oldStream *Stream,
@@ -161,12 +170,10 @@ func MergeSelectedColumns(
 	newSchema := newStream.Schema
 
 	finalizeSelectedColumns := func() {
-		// set the selected columns map
 		metadata.SelectedColumns.setSelectedColumnsMap()
-		// ensure mandatory columns are included
+		metadata.SelectedColumns.setUnSelectedColumnsMap(newStream)
 		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
-		// set the all selected flag
-		metadata.SelectedColumns.SetAllSelectedColumnsFlag(newStream)
+		metadata.SelectedColumns.SetAllSelectedColumnsFlag()
 	}
 
 	// when selectedColumns property is not present or empty, initialize with columns
@@ -219,14 +226,6 @@ func MergeSelectedColumns(
 
 	metadata.SelectedColumns = &SelectedColumns{
 		Columns: preservedSelectedColumns,
-	}
-
-	// add newly discovered columns if SyncNewColumns is true
-	if metadata.SyncNewColumns {
-		_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
-		if len(newAddedColumns) > 0 {
-			metadata.SelectedColumns.Columns = append(metadata.SelectedColumns.Columns, newAddedColumns...)
-		}
 	}
 
 	finalizeSelectedColumns()

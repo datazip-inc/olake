@@ -165,11 +165,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		// the first writer thread for this stream will have a TypeSchema
 		schemaToPass := streamArtifact.schema
 		if streamArtifact.schema == nil {
-			filteredSchema := types.FilterSchemaBySelectedColumns(
-				stream.Schema(),
-				stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
-				stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
-			)
+			filteredSchema := types.FilterSchemaBySelectedColumns(stream)
 			schemaToPass = filteredSchema
 		}
 
