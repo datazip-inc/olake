@@ -171,8 +171,8 @@ func MergeSelectedColumns(
 
 	finalizeSelectedColumns := func() {
 		metadata.SelectedColumns.setSelectedColumnsMap()
-		metadata.SelectedColumns.setUnSelectedColumnsMap(newStream)
 		metadata.SelectedColumns.ensureMandatoryColumns(oldStream, newStream)
+		metadata.SelectedColumns.setUnSelectedColumnsMap(newStream)
 		metadata.SelectedColumns.SetAllSelectedColumnsFlag()
 	}
 
