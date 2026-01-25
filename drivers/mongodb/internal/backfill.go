@@ -38,7 +38,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, ObjectIDPresent, stream), opts)
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, ObjectIDPresent), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %s", err)
 	}
@@ -332,7 +332,7 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter bson.D, ObjectIDPresent bool, stream types.StreamInterface) mongo.Pipeline {
+func generatePipeline(start, end any, filter bson.D, ObjectIDPresent bool) mongo.Pipeline {
 	var andOperation []bson.D
 	if ObjectIDPresent {
 		// convert to primitive.ObjectID
@@ -361,7 +361,7 @@ func generatePipeline(start, end any, filter bson.D, ObjectIDPresent bool, strea
 	}
 
 	// Define the aggregation pipeline
-	pipeline := mongo.Pipeline{
+	return mongo.Pipeline{
 		{
 			{
 				Key: "$match",
@@ -377,13 +377,6 @@ func generatePipeline(start, end any, filter bson.D, ObjectIDPresent bool, strea
 				Value: bson.D{{Key: "_id", Value: 1}}},
 		},
 	}
-
-	projection := BuildMongoProjection(stream)
-	if projection != nil {
-		pipeline = append(pipeline, bson.D{{Key: "$project", Value: projection}})
-	}
-
-	return pipeline
 }
 
 // function to generate ObjectID with the minimum value for a given time
@@ -499,23 +492,4 @@ func hasMultipleType(stream types.StreamInterface) bool {
 		return false
 	}
 	return idProperty.Type.Len() > 1
-}
-
-// BuildMongoProjection builds a MongoDB projection document for selected columns
-// Returns projection if not all columns are selected, nil if all columns are selected (no projection needed)
-func BuildMongoProjection(stream types.StreamInterface) bson.D {
-	selectedCols := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumns()
-	if len(selectedCols) == 0 || stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag() {
-		return nil
-	}
-
-	projection := bson.D{}
-	for _, col := range selectedCols {
-		projection = append(projection, bson.E{Key: col, Value: 1})
-	}
-
-	if _, exists := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap()["_id"]; !exists {
-		projection = append(projection, bson.E{Key: "_id", Value: 1})
-	}
-	return projection
 }

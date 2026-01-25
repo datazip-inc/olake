@@ -88,19 +88,12 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstr
 			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
 
-		// Filter record based on selected columns
-		filteredData := types.FilterDataBySelectedColumns(
-			record.Data,
-			currentPartitionMeta.Stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
-			currentPartitionMeta.Stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
-		)
-
 		// process the change
 		err := processFn(ctx, abstract.CDCChange{
 			Stream:    currentPartitionMeta.Stream,
 			Timestamp: record.Message.Time,
 			Kind:      "create",
-			Data:      filteredData,
+			Data:      record.Data,
 		})
 		if err != nil {
 			return false, err

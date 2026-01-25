@@ -227,9 +227,7 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 	}
 
 	chunkCond = utils.Ternary(filter != "" && chunkCond != "", fmt.Sprintf("(%s) AND (%s)", chunkCond, filter), chunkCond).(string)
-
-	columnList := BuildColumnList(stream, constants.Postgres)
-	return fmt.Sprintf(`SELECT %s FROM %s WHERE %s`, columnList, quotedTable, chunkCond)
+	return fmt.Sprintf(`SELECT * FROM %s WHERE %s`, quotedTable, chunkCond)
 }
 
 // MySQL-Specific Queries
@@ -410,10 +408,7 @@ func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFi
 // MysqlLimitOffsetScanQuery is used to get the rows
 func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-
-	columnList := BuildColumnList(stream, constants.MySQL)
-	query := fmt.Sprintf("SELECT %s FROM %s", columnList, quotedTable)
-
+	query := fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	query = utils.Ternary(filter == "", query, fmt.Sprintf("%s WHERE %s", query, filter)).(string)
 	if chunk.Min == nil {
 		maxVal, _ := strconv.ParseUint(chunk.Max.(string), 10, 64)
@@ -434,8 +429,7 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	columnList := BuildColumnList(stream, constants.MySQL)
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", columnList, quotedTable, condition)
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
@@ -968,15 +962,13 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 
 	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
-	columnList := BuildColumnList(stream, constants.Oracle)
-
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
-		return fmt.Sprintf("SELECT %s FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
-			columnList, quotedTable, chunkMin, chunkMax, filterClause)
+		return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
+			quotedTable, chunkMin, chunkMax, filterClause)
 	}
-	return fmt.Sprintf("SELECT %s FROM %s WHERE ROWID >= '%v' %s",
-		columnList, quotedTable, chunkMin, filterClause)
+	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
+		quotedTable, chunkMin, filterClause)
 }
 
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
@@ -1215,9 +1207,7 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 
 	// Use QuoteTable helper function for consistent table quoting
 	quotedTable := QuoteTable(opts.Stream.Namespace(), opts.Stream.Name(), opts.Driver)
-
-	columnList := BuildColumnList(opts.Stream, opts.Driver)
-	incrementalQuery := fmt.Sprintf("SELECT %s FROM %s WHERE (%s)", columnList, quotedTable, incrementalCondition)
+	incrementalQuery := fmt.Sprintf("SELECT * FROM %s WHERE (%s)", quotedTable, incrementalCondition)
 
 	return incrementalQuery, queryArgs, nil
 }
@@ -1295,40 +1285,6 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 		arguments = append(arguments, argument)
 	}
 	return thresholdFilter, arguments, nil
-}
-
-// BuildColumnList builds a comma-separated list of quoted column names for SQL queries
-// If selectedCols is empty, returns "*"
-func BuildColumnList(stream types.StreamInterface, driver constants.DriverType) string {
-	selectedCols := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumns()
-	if len(selectedCols) == 0 || stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag() {
-		return "*"
-	}
-
-	// Filter out system-generated metadata columns that don't exist in source tables
-	filteredCols := make([]string, 0, len(selectedCols))
-	metadataColumns := map[string]bool{
-		constants.OlakeID:        true,
-		constants.OlakeTimestamp: true,
-		constants.OpType:         true,
-		constants.CdcTimestamp:   true,
-	}
-
-	for _, col := range selectedCols {
-		if !metadataColumns[col] {
-			filteredCols = append(filteredCols, col)
-		}
-	}
-
-	if len(filteredCols) == 0 {
-		return "*"
-	}
-
-	quotedCols := make([]string, len(filteredCols))
-	for i, col := range filteredCols {
-		quotedCols[i] = QuoteIdentifier(col, driver)
-	}
-	return strings.Join(quotedCols, ", ")
 }
 
 // DB2 Specific Queries
