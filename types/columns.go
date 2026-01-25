@@ -6,7 +6,7 @@ import (
 
 type SelectedColumns struct {
 	Columns     []string            `json:"columns"`
-	Map         map[string]struct{} `json:"-"`
+	SelectedMap map[string]struct{} `json:"-"`
 	AllSelected bool                `json:"-"`
 }
 
@@ -17,15 +17,15 @@ func (sc *SelectedColumns) GetSelectedColumns() []string {
 
 // setSelectedColumnsMap sets the selected columns map for the selected columns
 func (sc *SelectedColumns) setSelectedColumnsMap() {
-	sc.Map = make(map[string]struct{}, len(sc.Columns))
+	sc.SelectedMap = make(map[string]struct{}, len(sc.Columns))
 	for _, col := range sc.Columns {
-		sc.Map[col] = struct{}{}
+		sc.SelectedMap[col] = struct{}{}
 	}
 }
 
 // GetSelectedColumnsMap returns the selected columns map
 func (sc *SelectedColumns) GetSelectedColumnsMap() map[string]struct{} {
-	return sc.Map
+	return sc.SelectedMap
 }
 
 // SetAllSelectedColumnsFlag sets the all selected flag for the selected columns
