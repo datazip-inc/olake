@@ -97,15 +97,10 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	var schema map[string]string
 
-	if globalSchema == nil {
+	// check if globalSchema is a TypeSchema, the first writer thread for this stream will have a TypeSchema
+	filteredSchema, isTypeSchema := globalSchema.(*types.TypeSchema)
+	if isTypeSchema {
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
-
-		// set the schema for the destination table based on the selected columns
-		filteredSchema := types.FilterSchemaBySelectedColumns(
-			stream.Schema(),
-			stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
-			stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
-		)
 
 		var requestPayload proto.IcebergPayload
 		iceSchema := utils.Ternary(stream.NormalizationEnabled(), filteredSchema.ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)

@@ -161,7 +161,19 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		streamArtifact.mu.Lock()
 		defer streamArtifact.mu.Unlock()
 
-		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
+		// filter schema by selected columns if this is the first writer thread for this stream
+		// the first writer thread for this stream will have a TypeSchema
+		schemaToPass := streamArtifact.schema
+		if streamArtifact.schema == nil {
+			filteredSchema := types.FilterSchemaBySelectedColumns(
+				stream.Schema(),
+				stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap(),
+				stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag(),
+			)
+			schemaToPass = filteredSchema
+		}
+
+		output, err := writerThread.Setup(ctx, stream, schemaToPass, opts)
 		if err != nil {
 			return fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
